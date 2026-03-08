@@ -27,19 +27,17 @@ const uiRoute       = require('./src/routes/ui');
 
 const app = express();
 
-// ─── Raw Body Capture (for webhook RSA signature verification) ────────────────
-// Must come before express.json() so rawBody is available in webhookAuth middleware.
+// ─── Body Parsing + Raw Body Capture ─────────────────────────────────────────
+// express.json verify callback captures rawBody BEFORE JSON parse.
+// This is the correct Vercel-compatible approach — avoids consuming the stream
+// twice and prevents unhandled stream errors from crashing the function.
 
-app.use((req, res, next) => {
-  let data = '';
-  req.on('data', (chunk) => { data += chunk; });
-  req.on('end', () => { req.rawBody = data; next(); });
-});
+function captureRawBody(req, res, buf, encoding) {
+  req.rawBody = buf.toString(encoding || 'utf8');
+}
 
-// ─── Body Parsing ─────────────────────────────────────────────────────────────
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ verify: captureRawBody, limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, verify: captureRawBody, limit: '10mb' }));
 
 // ─── Rate Limiting (mirror GHL limits: 100 req / 10 sec) ─────────────────────
 
