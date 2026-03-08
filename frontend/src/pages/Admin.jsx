@@ -103,6 +103,12 @@ export default function Admin() {
   const [expandedId, setExpandedId] = useState(null);
   const [detailData, setDetailData] = useState({});
 
+  // App Settings state
+  const [appSettingsData,   setAppSettingsData]   = useState(null);
+  const [appSettingsForm,   setAppSettingsForm]   = useState({ clientId: '', clientSecret: '', redirectUri: 'https://claudeserver.vercel.app/oauth/callback' });
+  const [appSettingsEdit,   setAppSettingsEdit]   = useState({ clientId: false, clientSecret: false, redirectUri: false });
+  const [appSettingsSaving, setAppSettingsSaving] = useState(false);
+
   // ── Auth ─────────────────────────────────────────────────────────────────
 
   const login = async (key) => {
@@ -158,11 +164,17 @@ export default function Admin() {
     if (data.success) { setStats(data.stats); setLogs(data.recentActivity || []); }
   }, [adminKey]);
 
+  const loadAppSettings = useCallback(async () => {
+    const data = await adminFetch('/admin/app-settings', { adminKey });
+    if (data.success) setAppSettingsData(data.data);
+  }, [adminKey]);
+
   useEffect(() => {
     if (!authed) return;
-    if (tab === 'overview')   loadStats();
-    if (tab === 'locations')  loadLocations();
-    if (tab === 'logs')       loadLogs();
+    if (tab === 'overview')     loadStats();
+    if (tab === 'locations')    loadLocations();
+    if (tab === 'logs')         loadLogs();
+    if (tab === 'app-settings') loadAppSettings();
   }, [authed, tab]); // eslint-disable-line
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -271,12 +283,128 @@ export default function Admin() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
-          {['overview', 'locations', 'logs'].map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={TAB_STYLE(tab === t)}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+          {[
+            { key: 'overview',     label: 'Overview' },
+            { key: 'locations',    label: 'Locations' },
+            { key: 'logs',         label: 'Logs' },
+            { key: 'app-settings', label: '⚙️ App Settings' },
+          ].map((t) => (
+            <button key={t.key} onClick={() => setTab(t.key)} style={TAB_STYLE(tab === t.key)}>
+              {t.label}
             </button>
           ))}
         </div>
+
+        {/* ── App Settings Tab ─────────────────────────────────────────── */}
+        {tab === 'app-settings' && (
+          <div style={{ maxWidth: 560 }}>
+            <h3 style={{ color: '#fff', margin: '0 0 6px', fontSize: 16 }}>GHL App Credentials</h3>
+            <p style={{ color: '#9ca3af', fontSize: 13, margin: '0 0 24px' }}>
+              Set your GoHighLevel Marketplace App credentials. These are used for the OAuth install flow and token exchange.
+              {appSettingsData?.configured
+                ? <span style={{ color: '#4ade80', marginLeft: 8 }}>✓ Configured</span>
+                : <span style={{ color: '#f87171', marginLeft: 8 }}>✗ Not yet configured</span>}
+            </p>
+
+            {[
+              { key: 'clientId',     label: 'GHL Client ID',     type: 'text',     placeholder: 'Enter Client ID from GHL Marketplace App' },
+              { key: 'clientSecret', label: 'GHL Client Secret', type: 'password', placeholder: 'Enter Client Secret' },
+              { key: 'redirectUri',  label: 'Redirect URI',      type: 'text',     placeholder: 'https://claudeserver.vercel.app/oauth/callback' },
+            ].map((f) => {
+              const hasDb  = !!(appSettingsData?.[f.key]);
+              const isEdit = appSettingsEdit[f.key];
+              const dbVal  = appSettingsData?.[f.key] || '';
+
+              return (
+                <div key={f.key} style={{ marginBottom: 18 }}>
+                  <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {f.label}
+                    {hasDb && !isEdit && <span style={{ color: '#4ade80', marginLeft: 8, textTransform: 'none', fontWeight: 400 }}>✓ saved</span>}
+                  </label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <input
+                        type={isEdit || !hasDb ? f.type : 'text'}
+                        value={isEdit ? appSettingsForm[f.key] : hasDb ? dbVal : appSettingsForm[f.key]}
+                        readOnly={hasDb && !isEdit}
+                        onChange={(e) => {
+                          if (hasDb && !isEdit) return;
+                          setAppSettingsForm((p) => ({ ...p, [f.key]: e.target.value }));
+                        }}
+                        placeholder={isEdit ? `Enter new ${f.label}…` : !hasDb ? f.placeholder : ''}
+                        style={{
+                          width: '100%', padding: '10px 36px 10px 12px', boxSizing: 'border-box',
+                          background: hasDb && !isEdit ? 'rgba(255,255,255,0.03)' : '#1a1a1a',
+                          border: '1px solid #333', borderRadius: 8, color: hasDb && !isEdit ? '#6b7280' : '#fff',
+                          fontSize: 13, cursor: hasDb && !isEdit ? 'default' : 'text',
+                        }}
+                      />
+                      {hasDb && !isEdit && (
+                        <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: '#6b7280', fontSize: 12 }}>🔒</span>
+                      )}
+                    </div>
+                    {hasDb ? (
+                      isEdit ? (
+                        <button
+                          onClick={() => setAppSettingsEdit((p) => ({ ...p, [f.key]: false }))}
+                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid #444', borderRadius: 8, color: '#9ca3af', padding: '0 12px', cursor: 'pointer', fontSize: 13 }}
+                        >✕</button>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setAppSettingsEdit((p) => ({ ...p, [f.key]: true }));
+                            setAppSettingsForm((p) => ({ ...p, [f.key]: '' }));
+                          }}
+                          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid #444', borderRadius: 8, color: '#9ca3af', padding: '0 12px', cursor: 'pointer', fontSize: 14 }}
+                        >✏️</button>
+                      )
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+
+            <button
+              disabled={appSettingsSaving}
+              onClick={async () => {
+                const payload = {};
+                ['clientId', 'clientSecret', 'redirectUri'].forEach((k) => {
+                  if (appSettingsForm[k].trim()) payload[k] = appSettingsForm[k].trim();
+                });
+                if (!Object.keys(payload).length) { flash('No changes to save.'); return; }
+                setAppSettingsSaving(true);
+                const data = await adminFetch('/admin/app-settings', { method: 'POST', adminKey, body: payload });
+                setAppSettingsSaving(false);
+                if (data.success) {
+                  flash('✓ GHL app credentials saved.');
+                  setAppSettingsEdit({ clientId: false, clientSecret: false, redirectUri: false });
+                  setAppSettingsForm({ clientId: '', clientSecret: '', redirectUri: '' });
+                  loadAppSettings();
+                } else {
+                  flash(`✗ ${data.error}`);
+                }
+              }}
+              style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '10px 24px', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: appSettingsSaving ? 0.6 : 1 }}
+            >
+              {appSettingsSaving ? 'Saving…' : 'Save Credentials'}
+            </button>
+
+            <div style={{ marginTop: 28, background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, padding: 16 }}>
+              <p style={{ color: '#9ca3af', fontSize: 12, margin: 0 }}>
+                <strong style={{ color: '#e5e7eb' }}>Install URL:</strong>{' '}
+                <code style={{ color: '#a5b4fc' }}>https://claudeserver.vercel.app/oauth/install</code>
+              </p>
+              <p style={{ color: '#9ca3af', fontSize: 12, margin: '8px 0 0' }}>
+                <strong style={{ color: '#e5e7eb' }}>Callback / Redirect URI:</strong>{' '}
+                <code style={{ color: '#a5b4fc' }}>https://claudeserver.vercel.app/oauth/callback</code>
+              </p>
+              <p style={{ color: '#9ca3af', fontSize: 12, margin: '8px 0 0' }}>
+                <strong style={{ color: '#e5e7eb' }}>Webhook URL:</strong>{' '}
+                <code style={{ color: '#a5b4fc' }}>https://claudeserver.vercel.app/webhooks/ghl</code>
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* ── Overview Tab ─────────────────────────────────────────────── */}
         {tab === 'overview' && (

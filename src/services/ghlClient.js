@@ -51,12 +51,19 @@ function getRateLimitStatus(locationId) {
  * @returns {object} Token response from GHL
  */
 async function exchangeCodeForTokens(code) {
+  const appSettings = require('./appSettings');
+  const ghl = await appSettings.getGhlSettings();
+
+  if (!ghl.clientId || !ghl.clientSecret || !ghl.redirectUri) {
+    throw new Error('GHL app credentials not configured. Set them in the Admin → App Settings UI.');
+  }
+
   const params = new URLSearchParams({
-    client_id:     config.ghl.clientId,
-    client_secret: config.ghl.clientSecret,
+    client_id:     ghl.clientId,
+    client_secret: ghl.clientSecret,
     grant_type:    'authorization_code',
     code,
-    redirect_uri:  config.ghl.redirectUri,
+    redirect_uri:  ghl.redirectUri,
   });
 
   const response = await axios.post(config.ghl.oauthTokenUrl, params.toString(), {
@@ -142,12 +149,15 @@ async function refreshAccessToken(locationId) {
     throw new Error(`[GHLClient] No refresh token found for location: ${locationId}`);
   }
 
+  const appSettings = require('./appSettings');
+  const ghl = await appSettings.getGhlSettings();
+
   const params = new URLSearchParams({
-    client_id:     config.ghl.clientId,
-    client_secret: config.ghl.clientSecret,
+    client_id:     ghl.clientId     || config.ghl.clientId,
+    client_secret: ghl.clientSecret || config.ghl.clientSecret,
     grant_type:    'refresh_token',
     refresh_token: record.refreshToken,
-    redirect_uri:  config.ghl.redirectUri,
+    redirect_uri:  ghl.redirectUri  || config.ghl.redirectUri,
   });
 
   const response = await axios.post(config.ghl.oauthTokenUrl, params.toString(), {

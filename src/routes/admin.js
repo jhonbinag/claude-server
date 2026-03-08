@@ -5,6 +5,8 @@
  * Mounts at /admin — NEVER expose this route without adminAuth middleware.
  *
  * Endpoints:
+ *   GET  /admin/app-settings               — get GHL app credentials (masked)
+ *   POST /admin/app-settings               — save GHL app credentials
  *   GET  /admin/locations                  — list all registered locations
  *   GET  /admin/locations/:id              — single location detail + recent logs
  *   POST /admin/locations/:id/refresh      — force refresh token (keep configs)
@@ -23,9 +25,43 @@ const toolRegistry     = require('../tools/toolRegistry');
 const activityLogger   = require('../services/activityLogger');
 const firebaseStore    = require('../services/firebaseStore');
 const tokenStore       = require('../services/tokenStore');
+const appSettings      = require('../services/appSettings');
 const config           = require('../config');
 
 router.use(adminAuth);
+
+// ─── GET /admin/app-settings — get GHL app credentials (masked) ──────────────
+
+router.get('/app-settings', async (req, res) => {
+  try {
+    const masked = await appSettings.getGhlSettingsMasked();
+    res.json({ success: true, data: masked });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /admin/app-settings — save GHL app credentials ─────────────────────
+
+router.post('/app-settings', async (req, res) => {
+  const { clientId, clientSecret, redirectUri } = req.body;
+  if (!clientId || !clientSecret || !redirectUri) {
+    return res.status(400).json({ success: false, error: 'clientId, clientSecret, and redirectUri are required.' });
+  }
+  try {
+    await appSettings.saveGhlSettings({ clientId, clientSecret, redirectUri });
+    activityLogger.log({
+      locationId: 'system',
+      event:      'app_settings_update',
+      detail:     { redirectUri },
+      success:    true,
+      adminId:    req.adminId,
+    });
+    res.json({ success: true, message: 'GHL app credentials saved successfully.' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // ─── Helper: enrich a registry record with live token status ─────────────────
 

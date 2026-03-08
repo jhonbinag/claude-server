@@ -76,12 +76,11 @@ config.isFirebaseEnabled = !!(
 
 // ── Startup validation ─────────────────────────────────────────────────────────
 
-const required = ['GHL_CLIENT_ID', 'GHL_CLIENT_SECRET', 'GHL_REDIRECT_URI'];
-const missing  = required.filter((key) => !process.env[key]);
-if (missing.length > 0) {
-  console.error(`[Config] Missing required environment variables: ${missing.join(', ')}`);
-  // Do not call process.exit() — would crash Vercel serverless functions.
-  // Routes that need these vars will fail with their own errors at runtime.
+// GHL_CLIENT_ID, GHL_CLIENT_SECRET, GHL_REDIRECT_URI are optional env vars.
+// They can be configured via the Admin → App Settings UI and stored in Firestore.
+// If set in .env they serve as fallback values only.
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.warn('[Config] ANTHROPIC_API_KEY not set — Claude AI features will not work.');
 }
 
 if (!config.ghl.webhookPublicKey) {

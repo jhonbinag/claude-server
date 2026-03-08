@@ -22,6 +22,7 @@ const ghlClient      = require('../services/ghlClient');
 const apiKeyService  = require('../services/apiKeyService');
 const tokenStore     = require('../services/tokenStore');
 const billingService = require('../services/billingService');
+const appSettings    = require('../services/appSettings');
 const config         = require('../config');
 
 // ─── All scopes requested during install ─────────────────────────────────────
@@ -113,11 +114,15 @@ const ALL_SCOPES = [
 
 // ─── Install: Standard ────────────────────────────────────────────────────────
 
-router.get('/install', (req, res) => {
+router.get('/install', async (req, res) => {
+  const ghl = await appSettings.getGhlSettings();
+  if (!ghl.clientId || !ghl.redirectUri) {
+    return res.status(503).json({ success: false, error: 'GHL app credentials not configured. Set them in Admin → App Settings.' });
+  }
   const authUrl = new URL(`${config.ghl.oauthBaseUrl}/oauth/chooselocation`);
   authUrl.searchParams.set('response_type', 'code');
-  authUrl.searchParams.set('redirect_uri',  config.ghl.redirectUri);
-  authUrl.searchParams.set('client_id',     config.ghl.clientId);
+  authUrl.searchParams.set('redirect_uri',  ghl.redirectUri);
+  authUrl.searchParams.set('client_id',     ghl.clientId);
   authUrl.searchParams.set('scope',         ALL_SCOPES);
   if (config.ghl.loginWindowOpenMode === 'self') {
     authUrl.searchParams.set('loginWindowOpenMode', 'self');
@@ -128,11 +133,15 @@ router.get('/install', (req, res) => {
 
 // ─── Install: White-label ─────────────────────────────────────────────────────
 
-router.get('/install/whitelabel', (req, res) => {
+router.get('/install/whitelabel', async (req, res) => {
+  const ghl = await appSettings.getGhlSettings();
+  if (!ghl.clientId || !ghl.redirectUri) {
+    return res.status(503).json({ success: false, error: 'GHL app credentials not configured. Set them in Admin → App Settings.' });
+  }
   const authUrl = new URL(`${config.ghl.oauthBaseUrlWL}/oauth/chooselocation`);
   authUrl.searchParams.set('response_type', 'code');
-  authUrl.searchParams.set('redirect_uri',  config.ghl.redirectUri);
-  authUrl.searchParams.set('client_id',     config.ghl.clientId);
+  authUrl.searchParams.set('redirect_uri',  ghl.redirectUri);
+  authUrl.searchParams.set('client_id',     ghl.clientId);
   authUrl.searchParams.set('scope',         ALL_SCOPES);
   if (config.ghl.loginWindowOpenMode === 'self') {
     authUrl.searchParams.set('loginWindowOpenMode', 'self');
