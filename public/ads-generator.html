@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bulk Ads Generator — GTM Toolkit</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background: #0f0f13; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+  .glass { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(12px); }
+  .card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 1rem; }
+  .step-active { border-color: #6366f1; background: rgba(99,102,241,0.08); }
+  .step-done   { border-color: #22c55e; background: rgba(34,197,94,0.06); }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
+  .fade-up { animation: fadeUp .4s ease; }
+  @keyframes shimmer { 0%,100% { opacity:.4; } 50% { opacity:.8; } }
+  .shimmer { animation: shimmer 1.5s ease-in-out infinite; }
+  .spinner { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  input, textarea, select { outline: none; }
+  input:focus, textarea:focus, select:focus { border-color: #6366f1 !important; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius:9999px; }
+  .ad-card { transition: transform .2s, box-shadow .2s; }
+  .ad-card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(99,102,241,.15); }
+  .progress-bar { transition: width .5s ease; }
+  .badge-angle { background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.3); color: #a78bfa; }
+  .badge-hook  { background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.3); color: #fb923c; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Auth Gate -->
+<div id="authGate" class="fixed inset-0 flex items-center justify-center z-50" style="background:#0f0f13">
+  <div class="glass rounded-2xl p-10 w-full max-w-sm">
+    <div class="text-center mb-8">
+      <div class="text-5xl mb-3">📣</div>
+      <h1 class="text-xl font-bold text-white">Bulk Ads Generator</h1>
+      <p class="text-gray-400 text-sm mt-1">Enter your API key to continue</p>
+    </div>
+    <input id="apiKeyInput" type="password" placeholder="x-api-key"
+      class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm mb-3"
+      onkeydown="if(event.key==='Enter') authLogin()">
+    <button onclick="authLogin()" class="w-full py-3 rounded-xl font-semibold text-white text-sm"
+      style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">Connect →</button>
+    <div id="authErr" class="text-red-400 text-xs text-center mt-3 hidden"></div>
+    <a href="/ui" class="block text-center text-xs text-gray-500 mt-4 hover:text-gray-300">← Back to Dashboard</a>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app" class="hidden min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="glass border-b border-white/8 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="/ui" class="text-gray-500 hover:text-gray-300 text-sm transition">← Dashboard</a>
+      <span class="text-gray-700">|</span>
+      <span class="text-xl">📣</span>
+      <div>
+        <h1 class="font-bold text-white leading-none">Bulk Ads Generator</h1>
+        <p class="text-xs text-gray-500 mt-0.5">Ads Library → AI Analysis → Original Ad Set</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 text-xs text-gray-500">
+      <span class="w-2 h-2 rounded-full bg-green-500"></span>
+      <span id="locationBadge">...</span>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- ── Left: Config Form ──────────────────────────────────────────────── -->
+    <aside class="w-80 glass border-r border-white/8 flex flex-col overflow-y-auto">
+      <div class="p-5 flex-1 space-y-5">
+
+        <div>
+          <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Campaign Settings</h2>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Keywords / Niche <span class="text-red-400">*</span></label>
+              <input id="keywords" type="text" placeholder="e.g. weight loss, digital marketing, SaaS CRM"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white">
+            </div>
+
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Competitor Page ID <span class="text-gray-600">(optional)</span></label>
+              <input id="competitorPage" type="text" placeholder="Facebook Page ID to scan"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white">
+              <p class="text-xs text-gray-600 mt-1">Leave blank to search by keyword</p>
+            </div>
+
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Your Offer / Product</label>
+              <textarea id="offer" rows="2" placeholder="Describe your product or offer specifically"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white leading-relaxed"></textarea>
+            </div>
+
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Target Audience</label>
+              <input id="targetAudience" type="text" placeholder="e.g. busy moms, B2B SaaS founders"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white">
+            </div>
+
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Brand Voice</label>
+              <input id="brandVoice" type="text" placeholder="e.g. bold and direct, warm and empowering"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white">
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-gray-400 mb-1">Ad Format</label>
+                <select id="format" class="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white">
+                  <option value="feed">Feed (16:9)</option>
+                  <option value="story">Story (9:16)</option>
+                  <option value="reel">Reel (9:16)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-400 mb-1">Variations</label>
+                <select id="numVariations" class="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white">
+                  <option value="3">3 ads</option>
+                  <option value="5" selected>5 ads</option>
+                  <option value="7">7 ads</option>
+                  <option value="10">10 ads</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Target Countries</label>
+              <input id="countries" type="text" placeholder="US, GB, CA (comma-separated)"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white" value="US">
+            </div>
+
+            <div class="flex items-center gap-3 py-2">
+              <input type="checkbox" id="generateImages" checked class="accent-indigo-500 w-4 h-4 cursor-pointer">
+              <div>
+                <label for="generateImages" class="text-sm text-gray-300 cursor-pointer">Generate Images</label>
+                <p class="text-xs text-gray-600">DALL-E 3 per variation (requires OpenAI)</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Integration status -->
+        <div class="glass rounded-xl p-3 space-y-2">
+          <p class="text-xs font-semibold text-gray-400 mb-2">Required Integrations</p>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400">📣 Facebook Ads</span>
+            <span id="fbStatus" class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-400">Checking…</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400">✨ OpenAI (images)</span>
+            <span id="oaiStatus" class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-400">Checking…</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400">🤖 Claude AI</span>
+            <span id="claudeStatus" class="text-xs px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-400">Ready</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Generate Button -->
+      <div class="p-5 border-t border-white/8">
+        <button id="genBtn" onclick="startGeneration()"
+          class="w-full py-3 rounded-xl font-semibold text-white text-sm flex items-center justify-center gap-2 transition"
+          style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">
+          <span id="genBtnIcon">⚡</span>
+          <span id="genBtnText">Generate Bulk Ads</span>
+        </button>
+        <p class="text-xs text-gray-600 text-center mt-2">Takes 2–5 min for 5 ads with images</p>
+      </div>
+    </aside>
+
+    <!-- ── Right: Output ────────────────────────────────────────────────── -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Progress Bar -->
+      <div id="progressBar" class="px-6 py-3 border-b border-white/8 hidden">
+        <div class="flex items-center justify-between mb-2">
+          <span id="progressLabel" class="text-sm text-gray-300"></span>
+          <span id="progressPct" class="text-xs text-gray-500"></span>
+        </div>
+        <div class="h-1.5 bg-white/5 rounded-full overflow-hidden">
+          <div id="progressFill" class="h-full rounded-full progress-bar" style="width:0%;background:linear-gradient(90deg,#6366f1,#8b5cf6)"></div>
+        </div>
+      </div>
+
+      <!-- Analysis Panel (hidden until analysis is done) -->
+      <div id="analysisPanel" class="hidden px-6 py-4 border-b border-white/8">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-base">🧠</span>
+          <h2 class="text-sm font-semibold text-white">Market Intelligence</h2>
+          <span id="libraryCount" class="text-xs text-gray-500"></span>
+        </div>
+        <div class="grid grid-cols-3 gap-3 mb-3">
+          <div>
+            <p class="text-xs text-gray-500 mb-1.5">Top Hooks</p>
+            <div id="hooksList" class="space-y-1"></div>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-1.5">Pain Points</p>
+            <div id="painsList" class="space-y-1"></div>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-1.5">CTAs Found</p>
+            <div id="ctasList" class="space-y-1"></div>
+          </div>
+        </div>
+        <div id="analysisSummary" class="text-xs text-gray-400 glass rounded-lg px-3 py-2 leading-relaxed"></div>
+      </div>
+
+      <!-- Idle State -->
+      <div id="idleState" class="flex-1 flex items-center justify-center">
+        <div class="text-center max-w-md px-8">
+          <div class="text-7xl mb-6 opacity-20">📣</div>
+          <h2 class="text-lg font-semibold text-gray-400 mb-2">Ready to generate ads</h2>
+          <p class="text-sm text-gray-600 leading-relaxed">Fill in the keywords or competitor page, configure your offer details, and click Generate. Claude will scan the Ads Library, analyze winning patterns, and create original ad variations with images.</p>
+          <div class="mt-6 grid grid-cols-3 gap-3 text-center">
+            <div class="glass rounded-xl p-3">
+              <div class="text-2xl mb-1">🔍</div>
+              <div class="text-xs text-gray-400">Scans 50+ live ads</div>
+            </div>
+            <div class="glass rounded-xl p-3">
+              <div class="text-2xl mb-1">🧠</div>
+              <div class="text-xs text-gray-400">AI pattern analysis</div>
+            </div>
+            <div class="glass rounded-xl p-3">
+              <div class="text-2xl mb-1">🎨</div>
+              <div class="text-xs text-gray-400">DALL-E 3 images</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ads Grid -->
+      <div id="adsGrid" class="hidden flex-1 overflow-y-auto p-6">
+        <div class="flex items-center justify-between mb-5">
+          <h2 class="text-sm font-semibold text-white">Generated Ads <span id="adsCountBadge" class="ml-2 text-xs text-gray-500"></span></h2>
+          <div class="flex gap-2">
+            <button onclick="copyAllJSON()" class="text-xs glass px-3 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 transition">Copy JSON</button>
+            <button onclick="downloadAll()" class="text-xs glass px-3 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 transition">Download All</button>
+          </div>
+        </div>
+        <div id="adCards" class="grid gap-5" style="grid-template-columns: repeat(auto-fill, minmax(340px, 1fr))"></div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let apiKey     = localStorage.getItem('gtm_api_key') || '';
+let isRunning  = false;
+let allAds     = [];
+let marketData = null;
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+async function authLogin() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) return;
+  try {
+    const resp = await fetch('/claude/status', { headers: { 'x-api-key': key } });
+    if (!resp.ok) throw new Error('Invalid API key');
+    const data = await resp.json();
+    apiKey = key;
+    localStorage.setItem('gtm_api_key', key);
+    document.getElementById('authGate').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    document.getElementById('locationBadge').textContent = data.locationId;
+    await checkIntegrations();
+  } catch(e) {
+    document.getElementById('authErr').textContent = e.message;
+    document.getElementById('authErr').classList.remove('hidden');
+  }
+}
+
+if (apiKey) { document.getElementById('apiKeyInput').value = apiKey; authLogin(); }
+
+async function checkIntegrations() {
+  try {
+    const resp = await fetch('/tools', { headers: { 'x-api-key': apiKey } });
+    const data = await resp.json();
+    const tools = data.data || [];
+    const setStatus = (id, enabled) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent  = enabled ? '✓ Connected' : 'Not connected';
+      el.className    = `text-xs px-2 py-0.5 rounded-full ${enabled ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`;
+    };
+    setStatus('fbStatus',  tools.find(t => t.key === 'facebook_ads')?.enabled);
+    setStatus('oaiStatus', tools.find(t => t.key === 'openai')?.enabled);
+  } catch(_) {}
+}
+
+// ── Generation ────────────────────────────────────────────────────────────────
+async function startGeneration() {
+  if (isRunning) return;
+  const keywords = document.getElementById('keywords').value.trim();
+  if (!keywords) { alert('Please enter keywords or a niche.'); return; }
+
+  isRunning = true;
+  allAds = [];
+  marketData = null;
+
+  setGenBtn(true);
+  document.getElementById('idleState').classList.add('hidden');
+  document.getElementById('adsGrid').classList.add('hidden');
+  document.getElementById('analysisPanel').classList.add('hidden');
+  document.getElementById('adCards').innerHTML = '';
+  document.getElementById('progressBar').classList.remove('hidden');
+  setProgress(0, 'Starting…');
+
+  const body = {
+    keywords,
+    competitorPage: document.getElementById('competitorPage').value.trim() || undefined,
+    offer:          document.getElementById('offer').value.trim()          || undefined,
+    targetAudience: document.getElementById('targetAudience').value.trim() || undefined,
+    brandVoice:     document.getElementById('brandVoice').value.trim()     || undefined,
+    format:         document.getElementById('format').value,
+    numVariations:  parseInt(document.getElementById('numVariations').value),
+    countries:      document.getElementById('countries').value.split(',').map(s => s.trim()).filter(Boolean),
+    generateImages: document.getElementById('generateImages').checked,
+  };
+
+  const resp = await fetch('/ads/generate', {
+    method:  'POST',
+    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json();
+    alert(err.error || 'Generation failed');
+    setGenBtn(false);
+    isRunning = false;
+    return;
+  }
+
+  const reader  = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer    = '';
+  let totalSteps = 5;
+  let currentStep = 0;
+
+  function processSSE() {
+    const lines  = buffer.split('\n');
+    buffer       = lines.pop();
+    let eventName = '';
+    for (const line of lines) {
+      if (line.startsWith('event:')) { eventName = line.slice(6).trim(); continue; }
+      if (!line.startsWith('data:')) continue;
+      try {
+        const p = JSON.parse(line.slice(5).trim());
+
+        if (eventName === 'step') {
+          totalSteps   = p.total;
+          currentStep  = p.step;
+          const pct    = Math.round(((p.step - 1) / p.total) * 100);
+          setProgress(pct, p.label);
+        }
+        else if (eventName === 'library_ads') {
+          document.getElementById('libraryCount').textContent = `— scanned ${p.total} live ads`;
+        }
+        else if (eventName === 'analysis') {
+          marketData = p;
+          renderAnalysis(p);
+        }
+        else if (eventName === 'ad_copy') {
+          // Show placeholder card while image loads
+          renderAdCard(p.index, p.copy, null, false);
+          if (allAds.length <= p.index) allAds.push({ copy: p.copy, imageUrl: null });
+          else allAds[p.index] = { copy: p.copy, imageUrl: null };
+          document.getElementById('adsGrid').classList.remove('hidden');
+          document.getElementById('adsCountBadge').textContent = `(${allAds.filter(Boolean).length})`;
+        }
+        else if (eventName === 'ad_image') {
+          if (p.imageUrl) {
+            allAds[p.index] = { ...allAds[p.index], imageUrl: p.imageUrl };
+            updateAdCardImage(p.index, p.imageUrl);
+          }
+        }
+        else if (eventName === 'done') {
+          setProgress(100, `Done! ${p.total} ads generated in ${p.duration}s`);
+          setTimeout(() => {
+            document.getElementById('progressBar').classList.add('hidden');
+          }, 3000);
+          setGenBtn(false);
+          isRunning = false;
+        }
+        else if (eventName === 'error') {
+          alert(`Error: ${p.error}`);
+          setProgress(0, '');
+          document.getElementById('progressBar').classList.add('hidden');
+          setGenBtn(false);
+          isRunning = false;
+        }
+      } catch(_) {}
+      eventName = '';
+    }
+  }
+
+  function pump() {
+    reader.read().then(({ done, value }) => {
+      if (done) { setGenBtn(false); isRunning = false; return; }
+      buffer += decoder.decode(value, { stream: true });
+      processSSE();
+      pump();
+    }).catch(e => { alert(e.message); setGenBtn(false); isRunning = false; });
+  }
+  pump();
+}
+
+// ── Render Analysis Panel ─────────────────────────────────────────────────────
+function renderAnalysis(a) {
+  const panel = document.getElementById('analysisPanel');
+  panel.classList.remove('hidden');
+
+  const hooksList  = document.getElementById('hooksList');
+  const painsList  = document.getElementById('painsList');
+  const ctasList   = document.getElementById('ctasList');
+
+  hooksList.innerHTML = (a.topHooks || []).slice(0,4).map(h =>
+    `<div class="text-xs px-2 py-1 rounded-lg badge-hook truncate" title="${escHtml(h)}">${escHtml(h.slice(0,40))}${h.length>40?'…':''}</div>`
+  ).join('');
+
+  painsList.innerHTML = (a.painPoints || []).slice(0,4).map(p =>
+    `<div class="text-xs px-2 py-1 rounded-lg glass text-gray-400 truncate">${escHtml(p)}</div>`
+  ).join('');
+
+  ctasList.innerHTML = (a.ctaPatterns || []).slice(0,4).map(c =>
+    `<div class="text-xs px-2 py-1 rounded-lg glass text-indigo-400 truncate">${escHtml(c)}</div>`
+  ).join('');
+
+  const saturation = a.marketSaturation;
+  const satColor   = saturation === 'low' ? 'text-green-400' : saturation === 'high' ? 'text-red-400' : 'text-yellow-400';
+  document.getElementById('analysisSummary').innerHTML =
+    `<span class="${satColor} font-medium">${saturation?.toUpperCase() || ''} competition</span> — ${escHtml(a.summary || '')}`;
+}
+
+// ── Render Ad Card ────────────────────────────────────────────────────────────
+function renderAdCard(index, copy, imageUrl, imageReady) {
+  const grid  = document.getElementById('adCards');
+  const cardId = `adcard-${index}`;
+  const existing = document.getElementById(cardId);
+
+  const imgHtml = imageReady && imageUrl
+    ? `<img src="${escHtml(imageUrl)}" class="w-full h-48 object-cover rounded-xl mb-3" alt="Ad creative" loading="lazy">`
+    : imageReady === false && !imageUrl
+    ? `<div id="img-${index}" class="w-full h-48 rounded-xl mb-3 glass flex items-center justify-center">
+        <div class="text-center"><div class="shimmer text-2xl mb-1">🎨</div><div class="text-xs text-gray-600">Generating image…</div></div>
+      </div>`
+    : '';
+
+  const html = `
+    <div id="${cardId}" class="ad-card card p-4 fade-up">
+      ${imgHtml}
+      <div class="flex items-center gap-2 mb-3">
+        <span class="badge-angle text-xs px-2 py-0.5 rounded-full">${escHtml(copy.angle || 'direct')}</span>
+        <span class="badge-hook text-xs px-2 py-0.5 rounded-full">Ad ${index + 1}</span>
+      </div>
+
+      <!-- Primary Text -->
+      <div class="mb-3">
+        <p class="text-xs text-gray-500 mb-1">PRIMARY TEXT</p>
+        <p class="text-sm text-gray-200 leading-relaxed whitespace-pre-line">${escHtml(copy.primaryText || '')}</p>
+      </div>
+
+      <!-- Headline + Description -->
+      <div class="glass rounded-xl px-3 py-2 mb-3">
+        <div class="text-sm font-semibold text-white">${escHtml(copy.headline || '')}</div>
+        <div class="text-xs text-gray-400 mt-0.5">${escHtml(copy.description || '')}</div>
+        <div class="mt-2">
+          <span class="text-xs bg-blue-600/20 border border-blue-600/30 text-blue-300 px-2 py-0.5 rounded">${escHtml(copy.callToAction || 'Learn More')}</span>
+        </div>
+      </div>
+
+      <!-- Why it works -->
+      <div class="text-xs text-gray-500 italic mb-3">${escHtml(copy.whyItWorks || '')}</div>
+
+      <!-- Actions -->
+      <div class="flex gap-2">
+        <button onclick="copySingleAd(${index})" class="flex-1 text-xs glass py-1.5 rounded-lg text-gray-400 hover:text-gray-200 transition">Copy</button>
+        ${imageUrl ? `<a href="${escHtml(imageUrl)}" target="_blank" class="flex-1 text-xs glass py-1.5 rounded-lg text-gray-400 hover:text-gray-200 transition text-center">Image ↗</a>` : `<button class="flex-1 text-xs glass py-1.5 rounded-lg text-gray-600 cursor-default">No image</button>`}
+        <button onclick="regenerateAd(${index})" class="text-xs glass py-1.5 px-2 rounded-lg text-indigo-400 hover:text-indigo-300 transition">↻</button>
+      </div>
+    </div>`;
+
+  if (existing) {
+    existing.outerHTML = html;
+  } else {
+    grid.insertAdjacentHTML('beforeend', html);
+  }
+}
+
+function updateAdCardImage(index, imageUrl) {
+  const placeholder = document.getElementById(`img-${index}`);
+  if (placeholder) {
+    placeholder.outerHTML = `<img src="${escHtml(imageUrl)}" class="w-full h-48 object-cover rounded-xl mb-3" alt="Ad creative" loading="lazy">`;
+  }
+  if (allAds[index]) {
+    const card = document.getElementById(`adcard-${index}`);
+    if (card) {
+      const actionsDiv = card.querySelector('.flex.gap-2');
+      if (actionsDiv) {
+        const noImgBtn = actionsDiv.querySelector('button.cursor-default');
+        if (noImgBtn) {
+          noImgBtn.outerHTML = `<a href="${escHtml(imageUrl)}" target="_blank" class="flex-1 text-xs glass py-1.5 rounded-lg text-gray-400 hover:text-gray-200 transition text-center">Image ↗</a>`;
+        }
+      }
+    }
+  }
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+function copyAllJSON() {
+  navigator.clipboard.writeText(JSON.stringify({ ads: allAds, analysis: marketData }, null, 2));
+  alert('Copied to clipboard!');
+}
+
+function copySingleAd(index) {
+  const ad = allAds[index];
+  if (!ad) return;
+  const text = `PRIMARY TEXT:\n${ad.copy.primaryText}\n\nHEADLINE: ${ad.copy.headline}\nDESCRIPTION: ${ad.copy.description}\nCTA: ${ad.copy.callToAction}${ad.imageUrl ? '\n\nIMAGE: ' + ad.imageUrl : ''}`;
+  navigator.clipboard.writeText(text);
+}
+
+function downloadAll() {
+  const blob = new Blob([JSON.stringify({ ads: allAds, analysis: marketData }, null, 2)], { type: 'application/json' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = `bulk-ads-${Date.now()}.json`;
+  a.click();
+}
+
+async function regenerateAd(index) {
+  alert('Regeneration coming soon — use the main Generate button to create a full new set.');
+}
+
+// ── UI Helpers ────────────────────────────────────────────────────────────────
+function setProgress(pct, label) {
+  document.getElementById('progressFill').style.width  = pct + '%';
+  document.getElementById('progressLabel').textContent = label;
+  document.getElementById('progressPct').textContent   = pct + '%';
+}
+
+function setGenBtn(running) {
+  const icon = document.getElementById('genBtnIcon');
+  const text = document.getElementById('genBtnText');
+  const btn  = document.getElementById('genBtn');
+  if (running) {
+    icon.innerHTML = '<svg class="spinner w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-opacity=".25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg>';
+    text.textContent = 'Generating…';
+    btn.disabled = true; btn.style.opacity = '.7';
+  } else {
+    icon.textContent = '⚡';
+    text.textContent = 'Generate Bulk Ads';
+    btn.disabled = false; btn.style.opacity = '1';
+  }
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

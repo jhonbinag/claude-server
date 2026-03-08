@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GTM Toolkit — Integration Settings</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --accent: #6366f1; }
+  body { background: #0f0f13; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+  .glass { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(12px); }
+  .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 1rem; transition: border-color .2s; }
+  .card:hover { border-color: rgba(99,102,241,0.3); }
+  .card.connected { border-color: rgba(34,197,94,0.35); }
+  .badge-on  { background: rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.3); color:#4ade80; }
+  .badge-off { background: rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#6b7280; }
+  .field { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:.75rem; padding:.75rem 1rem; width:100%; color:#e2e8f0; font-size:.875rem; }
+  .field:focus { outline:none; border-color:#6366f1; }
+  .btn-primary { background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; border:none; cursor:pointer; border-radius:.75rem; font-weight:600; font-size:.8125rem; transition:opacity .2s; }
+  .btn-primary:hover { opacity:.85; }
+  .btn-ghost  { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#9ca3af; border-radius:.75rem; font-size:.8125rem; cursor:pointer; transition:all .2s; }
+  .btn-ghost:hover { background:rgba(255,255,255,0.1); color:#e2e8f0; }
+  .btn-danger { background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.25); color:#f87171; border-radius:.75rem; font-size:.8125rem; cursor:pointer; transition:all .2s; }
+  .btn-danger:hover { background:rgba(239,68,68,0.2); }
+  .url-box { background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.25); border-radius:.75rem; padding:.75rem 1rem; font-size:.8125rem; color:#a5b4fc; word-break:break-all; }
+  .nav-link { color:#6b7280; font-size:.8125rem; transition:color .2s; text-decoration:none; padding:.375rem .75rem; border-radius:.5rem; }
+  .nav-link:hover { color:#e2e8f0; background:rgba(255,255,255,0.05); }
+  .nav-link.active { color:#a5b4fc; background:rgba(99,102,241,0.12); }
+  .spinner { animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .toast { position:fixed; bottom:1.5rem; right:1.5rem; z-index:100; padding:.75rem 1.25rem; border-radius:.875rem; font-size:.8125rem; font-weight:500; animation:slideUp .3s ease; }
+  @keyframes slideUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  .toast-ok  { background:rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.3); color:#4ade80; }
+  .toast-err { background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#f87171; }
+  input[type="password"] { letter-spacing:.1em; }
+  .expand-panel { overflow:hidden; max-height:0; transition:max-height .35s ease; }
+  .expand-panel.open { max-height:600px; }
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.15); border-radius:9999px; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Auth Gate -->
+<div id="authGate" class="fixed inset-0 flex items-center justify-center z-50" style="background:#0f0f13">
+  <div class="glass rounded-2xl p-10 w-full max-w-sm">
+    <div class="text-center mb-8">
+      <div class="text-5xl mb-3">⚙️</div>
+      <h1 class="text-xl font-bold text-white">GTM Integration Hub</h1>
+      <p class="text-gray-400 text-sm mt-1">Connect your API keys to sync all tools</p>
+    </div>
+    <input id="apiKeyInput" type="password" placeholder="Enter your x-api-key"
+      class="field w-full mb-3" onkeydown="if(event.key==='Enter') login()">
+    <button onclick="login()" class="btn-primary w-full py-3">Connect →</button>
+    <div id="authErr" class="text-red-400 text-xs text-center mt-3 hidden"></div>
+    <a href="/ui" class="block text-center text-xs text-gray-500 mt-4 hover:text-gray-300">← Back to Dashboard</a>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app" class="hidden min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="glass border-b border-white/8 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+    <div class="flex items-center gap-3">
+      <span class="text-xl">⚙️</span>
+      <div>
+        <h1 class="font-bold text-white leading-none">Integration Hub</h1>
+        <p class="text-xs text-gray-500 mt-0.5">Connect APIs · Sync Tools · Power Claude</p>
+      </div>
+    </div>
+    <nav class="flex items-center gap-1">
+      <a href="/ui" class="nav-link">Dashboard</a>
+      <a href="/ui/workflows" class="nav-link">Workflows</a>
+      <a href="/ui/ads-generator" class="nav-link">Bulk Ads</a>
+      <a href="/ui/settings" class="nav-link active">Settings</a>
+    </nav>
+    <div class="flex items-center gap-2 text-xs">
+      <span class="w-2 h-2 rounded-full bg-green-500"></span>
+      <span id="locationBadge" class="text-gray-400">...</span>
+      <button onclick="logout()" class="nav-link ml-2">Sign out</button>
+    </div>
+  </header>
+
+  <main class="flex-1 overflow-y-auto p-6 max-w-6xl mx-auto w-full">
+
+    <!-- GHL Sidebar URL Banner -->
+    <div class="glass rounded-2xl p-6 mb-8 border border-indigo-500/20">
+      <div class="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-lg">🔗</span>
+            <h2 class="font-bold text-white">Your GHL Sidebar Link</h2>
+            <span class="text-xs px-2 py-0.5 rounded-full" style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc">Permanent URL</span>
+          </div>
+          <p class="text-gray-400 text-sm">Add this URL as a Custom Link in GHL → Settings → Custom Links to embed this hub in your sidebar.</p>
+        </div>
+        <button onclick="copySidebarUrl()" id="copyBtn"
+          class="btn-primary px-4 py-2 whitespace-nowrap flex items-center gap-2">
+          <span>📋</span> Copy URL
+        </button>
+      </div>
+      <div class="url-box" id="sidebarUrl">Loading...</div>
+      <div class="mt-3 flex items-start gap-2 text-xs text-gray-500">
+        <span>💡</span>
+        <span>In GHL: <strong class="text-gray-400">Settings → Custom Links → Add Link</strong> → paste URL above, set as iFrame. Users in your sub-account will see this hub directly in the sidebar.</span>
+      </div>
+    </div>
+
+    <!-- Sync Status Bar -->
+    <div id="syncBar" class="glass rounded-xl p-4 mb-6 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div id="syncSpinner" class="spinner w-4 h-4 rounded-full border-2 border-indigo-500 border-t-transparent"></div>
+        <span id="syncMsg" class="text-sm text-gray-400">Loading integrations...</span>
+      </div>
+      <button onclick="refreshAll()" class="btn-ghost px-3 py-1.5 text-xs">↻ Refresh</button>
+    </div>
+
+    <!-- Claude AI (built-in) -->
+    <div class="card connected p-5 mb-4 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style="background:rgba(99,102,241,0.15)">🤖</div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-white text-sm">Claude Opus 4.6</span>
+            <span class="badge-on text-xs px-2 py-0.5 rounded-full">Active</span>
+          </div>
+          <p class="text-xs text-gray-500 mt-0.5">Central AI reasoning engine — always connected via server-side ANTHROPIC_API_KEY</p>
+        </div>
+      </div>
+      <div class="text-right text-xs text-gray-500">
+        <div class="text-green-400 font-medium">✓ Ready</div>
+        <div class="mt-0.5">Adaptive thinking on</div>
+      </div>
+    </div>
+
+    <!-- GHL (built-in) -->
+    <div class="card connected p-5 mb-6 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style="background:rgba(34,197,94,0.1)">⚡</div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-white text-sm">GoHighLevel CRM</span>
+            <span class="badge-on text-xs px-2 py-0.5 rounded-full">Connected</span>
+          </div>
+          <p class="text-xs text-gray-500 mt-0.5">Contacts, conversations, opportunities, workflows, calendars, blogs, social planner</p>
+        </div>
+      </div>
+      <div class="text-right text-xs text-gray-500">
+        <div id="ghlToolCount" class="text-green-400 font-medium">— tools</div>
+        <div class="mt-0.5">OAuth installed</div>
+      </div>
+    </div>
+
+    <!-- Integration Grid -->
+    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">External Integrations</h2>
+    <div id="integrationGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div class="col-span-full text-center text-gray-600 py-12 text-sm">Loading integrations...</div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ─── Config for each integration (mirrors TOOL_METADATA on server) ─────────────
+const INTEGRATIONS = [
+  {
+    key: 'perplexity',
+    label: 'Perplexity AI',
+    icon: '🔍',
+    color: 'rgba(99,102,241,0.12)',
+    description: 'AI-powered web research and real-time information retrieval.',
+    fields: [{ key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'pplx-...' }],
+    docsUrl: 'https://docs.perplexity.ai',
+  },
+  {
+    key: 'openai',
+    label: 'OpenAI',
+    icon: '✨',
+    color: 'rgba(16,185,129,0.1)',
+    description: 'GPT-4o content generation and DALL-E 3 image creation.',
+    fields: [{ key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'sk-...' }],
+    docsUrl: 'https://platform.openai.com/api-keys',
+  },
+  {
+    key: 'facebook_ads',
+    label: 'Facebook Ads',
+    icon: '📘',
+    color: 'rgba(24,119,242,0.1)',
+    description: 'Manage campaigns, ad sets, creatives and read Ads Library.',
+    fields: [
+      { key: 'accessToken', label: 'User Access Token', type: 'password', placeholder: 'EAABs...' },
+      { key: 'adAccountId', label: 'Ad Account ID', type: 'text', placeholder: 'act_XXXXXXXXXX' },
+    ],
+    docsUrl: 'https://developers.facebook.com/docs/marketing-api',
+  },
+  {
+    key: 'sendgrid',
+    label: 'SendGrid',
+    icon: '📧',
+    color: 'rgba(0,168,168,0.1)',
+    description: 'Transactional and marketing email delivery at scale.',
+    fields: [
+      { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'SG...' },
+      { key: 'fromEmail', label: 'From Email', type: 'email', placeholder: 'hello@yourdomain.com' },
+      { key: 'fromName', label: 'From Name', type: 'text', placeholder: 'Your Brand' },
+    ],
+    docsUrl: 'https://app.sendgrid.com/settings/api_keys',
+  },
+  {
+    key: 'slack',
+    label: 'Slack',
+    icon: '💬',
+    color: 'rgba(74,21,75,0.15)',
+    description: 'Send messages and notifications to Slack channels.',
+    fields: [
+      { key: 'botToken', label: 'Bot Token', type: 'password', placeholder: 'xoxb-...' },
+      { key: 'defaultChannel', label: 'Default Channel', type: 'text', placeholder: '#general' },
+    ],
+    docsUrl: 'https://api.slack.com/apps',
+  },
+  {
+    key: 'apollo',
+    label: 'Apollo.io',
+    icon: '🚀',
+    color: 'rgba(249,115,22,0.1)',
+    description: 'B2B contact enrichment, lead search and prospecting.',
+    fields: [{ key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'Your Apollo API key' }],
+    docsUrl: 'https://developer.apollo.io',
+  },
+  {
+    key: 'heygen',
+    label: 'HeyGen',
+    icon: '🎬',
+    color: 'rgba(168,85,247,0.1)',
+    description: 'AI avatar video generation for personalised outreach.',
+    fields: [{ key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'Your HeyGen API key' }],
+    docsUrl: 'https://app.heygen.com/settings?nav=API',
+  },
+];
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let API_KEY = '';
+let statusMap = {}; // key → { enabled, toolCount }
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+async function login() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) return;
+  const r = await fetch('/claude/status', { headers: { 'x-api-key': key } });
+  if (!r.ok) {
+    const err = document.getElementById('authErr');
+    err.textContent = 'Invalid API key.';
+    err.classList.remove('hidden');
+    return;
+  }
+  const data = await r.json();
+  API_KEY = key;
+  localStorage.setItem('gtm_api_key', key);
+  document.getElementById('authGate').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('locationBadge').textContent = data.locationId || 'Connected';
+  document.getElementById('sidebarUrl').textContent = window.location.origin + '/ui/settings';
+  loadAll(data.enabledTools);
+}
+
+function logout() {
+  localStorage.removeItem('gtm_api_key');
+  location.reload();
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('gtm_api_key');
+  if (saved) {
+    document.getElementById('apiKeyInput').value = saved;
+    login();
+  }
+});
+
+// ─── Load ─────────────────────────────────────────────────────────────────────
+async function loadAll(enabledTools) {
+  try {
+    const r = await fetch('/tools', { headers: { 'x-api-key': API_KEY } });
+    const data = await r.json();
+
+    if (!data.success) throw new Error(data.error);
+
+    // Build status map
+    for (const item of data.data) {
+      statusMap[item.key] = { enabled: item.enabled, toolCount: item.toolCount };
+    }
+
+    const total = enabledTools ? enabledTools.length : 0;
+    const connected = data.data.filter(d => d.enabled).length;
+
+    document.getElementById('syncSpinner').classList.add('hidden');
+    document.getElementById('syncMsg').innerHTML =
+      `<span class="text-green-400 font-medium">${connected} integration${connected !== 1 ? 's' : ''} connected</span>` +
+      ` · ${total} tools active · ` +
+      `<a href="/ui/workflows" class="text-indigo-400 hover:underline">Open Workflow Builder →</a>`;
+
+    if (enabledTools) {
+      document.getElementById('ghlToolCount').textContent =
+        enabledTools.filter(t => !t.includes('perplexity') && !t.includes('openai') && !t.includes('facebook') && !t.includes('sendgrid') && !t.includes('slack') && !t.includes('apollo') && !t.includes('heygen')).length + ' tools';
+    }
+
+    renderGrid(data.data);
+  } catch (e) {
+    document.getElementById('syncMsg').textContent = 'Failed to load integrations: ' + e.message;
+  }
+}
+
+async function refreshAll() {
+  document.getElementById('syncSpinner').classList.remove('hidden');
+  document.getElementById('syncMsg').textContent = 'Refreshing...';
+  statusMap = {};
+  const r = await fetch('/claude/status', { headers: { 'x-api-key': API_KEY } });
+  const d = await r.json();
+  await loadAll(d.enabledTools);
+}
+
+// ─── Render grid ──────────────────────────────────────────────────────────────
+function renderGrid(serverData) {
+  const serverMap = {};
+  for (const item of serverData) serverMap[item.key] = item;
+
+  const grid = document.getElementById('integrationGrid');
+  grid.innerHTML = '';
+
+  for (const cfg of INTEGRATIONS) {
+    const sv = serverMap[cfg.key] || {};
+    const enabled = sv.enabled || false;
+    grid.appendChild(buildCard(cfg, enabled, sv.configPreview || null));
+  }
+}
+
+function buildCard(cfg, enabled, configPreview) {
+  const card = document.createElement('div');
+  card.className = 'card p-5' + (enabled ? ' connected' : '');
+  card.id = `card-${cfg.key}`;
+
+  const fieldsHtml = cfg.fields.map(f => `
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">${f.label}</label>
+      <input type="${f.type}" id="${cfg.key}_${f.key}" placeholder="${f.placeholder}"
+        class="field w-full" autocomplete="new-password">
+    </div>
+  `).join('');
+
+  const previewHtml = enabled && configPreview
+    ? `<div class="mb-3 text-xs text-gray-500 space-y-1">
+        ${Object.entries(configPreview).map(([k,v]) => `<div><span class="text-gray-600">${k}:</span> <span class="font-mono text-gray-400">${v}</span></div>`).join('')}
+       </div>`
+    : '';
+
+  card.innerHTML = `
+    <div class="flex items-start justify-between mb-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+             style="background:${cfg.color}">${cfg.icon}</div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-white text-sm">${cfg.label}</span>
+            <span id="badge-${cfg.key}" class="${enabled ? 'badge-on' : 'badge-off'} text-xs px-2 py-0.5 rounded-full">
+              ${enabled ? 'Connected' : 'Not connected'}
+            </span>
+          </div>
+          <p class="text-xs text-gray-500 mt-0.5">${cfg.description}</p>
+        </div>
+      </div>
+      <a href="${cfg.docsUrl}" target="_blank" class="text-gray-600 hover:text-gray-400 text-xs mt-0.5">Docs ↗</a>
+    </div>
+
+    <!-- Expand toggle -->
+    <button onclick="toggleCard('${cfg.key}')" id="toggleBtn-${cfg.key}"
+      class="btn-ghost w-full py-1.5 text-xs mb-0" style="margin-bottom:0">
+      ${enabled ? '✏️ Edit credentials' : '+ Connect'}
+    </button>
+
+    <!-- Expand panel -->
+    <div id="panel-${cfg.key}" class="expand-panel mt-3 space-y-3">
+      ${previewHtml}
+      ${fieldsHtml}
+      <div id="testResult-${cfg.key}" class="text-xs hidden"></div>
+      <div class="flex gap-2 pt-1">
+        <button onclick="saveIntegration('${cfg.key}')"
+          class="btn-primary flex-1 py-2">Save & Test</button>
+        ${enabled ? `<button onclick="disconnectIntegration('${cfg.key}')" class="btn-danger px-3 py-2">✕</button>` : ''}
+      </div>
+    </div>
+  `;
+  return card;
+}
+
+function toggleCard(key) {
+  const panel = document.getElementById(`panel-${key}`);
+  panel.classList.toggle('open');
+}
+
+// ─── Save ─────────────────────────────────────────────────────────────────────
+async function saveIntegration(key) {
+  const cfg = INTEGRATIONS.find(i => i.key === key);
+  const body = {};
+  let hasValue = false;
+
+  for (const f of cfg.fields) {
+    const val = document.getElementById(`${key}_${f.key}`)?.value?.trim();
+    if (val) { body[f.key] = val; hasValue = true; }
+  }
+
+  if (!hasValue) { showToast('Enter at least one field.', false); return; }
+
+  const res = await fetch(`/tools/${key}`, {
+    method: 'POST',
+    headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!data.success) { showToast(data.error, false); return; }
+
+  showToast(`${cfg.label} saved. Testing connection...`, true);
+  testIntegration(key);
+}
+
+// ─── Test ─────────────────────────────────────────────────────────────────────
+async function testIntegration(key) {
+  const resultEl = document.getElementById(`testResult-${key}`);
+  resultEl.textContent = '⏳ Testing...';
+  resultEl.className = 'text-xs text-yellow-400';
+  resultEl.classList.remove('hidden');
+
+  const res  = await fetch(`/tools/test/${key}`, { method: 'POST', headers: { 'x-api-key': API_KEY } });
+  const data = await res.json();
+
+  if (data.success) {
+    resultEl.textContent = '✓ ' + (data.info || 'Connected');
+    resultEl.className = 'text-xs text-green-400';
+    // Update badge
+    const badge = document.getElementById(`badge-${key}`);
+    if (badge) { badge.textContent = 'Connected'; badge.className = 'badge-on text-xs px-2 py-0.5 rounded-full'; }
+    const card = document.getElementById(`card-${key}`);
+    if (card) card.classList.add('connected');
+    const toggleBtn = document.getElementById(`toggleBtn-${key}`);
+    if (toggleBtn) toggleBtn.textContent = '✏️ Edit credentials';
+    showToast(`${INTEGRATIONS.find(i=>i.key===key)?.label} verified ✓`, true);
+    await refreshAll();
+  } else {
+    resultEl.textContent = '✗ ' + (data.error || 'Connection failed');
+    resultEl.className = 'text-xs text-red-400';
+    showToast('Test failed: ' + data.error, false);
+  }
+}
+
+// ─── Disconnect ───────────────────────────────────────────────────────────────
+async function disconnectIntegration(key) {
+  if (!confirm(`Disconnect ${INTEGRATIONS.find(i=>i.key===key)?.label}? This will remove it from all active workflows.`)) return;
+
+  const res  = await fetch(`/tools/${key}`, { method: 'DELETE', headers: { 'x-api-key': API_KEY } });
+  const data = await res.json();
+  if (data.success) {
+    showToast('Disconnected.', true);
+    await refreshAll();
+  } else {
+    showToast(data.error, false);
+  }
+}
+
+// ─── Copy URL ─────────────────────────────────────────────────────────────────
+function copySidebarUrl() {
+  const url = document.getElementById('sidebarUrl').textContent;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => { btn.innerHTML = '<span>📋</span> Copy URL'; }, 2000);
+    showToast('Sidebar URL copied to clipboard', true);
+  });
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg, ok) {
+  const t = document.createElement('div');
+  t.className = `toast ${ok ? 'toast-ok' : 'toast-err'}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GTM Toolkit — Workflow Builder</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --accent: #6366f1; }
+  body { background: #0f0f13; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; }
+  .glass { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(12px); }
+
+  /* Node styles */
+  .node { border-radius: .875rem; border: 2px solid transparent; cursor: pointer; transition: all .2s; user-select: none; }
+  .node:hover { border-color: rgba(99,102,241,0.4); transform: translateY(-1px); }
+  .node.active { border-color: #6366f1; background: rgba(99,102,241,0.12) !important; }
+  .node.active .node-check { opacity: 1; }
+  .node-check { opacity: 0; transition: opacity .2s; }
+  .node.disabled-node { opacity: .35; cursor: not-allowed; }
+  .node.disabled-node:hover { transform: none; border-color: transparent; }
+
+  /* Always-on node */
+  .node.always-on { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.06) !important; cursor: default; }
+  .node.always-on:hover { transform: none; border-color: rgba(34,197,94,0.5); }
+
+  /* Connector lines */
+  .connector { height: 2px; background: linear-gradient(90deg, rgba(99,102,241,0.5), rgba(99,102,241,0.2)); border-radius: 1px; transition: opacity .3s; }
+  .connector.inactive { opacity: .15; }
+
+  /* Fields */
+  .field { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: .75rem; padding: .75rem 1rem; width: 100%; color: #e2e8f0; font-size: .875rem; resize: none; }
+  .field:focus { outline: none; border-color: #6366f1; }
+
+  /* Buttons */
+  .btn-primary { background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; border: none; cursor: pointer; border-radius: .75rem; font-weight: 600; font-size: .875rem; transition: opacity .2s; }
+  .btn-primary:hover { opacity: .85; }
+  .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-ghost { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #9ca3af; border-radius: .75rem; font-size: .8125rem; cursor: pointer; transition: all .2s; }
+  .btn-ghost:hover { background: rgba(255,255,255,0.1); color: #e2e8f0; }
+
+  /* Results */
+  .result-line { animation: fadeUp .25s ease; border-left: 2px solid transparent; padding-left: .75rem; }
+  .result-line.text  { border-color: #6366f1; }
+  .result-line.tool  { border-color: #f59e0b; }
+  .result-line.done  { border-color: #22c55e; }
+  .result-line.error { border-color: #ef4444; }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+
+  /* Saved workflow chips */
+  .wf-chip { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: .75rem; padding: .5rem .75rem; cursor: pointer; transition: all .2s; }
+  .wf-chip:hover { border-color: rgba(99,102,241,0.4); background: rgba(99,102,241,0.08); }
+  .wf-chip.selected { border-color: #6366f1; background: rgba(99,102,241,0.12); }
+
+  /* Tool call badge */
+  .tool-badge { display: inline-flex; align-items: center; gap: .375rem; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.25); color: #fbbf24; border-radius: .5rem; padding: .2rem .6rem; font-size: .75rem; font-weight: 500; }
+  .result-badge { display: inline-flex; align-items: center; gap: .375rem; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); color: #4ade80; border-radius: .5rem; padding: .2rem .6rem; font-size: .75rem; }
+
+  /* Nav */
+  .nav-link { color: #6b7280; font-size: .8125rem; transition: color .2s; text-decoration: none; padding: .375rem .75rem; border-radius: .5rem; }
+  .nav-link:hover { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+  .nav-link.active { color: #a5b4fc; background: rgba(99,102,241,0.12); }
+
+  .spinner { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 9999px; }
+</style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<!-- Auth Gate -->
+<div id="authGate" class="fixed inset-0 flex items-center justify-center z-50" style="background:#0f0f13">
+  <div class="glass rounded-2xl p-10 w-full max-w-sm">
+    <div class="text-center mb-8">
+      <div class="text-5xl mb-3">🔀</div>
+      <h1 class="text-xl font-bold text-white">Workflow Builder</h1>
+      <p class="text-gray-400 text-sm mt-1">Enter your API key to continue</p>
+    </div>
+    <input id="apiKeyInput" type="password" placeholder="x-api-key"
+      class="field w-full mb-3" onkeydown="if(event.key==='Enter') login()">
+    <button onclick="login()" class="btn-primary w-full py-3">Connect →</button>
+    <div id="authErr" class="text-red-400 text-xs text-center mt-3 hidden"></div>
+    <a href="/ui" class="block text-center text-xs text-gray-500 mt-4 hover:text-gray-300">← Back to Dashboard</a>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app" class="hidden flex flex-col" style="height:100vh">
+
+  <!-- Header -->
+  <header class="glass border-b border-white/8 px-5 py-3 flex items-center justify-between flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <span class="text-xl">🔀</span>
+      <div>
+        <h1 class="font-bold text-white leading-none text-sm">Workflow Builder</h1>
+        <p class="text-xs text-gray-500 mt-0.5">Select tools → write prompt → Claude routes automatically</p>
+      </div>
+    </div>
+    <nav class="flex items-center gap-1">
+      <a href="/ui" class="nav-link">Dashboard</a>
+      <a href="/ui/workflows" class="nav-link active">Workflows</a>
+      <a href="/ui/ads-generator" class="nav-link">Bulk Ads</a>
+      <a href="/ui/settings" class="nav-link">Settings</a>
+    </nav>
+    <div class="flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full bg-green-500"></span>
+      <span id="locationBadge" class="text-xs text-gray-400">...</span>
+      <button onclick="logout()" class="nav-link ml-1">Sign out</button>
+    </div>
+  </header>
+
+  <!-- 3-Column Layout -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- ── LEFT: Tool Nodes Panel ────────────────────────────────────────── -->
+    <aside class="w-64 glass border-r border-white/8 flex flex-col overflow-hidden flex-shrink-0">
+      <div class="p-4 border-b border-white/8 flex-shrink-0">
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Tool Nodes</p>
+        <p class="text-xs text-gray-600 mt-1">Toggle which tools Claude can use</p>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-3 space-y-2" id="nodePanel">
+
+        <!-- Claude (center) -->
+        <div class="node always-on p-3 flex items-center gap-2.5" style="background:rgba(99,102,241,0.06)">
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center text-base flex-shrink-0" style="background:rgba(99,102,241,0.15)">🤖</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-semibold text-white">Claude Opus 4.6</div>
+            <div class="text-xs text-indigo-400">Central processor</div>
+          </div>
+          <span class="text-green-400 text-xs">✓</span>
+        </div>
+
+        <!-- GHL (always on) -->
+        <div class="node always-on p-3 flex items-center gap-2.5" id="node-ghl" style="background:rgba(34,197,94,0.05)">
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center text-base flex-shrink-0" style="background:rgba(34,197,94,0.1)">⚡</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-semibold text-white">GoHighLevel</div>
+            <div class="text-xs text-gray-500">CRM · always on</div>
+          </div>
+          <span class="text-green-400 text-xs">✓</span>
+        </div>
+
+        <div class="border-t border-white/8 my-1"></div>
+        <p class="text-xs text-gray-600 px-1 pb-1">External integrations</p>
+
+        <!-- Dynamic external nodes injected here by JS -->
+        <div id="externalNodes"></div>
+      </div>
+
+      <!-- Selection summary -->
+      <div class="p-3 border-t border-white/8 flex-shrink-0">
+        <div class="text-xs text-gray-500">
+          <span id="selectedCount" class="text-indigo-400 font-semibold">0</span> external tool(s) selected
+        </div>
+        <button onclick="toggleAll()" class="btn-ghost w-full py-1.5 text-xs mt-2">Toggle All</button>
+      </div>
+    </aside>
+
+    <!-- ── CENTER: Workflow Editor ─────────────────────────────────────── -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Flow Visualiser (connector bar) -->
+      <div id="flowBar" class="px-5 py-3 flex items-center gap-2 border-b border-white/8 overflow-x-auto flex-shrink-0" style="background:rgba(0,0,0,0.2)">
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <div class="w-7 h-7 rounded-lg flex items-center justify-center text-sm" style="background:rgba(99,102,241,0.15)">🤖</div>
+          <span class="text-xs text-gray-400">Claude</span>
+        </div>
+        <div class="connector flex-shrink-0" style="width:24px" id="c-main"></div>
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <div class="w-7 h-7 rounded-lg flex items-center justify-center text-sm" style="background:rgba(34,197,94,0.1)">⚡</div>
+          <span class="text-xs text-gray-400">GHL</span>
+        </div>
+        <div id="externalFlow" class="flex items-center gap-2 flex-shrink-0"></div>
+      </div>
+
+      <!-- Workflow name + prompt -->
+      <div class="flex-1 overflow-y-auto p-5 space-y-4">
+
+        <!-- Saved workflows row -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs text-gray-500 flex-shrink-0">Saved:</span>
+          <div id="savedChips" class="flex items-center gap-2 flex-wrap"></div>
+          <button onclick="newWorkflow()" class="btn-ghost px-2.5 py-1 text-xs">+ New</button>
+        </div>
+
+        <!-- Name -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-1.5">Workflow name</label>
+          <input id="wfName" type="text" placeholder="e.g. Weekly email blast + Slack notify"
+            class="field w-full text-sm" style="padding:.625rem .875rem">
+        </div>
+
+        <!-- Context -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-1.5">Brand / context <span class="text-gray-600">(optional)</span></label>
+          <textarea id="wfContext" rows="2" placeholder="e.g. SaaS startup targeting real estate agents. Tone: friendly and direct."
+            class="field w-full text-sm leading-relaxed"></textarea>
+        </div>
+
+        <!-- Prompt -->
+        <div class="flex-1">
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs text-gray-400">Task / Prompt <span class="text-red-400">*</span></label>
+            <div class="flex gap-1.5">
+              <button onclick="insertTemplate('research')" class="btn-ghost px-2 py-0.5 text-xs">Research</button>
+              <button onclick="insertTemplate('email')" class="btn-ghost px-2 py-0.5 text-xs">Email</button>
+              <button onclick="insertTemplate('social')" class="btn-ghost px-2 py-0.5 text-xs">Social</button>
+              <button onclick="insertTemplate('outreach')" class="btn-ghost px-2 py-0.5 text-xs">Outreach</button>
+            </div>
+          </div>
+          <textarea id="wfPrompt" rows="8" placeholder="Describe exactly what you want Claude to do across your connected tools…
+
+Examples:
+• Research our top 3 competitors on Perplexity, then draft a positioning email via SendGrid to all leads tagged 'cold'.
+• Generate 5 LinkedIn posts using OpenAI, then schedule via GHL social planner.
+• Search Apollo for CFOs in NYC, enrich them, add to GHL as contacts, and send intro emails."
+            class="field w-full text-sm leading-relaxed"></textarea>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center gap-3">
+          <button id="runBtn" onclick="runWorkflow()"
+            class="btn-primary px-6 py-2.5 flex items-center gap-2">
+            <span id="runIcon">▶</span>
+            <span id="runLabel">Run Workflow</span>
+          </button>
+          <button onclick="saveWorkflow()" class="btn-ghost px-4 py-2.5 text-xs">💾 Save</button>
+          <button onclick="clearResults()" class="btn-ghost px-4 py-2.5 text-xs">✕ Clear</button>
+          <div class="ml-auto text-xs text-gray-600" id="turnCounter"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RIGHT: Results Panel ────────────────────────────────────────── -->
+    <aside class="w-96 glass border-l border-white/8 flex flex-col overflow-hidden flex-shrink-0">
+      <div class="p-4 border-b border-white/8 flex items-center justify-between flex-shrink-0">
+        <div>
+          <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Execution Output</p>
+          <p class="text-xs text-gray-600 mt-0.5" id="execStatus">Waiting to run...</p>
+        </div>
+        <button onclick="copyOutput()" class="btn-ghost px-2.5 py-1.5 text-xs">📋 Copy</button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-4 space-y-3 text-sm" id="resultsPanel">
+        <div class="text-center text-gray-700 py-16">
+          <div class="text-4xl mb-3">🔀</div>
+          <p class="text-sm text-gray-600">Select your tools on the left,<br>write your prompt, then run.</p>
+        </div>
+      </div>
+
+      <!-- Tool usage summary -->
+      <div id="toolSummary" class="p-4 border-t border-white/8 flex-shrink-0 hidden">
+        <p class="text-xs text-gray-500 mb-2 font-semibold">Tools used</p>
+        <div id="toolSummaryList" class="flex flex-wrap gap-1.5"></div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let API_KEY = '';
+let selectedIntegrations = new Set();
+let allIntegrations = [];   // from /tools API
+let savedWorkflows = [];    // in localStorage
+let activeWorkflowId = null;
+let isRunning = false;
+
+const INTEGRATION_META = {
+  perplexity:   { icon: '🔍', color: 'rgba(99,102,241,0.1)',  label: 'Perplexity AI' },
+  openai:       { icon: '✨', color: 'rgba(16,185,129,0.1)',  label: 'OpenAI' },
+  facebook_ads: { icon: '📘', color: 'rgba(24,119,242,0.1)',  label: 'Facebook Ads' },
+  sendgrid:     { icon: '📧', color: 'rgba(0,168,168,0.1)',   label: 'SendGrid' },
+  slack:        { icon: '💬', color: 'rgba(74,21,75,0.15)',   label: 'Slack' },
+  apollo:       { icon: '🚀', color: 'rgba(249,115,22,0.1)',  label: 'Apollo.io' },
+  heygen:       { icon: '🎬', color: 'rgba(168,85,247,0.1)', label: 'HeyGen' },
+};
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+async function login() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) return;
+  const r = await fetch('/claude/status', { headers: { 'x-api-key': key } });
+  if (!r.ok) {
+    const errEl = document.getElementById('authErr');
+    errEl.textContent = 'Invalid API key.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  const d = await r.json();
+  API_KEY = key;
+  localStorage.setItem('gtm_api_key', key);
+  document.getElementById('authGate').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('locationBadge').textContent = d.locationId || 'Connected';
+  loadIntegrations();
+  loadSavedWorkflows();
+}
+
+function logout() {
+  localStorage.removeItem('gtm_api_key');
+  location.reload();
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('gtm_api_key');
+  if (saved) { document.getElementById('apiKeyInput').value = saved; login(); }
+});
+
+// ─── Load integrations ────────────────────────────────────────────────────────
+async function loadIntegrations() {
+  const r = await fetch('/tools', { headers: { 'x-api-key': API_KEY } });
+  const d = await r.json();
+  if (!d.success) return;
+  allIntegrations = d.data;
+  renderNodes();
+}
+
+function renderNodes() {
+  const container = document.getElementById('externalNodes');
+  container.innerHTML = '';
+
+  for (const item of allIntegrations) {
+    const meta = INTEGRATION_META[item.key] || { icon: '🔧', color: 'rgba(255,255,255,0.05)', label: item.label };
+    const enabled = item.enabled;
+
+    const node = document.createElement('div');
+    node.id = `node-${item.key}`;
+    node.className = `node p-3 flex items-center gap-2.5${!enabled ? ' disabled-node' : ''}`;
+    node.style.background = enabled ? meta.color : 'rgba(255,255,255,0.02)';
+    if (enabled) node.onclick = () => toggleNode(item.key);
+
+    node.innerHTML = `
+      <div class="w-8 h-8 rounded-lg flex items-center justify-center text-base flex-shrink-0"
+           style="background:${enabled ? meta.color : 'rgba(255,255,255,0.05)'}">
+        ${meta.icon}
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-xs font-semibold ${enabled ? 'text-white' : 'text-gray-600'}">${meta.label}</div>
+        <div class="text-xs ${enabled ? 'text-gray-400' : 'text-gray-700'}">${enabled ? item.toolCount + ' tools' : 'Not connected'}</div>
+      </div>
+      <span class="node-check text-indigo-400 text-xs flex-shrink-0">✓</span>
+    `;
+    container.appendChild(node);
+  }
+  updateFlowBar();
+}
+
+function toggleNode(key) {
+  if (selectedIntegrations.has(key)) {
+    selectedIntegrations.delete(key);
+    document.getElementById(`node-${key}`)?.classList.remove('active');
+  } else {
+    selectedIntegrations.add(key);
+    document.getElementById(`node-${key}`)?.classList.add('active');
+  }
+  document.getElementById('selectedCount').textContent = selectedIntegrations.size;
+  updateFlowBar();
+}
+
+function toggleAll() {
+  const connectedKeys = allIntegrations.filter(i => i.enabled).map(i => i.key);
+  const allSelected = connectedKeys.every(k => selectedIntegrations.has(k));
+  if (allSelected) {
+    for (const k of connectedKeys) {
+      selectedIntegrations.delete(k);
+      document.getElementById(`node-${k}`)?.classList.remove('active');
+    }
+  } else {
+    for (const k of connectedKeys) {
+      selectedIntegrations.add(k);
+      document.getElementById(`node-${k}`)?.classList.add('active');
+    }
+  }
+  document.getElementById('selectedCount').textContent = selectedIntegrations.size;
+  updateFlowBar();
+}
+
+// ─── Flow bar visualiser ──────────────────────────────────────────────────────
+function updateFlowBar() {
+  const container = document.getElementById('externalFlow');
+  container.innerHTML = '';
+
+  const active = allIntegrations.filter(i => i.enabled && selectedIntegrations.has(i.key));
+
+  for (const item of active) {
+    const meta = INTEGRATION_META[item.key] || { icon: '🔧', color: 'rgba(255,255,255,0.05)' };
+    container.innerHTML += `
+      <div class="connector flex-shrink-0" style="width:20px"></div>
+      <div class="flex items-center gap-1.5 flex-shrink-0">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center text-sm" style="background:${meta.color}">${meta.icon}</div>
+        <span class="text-xs text-gray-400">${meta.label.split(' ')[0]}</span>
+      </div>
+    `;
+  }
+
+  if (active.length === 0) {
+    container.innerHTML = `<div class="connector flex-shrink-0 inactive" style="width:20px"></div><span class="text-xs text-gray-700">No external tools selected</span>`;
+  }
+}
+
+// ─── Templates ────────────────────────────────────────────────────────────────
+const TEMPLATES = {
+  research: `Research the top 5 competitors in our market using Perplexity AI. For each:
+1. Summarize their main value proposition
+2. Identify their pricing model
+3. List their key strengths and weaknesses
+
+Then create a GHL note on a contact named "Market Research" with a summary of findings.`,
+
+  email: `Write a compelling email sequence (3 emails) for our product launch targeting SaaS founders.
+Use OpenAI to generate the copy, then:
+1. Send the first email via SendGrid to all GHL contacts tagged 'launch-list'
+2. Create a GHL workflow trigger for the follow-up emails
+3. Send a Slack notification to #marketing when the campaign is live.`,
+
+  social: `Generate a 2-week social media content calendar (14 posts) for LinkedIn and Twitter.
+Use OpenAI to write each post with relevant hashtags and CTAs.
+Then schedule all posts in GHL's social planner.
+Theme: thought leadership for B2B SaaS.`,
+
+  outreach: `Find 20 marketing directors at SaaS companies in the US with 50-500 employees using Apollo.io.
+Enrich each contact, then:
+1. Add them as contacts in GHL with tag 'apollo-outreach'
+2. Generate a personalized intro email for each using OpenAI
+3. Send the emails via SendGrid
+4. Create a follow-up task in GHL for each contact in 3 days.`,
+};
+
+function insertTemplate(key) {
+  document.getElementById('wfPrompt').value = TEMPLATES[key] || '';
+  document.getElementById('wfName').value = key.charAt(0).toUpperCase() + key.slice(1) + ' Workflow';
+}
+
+// ─── Saved workflows ──────────────────────────────────────────────────────────
+function loadSavedWorkflows() {
+  try {
+    savedWorkflows = JSON.parse(localStorage.getItem('gtm_workflows') || '[]');
+  } catch { savedWorkflows = []; }
+  renderSavedChips();
+}
+
+function renderSavedChips() {
+  const container = document.getElementById('savedChips');
+  container.innerHTML = '';
+  for (const wf of savedWorkflows) {
+    const chip = document.createElement('div');
+    chip.className = 'wf-chip text-xs flex items-center gap-1.5' + (wf.id === activeWorkflowId ? ' selected' : '');
+    chip.innerHTML = `
+      <span onclick="loadWorkflow('${wf.id}')">${wf.name || 'Untitled'}</span>
+      <span onclick="deleteWorkflow('${wf.id}')" class="text-gray-600 hover:text-red-400 cursor-pointer ml-1">✕</span>
+    `;
+    container.appendChild(chip);
+  }
+}
+
+function saveWorkflow() {
+  const name    = document.getElementById('wfName').value.trim() || 'Untitled';
+  const context = document.getElementById('wfContext').value.trim();
+  const prompt  = document.getElementById('wfPrompt').value.trim();
+
+  if (!prompt) { alert('Enter a prompt first.'); return; }
+
+  const wf = {
+    id:           activeWorkflowId || Date.now().toString(36),
+    name,
+    context,
+    prompt,
+    integrations: Array.from(selectedIntegrations),
+    savedAt:      new Date().toISOString(),
+  };
+
+  const existing = savedWorkflows.findIndex(w => w.id === wf.id);
+  if (existing >= 0) savedWorkflows[existing] = wf;
+  else savedWorkflows.unshift(wf);
+
+  if (savedWorkflows.length > 20) savedWorkflows = savedWorkflows.slice(0, 20);
+  localStorage.setItem('gtm_workflows', JSON.stringify(savedWorkflows));
+  activeWorkflowId = wf.id;
+  renderSavedChips();
+}
+
+function loadWorkflow(id) {
+  const wf = savedWorkflows.find(w => w.id === id);
+  if (!wf) return;
+  activeWorkflowId = id;
+  document.getElementById('wfName').value    = wf.name || '';
+  document.getElementById('wfContext').value = wf.context || '';
+  document.getElementById('wfPrompt').value  = wf.prompt || '';
+
+  // Restore selected integrations
+  for (const key of allIntegrations.map(i => i.key)) {
+    selectedIntegrations.delete(key);
+    document.getElementById(`node-${key}`)?.classList.remove('active');
+  }
+  for (const key of (wf.integrations || [])) {
+    if (allIntegrations.find(i => i.key === key && i.enabled)) {
+      selectedIntegrations.add(key);
+      document.getElementById(`node-${key}`)?.classList.add('active');
+    }
+  }
+  document.getElementById('selectedCount').textContent = selectedIntegrations.size;
+  updateFlowBar();
+  renderSavedChips();
+  clearResults();
+}
+
+function deleteWorkflow(id) {
+  savedWorkflows = savedWorkflows.filter(w => w.id !== id);
+  localStorage.setItem('gtm_workflows', JSON.stringify(savedWorkflows));
+  if (activeWorkflowId === id) { activeWorkflowId = null; newWorkflow(); }
+  renderSavedChips();
+}
+
+function newWorkflow() {
+  activeWorkflowId = null;
+  document.getElementById('wfName').value    = '';
+  document.getElementById('wfContext').value = '';
+  document.getElementById('wfPrompt').value  = '';
+  clearResults();
+  renderSavedChips();
+}
+
+// ─── Run ──────────────────────────────────────────────────────────────────────
+async function runWorkflow() {
+  if (isRunning) return;
+
+  let prompt  = document.getElementById('wfPrompt').value.trim();
+  const ctx   = document.getElementById('wfContext').value.trim();
+
+  if (!prompt) { alert('Enter a prompt to run.'); return; }
+  if (ctx) prompt = `[Context: ${ctx}]\n\n${prompt}`;
+
+  const allowed = selectedIntegrations.size > 0 ? Array.from(selectedIntegrations) : null;
+
+  isRunning = true;
+  document.getElementById('runBtn').disabled   = true;
+  document.getElementById('runIcon').textContent = '⏳';
+  document.getElementById('runLabel').textContent = 'Running...';
+  document.getElementById('execStatus').textContent = 'Processing...';
+
+  const panel = document.getElementById('resultsPanel');
+  panel.innerHTML = '';
+  document.getElementById('toolSummary').classList.add('hidden');
+  document.getElementById('toolSummaryList').innerHTML = '';
+  document.getElementById('turnCounter').textContent = '';
+
+  const toolsUsed = new Set();
+
+  try {
+    const res = await fetch('/claude/task', {
+      method: 'POST',
+      headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: prompt, allowedIntegrations: allowed }),
+    });
+
+    const reader    = res.body.getReader();
+    const decoder   = new TextDecoder();
+    let buffer = '';
+    let currentTextBlock = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop();
+
+      for (const chunk of parts) {
+        const eventMatch = chunk.match(/^event: (\w+)/);
+        const dataMatch  = chunk.match(/^data: (.+)$/m);
+        if (!eventMatch || !dataMatch) continue;
+
+        const evtType = eventMatch[1];
+        let evtData;
+        try { evtData = JSON.parse(dataMatch[1]); } catch { continue; }
+
+        if (evtType === 'text') {
+          if (!currentTextBlock) {
+            currentTextBlock = document.createElement('div');
+            currentTextBlock.className = 'result-line text';
+            const pre = document.createElement('pre');
+            pre.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:.8125rem;color:#e2e8f0;line-height:1.6;font-family:inherit;margin:0';
+            currentTextBlock.appendChild(pre);
+            panel.appendChild(currentTextBlock);
+          }
+          currentTextBlock.querySelector('pre').textContent += evtData.text;
+          panel.scrollTop = panel.scrollHeight;
+
+        } else if (evtType === 'tool_call') {
+          currentTextBlock = null;
+          toolsUsed.add(evtData.name);
+          const el = document.createElement('div');
+          el.className = 'result-line tool';
+          el.innerHTML = `<div class="tool-badge">🔧 ${evtData.name}</div>
+            <div class="text-xs text-gray-500 mt-1 font-mono">${JSON.stringify(evtData.input).slice(0, 120)}${JSON.stringify(evtData.input).length > 120 ? '…' : ''}</div>`;
+          panel.appendChild(el);
+          panel.scrollTop = panel.scrollHeight;
+
+        } else if (evtType === 'tool_result') {
+          const el = document.createElement('div');
+          el.className = 'result-line';
+          el.style.borderLeftColor = 'rgba(255,255,255,0.1)';
+          const snippet = JSON.stringify(evtData.result).slice(0, 160);
+          el.innerHTML = `<div class="result-badge">✓ ${evtData.name}</div>
+            <div class="text-xs text-gray-600 mt-1 font-mono">${snippet}${snippet.length >= 160 ? '…' : ''}</div>`;
+          panel.appendChild(el);
+          panel.scrollTop = panel.scrollHeight;
+
+        } else if (evtType === 'done') {
+          currentTextBlock = null;
+          document.getElementById('execStatus').innerHTML =
+            `<span class="text-green-400">✓ Done</span> · ${evtData.turns} turn${evtData.turns !== 1 ? 's' : ''} · ${evtData.toolCallCount} tool call${evtData.toolCallCount !== 1 ? 's' : ''}`;
+          document.getElementById('turnCounter').textContent =
+            `${evtData.turns} turns / ${evtData.toolCallCount} calls`;
+
+          // Tool summary
+          if (toolsUsed.size > 0) {
+            document.getElementById('toolSummary').classList.remove('hidden');
+            for (const t of toolsUsed) {
+              const badge = document.createElement('span');
+              badge.className = 'tool-badge';
+              badge.textContent = '🔧 ' + t.replace(/_/g, ' ');
+              document.getElementById('toolSummaryList').appendChild(badge);
+            }
+          }
+
+          const doneEl = document.createElement('div');
+          doneEl.className = 'result-line done text-xs text-green-400 font-medium';
+          doneEl.textContent = `✓ Workflow complete — ${evtData.turns} turn${evtData.turns !== 1 ? 's' : ''}, ${evtData.toolCallCount} tool call${evtData.toolCallCount !== 1 ? 's' : ''}`;
+          panel.appendChild(doneEl);
+          panel.scrollTop = panel.scrollHeight;
+
+        } else if (evtType === 'error') {
+          const el = document.createElement('div');
+          el.className = 'result-line error text-red-400 text-xs';
+          el.textContent = '✗ Error: ' + evtData.error;
+          panel.appendChild(el);
+          document.getElementById('execStatus').innerHTML = `<span class="text-red-400">✗ Error</span>`;
+        }
+      }
+    }
+  } catch (err) {
+    const el = document.createElement('div');
+    el.className = 'result-line error text-red-400 text-xs';
+    el.textContent = '✗ ' + err.message;
+    panel.appendChild(el);
+  } finally {
+    isRunning = false;
+    document.getElementById('runBtn').disabled    = false;
+    document.getElementById('runIcon').textContent = '▶';
+    document.getElementById('runLabel').textContent = 'Run Workflow';
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function clearResults() {
+  document.getElementById('resultsPanel').innerHTML = `
+    <div class="text-center text-gray-700 py-16">
+      <div class="text-4xl mb-3">🔀</div>
+      <p class="text-sm text-gray-600">Select your tools on the left,<br>write your prompt, then run.</p>
+    </div>`;
+  document.getElementById('execStatus').textContent = 'Waiting to run...';
+  document.getElementById('turnCounter').textContent = '';
+  document.getElementById('toolSummary').classList.add('hidden');
+  document.getElementById('toolSummaryList').innerHTML = '';
+}
+
+function copyOutput() {
+  const text = Array.from(document.querySelectorAll('#resultsPanel pre'))
+    .map(p => p.textContent).join('\n\n');
+  if (!text) return;
+  navigator.clipboard.writeText(text);
+}
+</script>
+</body>
+</html>

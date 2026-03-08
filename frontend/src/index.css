@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --accent: #6366f1;
+  --bg:     #0f0f13;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: #e2e8f0;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+#root { height: 100%; }
+
+/* ── Custom utility classes ───────────────────────────────────────────────── */
+@layer components {
+  .glass {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(12px);
+  }
+  .card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 1rem;
+    transition: border-color .2s;
+  }
+  .card:hover  { border-color: rgba(99,102,241,0.3); }
+  .card.connected { border-color: rgba(34,197,94,0.35); }
+
+  .field {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: .75rem;
+    padding: .75rem 1rem;
+    color: #e2e8f0;
+    font-size: .875rem;
+    width: 100%;
+    transition: border-color .2s;
+  }
+  .field:focus  { outline: none; border-color: #6366f1; }
+  .field::placeholder { color: #374151; }
+  select.field  { appearance: none; cursor: pointer; }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    border-radius: .75rem;
+    font-weight: 600;
+    font-size: .875rem;
+    transition: opacity .15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .btn-primary:hover:not(:disabled) { opacity: .85; }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+
+  .btn-ghost {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #9ca3af;
+    border-radius: .75rem;
+    font-size: .8125rem;
+    cursor: pointer;
+    transition: all .15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.1); color: #e2e8f0; }
+
+  .badge-on  { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ade80; }
+  .badge-off { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #6b7280; }
+
+  .nav-link {
+    color: #6b7280;
+    font-size: .8125rem;
+    text-decoration: none;
+    padding: .375rem .75rem;
+    border-radius: .5rem;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .nav-link:hover { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+  .nav-link.active { color: #a5b4fc; background: rgba(99,102,241,0.12); }
+}
+
+/* ── Animations ───────────────────────────────────────────────────────────── */
+@keyframes fadeUp  { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes pulse   { 0%,100%{ opacity:1; } 50%{ opacity:.4; } }
+@keyframes shimmer { 0%,100%{ opacity:.4; } 50%{ opacity:.9; } }
+
+.fade-up   { animation: fadeUp .25s ease; }
+.spinner   { animation: spin 1s linear infinite; }
+.pulse-dot { animation: pulse 2s ease-in-out infinite; }
+.shimmer   { animation: shimmer 1.5s ease-in-out infinite; }
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 9999px; }

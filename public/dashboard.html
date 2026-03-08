@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GTM Toolkit — AI Command Center</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --accent: #6366f1; }
+  body { background: #0f0f13; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+  .glass { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(12px); }
+  .accent-glow { box-shadow: 0 0 20px rgba(99,102,241,0.3); }
+  .tool-chip { transition: all .2s; }
+  .tool-chip:hover { background: rgba(99,102,241,0.15); border-color: #6366f1; }
+  .stream-line { animation: fadeIn .3s ease; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+  .spinner { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .pulse-dot { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+  .voice-btn { transition: all .2s; }
+  .voice-btn.recording { background: rgba(239,68,68,0.15) !important; border-color: #ef4444 !important; animation: voicePulse 1s ease-in-out infinite; }
+  @keyframes voicePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.4); } 50% { box-shadow: 0 0 0 8px rgba(239,68,68,0); } }
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius:9999px; }
+  textarea { resize: none; }
+  .connected-badge { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ade80; }
+  .disconnected-badge { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #6b7280; }
+</style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<!-- ── Auth Gate ──────────────────────────────────────────────────────────── -->
+<div id="authGate" class="fixed inset-0 flex items-center justify-center z-50" style="background:#0f0f13">
+  <div class="glass rounded-2xl p-10 w-full max-w-md">
+    <div class="text-center mb-8">
+      <div class="text-5xl mb-4">🤖</div>
+      <h1 class="text-2xl font-bold text-white">GTM AI Command Center</h1>
+      <p class="text-gray-400 mt-2 text-sm">Enter your location API key to continue</p>
+    </div>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-gray-400 mb-1.5">API Key</label>
+        <input id="apiKeyInput" type="password" placeholder="Your x-api-key"
+          class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition text-sm"
+          onkeydown="if(event.key==='Enter') login()">
+      </div>
+      <button onclick="login()"
+        class="w-full py-3 rounded-xl font-semibold text-white text-sm transition"
+        style="background: linear-gradient(135deg, #6366f1, #8b5cf6)">
+        Connect →
+      </button>
+      <div id="authError" class="text-red-400 text-xs text-center hidden"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main App ───────────────────────────────────────────────────────────── -->
+<div id="app" class="hidden flex flex-col min-h-screen">
+
+  <!-- Header -->
+  <header class="glass border-b border-white/8 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">🤖</span>
+      <div>
+        <h1 class="font-bold text-white text-lg leading-none">GTM AI Command Center</h1>
+        <p class="text-xs text-gray-500 mt-0.5">Powered by <span class="text-indigo-400">Claude Opus 4.6</span></p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="locationBadge" class="text-xs px-3 py-1 rounded-full glass text-gray-400"></span>
+      <span class="pulse-dot w-2 h-2 rounded-full" style="background:#4ade80"></span>
+      <span class="text-xs text-green-400">Live</span>
+      <a href="/ui/workflows" class="text-xs px-3 py-1.5 rounded-lg transition font-medium ml-1"
+        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#9ca3af">
+        🔀 Workflows
+      </a>
+      <a href="/ui/ads-generator" class="text-xs px-3 py-1.5 rounded-lg transition font-medium ml-1"
+        style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc">
+        🎯 Bulk Ads
+      </a>
+      <a href="/ui/settings" class="text-xs px-3 py-1.5 rounded-lg transition font-medium ml-1"
+        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#9ca3af">
+        ⚙️ Settings
+      </a>
+      <button onclick="logout()" class="text-xs text-gray-500 hover:text-gray-300 transition ml-2">Sign out</button>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- ── Left Sidebar ────────────────────────────────────────────────── -->
+    <aside class="w-72 glass border-r border-white/8 flex flex-col overflow-y-auto">
+
+      <!-- GHL Status -->
+      <div class="p-4 border-b border-white/8">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-base">⚡</span>
+          <span class="text-sm font-semibold text-white">GoHighLevel</span>
+          <span class="ml-auto text-xs px-2 py-0.5 rounded-full connected-badge">Connected</span>
+        </div>
+        <p class="text-xs text-gray-500 ml-6">CRM, conversations, contacts, workflows</p>
+      </div>
+
+      <!-- Integrations -->
+      <div class="p-4 flex-1">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Integrations</span>
+          <button onclick="loadTools()" class="text-xs text-indigo-400 hover:text-indigo-300 transition">Refresh</button>
+        </div>
+        <div id="toolList" class="space-y-2">
+          <div class="text-xs text-gray-600 text-center py-4">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Quick Stats -->
+      <div class="p-4 border-t border-white/8">
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Session Stats</p>
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="glass rounded-lg p-2">
+            <div id="statTasks" class="text-xl font-bold text-white">0</div>
+            <div class="text-xs text-gray-500">Tasks</div>
+          </div>
+          <div class="glass rounded-lg p-2">
+            <div id="statTools" class="text-xl font-bold text-indigo-400">0</div>
+            <div class="text-xs text-gray-500">Tool Calls</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── Main Panel ──────────────────────────────────────────────────── -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Quick Actions -->
+      <div class="px-6 py-4 border-b border-white/8">
+        <p class="text-xs text-gray-500 mb-3 font-medium">QUICK ACTIONS</p>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="setTask('Research the top 5 competitors in [industry] and summarize their pricing, positioning, and weaknesses')" class="tool-chip glass text-xs px-3 py-1.5 rounded-full border border-white/10 text-gray-300 cursor-pointer">🔍 Competitor Research</button>
+          <button onclick="setTask('Find all contacts tagged \"lead\" in GHL and send them a personalized intro SMS message')" class="tool-chip glass text-xs px-3 py-1.5 rounded-full border border-white/10 text-gray-300 cursor-pointer">📱 SMS Blast Leads</button>
+          <button onclick="setTask('Write a 500-word SEO blog post about [topic], then create it as a draft in GHL blogs')" class="tool-chip glass text-xs px-3 py-1.5 rounded-full border border-white/10 text-gray-300 cursor-pointer">✍️ Generate Blog Post</button>
+          <button onclick="setTask('Pull my Facebook ad campaign performance for the last 30 days and identify which campaigns to pause and which to scale')" class="tool-chip glass text-xs px-3 py-1.5 rounded-full border border-white/10 text-gray-300 cursor-pointer">📣 Ad Performance Review</button>
+          <button onclick="setTask('Enrich the GHL contact [email] using Apollo and update their record with job title, company, and LinkedIn')" class="tool-chip glass text-xs px-3 py-1.5 rounded-full border border-white/10 text-gray-300 cursor-pointer">🚀 Enrich Contact</button>
+          <button onclick="setTask('Generate 5 Facebook ad creatives (images + copy) for [product/offer] targeting [audience]')" class="tool-chip glass text-xs px-3 py-1.5 rounded-full border border-white/10 text-gray-300 cursor-pointer">🎨 Generate Ad Creatives</button>
+          <button onclick="setTask('Create a welcome email sequence for new GHL contacts: write 3 emails (day 1, day 3, day 7) and send the first one now')" class="tool-chip glass text-xs px-3 py-1.5 rounded-full border border-white/10 text-gray-300 cursor-pointer">📧 Email Sequence</button>
+          <button onclick="setTask('Post a social media update across all connected accounts about [topic or recent win]')" class="tool-chip glass text-xs px-3 py-1.5 rounded-full border border-white/10 text-gray-300 cursor-pointer">📲 Social Post</button>
+          <button onclick="setTask('Generate a HeyGen AI spokesperson video script and video for our [product/service] for use in Facebook ads')" class="tool-chip glass text-xs px-3 py-1.5 rounded-full border border-white/10 text-gray-300 cursor-pointer">🎬 AI Video</button>
+          <button onclick="setTask('Give me a full report on this GHL location: active contacts, recent conversations, open opportunities, and top campaigns')" class="tool-chip glass text-xs px-3 py-1.5 rounded-full border border-white/10 text-gray-300 cursor-pointer">📊 Location Report</button>
+        </div>
+      </div>
+
+      <!-- Stream Output -->
+      <div id="outputPanel" class="flex-1 overflow-y-auto px-6 py-4 space-y-2" style="min-height:0">
+        <div class="flex items-center justify-center h-full">
+          <div class="text-center">
+            <div class="text-6xl mb-4 opacity-20">⚡</div>
+            <p class="text-gray-600 text-sm">Ready to execute. Describe any marketing or CRM task below.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Task Input -->
+      <div class="px-6 py-4 border-t border-white/8">
+        <div class="glass rounded-2xl p-4">
+          <textarea id="taskInput" rows="3" placeholder="Describe any marketing, CRM, or GTM task... e.g. 'Find all contacts added this week, enrich them via Apollo, send a personalized intro SMS, and add them to the Onboarding workflow'"
+            class="w-full bg-transparent text-sm text-white placeholder-gray-600 focus:outline-none leading-relaxed"></textarea>
+          <div class="flex items-center justify-between mt-3">
+            <div class="flex items-center gap-3">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="streamToggle" checked class="accent-indigo-500">
+                <span class="text-xs text-gray-500">Stream output</span>
+              </label>
+              <span id="charCount" class="text-xs text-gray-600">0 chars</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="voiceBtn" onclick="toggleVoice()" title="Voice prompt — speak your task"
+                class="voice-btn glass border border-white/10 text-gray-400 hover:text-red-400 hover:border-red-500/40 px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5">
+                🎤 <span id="voiceBtnText">Voice</span>
+              </button>
+              <button onclick="clearOutput()" class="text-xs text-gray-500 hover:text-gray-300 transition px-3 py-1.5 rounded-lg glass">Clear</button>
+              <button id="runBtn" onclick="runTask()"
+                class="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white transition"
+                style="background: linear-gradient(135deg, #6366f1, #8b5cf6)">
+                <span id="runBtnIcon">▶</span>
+                <span id="runBtnText">Run Task</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+<!-- ── Tool Config Modal ───────────────────────────────────────────────────── -->
+<div id="modal" class="fixed inset-0 z-50 hidden flex items-center justify-center" style="background: rgba(0,0,0,0.7)">
+  <div class="glass rounded-2xl p-8 w-full max-w-md mx-4">
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-3">
+        <span id="modalIcon" class="text-2xl"></span>
+        <div>
+          <h2 id="modalTitle" class="font-bold text-white text-lg"></h2>
+          <p id="modalDesc" class="text-xs text-gray-400 mt-0.5"></p>
+        </div>
+      </div>
+      <button onclick="closeModal()" class="text-gray-500 hover:text-gray-300 text-xl leading-none">&times;</button>
+    </div>
+    <div id="modalFields" class="space-y-4 mb-6"></div>
+    <div class="flex gap-3">
+      <button onclick="closeModal()" class="flex-1 py-2.5 rounded-xl text-sm text-gray-400 glass hover:text-gray-200 transition">Cancel</button>
+      <button id="modalDisconnect" onclick="disconnectTool()" class="py-2.5 px-4 rounded-xl text-sm text-red-400 glass hover:text-red-300 transition hidden">Disconnect</button>
+      <button onclick="saveToolConfig()" class="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition"
+        style="background: linear-gradient(135deg, #6366f1, #8b5cf6)">Save & Connect</button>
+    </div>
+    <div id="modalError" class="text-red-400 text-xs mt-3 text-center hidden"></div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let apiKey = localStorage.getItem('gtm_api_key') || '';
+let locationId = '';
+let isRunning = false;
+let currentEventSource = null;
+let sessionStats = { tasks: 0, toolCalls: 0 };
+let currentModalCategory = '';
+let tools = [];
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+async function login() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) return;
+  try {
+    const resp = await fetch('/claude/status', { headers: { 'x-api-key': key } });
+    if (!resp.ok) throw new Error('Invalid API key');
+    const data = await resp.json();
+    apiKey = key;
+    locationId = data.locationId;
+    localStorage.setItem('gtm_api_key', key);
+    document.getElementById('authGate').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    document.getElementById('locationBadge').textContent = `📍 ${locationId}`;
+    await loadTools();
+  } catch (e) {
+    document.getElementById('authError').textContent = e.message || 'Authentication failed';
+    document.getElementById('authError').classList.remove('hidden');
+  }
+}
+
+function logout() {
+  localStorage.removeItem('gtm_api_key');
+  location.reload();
+}
+
+// Auto-login if key exists
+if (apiKey) {
+  document.getElementById('apiKeyInput').value = apiKey;
+  login();
+}
+
+// ── Load Tools ────────────────────────────────────────────────────────────────
+async function loadTools() {
+  try {
+    const resp = await fetch('/tools', { headers: { 'x-api-key': apiKey } });
+    tools = (await resp.json()).data || [];
+    renderTools();
+  } catch (e) {
+    console.error('Failed to load tools:', e);
+  }
+}
+
+function renderTools() {
+  const list = document.getElementById('toolList');
+  list.innerHTML = '';
+  for (const tool of tools) {
+    const el = document.createElement('div');
+    el.className = 'tool-chip glass rounded-xl p-3 border border-white/10 cursor-pointer';
+    el.onclick = () => openModal(tool.key);
+    el.innerHTML = `
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-base">${tool.icon}</span>
+          <div>
+            <div class="text-xs font-semibold text-white leading-none">${tool.label}</div>
+            <div class="text-xs text-gray-500 mt-0.5">${tool.toolCount} tool${tool.toolCount!==1?'s':''}</div>
+          </div>
+        </div>
+        <span class="text-xs px-2 py-0.5 rounded-full ${tool.enabled ? 'connected-badge' : 'disconnected-badge'}">
+          ${tool.enabled ? '✓ On' : 'Off'}
+        </span>
+      </div>
+      <p class="text-xs text-gray-600 mt-2 leading-relaxed">${tool.description}</p>
+    `;
+    list.appendChild(el);
+  }
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function openModal(category) {
+  const tool = tools.find(t => t.key === category);
+  if (!tool) return;
+  currentModalCategory = category;
+
+  document.getElementById('modalIcon').textContent  = tool.icon;
+  document.getElementById('modalTitle').textContent = tool.label;
+  document.getElementById('modalDesc').textContent  = tool.description;
+
+  const fieldsEl = document.getElementById('modalFields');
+  fieldsEl.innerHTML = '';
+  for (const field of tool.configFields) {
+    const current = tool.configPreview ? (tool.configPreview[field.key] || '') : '';
+    fieldsEl.innerHTML += `
+      <div>
+        <label class="block text-xs font-medium text-gray-400 mb-1.5">${field.label}</label>
+        <input type="${field.type}" id="cfg_${field.key}" placeholder="${field.placeholder}"
+          value="${field.type === 'password' ? '' : current}"
+          class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition">
+        ${current && field.type === 'password' ? `<p class="text-xs text-gray-600 mt-1">Current: ${current} (enter new value to update)</p>` : ''}
+      </div>`;
+  }
+
+  const disconnectBtn = document.getElementById('modalDisconnect');
+  disconnectBtn.classList.toggle('hidden', !tool.enabled);
+
+  document.getElementById('modalError').classList.add('hidden');
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.add('hidden');
+  currentModalCategory = '';
+}
+
+async function saveToolConfig() {
+  const tool = tools.find(t => t.key === currentModalCategory);
+  if (!tool) return;
+
+  const body = {};
+  let hasValue = false;
+  for (const field of tool.configFields) {
+    const val = document.getElementById('cfg_' + field.key)?.value?.trim();
+    if (val) { body[field.key] = val; hasValue = true; }
+  }
+
+  if (!hasValue) {
+    document.getElementById('modalError').textContent = 'Please fill in at least one field.';
+    document.getElementById('modalError').classList.remove('hidden');
+    return;
+  }
+
+  try {
+    const resp = await fetch(`/tools/${currentModalCategory}`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error);
+    closeModal();
+    await loadTools();
+    appendLine('system', `✅ ${tool.label} connected successfully`);
+  } catch (e) {
+    document.getElementById('modalError').textContent = e.message;
+    document.getElementById('modalError').classList.remove('hidden');
+  }
+}
+
+async function disconnectTool() {
+  if (!currentModalCategory) return;
+  try {
+    await fetch(`/tools/${currentModalCategory}`, {
+      method: 'DELETE',
+      headers: { 'x-api-key': apiKey },
+    });
+    closeModal();
+    await loadTools();
+    appendLine('system', `🔌 ${currentModalCategory} disconnected`);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+// ── Task Execution ────────────────────────────────────────────────────────────
+function setTask(text) {
+  document.getElementById('taskInput').value = text;
+  updateCharCount();
+  document.getElementById('taskInput').focus();
+}
+
+function updateCharCount() {
+  const len = document.getElementById('taskInput').value.length;
+  document.getElementById('charCount').textContent = len + ' chars';
+}
+document.getElementById('taskInput').addEventListener('input', updateCharCount);
+document.getElementById('taskInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runTask();
+});
+
+async function runTask() {
+  if (isRunning) { stopTask(); return; }
+  const task = document.getElementById('taskInput').value.trim();
+  if (!task) return;
+
+  setRunning(true);
+  clearOutput();
+  sessionStats.tasks++;
+  updateStats();
+
+  appendLine('task', `📋 Task: ${task}`);
+  appendLine('divider', '');
+
+  const useStream = document.getElementById('streamToggle').checked;
+
+  if (useStream) {
+    runStream(task);
+  } else {
+    runSync(task);
+  }
+}
+
+function stopTask() {
+  if (currentEventSource) { currentEventSource.close(); currentEventSource = null; }
+  setRunning(false);
+  appendLine('system', '⚠️ Task stopped by user');
+}
+
+async function runSync(task) {
+  try {
+    const resp = await fetch('/claude/task/sync', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      appendLine('result', data.result);
+      appendLine('meta', `✅ Done — ${data.turns} turn${data.turns!==1?'s':''}, ${data.toolCallCount} tool call${data.toolCallCount!==1?'s':''}`);
+      sessionStats.toolCalls += data.toolCallCount || 0;
+    } else {
+      appendLine('error', `Error: ${data.error}`);
+    }
+  } catch (e) {
+    appendLine('error', `Request failed: ${e.message}`);
+  } finally {
+    setRunning(false);
+    updateStats();
+  }
+}
+
+function runStream(task) {
+  // Use fetch + ReadableStream for SSE
+  fetch('/claude/task', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task }),
+  }).then(resp => {
+    if (!resp.ok) {
+      resp.json().then(d => appendLine('error', d.error || 'Request failed'));
+      setRunning(false);
+      return;
+    }
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer    = '';
+    let textBuffer = '';
+    let textEl     = null;
+
+    function flush() {
+      if (textBuffer.trim()) {
+        if (!textEl) {
+          textEl = createStreamLine('text');
+          document.getElementById('outputPanel').appendChild(textEl);
+        }
+        textEl.querySelector('.content').textContent += textBuffer;
+        textBuffer = '';
+        scrollOutput();
+      }
+    }
+
+    function processLines() {
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const payload = JSON.parse(line.slice(5).trim());
+          const eventLine = line.startsWith('event:') ? line.split(':')[1].trim() : null;
+          // Parse event name from prior lines — simplified: detect by payload shape
+          if (payload.text !== undefined) {
+            textBuffer += payload.text;
+            if (textBuffer.length > 50) flush();
+          } else if (payload.name && payload.input !== undefined) {
+            flush(); textEl = null;
+            appendLine('tool_call', `🔧 Calling <strong>${payload.name}</strong>`);
+            sessionStats.toolCalls++;
+            updateStats();
+          } else if (payload.name && payload.result !== undefined) {
+            const preview = JSON.stringify(payload.result).slice(0, 120);
+            appendLine('tool_result', `↩ <span class="text-gray-500">${payload.name}</span>: ${escHtml(preview)}${preview.length>=120?'…':''}`);
+          } else if (payload.message !== undefined) {
+            flush(); textEl = null;
+            appendLine('meta', `✅ Done — ${payload.turns} turn${payload.turns!==1?'s':''}, ${payload.toolCallCount} tool call${payload.toolCallCount!==1?'s':''}`);
+            setRunning(false);
+            updateStats();
+          } else if (payload.error) {
+            flush(); textEl = null;
+            appendLine('error', payload.error);
+            setRunning(false);
+          }
+        } catch (_) {}
+      }
+    }
+
+    function pump() {
+      reader.read().then(({ done, value }) => {
+        if (done) {
+          flush();
+          setRunning(false);
+          return;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        processLines();
+        pump();
+      }).catch(e => {
+        flush();
+        appendLine('error', `Stream error: ${e.message}`);
+        setRunning(false);
+      });
+    }
+    pump();
+  }).catch(e => {
+    appendLine('error', `Failed to connect: ${e.message}`);
+    setRunning(false);
+  });
+}
+
+// ── Output Rendering ──────────────────────────────────────────────────────────
+function clearOutput() {
+  document.getElementById('outputPanel').innerHTML = '';
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+const LINE_STYLES = {
+  task:        'text-indigo-300 text-sm font-medium',
+  divider:     'border-t border-white/8 my-2',
+  text:        'text-gray-200 text-sm leading-relaxed whitespace-pre-wrap',
+  tool_call:   'text-amber-400 text-xs font-mono bg-amber-400/5 px-3 py-1.5 rounded-lg border border-amber-400/10',
+  tool_result: 'text-gray-500 text-xs font-mono bg-white/3 px-3 py-1.5 rounded-lg',
+  result:      'text-gray-200 text-sm leading-relaxed whitespace-pre-wrap',
+  meta:        'text-green-400 text-xs',
+  error:       'text-red-400 text-xs',
+  system:      'text-blue-400 text-xs italic',
+};
+
+function createStreamLine(type) {
+  const div = document.createElement('div');
+  div.className = `stream-line ${LINE_STYLES[type] || ''}`;
+  const content = document.createElement('span');
+  content.className = 'content';
+  div.appendChild(content);
+  return div;
+}
+
+function appendLine(type, html) {
+  const panel = document.getElementById('outputPanel');
+  const div   = document.createElement('div');
+  div.className = `stream-line ${LINE_STYLES[type] || ''}`;
+  if (type === 'divider') {
+    // empty divider
+  } else {
+    div.innerHTML = html;
+  }
+  panel.appendChild(div);
+  scrollOutput();
+}
+
+function scrollOutput() {
+  const p = document.getElementById('outputPanel');
+  p.scrollTop = p.scrollHeight;
+}
+
+// ── UI State ──────────────────────────────────────────────────────────────────
+function setRunning(running) {
+  isRunning = running;
+  const btn  = document.getElementById('runBtn');
+  const icon = document.getElementById('runBtnIcon');
+  const text = document.getElementById('runBtnText');
+  if (running) {
+    icon.innerHTML = '<svg class="spinner w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-opacity=".25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg>';
+    text.textContent = 'Stop';
+    btn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+  } else {
+    icon.textContent = '▶';
+    text.textContent = 'Run Task';
+    btn.style.background = 'linear-gradient(135deg, #6366f1, #8b5cf6)';
+  }
+}
+
+function updateStats() {
+  document.getElementById('statTasks').textContent  = sessionStats.tasks;
+  document.getElementById('statTools').textContent  = sessionStats.toolCalls;
+}
+
+// ── Voice Input ───────────────────────────────────────────────────────────────
+let voiceRecording  = false;
+let mediaRecorder   = null;
+let audioChunks     = [];
+let speechRecognition = null;
+
+// Try Web Speech API first (browser native, no API key needed)
+const hasSpeechAPI = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+
+function toggleVoice() {
+  if (voiceRecording) { stopVoice(); return; }
+  if (hasSpeechAPI) {
+    startSpeechAPI();
+  } else {
+    startWhisperRecording();
+  }
+}
+
+// ─ Option A: Web Speech API (Chrome/Edge — instant, free) ────────────────────
+function startSpeechAPI() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  speechRecognition = new SpeechRecognition();
+  speechRecognition.lang = 'en-US';
+  speechRecognition.continuous = false;
+  speechRecognition.interimResults = true;
+
+  setVoiceState(true);
+
+  speechRecognition.onresult = (e) => {
+    const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
+    document.getElementById('taskInput').value = transcript;
+    updateCharCount();
+  };
+
+  speechRecognition.onend = () => {
+    setVoiceState(false);
+    const task = document.getElementById('taskInput').value.trim();
+    if (task) {
+      appendLine('system', `🎤 Heard: "${task}"`);
+      runTask();
+    }
+  };
+
+  speechRecognition.onerror = (e) => {
+    setVoiceState(false);
+    if (e.error !== 'no-speech') appendLine('error', `Speech recognition error: ${e.error}`);
+  };
+
+  speechRecognition.start();
+}
+
+// ─ Option B: MediaRecorder → Whisper (all browsers) ─────────────────────────
+async function startWhisperRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks  = [];
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      setVoiceState(false);
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      await transcribeWithWhisper(blob);
+    };
+
+    mediaRecorder.start();
+    setVoiceState(true);
+  } catch (e) {
+    appendLine('error', `Microphone access denied: ${e.message}`);
+  }
+}
+
+function stopVoice() {
+  if (speechRecognition) { speechRecognition.stop(); speechRecognition = null; }
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  setVoiceState(false);
+}
+
+async function transcribeWithWhisper(blob) {
+  appendLine('system', '🎤 Transcribing with Whisper...');
+  const form = new FormData();
+  form.append('audio', blob, 'recording.webm');
+
+  setRunning(true);
+  clearOutput();
+
+  try {
+    const resp = await fetch('/claude/voice', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey },
+      body: form,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      appendLine('error', err.error || 'Whisper transcription failed');
+      setRunning(false);
+      return;
+    }
+
+    // Stream response (same SSE format as /claude/task)
+    sessionStats.tasks++;
+    updateStats();
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer    = '';
+    let textEl    = null;
+    let textBuf   = '';
+
+    function flush() {
+      if (textBuf.trim() && textEl) {
+        textEl.querySelector('.content').textContent += textBuf;
+        textBuf = ''; scrollOutput();
+      }
+    }
+
+    function processSSE() {
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const p = JSON.parse(line.slice(5).trim());
+          if (p.text !== undefined && p.text !== '') {
+            textBuf += p.text;
+            if (!textEl) { textEl = createStreamLine('text'); document.getElementById('outputPanel').appendChild(textEl); }
+            if (textBuf.length > 50) flush();
+          } else if (p.text !== undefined && p.text === '' && p.name === undefined && p.message === undefined) {
+            // transcript event has 'text' key too — handled as transcript below
+          } else if (line.includes('"transcript"') || (p.text && !p.name && !p.message && !p.error && !p.input)) {
+            appendLine('system', `🎤 You said: "${p.text}"`);
+            appendLine('divider', '');
+          } else if (p.name && p.input !== undefined) {
+            flush(); textEl = null;
+            appendLine('tool_call', `🔧 Calling <strong>${p.name}</strong>`);
+            sessionStats.toolCalls++; updateStats();
+          } else if (p.name && p.result !== undefined) {
+            appendLine('tool_result', `↩ ${p.name}: ${escHtml(JSON.stringify(p.result).slice(0,120))}`);
+          } else if (p.message !== undefined) {
+            flush(); textEl = null;
+            appendLine('meta', `✅ Done — ${p.turns} turn${p.turns!==1?'s':''}, ${p.toolCallCount} tool call${p.toolCallCount!==1?'s':''}`);
+            setRunning(false); updateStats();
+          } else if (p.error) {
+            flush(); textEl = null;
+            appendLine('error', p.error); setRunning(false);
+          }
+        } catch (_) {}
+      }
+    }
+
+    function pump() {
+      reader.read().then(({ done, value }) => {
+        if (done) { flush(); setRunning(false); return; }
+        buffer += decoder.decode(value, { stream: true });
+        processSSE(); pump();
+      }).catch(e => { flush(); appendLine('error', e.message); setRunning(false); });
+    }
+    pump();
+  } catch (e) {
+    appendLine('error', `Voice request failed: ${e.message}`);
+    setRunning(false);
+  }
+}
+
+function setVoiceState(recording) {
+  voiceRecording = recording;
+  const btn  = document.getElementById('voiceBtn');
+  const text = document.getElementById('voiceBtnText');
+  if (recording) { btn.classList.add('recording'); text.textContent = 'Listening…'; }
+  else           { btn.classList.remove('recording'); text.textContent = 'Voice'; }
+}
+</script>
+</body>
+</html>
