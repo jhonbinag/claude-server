@@ -6,14 +6,15 @@
  *  - OAuth routes        → /oauth/*
  *  - Webhook receiver    → /webhooks/ghl  (RSA-verified GHL events)
  *  - Protected API       → /api/v1/*      (requires x-api-key header)
- *  - Token refresh cron  → runs every 20 hours
+ *
+ * Vercel note: app.listen() is only called in local dev (non-Vercel).
+ * Vercel wraps the exported Express app as a serverless function.
  */
 
 require('dotenv').config();
 
 const express    = require('express');
 const rateLimit  = require('express-rate-limit');
-const cron       = require('node-cron');
 const config     = require('./src/config');
 const authRoutes    = require('./src/routes/auth');
 const apiRoutes     = require('./src/routes/api');
@@ -23,8 +24,6 @@ const toolsRoutes   = require('./src/routes/tools');
 const adsRoutes     = require('./src/routes/adsGenerator');
 const adminRoutes   = require('./src/routes/admin');
 const uiRoute       = require('./src/routes/ui');
-const tokenStore    = require('./src/services/tokenStore');
-const ghlClient     = require('./src/services/ghlClient');
 
 const app = express();
 
@@ -68,7 +67,12 @@ app.use(express.static('public'));
 
 // Public health check
 app.get('/health', (req, res) => {
-  res.json({ success: true, service: 'hltools-ghl-marketplace', status: 'running' });
+  res.json({
+    success: true,
+    service: 'hltools-ghl-marketplace',
+    status:  'running',
+    baseUrl: 'https://claudeserver.vercel.app',
+  });
 });
 
 // 404 fallback
@@ -82,26 +86,30 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, error: 'Internal server error.' });
 });
 
-// ─── Proactive Token Refresh Cron ─────────────────────────────────────────────
-// GHL access tokens expire after 24 hours; refresh every 20 hours as a buffer.
+// ─── Local Dev Only ───────────────────────────────────────────────────────────
+// Vercel manages its own server lifecycle — only listen when running locally.
 
-cron.schedule('0 */20 * * *', async () => {
-  const locations = await tokenStore.listLocations();
-  console.log(`[Cron] Proactive token refresh for ${locations.length} location(s)...`);
-  for (const locationId of locations) {
-    try {
-      await ghlClient.refreshAccessToken(locationId);
-      console.log(`[Cron] Refreshed: ${locationId}`);
-    } catch (err) {
-      console.error(`[Cron] Failed to refresh ${locationId}: ${err.message}`);
+if (process.env.NODE_ENV !== 'production') {
+  const tokenStore = require('./src/services/tokenStore');
+  const ghlClient  = require('./src/services/ghlClient');
+  const cron       = require('node-cron');
+
+  // Proactive GHL token refresh every 20 hours (local dev only)
+  cron.schedule('0 */20 * * *', async () => {
+    const locations = await tokenStore.listLocations();
+    console.log(`[Cron] Proactive token refresh for ${locations.length} location(s)...`);
+    for (const locationId of locations) {
+      try {
+        await ghlClient.refreshAccessToken(locationId);
+        console.log(`[Cron] Refreshed: ${locationId}`);
+      } catch (err) {
+        console.error(`[Cron] Failed to refresh ${locationId}: ${err.message}`);
+      }
     }
-  }
-});
+  });
 
-// ─── Start Server ─────────────────────────────────────────────────────────────
-
-app.listen(config.port, () => {
-  console.log(`
+  app.listen(config.port, () => {
+    console.log(`
   ╔══════════════════════════════════════════════════════╗
   ║       HL Pro Tools — GHL Marketplace Backend         ║
   ╠══════════════════════════════════════════════════════╣
@@ -122,7 +130,9 @@ app.listen(config.port, () => {
   ║           : GET  /ui/ads-generator (Bulk Ads)        ║
   ║  Health   : GET  /health                             ║
   ╚══════════════════════════════════════════════════════╝
-  `);
-});
+    `);
+  });
+}
 
+// ─── Export for Vercel Serverless ─────────────────────────────────────────────
 module.exports = app;
