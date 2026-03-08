@@ -108,6 +108,8 @@ app.listen(config.port, () => {
   ║  Server   : http://localhost:${config.port}                 ║
   ║  Env      : ${config.nodeEnv.padEnd(41)}║
   ╠══════════════════════════════════════════════════════╣
+  ║  Base URL : https://claudeserver.vercel.app          ║
+  ╠══════════════════════════════════════════════════════╣
   ║  OAuth    : GET  /oauth/install                      ║
   ║  Callback : GET  /oauth/callback                     ║
   ║  Webhooks : POST /webhooks/ghl  (RSA verified)       ║
