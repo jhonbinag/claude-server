@@ -80,7 +80,8 @@ const required = ['GHL_CLIENT_ID', 'GHL_CLIENT_SECRET', 'GHL_REDIRECT_URI'];
 const missing  = required.filter((key) => !process.env[key]);
 if (missing.length > 0) {
   console.error(`[Config] Missing required environment variables: ${missing.join(', ')}`);
-  process.exit(1);
+  // Do not call process.exit() — would crash Vercel serverless functions.
+  // Routes that need these vars will fail with their own errors at runtime.
 }
 
 if (!config.ghl.webhookPublicKey) {
