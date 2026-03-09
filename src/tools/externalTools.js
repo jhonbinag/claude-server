@@ -538,6 +538,14 @@ async function executeExternalTool(toolName, input, toolConfigs) {
 // ─── Tool Metadata (for UI) ───────────────────────────────────────────────────
 
 const TOOL_METADATA = {
+  anthropic: {
+    label:       'Claude AI (Anthropic)',
+    icon:        '🤖',
+    description: 'Required — powers the AI assistant for your account',
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'sk-ant-...' },
+    ],
+  },
   perplexity: {
     label:       'Perplexity AI',
     icon:        '🔍',

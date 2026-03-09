@@ -22,16 +22,15 @@ const activityLogger = require('./activityLogger');
 
 const MAX_TURNS = 20; // safety ceiling on tool-call iterations
 
-let _client = null;
-
-function getClient() {
-  if (!_client) {
-    if (!config.anthropic.apiKey) {
-      throw new Error('ANTHROPIC_API_KEY is not configured. Set it in your .env file.');
-    }
-    _client = new Anthropic.default({ apiKey: config.anthropic.apiKey });
+// Create a per-location Anthropic client using the key stored in tool configs.
+// Falls back to the server-level ANTHROPIC_API_KEY env var (for local dev).
+async function getClientForLocation(locationId) {
+  const configs = await toolRegistry.loadToolConfigs(locationId);
+  const apiKey  = configs.anthropic?.apiKey || config.anthropic.apiKey;
+  if (!apiKey) {
+    throw new Error('Anthropic API key not configured. Go to Settings → Integrations → Claude AI to add your key.');
   }
-  return _client;
+  return new Anthropic.default({ apiKey });
 }
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
@@ -88,7 +87,7 @@ Today's date: ${new Date().toISOString().split('T')[0]}
  *   integration categories (e.g. ['openai','sendgrid']). null = all enabled.
  */
 async function runTask({ task, locationId, companyId, allowedIntegrations, onEvent }) {
-  const client = getClient();
+  const client = await getClientForLocation(locationId);
   const emit   = onEvent || (() => {});
 
   // Pre-fetch tools and enabled integrations once before the loop.
