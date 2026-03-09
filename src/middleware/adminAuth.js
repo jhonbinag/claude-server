@@ -1,15 +1,18 @@
 /**
  * src/middleware/adminAuth.js
  *
- * Protects all /admin/* routes with a separate ADMIN_API_KEY.
- * This key is set in .env and never shared with sub-account users.
+ * Protects /admin/* routes. Accepts two key types via x-admin-key header:
  *
- * Header: x-admin-key: <ADMIN_API_KEY>
+ *  1. ADMIN_API_KEY env var  — full server-wide admin access
+ *  2. Sub-location API key   — access scoped to that location (hlpt_... prefix)
+ *
+ * Header: x-admin-key: <key>
  */
 
-const config = require('../config');
+const config          = require('../config');
+const apiKeyService   = require('../services/apiKeyService');
 
-function adminAuth(req, res, next) {
+async function adminAuth(req, res, next) {
   const key = req.headers['x-admin-key'];
 
   if (!key) {
@@ -19,19 +22,25 @@ function adminAuth(req, res, next) {
     });
   }
 
-  if (!config.adminApiKey) {
-    return res.status(503).json({
-      success: false,
-      error:   'Admin access is not configured. Set ADMIN_API_KEY in your .env file.',
-    });
+  // 1. Master admin key
+  if (config.adminApiKey && key === config.adminApiKey) {
+    req.adminId     = 'admin';
+    req.adminScoped = false;
+    return next();
   }
 
-  if (key !== config.adminApiKey) {
-    return res.status(403).json({ success: false, error: 'Invalid admin key.' });
+  // 2. Sub-location API key (hlpt_...)
+  if (key.startsWith('hlpt_')) {
+    const locationId = await apiKeyService.validateApiKey(key);
+    if (locationId) {
+      req.adminId     = locationId;
+      req.locationId  = locationId;
+      req.adminScoped = true;
+      return next();
+    }
   }
 
-  req.adminId = 'admin'; // can be extended to support named admin keys
-  next();
+  return res.status(403).json({ success: false, error: 'Invalid admin key.' });
 }
 
 module.exports = adminAuth;
