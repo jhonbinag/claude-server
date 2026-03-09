@@ -48,7 +48,27 @@ const associations   = require('./api/associations');
 const lcEmail        = require('./api/lcEmail');
 const customMenus    = require('./api/customMenus');
 
-// Apply authentication to ALL routes in this router
+// ─── Public: Activate a location with Anthropic API key ──────────────────────
+// No auth required — this IS the first-time setup step.
+router.post('/activate', async (req, res) => {
+  const { locationId, anthropicKey } = req.body;
+  if (!locationId || !anthropicKey) {
+    return res.status(400).json({ success: false, error: 'locationId and anthropicKey are required.' });
+  }
+  if (!anthropicKey.startsWith('sk-ant-')) {
+    return res.status(400).json({ success: false, error: 'Invalid Anthropic API key format. Must start with sk-ant-' });
+  }
+  try {
+    const registry = require('../tools/toolRegistry');
+    await registry.saveToolConfig(locationId, 'anthropic', { apiKey: anthropicKey });
+    console.log(`[Activate] Location activated: ${locationId}`);
+    res.json({ success: true, locationId });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Apply authentication to ALL routes below this point
 router.use(authenticate);
 
 // ─── Health / Auth Check ──────────────────────────────────────────────────────

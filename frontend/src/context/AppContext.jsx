@@ -1,112 +1,131 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { api } from '../lib/api';
 
 const AppContext = createContext(null);
 
+// Base API call using x-location-id header
+async function apiFetch(path, locationId, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-location-id': locationId,
+      ...(opts.headers || {}),
+    },
+  });
+  return res.json();
+}
+
 export function AppProvider({ children }) {
-  const [apiKey,            setApiKey]            = useState(() => localStorage.getItem('gtm_api_key') || '');
-  const [isAuthenticated,   setIsAuthenticated]   = useState(false);
-  const [isAuthLoading,     setIsAuthLoading]     = useState(true);
-  const [locationId,        setLocationId]        = useState('');
-  const [claudeReady,       setClaudeReady]       = useState(false);
-  const [enabledTools,      setEnabledTools]      = useState([]);
-  const [integrations,      setIntegrations]      = useState([]);
+  const [locationId,         setLocationId]         = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('locationId') || localStorage.getItem('gtm_location_id') || '';
+  });
+  const [isAuthenticated,    setIsAuthenticated]    = useState(false);
+  const [isAuthLoading,      setIsAuthLoading]      = useState(true);
+  const [claudeReady,        setClaudeReady]        = useState(false);
+  const [enabledTools,       setEnabledTools]       = useState([]);
+  const [integrations,       setIntegrations]       = useState([]);
   const [integrationsLoaded, setIntegrationsLoaded] = useState(false);
 
-  // ── Verify a key and populate auth state ─────────────────────────────────
-  const verifyKey = useCallback(async (key) => {
+  // ── Verify a locationId is activated (has Anthropic key stored) ───────────
+  const verifyLocation = useCallback(async (locId) => {
     try {
-      const data = await api.getWithKey('/claude/status', key);
+      const data = await apiFetch('/claude/status', locId);
       if (!data.success) return false;
-      setApiKey(key);
       setIsAuthenticated(true);
-      setLocationId(data.locationId || '');
       setClaudeReady(data.claudeReady || false);
       setEnabledTools(data.enabledTools || []);
-      localStorage.setItem('gtm_api_key', key);
+      localStorage.setItem('gtm_location_id', locId);
       return true;
     } catch {
       return false;
     }
   }, []);
 
-  // ── Load integrations (called after login + on refresh) ───────────────────
-  const loadIntegrations = useCallback(async (key) => {
-    const k = key || apiKey;
-    if (!k) return;
+  // ── Load integrations ─────────────────────────────────────────────────────
+  const loadIntegrations = useCallback(async (locId) => {
+    const id = locId || locationId;
+    if (!id) return;
     try {
-      const data = await api.getWithKey('/tools', k);
+      const data = await apiFetch('/tools', id);
       if (data.success) {
         setIntegrations(data.data || []);
         setIntegrationsLoaded(true);
       }
     } catch {}
-  }, [apiKey]);
+  }, [locationId]);
 
-  // ── Auto-login on mount (also reads ?apiKey= from URL after OAuth install) ──
+  // ── Auto-login on mount ───────────────────────────────────────────────────
   useEffect(() => {
-    const params  = new URLSearchParams(window.location.search);
-    const urlKey  = params.get('apiKey');
-    const urlLoc  = params.get('locationId');
-
-    // If GHL OAuth redirected here with credentials, use them
-    if (urlKey) {
-      if (urlLoc) localStorage.setItem('gtm_location_id', urlLoc);
-      // Clean URL without reloading
+    // Persist locationId from URL and clean URL
+    const params = new URLSearchParams(window.location.search);
+    const urlLoc = params.get('locationId');
+    if (urlLoc) {
+      localStorage.setItem('gtm_location_id', urlLoc);
+      setLocationId(urlLoc);
       window.history.replaceState({}, '', window.location.pathname);
-      verifyKey(urlKey)
-        .then(ok => { if (ok) loadIntegrations(urlKey); })
-        .finally(() => setIsAuthLoading(false));
-      return;
     }
 
-    if (!apiKey) { setIsAuthLoading(false); return; }
-    verifyKey(apiKey)
-      .then(ok => { if (ok) loadIntegrations(apiKey); })
+    const locId = urlLoc || locationId;
+    if (!locId) { setIsAuthLoading(false); return; }
+
+    verifyLocation(locId)
+      .then(ok => { if (ok) loadIntegrations(locId); })
       .finally(() => setIsAuthLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Public login ──────────────────────────────────────────────────────────
-  const login = async (key) => {
-    const ok = await verifyKey(key);
-    if (ok) loadIntegrations(key);
-    return ok;
+  // ── First-time setup: activate with Anthropic key ────────────────────────
+  const activate = async (anthropicKey) => {
+    if (!locationId) return false;
+    try {
+      const res = await fetch('/api/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locationId, anthropicKey }),
+      });
+      const data = await res.json();
+      if (!data.success) return false;
+      // Re-verify now that key is stored
+      const ok = await verifyLocation(locationId);
+      if (ok) loadIntegrations(locationId);
+      return ok;
+    } catch {
+      return false;
+    }
   };
 
   // ── Logout ────────────────────────────────────────────────────────────────
   const logout = () => {
-    localStorage.removeItem('gtm_api_key');
-    setApiKey('');
-    setIsAuthenticated(false);
+    localStorage.removeItem('gtm_location_id');
     setLocationId('');
+    setIsAuthenticated(false);
     setIntegrations([]);
     setIntegrationsLoaded(false);
   };
 
-  // ── Refresh both status + integrations (call after connect/disconnect) ────
+  // ── Refresh status + integrations ────────────────────────────────────────
   const refreshStatus = useCallback(async () => {
-    if (!apiKey) return;
-    const [status] = await Promise.allSettled([
-      api.getWithKey('/claude/status', apiKey),
-    ]);
-    if (status.value?.success) {
-      setEnabledTools(status.value.enabledTools || []);
-      setClaudeReady(status.value.claudeReady || false);
-    }
+    if (!locationId) return;
+    try {
+      const data = await apiFetch('/claude/status', locationId);
+      if (data.success) {
+        setEnabledTools(data.enabledTools || []);
+        setClaudeReady(data.claudeReady || false);
+      }
+    } catch {}
     await loadIntegrations();
-  }, [apiKey, loadIntegrations]);
+  }, [locationId, loadIntegrations]);
 
   return (
     <AppContext.Provider value={{
-      apiKey,
+      locationId,
       isAuthenticated,
       isAuthLoading,
-      locationId,
       claudeReady,
       enabledTools,
       integrations,
       integrationsLoaded,
-      login,
+      activate,
       logout,
       loadIntegrations,
       refreshStatus,

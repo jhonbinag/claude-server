@@ -1,55 +1,48 @@
 /**
  * authenticate.js
  *
- * Express middleware that gates every protected endpoint.
+ * Validates requests using:
+ *   x-location-id: <locationId>   (required)
  *
- * Flow:
- *  1. Read x-api-key from request header
- *  2. Validate it against the store → resolve locationId
- *  3. Ensure GHL tokens exist for that location (app was installed)
- *  4. Touch the tool-session token (sliding 7-day window, debounced 6h)
- *  5. Attach locationId and a ready-to-use ghlRequest helper to req
+ * A location is authenticated once its Anthropic API key has been stored
+ * via POST /api/activate. No OAuth or separate app key needed.
  */
 
-const apiKeyService    = require('../services/apiKeyService');
-const tokenStore       = require('../services/tokenStore');
-const ghlClient        = require('../services/ghlClient');
-const toolTokenService = require('../services/toolTokenService');
-const activityLogger   = require('../services/activityLogger');
-const config           = require('../config');
+const toolRegistry = require('../tools/toolRegistry');
+const ghlClient    = require('../services/ghlClient');
+const tokenStore   = require('../services/tokenStore');
 
 async function authenticate(req, res, next) {
   try {
-    const apiKey = req.headers[config.apiKeyHeader];
+    const locationId = req.headers['x-location-id'];
 
-    if (!apiKey) {
-      return res.status(401).json({
-        success: false,
-        error:   'Missing API key. Include it in the x-api-key header.',
-      });
-    }
-
-    const locationId = await apiKeyService.validateApiKey(apiKey);
     if (!locationId) {
-      return res.status(401).json({ success: false, error: 'Invalid API key.' });
-    }
-
-    const record = await tokenStore.getTokenRecord(locationId);
-    if (!record || !record.refreshToken) {
-      return res.status(403).json({
-        success: false,
-        error:   'App is not installed for this location. Complete the OAuth flow first.',
+      return res.status(401).json({
+        success:    false,
+        error:      'Missing x-location-id header.',
+        needsSetup: true,
       });
     }
 
-    // Attach helpers to req
-    req.locationId = locationId;
-    req.companyId  = record.companyId;
-    req.ghl = (method, endpoint, data, params) =>
-      ghlClient.ghlRequest(locationId, method, endpoint, data, params);
+    // A location is activated once it has an Anthropic API key stored
+    const configs = await toolRegistry.loadToolConfigs(locationId);
+    if (!configs.anthropic?.apiKey) {
+      return res.status(401).json({
+        success:    false,
+        error:      'Location not activated. Enter your Anthropic API key to get started.',
+        needsSetup: true,
+      });
+    }
 
-    // Touch token — sliding-window refresh (debounced, fire-and-forget)
-    toolTokenService.touchToken(locationId).catch(() => {});
+    req.locationId = locationId;
+
+    // Attach GHL helper if OAuth tokens exist (optional)
+    const record = await tokenStore.getTokenRecord(locationId).catch(() => null);
+    if (record && record.refreshToken) {
+      req.companyId = record.companyId;
+      req.ghl = (method, endpoint, data, params) =>
+        ghlClient.ghlRequest(locationId, method, endpoint, data, params);
+    }
 
     next();
   } catch (err) {

@@ -209,17 +209,21 @@ router.post('/voice', upload.single('audio'), async (req, res) => {
 
 // ─── GET /claude/status — Quick health check ──────────────────────────────────
 
-router.get('/status', (req, res) => {
-  const config   = require('../config');
-  const registry = require('../tools/toolRegistry');
-  res.json({
-    success:        true,
-    locationId:     req.locationId,
-    claudeReady:    !!config.anthropic.apiKey,
-    model:          'claude-opus-4-6',
-    enabledTools:   registry.getTools(req.locationId).map((t) => t.name),
-    integrations:   registry.getEnabledIntegrations(req.locationId),
-  });
+router.get('/status', async (req, res) => {
+  try {
+    const registry = require('../tools/toolRegistry');
+    const configs  = await registry.loadToolConfigs(req.locationId);
+    const tools    = await registry.getTools(req.locationId);
+    res.json({
+      success:      true,
+      locationId:   req.locationId,
+      claudeReady:  !!configs.anthropic?.apiKey,
+      model:        'claude-opus-4-6',
+      enabledTools: tools.map((t) => t.name),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 module.exports = router;

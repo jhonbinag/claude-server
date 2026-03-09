@@ -159,10 +159,32 @@ async function getToolConfig(locationId) {
   return loadToolConfigs(locationId);
 }
 
+/**
+ * Save a single integration's config for a location.
+ * Writes to Firebase (if enabled) or tokenStore, then invalidates Redis cache.
+ */
+async function saveToolConfig(locationId, category, configData) {
+  const existing = await loadToolConfigs(locationId);
+  const merged   = { ...existing, [category]: { ...(existing[category] || {}), ...configData } };
+
+  if (config.isFirebaseEnabled) {
+    await firebaseStore.saveToolConfig(locationId, merged);
+  } else {
+    await Promise.resolve(tokenStore.saveToolConfig(locationId, merged));
+  }
+
+  // Invalidate cache so next read picks up the new value
+  try {
+    await toolTokenService.invalidateToolConfigCache(locationId);
+  } catch { /* non-fatal */ }
+}
+
 module.exports = {
   getTools,
   executeTool,
   getEnabledIntegrations,
   getAllIntegrationsMeta,
   getToolConfig,
+  loadToolConfigs,
+  saveToolConfig,
 };
