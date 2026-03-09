@@ -14,14 +14,14 @@ export function useStreamFetch() {
   const readerRef  = useRef(null);
   const abortedRef = useRef(false);
 
-  const stream = useCallback(async (url, body, onEvent, apiKey) => {
+  const stream = useCallback(async (url, body, onEvent, locationId) => {
     setIsRunning(true);
     abortedRef.current = false;
 
     try {
       const res = await fetch(url, {
         method:  'POST',
-        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+        headers: { 'x-location-id': locationId, 'Content-Type': 'application/json' },
         body:    JSON.stringify(body),
       });
 

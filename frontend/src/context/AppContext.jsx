@@ -119,6 +119,7 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider value={{
       locationId,
+      apiKey: locationId, // alias — pages use locationId as the auth token
       isAuthenticated,
       isAuthLoading,
       claudeReady,
@@ -126,6 +127,7 @@ export function AppProvider({ children }) {
       integrations,
       integrationsLoaded,
       activate,
+      login: activate,   // alias for components that still call login()
       logout,
       loadIntegrations,
       refreshStatus,
