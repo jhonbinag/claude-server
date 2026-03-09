@@ -172,15 +172,10 @@ router.get('/callback', async (req, res) => {
 
     console.log(`[Auth] Installation complete for location: ${locationId}`);
 
-    res.json({
-      success:    true,
-      message:    'App installed successfully.',
-      locationId,
-      companyId:  tokenData.companyId,
-      scope:      tokenData.scope,
-      apiKey,
-      note:       'Store your API key safely. Pass it as x-api-key on every request.',
-    });
+    // Redirect to the app UI so the user lands on the dashboard after install.
+    // Pass the apiKey and locationId as query params so the SPA can store them.
+    const appUrl = `${req.protocol}://${req.get('host')}/ui/?locationId=${locationId}&apiKey=${apiKey}`;
+    res.redirect(appUrl);
   } catch (err) {
     console.error('[Auth] Callback error:', err.message);
     res.status(500).json({ success: false, error: 'Failed to complete OAuth flow.', detail: err.message });
