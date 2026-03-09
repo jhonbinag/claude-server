@@ -43,8 +43,23 @@ export function AppProvider({ children }) {
     } catch {}
   }, [apiKey]);
 
-  // ── Auto-login on mount ───────────────────────────────────────────────────
+  // ── Auto-login on mount (also reads ?apiKey= from URL after OAuth install) ──
   useEffect(() => {
+    const params  = new URLSearchParams(window.location.search);
+    const urlKey  = params.get('apiKey');
+    const urlLoc  = params.get('locationId');
+
+    // If GHL OAuth redirected here with credentials, use them
+    if (urlKey) {
+      if (urlLoc) localStorage.setItem('gtm_location_id', urlLoc);
+      // Clean URL without reloading
+      window.history.replaceState({}, '', window.location.pathname);
+      verifyKey(urlKey)
+        .then(ok => { if (ok) loadIntegrations(urlKey); })
+        .finally(() => setIsAuthLoading(false));
+      return;
+    }
+
     if (!apiKey) { setIsAuthLoading(false); return; }
     verifyKey(apiKey)
       .then(ok => { if (ok) loadIntegrations(apiKey); })
