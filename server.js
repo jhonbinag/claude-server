@@ -3,26 +3,19 @@ const express   = require('express');
 const rateLimit = require('express-rate-limit');
 
 // ── Resilient module loader ────────────────────────────────────────────────────
+// Inline try-catch keeps static require() strings visible to Vercel's bundler
+// so it can trace the full dependency tree (axios, multer, etc.)
 const _errors = {};
-function safeRequire(label, modulePath) {
-  try {
-    return require(modulePath);
-  } catch (err) {
-    _errors[label] = err.message;
-    console.error(`[LOAD FAIL] ${label}: ${err.message}`);
-    return null;
-  }
-}
 
-const config        = safeRequire('config',      './src/config');
-const authRoutes    = safeRequire('auth',         './src/routes/auth');
-const apiRoutes     = safeRequire('api',          './src/routes/api');
-const webhookRoutes = safeRequire('webhooks',     './src/routes/webhooks');
-const claudeRoutes  = safeRequire('claude',       './src/routes/claude');
-const toolsRoutes   = safeRequire('tools',        './src/routes/tools');
-const adsRoutes     = safeRequire('ads',          './src/routes/adsGenerator');
-const adminRoutes   = safeRequire('admin',        './src/routes/admin');
-const uiRoute       = safeRequire('ui',           './src/routes/ui');
+let config;        try { config        = require('./src/config');            } catch (e) { _errors.config   = e.message; }
+let authRoutes;    try { authRoutes    = require('./src/routes/auth');        } catch (e) { _errors.auth     = e.message; }
+let apiRoutes;     try { apiRoutes     = require('./src/routes/api');         } catch (e) { _errors.api      = e.message; }
+let webhookRoutes; try { webhookRoutes = require('./src/routes/webhooks');    } catch (e) { _errors.webhooks = e.message; }
+let claudeRoutes;  try { claudeRoutes  = require('./src/routes/claude');      } catch (e) { _errors.claude   = e.message; }
+let toolsRoutes;   try { toolsRoutes   = require('./src/routes/tools');       } catch (e) { _errors.tools    = e.message; }
+let adsRoutes;     try { adsRoutes     = require('./src/routes/adsGenerator');} catch (e) { _errors.ads      = e.message; }
+let adminRoutes;   try { adminRoutes   = require('./src/routes/admin');       } catch (e) { _errors.admin    = e.message; }
+let uiRoute;       try { uiRoute       = require('./src/routes/ui');          } catch (e) { _errors.ui       = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
 const app = express();
