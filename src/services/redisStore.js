@@ -138,6 +138,19 @@ async function getToolConfig(locationId) {
   return (record && record.toolConfigs) ? record.toolConfigs : {};
 }
 
+const APP_SETTINGS_KEY = 'hltools:appsettings';
+
+async function saveAppSettings(settings) {
+  const existing = await getAppSettings() || {};
+  await redis.set(APP_SETTINGS_KEY, JSON.stringify({ ...existing, ...settings }));
+}
+
+async function getAppSettings() {
+  const raw = await redis.get(APP_SETTINGS_KEY);
+  if (!raw) return null;
+  return typeof raw === 'string' ? JSON.parse(raw) : raw;
+}
+
 module.exports = {
   saveTokens,
   getTokenRecord:      getRecord,
@@ -149,4 +162,6 @@ module.exports = {
   listLocations,
   saveToolConfig,
   getToolConfig,
+  saveAppSettings,
+  getAppSettings,
 };
