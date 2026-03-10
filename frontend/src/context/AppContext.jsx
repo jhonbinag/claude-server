@@ -15,32 +15,20 @@ async function apiFetch(path, locationId, opts = {}) {
   return res.json();
 }
 
+function getInitialLocationId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('locationId') || localStorage.getItem('gtm_location_id') || '';
+}
+
 export function AppProvider({ children }) {
-  const [locationId,         setLocationId]         = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('locationId') || localStorage.getItem('gtm_location_id') || '';
-  });
-  const [isAuthenticated,    setIsAuthenticated]    = useState(false);
-  const [isAuthLoading,      setIsAuthLoading]      = useState(true);
+  const [locationId,         setLocationId]         = useState(getInitialLocationId);
+  // Auth is immediate: if we have a locationId, user is in. No API gatekeeping.
+  const [isAuthenticated,    setIsAuthenticated]    = useState(() => !!getInitialLocationId());
+  const [isAuthLoading,      setIsAuthLoading]      = useState(false);
   const [claudeReady,        setClaudeReady]        = useState(false);
   const [enabledTools,       setEnabledTools]       = useState([]);
   const [integrations,       setIntegrations]       = useState([]);
   const [integrationsLoaded, setIntegrationsLoaded] = useState(false);
-
-  // ── Verify a locationId is activated (has Anthropic key stored) ───────────
-  const verifyLocation = useCallback(async (locId) => {
-    try {
-      const data = await apiFetch('/claude/status', locId);
-      if (!data.success) return false;
-      setIsAuthenticated(true);
-      setClaudeReady(data.claudeReady || false);
-      setEnabledTools(data.enabledTools || []);
-      localStorage.setItem('gtm_location_id', locId);
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
 
   // ── Load integrations ─────────────────────────────────────────────────────
   const loadIntegrations = useCallback(async (locId) => {
@@ -55,26 +43,39 @@ export function AppProvider({ children }) {
     } catch {}
   }, [locationId]);
 
-  // ── Auto-login on mount ───────────────────────────────────────────────────
+  // ── Fetch status in background (claudeReady, enabledTools) ───────────────
+  const fetchStatus = useCallback(async (locId) => {
+    try {
+      const data = await apiFetch('/claude/status', locId);
+      if (data.success) {
+        setClaudeReady(data.claudeReady || false);
+        setEnabledTools(data.enabledTools || []);
+      }
+    } catch {}
+  }, []);
+
+  // ── On mount: clean URL, save locationId, fetch background status ─────────
   useEffect(() => {
-    // Persist locationId from URL and clean URL
     const params = new URLSearchParams(window.location.search);
     const urlLoc = params.get('locationId');
+
     if (urlLoc) {
       localStorage.setItem('gtm_location_id', urlLoc);
       setLocationId(urlLoc);
+      setIsAuthenticated(true);
+      // Clean URL (remove query params)
       window.history.replaceState({}, '', window.location.pathname);
     }
 
     const locId = urlLoc || locationId;
-    if (!locId) { setIsAuthLoading(false); return; }
+    if (!locId) return;
 
-    verifyLocation(locId)
-      .then(ok => { if (ok) loadIntegrations(locId); })
-      .finally(() => setIsAuthLoading(false));
+    // Fetch claude status + integrations in background — doesn't block render
+    fetchStatus(locId);
+    loadIntegrations(locId);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── First-time setup: activate with Anthropic key ────────────────────────
+  // ── Activate with Anthropic key ───────────────────────────────────────────
   const activate = async (anthropicKey) => {
     if (!locationId) return false;
     try {
@@ -85,10 +86,9 @@ export function AppProvider({ children }) {
       });
       const data = await res.json();
       if (!data.success) return false;
-      // Re-verify now that key is stored
-      const ok = await verifyLocation(locationId);
-      if (ok) loadIntegrations(locationId);
-      return ok;
+      await fetchStatus(locationId);
+      await loadIntegrations(locationId);
+      return true;
     } catch {
       return false;
     }
@@ -106,20 +106,14 @@ export function AppProvider({ children }) {
   // ── Refresh status + integrations ────────────────────────────────────────
   const refreshStatus = useCallback(async () => {
     if (!locationId) return;
-    try {
-      const data = await apiFetch('/claude/status', locationId);
-      if (data.success) {
-        setEnabledTools(data.enabledTools || []);
-        setClaudeReady(data.claudeReady || false);
-      }
-    } catch {}
+    await fetchStatus(locationId);
     await loadIntegrations();
-  }, [locationId, loadIntegrations]);
+  }, [locationId, fetchStatus, loadIntegrations]);
 
   return (
     <AppContext.Provider value={{
       locationId,
-      apiKey: locationId, // alias — pages use locationId as the auth token
+      apiKey: locationId,
       isAuthenticated,
       isAuthLoading,
       claudeReady,
@@ -127,7 +121,7 @@ export function AppProvider({ children }) {
       integrations,
       integrationsLoaded,
       activate,
-      login: activate,   // alias for components that still call login()
+      login: activate,
       logout,
       loadIntegrations,
       refreshStatus,
