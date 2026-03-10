@@ -14,7 +14,7 @@
  *     focused on just that one field
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp }   from '../context/AppContext';
 import AuthGate     from '../components/AuthGate';
@@ -24,18 +24,20 @@ import { INTEGRATIONS } from '../lib/integrations';
 import { api }      from '../lib/api';
 
 export default function Settings() {
-  const { isAuthenticated, isAuthLoading, apiKey, integrations, refreshStatus } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, locationId, refreshStatus, integrations } = useApp();
 
   const [toast,       setToast]       = useState(null);
   const [testResults, setTestResults] = useState({});
   const [expanded,    setExpanded]    = useState({});
-  // formValues: `${key}_${field}` → new value being typed (only set when editing)
   const [formValues,  setFormValues]  = useState({});
-  // editMode: `${key}_${field}` → true when that field is unlocked for editing
   const [editMode,    setEditMode]    = useState({});
-  // tokenStatus from /tools/sync
   const [tokenStatus, setTokenStatus] = useState(null);
   const [reconnecting, setReconnecting] = useState(false);
+
+  // Anthropic key state
+  const [anthropicKey,     setAnthropicKey]     = useState('');
+  const [anthropicEditing, setAnthropicEditing] = useState(false);
+  const [anthropicSaving,  setAnthropicSaving]  = useState(false);
 
   if (isAuthLoading)    return <Spinner />;
   if (!isAuthenticated) return (
@@ -202,6 +204,30 @@ export default function Settings() {
     setReconnecting(false);
   };
 
+  // ── Anthropic API key ─────────────────────────────────────────────────────
+
+  const saveAnthropicKey = async () => {
+    if (!anthropicKey.trim().startsWith('sk-ant-')) {
+      showToast('Key must start with sk-ant-', false);
+      return;
+    }
+    setAnthropicSaving(true);
+    try {
+      const data = await api.post('/api/activate', { locationId, anthropicKey: anthropicKey.trim() });
+      if (data.success) {
+        showToast('Anthropic API key saved. Claude is now active!', true);
+        setAnthropicKey('');
+        setAnthropicEditing(false);
+        await refreshStatus();
+      } else {
+        showToast(data.error || 'Failed to save key.', false);
+      }
+    } catch {
+      showToast('Failed to save key.', false);
+    }
+    setAnthropicSaving(false);
+  };
+
   // ── Copy sidebar URL ──────────────────────────────────────────────────────
 
   const copySidebarUrl = () => {
@@ -285,12 +311,85 @@ export default function Settings() {
 
         {/* ── Built-in services ──────────────────────────────────────────── */}
         <div className="space-y-3 mb-8">
-          <BuiltInCard
-            icon="🤖" label="Claude Opus 4.6" badge="Active"
-            color="rgba(99,102,241,0.15)"
-            description="Central AI reasoning engine — always connected via server-side ANTHROPIC_API_KEY. Adaptive thinking enabled."
-            rightLabel="✓ Ready" rightSub="claude-opus-4-6"
-          />
+
+          {/* Claude API Key card */}
+          <div className={`card p-5${claudeReady ? ' connected' : ''}`} style={!claudeReady ? { borderColor: 'rgba(251,191,36,0.3)' } : {}}>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+                  style={{ background: 'rgba(99,102,241,0.15)' }}>🤖</div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-white text-sm">Claude Opus 4.6</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${claudeReady ? 'badge-on' : 'badge-off'}`}>
+                      {claudeReady ? 'Active' : 'Key required'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {claudeReady
+                      ? 'Your Anthropic API key is active. Claude is ready.'
+                      : 'Enter your Anthropic API key to activate Claude AI.'}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right text-xs flex-shrink-0">
+                {claudeReady
+                  ? <div className="text-green-400 font-medium">✓ Ready</div>
+                  : !anthropicEditing && (
+                    <button onClick={() => setAnthropicEditing(true)} className="btn-primary px-4 py-1.5 text-xs">
+                      Add Key →
+                    </button>
+                  )}
+              </div>
+            </div>
+
+            {/* Key input — shown when editing or not yet set */}
+            {(anthropicEditing || !claudeReady) && (
+              <div className="mt-4 fade-up">
+                <label className="block text-xs text-gray-400 mb-1.5 font-medium">Anthropic API Key</label>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={anthropicKey}
+                    onChange={e => setAnthropicKey(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && saveAnthropicKey()}
+                    placeholder="sk-ant-..."
+                    className="field flex-1"
+                    autoFocus
+                    autoComplete="new-password"
+                  />
+                  <button
+                    onClick={saveAnthropicKey}
+                    disabled={anthropicSaving || !anthropicKey.trim()}
+                    className="btn-primary px-4 py-2 text-xs"
+                  >
+                    {anthropicSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  {claudeReady && (
+                    <button
+                      onClick={() => { setAnthropicEditing(false); setAnthropicKey(''); }}
+                      className="px-3 py-2 rounded-xl text-xs text-gray-400"
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                    >✕</button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-600 mt-1.5">
+                  Get your key at <span className="text-indigo-400">console.anthropic.com</span> → API Keys
+                </p>
+              </div>
+            )}
+
+            {/* Update key button when already set */}
+            {claudeReady && !anthropicEditing && (
+              <div className="mt-3">
+                <button
+                  onClick={() => setAnthropicEditing(true)}
+                  className="text-xs text-gray-500 hover:text-gray-300"
+                >✏️ Update API key</button>
+              </div>
+            )}
+          </div>
+
           <BuiltInCard
             icon="⚡" label="GoHighLevel CRM" badge="Connected"
             color="rgba(34,197,94,0.1)"

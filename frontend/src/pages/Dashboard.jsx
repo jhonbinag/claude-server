@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useApp }          from '../context/AppContext';
 import { useStreamFetch }  from '../hooks/useStreamFetch';
 import AuthGate      from '../components/AuthGate';
@@ -37,10 +37,12 @@ function applyEvent(prev, evtType, data) {
 }
 
 export default function Dashboard() {
-  const { isAuthenticated, isAuthLoading, apiKey, enabledTools, integrations } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, enabledTools, integrations } = useApp();
   const [task, setTask]       = useState('');
   const [messages, setMessages] = useState([]);
   const { isRunning, stream, stop } = useStreamFetch();
+
+  const navigate = useNavigate();
 
   const run = useCallback(async (taskText) => {
     if (!taskText.trim() || isRunning) return;
@@ -133,6 +135,25 @@ export default function Dashboard() {
 
         {/* ── Main ─────────────────────────────────────────────────────── */}
         <main className="flex-1 flex flex-col overflow-hidden">
+          {/* Claude API key banner */}
+          {!claudeReady && (
+            <div
+              className="flex items-center justify-between gap-4 px-5 py-3 flex-shrink-0"
+              style={{ background: 'rgba(251,191,36,0.08)', borderBottom: '1px solid rgba(251,191,36,0.2)' }}
+            >
+              <div>
+                <span className="text-yellow-400 text-sm font-semibold">⚠️ Anthropic API key required</span>
+                <span className="text-gray-400 text-xs ml-2">Add your key in Settings to activate Claude.</span>
+              </div>
+              <button
+                onClick={() => navigate('/settings')}
+                className="btn-primary px-4 py-1.5 text-xs whitespace-nowrap"
+              >
+                Add API Key →
+              </button>
+            </div>
+          )}
+
           {/* Quick action chips */}
           <div
             className="p-3.5 flex flex-wrap gap-2 flex-shrink-0"

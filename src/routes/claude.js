@@ -212,12 +212,14 @@ router.post('/voice', upload.single('audio'), async (req, res) => {
 router.get('/status', async (req, res) => {
   try {
     const registry = require('../tools/toolRegistry');
+    const config   = require('../config');
     const configs  = await registry.loadToolConfigs(req.locationId);
     const tools    = await registry.getTools(req.locationId);
+    const hasKey   = !!(configs.anthropic?.apiKey || config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY);
     res.json({
       success:      true,
       locationId:   req.locationId,
-      claudeReady:  !!configs.anthropic?.apiKey,
+      claudeReady:  hasKey,
       model:        'claude-opus-4-6',
       enabledTools: tools.map((t) => t.name),
     });
