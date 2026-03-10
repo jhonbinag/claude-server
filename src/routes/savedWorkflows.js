@@ -50,6 +50,12 @@ router.post('/', authenticate, async (req, res) => {
   }
   try {
     const wf = await workflowStore.saveWorkflow(req.locationId, { id, name, steps, context });
+    activityLogger.log({
+      locationId: req.locationId,
+      event:      'workflow_save',
+      detail:     { workflowId: wf.id, workflowName: name, steps: steps.length, isUpdate: !!id },
+      success:    true,
+    });
     res.json({ success: true, data: wf });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -61,6 +67,12 @@ router.post('/', authenticate, async (req, res) => {
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     await workflowStore.deleteWorkflow(req.locationId, req.params.id);
+    activityLogger.log({
+      locationId: req.locationId,
+      event:      'workflow_delete',
+      detail:     { workflowId: req.params.id },
+      success:    true,
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

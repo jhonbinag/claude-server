@@ -76,16 +76,25 @@ function relTime(val) {
 // ── Event badge ───────────────────────────────────────────────────────────────
 
 const EVENT_COLORS = {
-  install:           '#4ade80',
-  uninstall:         '#f87171',
-  restore:           '#60a5fa',
-  tool_connect:      '#34d399',
-  tool_disconnect:   '#fb923c',
-  tool_reconnect:    '#a78bfa',
-  tool_call:         '#94a3b8',
-  workflow_trigger:  '#f0abfc',
-  admin_refresh:     '#fbbf24',
-  admin_revoke:      '#f43f5e',
+  install:                  '#4ade80',
+  uninstall:                '#f87171',
+  restore:                  '#60a5fa',
+  tool_connect:             '#34d399',
+  tool_disconnect:          '#fb923c',
+  tool_reconnect:           '#a78bfa',
+  tool_call:                '#94a3b8',
+  claude_task:              '#818cf8',
+  voice_task:               '#c084fc',
+  workflow_save:            '#2dd4bf',
+  workflow_delete:          '#f97316',
+  workflow_trigger:         '#f0abfc',
+  admin_refresh:            '#fbbf24',
+  admin_revoke:             '#f43f5e',
+  admin_workflow_edit:      '#fbbf24',
+  admin_workflow_delete:    '#f43f5e',
+  admin_connection_clear:   '#fb923c',
+  app_settings_update:      '#60a5fa',
+  billing_update:           '#4ade80',
 };
 
 function EventBadge({ event }) {
@@ -117,6 +126,7 @@ export default function Admin() {
   const [detailData,        setDetailData]        = useState({});
   const [troubleshootData,  setTroubleshootData]  = useState({}); // { [locationId]: { connections, workflows } }
   const [workflowRunLogs,   setWorkflowRunLogs]   = useState({}); // { [locationId]: [] }
+  const [taskLogs,          setTaskLogs]          = useState({}); // { [locationId]: [] }
 
   // App Settings state
   const [appSettingsData,   setAppSettingsData]   = useState(null);
@@ -230,10 +240,11 @@ export default function Admin() {
       if (data.success) setDetailData((prev) => ({ ...prev, [locationId]: data.data }));
     }
     if (!troubleshootData[locationId]) {
-      const [connRes, wfRes, logsRes] = await Promise.all([
+      const [connRes, wfRes, wfLogsRes, taskLogsRes] = await Promise.all([
         adminFetch(`/admin/locations/${locationId}/connections`, { adminKey }),
         adminFetch(`/admin/locations/${locationId}/workflows`, { adminKey }),
-        adminFetch(`/admin/logs?locationId=${locationId}&event=workflow_trigger&limit=50`, { adminKey }),
+        adminFetch(`/admin/logs?locationId=${locationId}&event=workflow_trigger&limit=100`, { adminKey }),
+        adminFetch(`/admin/logs?locationId=${locationId}&limit=200`, { adminKey }),
       ]);
       setTroubleshootData((prev) => ({
         ...prev,
@@ -244,7 +255,13 @@ export default function Admin() {
       }));
       setWorkflowRunLogs((prev) => ({
         ...prev,
-        [locationId]: logsRes.success ? logsRes.data : [],
+        [locationId]: wfLogsRes.success ? wfLogsRes.data : [],
+      }));
+      setTaskLogs((prev) => ({
+        ...prev,
+        [locationId]: taskLogsRes.success
+          ? taskLogsRes.data.filter(l => l.event === 'claude_task' || l.event === 'voice_task')
+          : [],
       }));
     }
   };
@@ -580,6 +597,7 @@ export default function Admin() {
                               data={detailData[loc.locationId]}
                               troubleshoot={troubleshootData[loc.locationId]}
                               workflowRunLogs={workflowRunLogs[loc.locationId] || []}
+                              taskLogs={taskLogs[loc.locationId] || []}
                               onClearConnection={(cat) => clearConnection(loc.locationId, cat)}
                               onDeleteWorkflow={(id, name) => deleteWorkflow(loc.locationId, id, name)}
                             />
@@ -618,7 +636,14 @@ export default function Admin() {
                 style={{ padding: '8px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13 }}
               >
                 <option value="">All events</option>
-                {['install','uninstall','restore','tool_connect','tool_disconnect','tool_reconnect','tool_call','workflow_trigger','admin_refresh','admin_revoke'].map((e) => (
+                {[
+                  'install','uninstall','restore',
+                  'tool_connect','tool_disconnect','tool_reconnect',
+                  'claude_task','voice_task',
+                  'workflow_save','workflow_delete','workflow_trigger',
+                  'admin_refresh','admin_revoke','admin_workflow_edit','admin_workflow_delete','admin_connection_clear',
+                  'app_settings_update','billing_update',
+                ].map((e) => (
                   <option key={e} value={e}>{e}</option>
                 ))}
               </select>
@@ -1004,8 +1029,8 @@ function ActionBtn({ icon, title, color, onClick }) {
 
 // ── Detail panel (expanded row) ───────────────────────────────────────────────
 
-function DetailPanel({ data, troubleshoot, workflowRunLogs, onClearConnection, onDeleteWorkflow }) {
-  const [tsTab, setTsTab] = useState('connections');
+function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, onClearConnection, onDeleteWorkflow }) {
+  const [tsTab, setTsTab] = useState('tasks');
 
   return (
     <div style={{ padding: '14px 0' }}>
@@ -1047,19 +1072,97 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, onClearConnection, o
       {/* Troubleshoot section */}
       <div style={{ borderTop: '1px solid #2a2a2a', paddingTop: 14 }}>
         <p style={{ color: '#fbbf24', fontSize: 11, margin: '0 0 10px', fontWeight: 600, letterSpacing: '0.05em' }}>🔧 TROUBLESHOOT</p>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
-          {['connections', 'workflows'].map((t) => (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+          {[
+            { key: 'tasks',       label: `🤖 Tasks (${taskLogs.length})` },
+            { key: 'workflows',   label: `🔀 Workflows (${troubleshoot?.workflows?.length ?? 0})` },
+            { key: 'connections', label: `🔌 Connections (${Object.keys(troubleshoot?.connections || {}).length})` },
+            { key: 'logs',        label: `📋 All Logs` },
+          ].map(({ key, label }) => (
             <button
-              key={t}
-              onClick={() => setTsTab(t)}
+              key={key}
+              onClick={() => setTsTab(key)}
               style={{
                 padding: '4px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500, border: 'none',
-                background: tsTab === t ? '#7c3aed' : '#2a2a2a',
-                color: tsTab === t ? '#fff' : '#9ca3af',
+                background: tsTab === key ? '#7c3aed' : '#2a2a2a',
+                color: tsTab === key ? '#fff' : '#9ca3af',
               }}
-            >{t.charAt(0).toUpperCase() + t.slice(1)}</button>
+            >{label}</button>
           ))}
         </div>
+
+        {/* Tasks sub-tab — claude_task + voice_task executions */}
+        {tsTab === 'tasks' && (
+          <div>
+            {taskLogs.length === 0 ? (
+              <p style={{ color: '#6b7280', fontSize: 13 }}>No Claude task executions logged yet for this location.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {taskLogs.slice(0, 50).map((log, i) => (
+                  <div key={i} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '8px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                      <EventBadge event={log.event} />
+                      <span style={{ color: log.success ? '#4ade80' : '#f87171', fontSize: 11 }}>{log.success ? '✓ OK' : '✗ Failed'}</span>
+                      {log.detail?.source && (
+                        <span style={{ background: '#1e3a5f', color: '#60a5fa', padding: '1px 8px', borderRadius: 10, fontSize: 10 }}>{log.detail.source}</span>
+                      )}
+                      <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 'auto' }}>{relTime(log.timestamp)}</span>
+                    </div>
+                    {log.detail?.task && (
+                      <p style={{ color: '#e5e7eb', fontSize: 12, margin: '0 0 4px', lineHeight: 1.4 }}>
+                        "{log.detail.task.substring(0, 180)}{log.detail.task.length > 180 ? '…' : ''}"
+                      </p>
+                    )}
+                    {log.detail?.transcript && (
+                      <p style={{ color: '#e5e7eb', fontSize: 12, margin: '0 0 4px', lineHeight: 1.4 }}>
+                        🎤 "{log.detail.transcript.substring(0, 180)}{log.detail.transcript.length > 180 ? '…' : ''}"
+                      </p>
+                    )}
+                    <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#9ca3af', flexWrap: 'wrap' }}>
+                      {log.detail?.turns !== undefined && <span>{log.detail.turns} turns</span>}
+                      {log.detail?.toolCallCount !== undefined && <span>{log.detail.toolCallCount} tool calls</span>}
+                      {log.detail?.toolsCalled?.length > 0 && (
+                        <span style={{ color: '#818cf8' }}>{log.detail.toolsCalled.join(', ')}</span>
+                      )}
+                      {log.detail?.error && <span style={{ color: '#f87171' }}>Error: {log.detail.error}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* All Logs sub-tab */}
+        {tsTab === 'logs' && (
+          <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+            {!data.recentLogs?.length ? (
+              <p style={{ color: '#6b7280', fontSize: 13 }}>No logs for this location.</p>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #333' }}>
+                    {['Time', 'Event', 'Status', 'Detail'].map(h => (
+                      <th key={h} style={{ color: '#6b7280', fontWeight: 600, padding: '4px 8px', textAlign: 'left', fontSize: 11 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.recentLogs.map((log, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #1e1e1e' }}>
+                      <td style={{ color: '#6b7280', padding: '4px 8px', whiteSpace: 'nowrap' }}>{relTime(log.timestamp)}</td>
+                      <td style={{ padding: '4px 8px' }}><EventBadge event={log.event} /></td>
+                      <td style={{ padding: '4px 8px', color: log.success ? '#4ade80' : '#f87171' }}>{log.success ? '✓' : '✗'}</td>
+                      <td style={{ padding: '4px 8px', color: '#9ca3af', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {JSON.stringify(log.detail || {}).substring(0, 120)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         {/* Connections sub-tab */}
         {tsTab === 'connections' && (

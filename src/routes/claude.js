@@ -26,13 +26,14 @@
  *   event: error        → { error: "..." }
  */
 
-const express      = require('express');
-const multer       = require('multer');
-const FormData     = require('form-data');
-const axios        = require('axios');
-const router       = express.Router();
-const authenticate = require('../middleware/authenticate');
-const claudeSvc    = require('../services/claudeService');
+const express        = require('express');
+const multer         = require('multer');
+const FormData       = require('form-data');
+const axios          = require('axios');
+const router         = express.Router();
+const authenticate   = require('../middleware/authenticate');
+const claudeSvc      = require('../services/claudeService');
+const activityLogger = require('../services/activityLogger');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -62,6 +63,9 @@ router.post('/task', async (req, res) => {
     res.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  let taskStats = null;
+  const toolsCalled = [];
+
   try {
     await claudeSvc.runTask({
       task:                task.trim(),
@@ -74,12 +78,14 @@ router.post('/task', async (req, res) => {
             send('text', { text: evt.text });
             break;
           case 'tool_call':
+            toolsCalled.push(evt.name);
             send('tool_call', { name: evt.name, input: evt.input });
             break;
           case 'tool_result':
             send('tool_result', { name: evt.name, result: evt.result });
             break;
           case 'done':
+            taskStats = { turns: evt.turns, toolCallCount: evt.toolCallCount };
             send('done', {
               message:       evt.message,
               turns:         evt.turns,
@@ -92,8 +98,28 @@ router.post('/task', async (req, res) => {
         }
       },
     });
+    activityLogger.log({
+      locationId: req.locationId,
+      event:      'claude_task',
+      detail:     {
+        task:          task.trim().substring(0, 200),
+        turns:         taskStats?.turns         || 0,
+        toolCallCount: taskStats?.toolCallCount || 0,
+        toolsCalled:   [...new Set(toolsCalled)],
+        source:        Array.isArray(allowedIntegrations) ? 'ads_generator' : 'dashboard',
+      },
+      success: true,
+      ip:      req.ip,
+    });
   } catch (err) {
     send('error', { error: err.message });
+    activityLogger.log({
+      locationId: req.locationId,
+      event:      'claude_task',
+      detail:     { task: task.trim().substring(0, 200), error: err.message },
+      success:    false,
+      ip:         req.ip,
+    });
   }
 
   res.end();
@@ -119,6 +145,19 @@ router.post('/task/sync', async (req, res) => {
       allowedIntegrations: Array.isArray(allowedIntegrations) ? allowedIntegrations : null,
     });
 
+    activityLogger.log({
+      locationId: req.locationId,
+      event:      'claude_task',
+      detail:     {
+        task:          task.trim().substring(0, 200),
+        turns:         result.turns         || 0,
+        toolCallCount: result.toolCallCount || 0,
+        source:        'sync',
+      },
+      success: true,
+      ip:      req.ip,
+    });
+
     res.json({
       success:       true,
       result:        result.result,
@@ -126,6 +165,13 @@ router.post('/task/sync', async (req, res) => {
       toolCallCount: result.toolCallCount,
     });
   } catch (err) {
+    activityLogger.log({
+      locationId: req.locationId,
+      event:      'claude_task',
+      detail:     { task: task.trim().substring(0, 200), error: err.message, source: 'sync' },
+      success:    false,
+      ip:         req.ip,
+    });
     res.status(502).json({ success: false, error: err.message });
   }
 });
@@ -184,6 +230,7 @@ router.post('/voice', upload.single('audio'), async (req, res) => {
   // First emit the transcript so the UI can display what was heard
   send('transcript', { text: transcript });
 
+  let voiceStats = null;
   try {
     await claudeSvc.runTask({
       task:       transcript.trim(),
@@ -194,13 +241,34 @@ router.post('/voice', upload.single('audio'), async (req, res) => {
           case 'text':        send('text',        { text: evt.text });                           break;
           case 'tool_call':   send('tool_call',   { name: evt.name, input: evt.input });         break;
           case 'tool_result': send('tool_result', { name: evt.name, result: evt.result });       break;
-          case 'done':        send('done',        { message: evt.message, turns: evt.turns, toolCallCount: evt.toolCallCount }); break;
+          case 'done':
+            voiceStats = { turns: evt.turns, toolCallCount: evt.toolCallCount };
+            send('done', { message: evt.message, turns: evt.turns, toolCallCount: evt.toolCallCount });
+            break;
           case 'error':       send('error',       { error: evt.error });                         break;
         }
       },
     });
+    activityLogger.log({
+      locationId: req.locationId,
+      event:      'voice_task',
+      detail:     {
+        transcript:    transcript.trim().substring(0, 200),
+        turns:         voiceStats?.turns         || 0,
+        toolCallCount: voiceStats?.toolCallCount || 0,
+      },
+      success: true,
+      ip:      req.ip,
+    });
   } catch (err) {
     send('error', { error: err.message });
+    activityLogger.log({
+      locationId: req.locationId,
+      event:      'voice_task',
+      detail:     { transcript: transcript.trim().substring(0, 200), error: err.message },
+      success:    false,
+      ip:         req.ip,
+    });
   }
 
   res.end();
