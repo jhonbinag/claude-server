@@ -126,9 +126,9 @@ async function getCachedToolConfig(locationId) {
   }
 }
 
-async function setCachedToolConfig(locationId, configs) {
+async function setCachedToolConfig(locationId, configs, ttl = CFG_TTL) {
   try {
-    await redis.set(TOOLCFG_PREFIX + locationId, JSON.stringify(configs), CFG_TTL);
+    await redis.set(TOOLCFG_PREFIX + locationId, JSON.stringify(configs), ttl);
   } catch (err) {
     console.error('[ToolTokenService] Cache set error:', err.message);
   }

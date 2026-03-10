@@ -169,14 +169,14 @@ async function saveToolConfig(locationId, category, configData) {
 
   if (config.isFirebaseEnabled) {
     await firebaseStore.saveToolConfig(locationId, merged);
+    // Invalidate cache so next read picks up from Firebase
+    try { await toolTokenService.invalidateToolConfigCache(locationId); } catch { /* non-fatal */ }
   } else {
-    await Promise.resolve(tokenStore.saveToolConfig(locationId, merged));
+    // No Firebase — persist directly to Redis with 90-day TTL (acts as primary store)
+    try { await toolTokenService.setCachedToolConfig(locationId, merged, 90 * 24 * 3600); } catch { /* non-fatal */ }
+    // Also write to tokenStore for local dev
+    try { await Promise.resolve(tokenStore.saveToolConfig(locationId, merged)); } catch { /* non-fatal */ }
   }
-
-  // Invalidate cache so next read picks up the new value
-  try {
-    await toolTokenService.invalidateToolConfigCache(locationId);
-  } catch { /* non-fatal */ }
 }
 
 module.exports = {
