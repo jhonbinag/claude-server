@@ -93,6 +93,8 @@ const EVENT_COLORS = {
   admin_workflow_edit:      '#fbbf24',
   admin_workflow_delete:    '#f43f5e',
   admin_connection_clear:   '#fb923c',
+  admin_connection_update:  '#34d399',
+  admin_run_task:           '#818cf8',
   app_settings_update:      '#60a5fa',
   billing_update:           '#4ade80',
 };
@@ -127,6 +129,7 @@ export default function Admin() {
   const [troubleshootData,  setTroubleshootData]  = useState({}); // { [locationId]: { connections, workflows } }
   const [workflowRunLogs,   setWorkflowRunLogs]   = useState({}); // { [locationId]: [] }
   const [taskLogs,          setTaskLogs]          = useState({}); // { [locationId]: [] }
+  const [adminModal,        setAdminModal]        = useState(null); // { type, locationId, data }
 
   // App Settings state
   const [appSettingsData,   setAppSettingsData]   = useState(null);
@@ -300,6 +303,14 @@ export default function Admin() {
     } else {
       flash(`✗ ${res.error}`);
     }
+  };
+
+  const editWorkflow = (locationId, wf) => {
+    setAdminModal({ type: 'edit-workflow', locationId, data: wf });
+  };
+
+  const editConnection = (locationId, cat, cfg) => {
+    setAdminModal({ type: 'edit-connection', locationId, data: { cat, cfg } });
   };
 
   // ── Login screen ──────────────────────────────────────────────────────────
@@ -598,8 +609,12 @@ export default function Admin() {
                               troubleshoot={troubleshootData[loc.locationId]}
                               workflowRunLogs={workflowRunLogs[loc.locationId] || []}
                               taskLogs={taskLogs[loc.locationId] || []}
+                              locationId={loc.locationId}
+                              adminKey={adminKey}
                               onClearConnection={(cat) => clearConnection(loc.locationId, cat)}
                               onDeleteWorkflow={(id, name) => deleteWorkflow(loc.locationId, id, name)}
+                              onEditWorkflow={(wf) => editWorkflow(loc.locationId, wf)}
+                              onEditConnection={(cat, cfg) => editConnection(loc.locationId, cat, cfg)}
                             />
                           </td>
                         </tr>
@@ -641,7 +656,8 @@ export default function Admin() {
                   'tool_connect','tool_disconnect','tool_reconnect',
                   'claude_task','voice_task',
                   'workflow_save','workflow_delete','workflow_trigger',
-                  'admin_refresh','admin_revoke','admin_workflow_edit','admin_workflow_delete','admin_connection_clear',
+                  'admin_refresh','admin_revoke','admin_workflow_edit','admin_workflow_delete',
+                  'admin_connection_clear','admin_connection_update','admin_run_task',
                   'app_settings_update','billing_update',
                 ].map((e) => (
                   <option key={e} value={e}>{e}</option>
@@ -844,6 +860,40 @@ export default function Admin() {
         )}
 
       </div>
+
+      {/* Admin Edit Modals */}
+      {adminModal?.type === 'edit-workflow' && (
+        <EditWorkflowModal
+          modal={adminModal}
+          adminKey={adminKey}
+          onClose={() => setAdminModal(null)}
+          onSaved={(locationId, updatedWf) => {
+            setAdminModal(null);
+            flash(`✓ Workflow "${updatedWf.name}" updated`);
+            setTroubleshootData((prev) => {
+              const loc = prev[locationId] || {};
+              return { ...prev, [locationId]: { ...loc, workflows: (loc.workflows || []).map(w => w.id === updatedWf.id ? updatedWf : w) } };
+            });
+          }}
+          onFlash={flash}
+        />
+      )}
+      {adminModal?.type === 'edit-connection' && (
+        <EditConnectionModal
+          modal={adminModal}
+          adminKey={adminKey}
+          onClose={() => setAdminModal(null)}
+          onSaved={(locationId, cat, newCfg) => {
+            setAdminModal(null);
+            flash(`✓ ${cat} connection updated`);
+            setTroubleshootData((prev) => {
+              const loc = prev[locationId] || {};
+              return { ...prev, [locationId]: { ...loc, connections: { ...loc.connections, [cat]: newCfg } } };
+            });
+          }}
+          onFlash={flash}
+        />
+      )}
     </div>
   );
 }
@@ -1029,8 +1079,27 @@ function ActionBtn({ icon, title, color, onClick }) {
 
 // ── Detail panel (expanded row) ───────────────────────────────────────────────
 
-function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, onClearConnection, onDeleteWorkflow }) {
-  const [tsTab, setTsTab] = useState('tasks');
+function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId, adminKey,
+                        onClearConnection, onDeleteWorkflow, onEditWorkflow, onEditConnection }) {
+  const [tsTab,       setTsTab]       = useState('tasks');
+  const [runTask,     setRunTask]     = useState('');
+  const [runResult,   setRunResult]   = useState(null);
+  const [runLoading,  setRunLoading]  = useState(false);
+
+  const execRunTask = async () => {
+    if (!runTask.trim() || runLoading) return;
+    setRunLoading(true);
+    setRunResult(null);
+    try {
+      const res = await adminFetch(`/admin/locations/${locationId}/run-task`, {
+        method: 'POST', adminKey, body: { task: runTask.trim() },
+      });
+      setRunResult(res);
+    } catch (e) {
+      setRunResult({ success: false, error: e.message });
+    }
+    setRunLoading(false);
+  };
 
   return (
     <div style={{ padding: '14px 0' }}>
@@ -1075,6 +1144,7 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, onClearCon
         <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
           {[
             { key: 'tasks',       label: `🤖 Tasks (${taskLogs.length})` },
+            { key: 'run',         label: `🚀 Run Task` },
             { key: 'workflows',   label: `🔀 Workflows (${troubleshoot?.workflows?.length ?? 0})` },
             { key: 'connections', label: `🔌 Connections (${Object.keys(troubleshoot?.connections || {}).length})` },
             { key: 'logs',        label: `📋 All Logs` },
@@ -1133,6 +1203,61 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, onClearCon
           </div>
         )}
 
+        {/* Run Task sub-tab — admin runs a Claude task as this location */}
+        {tsTab === 'run' && (
+          <div>
+            <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 10px' }}>
+              Run any Claude task as this location to reproduce issues or test tool access.
+            </p>
+            <textarea
+              value={runTask}
+              onChange={e => setRunTask(e.target.value)}
+              placeholder="e.g. List the 5 most recent contacts in GHL"
+              rows={4}
+              style={{
+                width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #333',
+                borderRadius: 8, color: '#e5e7eb', fontSize: 13, resize: 'vertical', boxSizing: 'border-box', marginBottom: 8,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+              <button
+                onClick={execRunTask}
+                disabled={runLoading || !runTask.trim()}
+                style={{
+                  background: runLoading ? '#4c1d95' : '#7c3aed', border: 'none', borderRadius: 8,
+                  color: '#fff', padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: runLoading ? 'wait' : 'pointer',
+                  opacity: (!runTask.trim()) ? 0.5 : 1,
+                }}
+              >
+                {runLoading ? '⏳ Running…' : '▶ Run Task'}
+              </button>
+              {runResult && (
+                <button onClick={() => setRunResult(null)} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#6b7280', padding: '8px 12px', fontSize: 12, cursor: 'pointer' }}>
+                  Clear
+                </button>
+              )}
+            </div>
+            {runResult && (
+              <div style={{ background: '#111', border: `1px solid ${runResult.success ? '#166534' : '#7f1d1d'}`, borderRadius: 8, padding: 12 }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                  <span style={{ color: runResult.success ? '#4ade80' : '#f87171', fontWeight: 600, fontSize: 13 }}>
+                    {runResult.success ? '✓ Success' : '✗ Failed'}
+                  </span>
+                  {runResult.success && (
+                    <>
+                      <span style={{ color: '#6b7280', fontSize: 12 }}>{runResult.turns} turns</span>
+                      <span style={{ color: '#6b7280', fontSize: 12 }}>· {runResult.toolCallCount} tool calls</span>
+                    </>
+                  )}
+                </div>
+                <pre style={{ color: '#e5e7eb', fontSize: 12, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 300, overflowY: 'auto' }}>
+                  {runResult.success ? (runResult.result || '(no text output)') : runResult.error}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* All Logs sub-tab */}
         {tsTab === 'logs' && (
           <div style={{ maxHeight: 400, overflowY: 'auto' }}>
@@ -1186,11 +1311,18 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, onClearCon
                         ))}
                       </div>
                     </div>
-                    <button
-                      onClick={() => onClearConnection(cat)}
-                      title={`Clear ${cat} connection`}
-                      style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#dc2626', padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}
-                    >✕ Clear</button>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <button
+                        onClick={() => onEditConnection(cat, cfg)}
+                        title={`Edit ${cat} config`}
+                        style={{ background: 'none', border: '1px solid #7c3aed44', borderRadius: 6, color: '#a78bfa', padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+                      >✏️ Edit</button>
+                      <button
+                        onClick={() => onClearConnection(cat)}
+                        title={`Clear ${cat} connection`}
+                        style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#dc2626', padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+                      >✕ Clear</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1216,6 +1348,10 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, onClearCon
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                           <span style={{ color: '#6b7280', fontSize: 11 }}>{wf.steps?.length || 0} steps</span>
                           <span style={{ color: '#6b7280', fontSize: 11 }}>· {relTime(wf.updatedAt)}</span>
+                          <button
+                            onClick={() => onEditWorkflow(wf)}
+                            style={{ background: 'none', border: '1px solid #7c3aed44', borderRadius: 6, color: '#a78bfa', padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}
+                          >✏️ Edit</button>
                           <button
                             onClick={() => onDeleteWorkflow(wf.id, wf.name)}
                             style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#dc2626', padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}
@@ -1272,6 +1408,171 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, onClearCon
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Edit Workflow Modal ────────────────────────────────────────────────────────
+
+function EditWorkflowModal({ modal, adminKey, onClose, onSaved, onFlash }) {
+  const wf = modal.data;
+  const [name,    setName]    = useState(wf.name    || '');
+  const [context, setContext] = useState(wf.context || '');
+  const [steps,   setSteps]   = useState(wf.steps   ? JSON.stringify(wf.steps, null, 2) : '[]');
+  const [saving,  setSaving]  = useState(false);
+  const [stepsErr, setStepsErr] = useState('');
+
+  const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 };
+  const box     = { background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, width: 'min(580px, 100%)', maxHeight: '90vh', overflowY: 'auto' };
+  const inp     = { width: '100%', padding: '8px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, boxSizing: 'border-box', marginBottom: 12 };
+  const lbl     = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 };
+
+  const save = async () => {
+    let parsedSteps;
+    try { parsedSteps = JSON.parse(steps); setStepsErr(''); } catch { setStepsErr('Invalid JSON in steps.'); return; }
+    setSaving(true);
+    try {
+      const res = await adminFetch(`/admin/locations/${modal.locationId}/workflows/${wf.id}`, {
+        method: 'PUT', adminKey,
+        body: { name: name.trim(), context: context.trim(), steps: parsedSteps },
+      });
+      if (res.success) onSaved(modal.locationId, res.data || { ...wf, name: name.trim(), context: context.trim(), steps: parsedSteps });
+      else onFlash(`✗ ${res.error || 'Save failed'}`);
+    } catch { onFlash('✗ Request failed'); }
+    setSaving(false);
+  };
+
+  return (
+    <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={box}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>Edit Workflow</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20 }}>×</button>
+        </div>
+        <label style={lbl}>Workflow Name</label>
+        <input style={inp} value={name} onChange={e => setName(e.target.value)} placeholder="My Workflow" />
+        <label style={lbl}>Context / Instructions</label>
+        <textarea
+          value={context}
+          onChange={e => setContext(e.target.value)}
+          rows={4}
+          placeholder="System prompt / context for this workflow…"
+          style={{ ...inp, resize: 'vertical', lineHeight: 1.5 }}
+        />
+        <label style={lbl}>Steps (JSON array)</label>
+        <textarea
+          value={steps}
+          onChange={e => { setSteps(e.target.value); setStepsErr(''); }}
+          rows={8}
+          style={{ ...inp, fontFamily: 'monospace', fontSize: 12, resize: 'vertical', lineHeight: 1.5 }}
+        />
+        {stepsErr && <p style={{ color: '#f87171', fontSize: 12, margin: '-8px 0 10px' }}>{stepsErr}</p>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={save}
+            disabled={saving || !name.trim()}
+            style={{ flex: 1, padding: '10px', background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: (saving || !name.trim()) ? 0.6 : 1 }}
+          >
+            {saving ? 'Saving…' : 'Save Workflow'}
+          </button>
+          <button onClick={onClose} style={{ padding: '10px 20px', background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit Connection Modal ──────────────────────────────────────────────────────
+
+function EditConnectionModal({ modal, adminKey, onClose, onSaved, onFlash }) {
+  const { cat, cfg } = modal.data;
+  const [fields, setFields] = useState(() => {
+    const init = {};
+    Object.keys(cfg || {}).forEach(k => { init[k] = cfg[k]; });
+    return init;
+  });
+  const [newKey,   setNewKey]   = useState('');
+  const [newVal,   setNewVal]   = useState('');
+  const [saving,   setSaving]   = useState(false);
+
+  const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 };
+  const box     = { background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, width: 'min(480px, 100%)', maxHeight: '90vh', overflowY: 'auto' };
+  const inp     = { width: '100%', padding: '8px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, boxSizing: 'border-box' };
+  const lbl     = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 };
+
+  const save = async () => {
+    if (Object.keys(fields).length === 0) { onFlash('✗ No config fields to save.'); return; }
+    setSaving(true);
+    try {
+      const res = await adminFetch(`/admin/locations/${modal.locationId}/connections/${cat}`, {
+        method: 'PUT', adminKey, body: fields,
+      });
+      if (res.success) onSaved(modal.locationId, cat, fields);
+      else onFlash(`✗ ${res.error || 'Save failed'}`);
+    } catch { onFlash('✗ Request failed'); }
+    setSaving(false);
+  };
+
+  return (
+    <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={box}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>Edit <span style={{ color: '#60a5fa' }}>{cat}</span> Connection</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20 }}>×</button>
+        </div>
+        <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 16px' }}>Edit API credentials for this location. Saving will invalidate the token cache and generate a new session token.</p>
+
+        {Object.keys(fields).map(k => (
+          <div key={k} style={{ marginBottom: 14 }}>
+            <label style={lbl}>{k}</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                style={{ ...inp, flex: 1 }}
+                value={fields[k]}
+                onChange={e => setFields(p => ({ ...p, [k]: e.target.value }))}
+                placeholder={`Enter ${k}…`}
+              />
+              <button
+                onClick={() => setFields(p => { const n = { ...p }; delete n[k]; return n; })}
+                title="Remove field"
+                style={{ background: 'none', border: '1px solid #7f1d1d', borderRadius: 6, color: '#f87171', padding: '0 10px', cursor: 'pointer', fontSize: 14 }}
+              >×</button>
+            </div>
+          </div>
+        ))}
+
+        {/* Add new field */}
+        <div style={{ marginBottom: 16, padding: 12, background: '#111', borderRadius: 8, border: '1px dashed #333' }}>
+          <p style={{ color: '#6b7280', fontSize: 11, margin: '0 0 8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Field</p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input style={{ ...inp, flex: 1 }} value={newKey} onChange={e => setNewKey(e.target.value)} placeholder="field name (e.g. apiKey)" />
+            <input style={{ ...inp, flex: 2 }} value={newVal} onChange={e => setNewVal(e.target.value)} placeholder="value" />
+            <button
+              onClick={() => {
+                if (!newKey.trim()) return;
+                setFields(p => ({ ...p, [newKey.trim()]: newVal }));
+                setNewKey(''); setNewVal('');
+              }}
+              style={{ background: '#7c3aed', border: 'none', borderRadius: 6, color: '#fff', padding: '0 14px', cursor: 'pointer', fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap' }}
+            >+ Add</button>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={save}
+            disabled={saving}
+            style={{ flex: 1, padding: '10px', background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}
+          >
+            {saving ? 'Saving…' : 'Save Connection'}
+          </button>
+          <button onClick={onClose} style={{ padding: '10px 20px', background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}>
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

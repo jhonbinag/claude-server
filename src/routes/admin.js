@@ -524,4 +524,78 @@ router.delete('/locations/:id/connections/:category', async (req, res) => {
   }
 });
 
+// ─── PUT /admin/locations/:id/connections/:category — update tool config fields ─
+// Admin can update API keys / config values for a specific integration.
+
+router.put('/locations/:id/connections/:category', async (req, res) => {
+  const { id, category } = req.params;
+  const configData = req.body; // { apiKey: '...', etc }
+
+  if (!configData || Object.keys(configData).length === 0) {
+    return res.status(400).json({ success: false, error: 'No config fields provided.' });
+  }
+
+  try {
+    if (config.isFirebaseEnabled) {
+      await firebaseStore.saveToolConfig(id, category, configData);
+    } else {
+      await toolRegistry.saveToolConfig(id, category, configData);
+    }
+    await toolTokenService.invalidateToolConfigCache(id);
+
+    activityLogger.log({
+      locationId: id,
+      event:      'admin_connection_update',
+      detail:     { category, fields: Object.keys(configData) },
+      success:    true,
+      adminId:    req.adminId,
+    });
+
+    res.json({ success: true, message: `${category} config updated for ${id}.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /admin/locations/:id/run-task — run a Claude task on behalf of a location ─
+// Admin debugging tool: run any task as a specific location to reproduce issues.
+
+router.post('/locations/:id/run-task', async (req, res) => {
+  const locationId = req.params.id;
+  const { task } = req.body;
+
+  if (!task || typeof task !== 'string' || !task.trim()) {
+    return res.status(400).json({ success: false, error: '"task" string required.' });
+  }
+
+  try {
+    const claudeSvc = require('../services/claudeService');
+    const result = await claudeSvc.runTask({ task: task.trim(), locationId });
+
+    activityLogger.log({
+      locationId,
+      event:   'admin_run_task',
+      detail:  { task: task.trim().substring(0, 200), turns: result.turns, toolCallCount: result.toolCallCount },
+      success: true,
+      adminId: req.adminId,
+    });
+
+    res.json({
+      success:       true,
+      result:        result.result,
+      turns:         result.turns,
+      toolCallCount: result.toolCallCount,
+    });
+  } catch (err) {
+    activityLogger.log({
+      locationId,
+      event:   'admin_run_task',
+      detail:  { task: task.trim().substring(0, 200), error: err.message },
+      success: false,
+      adminId: req.adminId,
+    });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
