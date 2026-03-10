@@ -4,13 +4,11 @@
   "buildCommand": "cd frontend && npm install && npm run build",
   "functions": {
     "api/index.js": {
-      "includeFiles": "src/**"
+      "includeFiles": "src/**,public/ui/**"
     }
   },
   "rewrites": [
-    { "source": "/ui/assets/(.*)", "destination": "/ui/assets/$1" },
-    { "source": "/ui/(.*)",        "destination": "/ui/index.html" },
-    { "source": "/(.*)",           "destination": "/api" }
+    { "source": "/(.*)", "destination": "/api" }
   ],
   "env": {
     "NODE_ENV": "production"

@@ -54,6 +54,10 @@ app.get('/debug', (req, res) => {
 });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+// Serve React SPA static assets (JS, CSS) before any route handlers
+const path = require('path');
+app.use('/ui', express.static(path.join(__dirname, 'public/ui'), { index: false, maxAge: '1y', immutable: true }));
+
 if (authRoutes)    app.use('/oauth',    authRoutes);
 if (apiRoutes)     app.use('/api',      apiRoutes);
 if (webhookRoutes) app.use('/webhooks', webhookRoutes);
