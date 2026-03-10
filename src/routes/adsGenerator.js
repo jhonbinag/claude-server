@@ -42,14 +42,14 @@ const axios        = require('axios');
 const Anthropic    = require('@anthropic-ai/sdk');
 const router       = express.Router();
 const authenticate = require('../middleware/authenticate');
-const tokenStore   = require('../services/tokenStore');
+const toolRegistry = require('../tools/toolRegistry');
 
 router.use(authenticate);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getConfigs(locationId) {
-  return Promise.resolve(tokenStore.getToolConfig(locationId));
+  return toolRegistry.loadToolConfigs(locationId);
 }
 
 function requireKey(configs, service, field = 'apiKey') {
@@ -273,9 +273,9 @@ router.post('/generate', async (req, res) => {
   const configs = await getConfigs(req.locationId);
 
   // Validate required integrations
-  const fbToken  = configs.facebook_ads && configs.facebook_ads.accessToken;
+  const fbToken   = configs.facebook_ads && configs.facebook_ads.accessToken;
   const openAiKey = (configs.openai && configs.openai.apiKey) || process.env.OPENAI_API_KEY;
-  const claudeKey = process.env.ANTHROPIC_API_KEY;
+  const claudeKey = (configs.anthropic && configs.anthropic.apiKey) || process.env.ANTHROPIC_API_KEY;
 
   if (!fbToken)   return res.status(400).json({ success: false, error: 'Facebook Ads access token not configured. Connect Facebook Ads in the dashboard.' });
   if (!claudeKey) return res.status(400).json({ success: false, error: 'ANTHROPIC_API_KEY not configured.' });

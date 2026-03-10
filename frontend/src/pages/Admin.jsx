@@ -99,15 +99,23 @@ export default function Admin() {
   const [loading,    setLoading]    = useState(false);
   const [actionMsg,  setActionMsg]  = useState('');
 
-  const [logFilter,  setLogFilter]  = useState({ locationId: '', event: '' });
-  const [expandedId, setExpandedId] = useState(null);
-  const [detailData, setDetailData] = useState({});
+  const [logFilter,       setLogFilter]       = useState({ locationId: '', event: '' });
+  const [expandedId,      setExpandedId]      = useState(null);
+  const [detailData,      setDetailData]      = useState({});
+  const [troubleshootData, setTroubleshootData] = useState({}); // { [locationId]: { connections, workflows } }
 
   // App Settings state
   const [appSettingsData,   setAppSettingsData]   = useState(null);
   const [appSettingsForm,   setAppSettingsForm]   = useState({ clientId: '', clientSecret: '', redirectUri: 'https://claudeserver.vercel.app/oauth/callback' });
   const [appSettingsEdit,   setAppSettingsEdit]   = useState({ clientId: false, clientSecret: false, redirectUri: false });
   const [appSettingsSaving, setAppSettingsSaving] = useState(false);
+
+  // Billing state
+  const [billingRecords,  setBillingRecords]  = useState([]);
+  const [billingSummary,  setBillingSummary]  = useState(null);
+  const [billingExpanded, setBillingExpanded] = useState(null);
+  const [billingModal,    setBillingModal]    = useState(null); // { type, locationId, data }
+  const [billingLoading,  setBillingLoading]  = useState(false);
 
   // ── Auth ─────────────────────────────────────────────────────────────────
 
@@ -169,12 +177,20 @@ export default function Admin() {
     if (data.success) setAppSettingsData(data.data);
   }, [adminKey]);
 
+  const loadBilling = useCallback(async () => {
+    setBillingLoading(true);
+    const data = await adminFetch('/admin/billing', { adminKey });
+    if (data.success) { setBillingRecords(data.data || []); setBillingSummary(data.summary); }
+    setBillingLoading(false);
+  }, [adminKey]);
+
   useEffect(() => {
     if (!authed) return;
     if (tab === 'overview')     loadStats();
     if (tab === 'locations')    loadLocations();
     if (tab === 'logs')         loadLogs();
     if (tab === 'app-settings') loadAppSettings();
+    if (tab === 'billing')      loadBilling();
   }, [authed, tab]); // eslint-disable-line
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -195,10 +211,58 @@ export default function Admin() {
   const loadDetail = async (locationId) => {
     if (expandedId === locationId) { setExpandedId(null); return; }
     setExpandedId(locationId);
-    if (detailData[locationId]) return;
-    const data = await adminFetch(`/admin/locations/${locationId}`, { adminKey });
-    if (data.success) {
-      setDetailData((prev) => ({ ...prev, [locationId]: data.data }));
+    if (!detailData[locationId]) {
+      const data = await adminFetch(`/admin/locations/${locationId}`, { adminKey });
+      if (data.success) setDetailData((prev) => ({ ...prev, [locationId]: data.data }));
+    }
+    if (!troubleshootData[locationId]) {
+      const [connRes, wfRes] = await Promise.all([
+        adminFetch(`/admin/locations/${locationId}/connections`, { adminKey }),
+        adminFetch(`/admin/locations/${locationId}/workflows`, { adminKey }),
+      ]);
+      setTroubleshootData((prev) => ({
+        ...prev,
+        [locationId]: {
+          connections: connRes.success ? connRes.data : {},
+          workflows:   wfRes.success   ? wfRes.data  : [],
+        },
+      }));
+    }
+  };
+
+  const clearConnection = async (locationId, category) => {
+    if (!confirm(`Clear ${category} connection for ${locationId}? The user will need to reconnect it.`)) return;
+    const res = await adminFetch(`/admin/locations/${locationId}/connections/${category}`, { method: 'DELETE', adminKey });
+    if (res.success) {
+      flash(`✓ Cleared ${category} for ${locationId}`);
+      // Refresh troubleshoot data
+      setTroubleshootData((prev) => {
+        const loc = prev[locationId] || {};
+        const newConn = { ...loc.connections };
+        delete newConn[category];
+        return { ...prev, [locationId]: { ...loc, connections: newConn } };
+      });
+      setDetailData((prev) => {
+        const d = prev[locationId];
+        if (!d) return prev;
+        return { ...prev, [locationId]: { ...d, connectedCategories: (d.connectedCategories || []).filter(c => c !== category) } };
+      });
+    } else {
+      flash(`✗ ${res.error}`);
+    }
+  };
+
+  const deleteWorkflow = async (locationId, wfId, wfName) => {
+    if (!confirm(`Delete workflow "${wfName}"?`)) return;
+    const res = await adminFetch(`/admin/locations/${locationId}/workflows/${wfId}`, { method: 'DELETE', adminKey });
+    if (res.success) {
+      flash(`✓ Deleted workflow "${wfName}"`);
+      setTroubleshootData((prev) => {
+        const loc = prev[locationId] || {};
+        return { ...prev, [locationId]: { ...loc, workflows: (loc.workflows || []).filter(w => w.id !== wfId) } };
+      });
+    } else {
+      flash(`✗ ${res.error}`);
     }
   };
 
@@ -287,6 +351,7 @@ export default function Admin() {
             { key: 'overview',     label: 'Overview' },
             { key: 'locations',    label: 'Locations' },
             { key: 'logs',         label: 'Logs' },
+            { key: 'billing',      label: '💳 Billing' },
             { key: 'app-settings', label: '⚙️ App Settings' },
           ].map((t) => (
             <button key={t.key} onClick={() => setTab(t.key)} style={TAB_STYLE(tab === t.key)}>
@@ -492,7 +557,12 @@ export default function Admin() {
                       {expandedId === loc.locationId && detailData[loc.locationId] && (
                         <tr key={`${loc.locationId}-detail`}>
                           <td colSpan={6} style={{ padding: '0 14px 14px', background: '#111' }}>
-                            <DetailPanel data={detailData[loc.locationId]} />
+                            <DetailPanel
+                              data={detailData[loc.locationId]}
+                              troubleshoot={troubleshootData[loc.locationId]}
+                              onClearConnection={(cat) => clearConnection(loc.locationId, cat)}
+                              onDeleteWorkflow={(id, name) => deleteWorkflow(loc.locationId, id, name)}
+                            />
                           </td>
                         </tr>
                       )}
@@ -543,6 +613,353 @@ export default function Admin() {
           </div>
         )}
 
+        {/* ── Billing Tab ──────────────────────────────────────────────── */}
+        {tab === 'billing' && (
+          <div>
+            {/* Summary cards */}
+            {billingSummary && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 10, marginBottom: 24 }}>
+                {[
+                  { label: 'Total',      value: billingSummary.total,     color: '#e5e7eb' },
+                  { label: 'Active',     value: billingSummary.active,    color: '#4ade80' },
+                  { label: 'Trial',      value: billingSummary.trial,     color: '#60a5fa' },
+                  { label: 'Past Due',   value: billingSummary.pastDue,   color: '#f87171' },
+                  { label: 'Cancelled',  value: billingSummary.cancelled, color: '#6b7280' },
+                  { label: 'MRR (USD)',  value: `$${billingSummary.revenue}`, color: '#34d399' },
+                ].map(c => (
+                  <div key={c.label} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: c.color }}>{c.value ?? '—'}</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>{c.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>
+                All Billing Records {billingLoading ? '…' : `(${billingRecords.length})`}
+              </h3>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => setBillingModal({ type: 'new-subscription', locationId: '', data: {} })}
+                  style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}
+                >
+                  + New Record
+                </button>
+                <button onClick={loadBilling} style={{ background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Reload</button>
+              </div>
+            </div>
+
+            <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#9ca3af', textAlign: 'left' }}>
+                    {['Location ID', 'Plan', 'Status', 'Amount', 'Payment Method', 'Next Renewal', 'Invoices', 'Actions'].map(h => (
+                      <th key={h} style={{ padding: '10px 14px', fontWeight: 500 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {billingRecords.map(rec => {
+                    const statusColor = { active: '#4ade80', trial: '#60a5fa', past_due: '#f87171', cancelled: '#6b7280', suspended: '#fb923c' }[rec.status] || '#9ca3af';
+                    return (
+                      <>
+                        <tr
+                          key={rec.locationId}
+                          onClick={() => setBillingExpanded(billingExpanded === rec.locationId ? null : rec.locationId)}
+                          style={{ borderBottom: '1px solid #222', cursor: 'pointer', background: billingExpanded === rec.locationId ? '#1a1a2a' : 'transparent' }}
+                        >
+                          <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#a78bfa', fontSize: 12 }}>{rec.locationId}</td>
+                          <td style={{ padding: '10px 14px', textTransform: 'capitalize', color: '#e5e7eb' }}>{rec.plan}</td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <span style={{ color: statusColor, fontWeight: 600, fontSize: 12 }}>{rec.status?.replace('_', ' ')}</span>
+                          </td>
+                          <td style={{ padding: '10px 14px', color: '#94a3b8' }}>
+                            {rec.amount > 0 ? `$${rec.amount}/${rec.interval || 'mo'}` : 'Free'}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: '#6b7280', fontSize: 12 }}>
+                            {rec.paymentMethod ? `${rec.paymentMethod.brand} ••••${rec.paymentMethod.last4}` : '—'}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: '#6b7280', fontSize: 12 }}>
+                            {rec.currentPeriodEnd ? new Date(rec.currentPeriodEnd).toLocaleDateString() : '—'}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: '#94a3b8' }}>
+                            {(rec.invoices || []).length}
+                          </td>
+                          <td style={{ padding: '10px 14px' }} onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', gap: 5 }}>
+                              <ActionBtn icon="✏️" title="Edit subscription" color="#7c3aed"
+                                onClick={() => setBillingModal({ type: 'edit-subscription', locationId: rec.locationId, data: rec })} />
+                              <ActionBtn icon="＋" title="Add invoice" color="#059669"
+                                onClick={() => setBillingModal({ type: 'add-invoice', locationId: rec.locationId, data: {} })} />
+                              <ActionBtn icon="🗑" title="Delete all billing data" color="#dc2626"
+                                onClick={async () => {
+                                  if (!confirm(`Delete ALL billing data for ${rec.locationId}?`)) return;
+                                  await adminFetch(`/admin/billing/${rec.locationId}`, { method: 'DELETE', adminKey });
+                                  flash(`✓ Deleted billing for ${rec.locationId}`);
+                                  loadBilling();
+                                }} />
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Invoice rows */}
+                        {billingExpanded === rec.locationId && (
+                          <tr key={`${rec.locationId}-inv`}>
+                            <td colSpan={8} style={{ padding: '0 14px 14px', background: '#111' }}>
+                              <div style={{ marginTop: 12 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                  <span style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Invoices</span>
+                                  <button
+                                    onClick={() => setBillingModal({ type: 'add-invoice', locationId: rec.locationId, data: {} })}
+                                    style={{ background: 'none', border: '1px solid #059669', borderRadius: 6, color: '#059669', padding: '2px 10px', cursor: 'pointer', fontSize: 12 }}
+                                  >+ Add Invoice</button>
+                                </div>
+                                {(rec.invoices || []).length === 0 ? (
+                                  <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>No invoices yet.</p>
+                                ) : (
+                                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                    <thead>
+                                      <tr style={{ color: '#6b7280', textAlign: 'left' }}>
+                                        {['ID', 'Description', 'Amount', 'Status', 'Date', 'Actions'].map(h => (
+                                          <th key={h} style={{ padding: '4px 10px', fontWeight: 500 }}>{h}</th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {(rec.invoices || []).map(inv => {
+                                        const invColor = { paid: '#4ade80', pending: '#facc15', overdue: '#f87171', refunded: '#6b7280', void: '#6b7280' }[inv.status] || '#9ca3af';
+                                        return (
+                                          <tr key={inv.id} style={{ borderTop: '1px solid #1e1e1e' }}>
+                                            <td style={{ padding: '5px 10px', fontFamily: 'monospace', color: '#6b7280' }}>{inv.id?.slice(-8)}</td>
+                                            <td style={{ padding: '5px 10px', color: '#e5e7eb' }}>{inv.description}</td>
+                                            <td style={{ padding: '5px 10px', color: '#94a3b8' }}>${inv.amount}</td>
+                                            <td style={{ padding: '5px 10px' }}>
+                                              <span style={{ color: invColor, fontWeight: 600 }}>{inv.status}</span>
+                                            </td>
+                                            <td style={{ padding: '5px 10px', color: '#6b7280' }}>
+                                              {inv.date ? new Date(inv.date).toLocaleDateString() : '—'}
+                                            </td>
+                                            <td style={{ padding: '5px 10px' }}>
+                                              <div style={{ display: 'flex', gap: 4 }}>
+                                                <ActionBtn icon="✏️" title="Edit invoice" color="#7c3aed"
+                                                  onClick={() => setBillingModal({ type: 'edit-invoice', locationId: rec.locationId, data: inv })} />
+                                                {inv.status === 'paid' && (
+                                                  <ActionBtn icon="↩" title="Refund" color="#f97316"
+                                                    onClick={async () => {
+                                                      if (!confirm(`Refund $${inv.amount} invoice?`)) return;
+                                                      await adminFetch(`/admin/billing/${rec.locationId}/refund/${inv.id}`, { method: 'POST', adminKey });
+                                                      flash(`✓ Refunded ${inv.id}`);
+                                                      loadBilling();
+                                                    }} />
+                                                )}
+                                                <ActionBtn icon="🗑" title="Delete invoice" color="#dc2626"
+                                                  onClick={async () => {
+                                                    if (!confirm('Delete this invoice?')) return;
+                                                    await adminFetch(`/admin/billing/${rec.locationId}/invoice/${inv.id}`, { method: 'DELETE', adminKey });
+                                                    flash(`✓ Invoice deleted`);
+                                                    loadBilling();
+                                                  }} />
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                )}
+                                {rec.notes && (
+                                  <p style={{ color: '#6b7280', fontSize: 12, marginTop: 8, fontStyle: 'italic' }}>📝 {rec.notes}</p>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                  {billingRecords.length === 0 && !billingLoading && (
+                    <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>No billing records yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Billing Modal */}
+            {billingModal && (
+              <BillingModal
+                modal={billingModal}
+                adminKey={adminKey}
+                onClose={() => setBillingModal(null)}
+                onSaved={() => { setBillingModal(null); loadBilling(); flash('✓ Saved'); }}
+                onFlash={flash}
+              />
+            )}
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+// ── Billing Modal ─────────────────────────────────────────────────────────────
+
+function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
+  const [form, setForm] = useState({
+    locationId:  modal.data?.locationId || modal.locationId || '',
+    plan:        modal.data?.plan       || 'trial',
+    status:      modal.data?.status     || 'trial',
+    amount:      modal.data?.amount     ?? '',
+    currency:    modal.data?.currency   || 'usd',
+    interval:    modal.data?.interval   || 'month',
+    notes:       modal.data?.notes      || '',
+    // invoice fields
+    description: modal.data?.description || '',
+    invAmount:   modal.data?.amount      || '',
+    invStatus:   modal.data?.status      || 'pending',
+    invDate:     modal.data?.date        ? new Date(modal.data.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+  });
+  const [saving, setSaving] = useState(false);
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      let res;
+      if (modal.type === 'new-subscription' || modal.type === 'edit-subscription') {
+        const locId = form.locationId || modal.locationId;
+        if (!locId) { onFlash('✗ Location ID required.'); setSaving(false); return; }
+        res = await adminFetch(`/admin/billing/${locId}`, {
+          method: 'POST', adminKey,
+          body: {
+            plan: form.plan, status: form.status,
+            amount: form.amount !== '' ? Number(form.amount) : undefined,
+            currency: form.currency, interval: form.interval, notes: form.notes,
+          },
+        });
+      } else if (modal.type === 'add-invoice') {
+        res = await adminFetch(`/admin/billing/${modal.locationId}/invoice`, {
+          method: 'POST', adminKey,
+          body: { amount: Number(form.invAmount), description: form.description, status: form.invStatus, date: new Date(form.invDate).getTime() },
+        });
+      } else if (modal.type === 'edit-invoice') {
+        res = await adminFetch(`/admin/billing/${modal.locationId}/invoice/${modal.data.id}`, {
+          method: 'PATCH', adminKey,
+          body: { amount: Number(form.invAmount), description: form.description, status: form.invStatus, date: new Date(form.invDate).getTime() },
+        });
+      }
+      if (res?.success) onSaved();
+      else onFlash(`✗ ${res?.error || 'Save failed'}`);
+    } catch { onFlash('✗ Request failed'); }
+    setSaving(false);
+  };
+
+  const isInvoice = modal.type === 'add-invoice' || modal.type === 'edit-invoice';
+  const isNew     = modal.type === 'new-subscription';
+
+  const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
+  const box     = { background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 28, width: 420, maxHeight: '90vh', overflowY: 'auto' };
+  const inp     = { width: '100%', padding: '8px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, boxSizing: 'border-box', marginBottom: 12 };
+  const sel     = { ...inp, cursor: 'pointer' };
+  const lbl     = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 };
+
+  const titles = { 'new-subscription': 'New Billing Record', 'edit-subscription': 'Edit Subscription', 'add-invoice': 'Add Invoice', 'edit-invoice': 'Edit Invoice' };
+
+  return (
+    <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={box}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>{titles[modal.type]}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20 }}>×</button>
+        </div>
+
+        {isNew && (
+          <>
+            <label style={lbl}>Location ID</label>
+            <input style={inp} value={form.locationId} onChange={e => set('locationId', e.target.value)} placeholder="e.g. n26oX9nNg6MdIrAlZQDg" />
+          </>
+        )}
+
+        {!isInvoice && (
+          <>
+            <label style={lbl}>Plan</label>
+            <select style={sel} value={form.plan} onChange={e => set('plan', e.target.value)}>
+              {['trial', 'starter', 'pro', 'agency'].map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+            </select>
+
+            <label style={lbl}>Status</label>
+            <select style={sel} value={form.status} onChange={e => set('status', e.target.value)}>
+              {['trial', 'active', 'past_due', 'cancelled', 'suspended'].map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            </select>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8 }}>
+              <div>
+                <label style={lbl}>Amount (USD)</label>
+                <input style={inp} type="number" value={form.amount} onChange={e => set('amount', e.target.value)} placeholder="99" />
+              </div>
+              <div>
+                <label style={lbl}>Currency</label>
+                <select style={sel} value={form.currency} onChange={e => set('currency', e.target.value)}>
+                  <option value="usd">USD</option>
+                  <option value="eur">EUR</option>
+                  <option value="gbp">GBP</option>
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Interval</label>
+                <select style={sel} value={form.interval} onChange={e => set('interval', e.target.value)}>
+                  <option value="month">Monthly</option>
+                  <option value="year">Yearly</option>
+                </select>
+              </div>
+            </div>
+
+            <label style={lbl}>Notes</label>
+            <input style={inp} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Internal notes…" />
+          </>
+        )}
+
+        {isInvoice && (
+          <>
+            <label style={lbl}>Description</label>
+            <input style={inp} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Pro Plan - March 2026" />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              <div>
+                <label style={lbl}>Amount</label>
+                <input style={inp} type="number" value={form.invAmount} onChange={e => set('invAmount', e.target.value)} placeholder="99" />
+              </div>
+              <div>
+                <label style={lbl}>Status</label>
+                <select style={sel} value={form.invStatus} onChange={e => set('invStatus', e.target.value)}>
+                  {['pending', 'paid', 'overdue', 'refunded', 'void'].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Date</label>
+                <input style={inp} type="date" value={form.invDate} onChange={e => set('invDate', e.target.value)} />
+              </div>
+            </div>
+          </>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button
+            onClick={save}
+            disabled={saving}
+            style={{ flex: 1, padding: '10px', background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            onClick={onClose}
+            style={{ padding: '10px 20px', background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -567,38 +984,137 @@ function ActionBtn({ icon, title, color, onClick }) {
 
 // ── Detail panel (expanded row) ───────────────────────────────────────────────
 
-function DetailPanel({ data }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, padding: '14px 0' }}>
-      <div>
-        <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 6px' }}>CONNECTED INTEGRATIONS</p>
-        {data.connectedCategories?.length ? (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {data.connectedCategories.map((c) => (
-              <span key={c} style={{ background: '#1e3a5f', color: '#60a5fa', padding: '2px 10px', borderRadius: 10, fontSize: 12 }}>{c}</span>
-            ))}
-          </div>
-        ) : <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>None</p>}
+function DetailPanel({ data, troubleshoot, onClearConnection, onDeleteWorkflow }) {
+  const [tsTab, setTsTab] = useState('connections');
 
-        {data.tokenRecord && (
-          <>
-            <p style={{ color: '#9ca3af', fontSize: 12, margin: '16px 0 4px' }}>TOOL SESSION TOKEN</p>
-            <code style={{ color: '#a78bfa', fontSize: 11, wordBreak: 'break-all' }}>{data.tokenRecord.token}</code>
-          </>
-        )}
-      </div>
-      <div>
-        <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 6px' }}>RECENT LOGS</p>
-        <div style={{ maxHeight: 160, overflowY: 'auto' }}>
-          {(data.recentLogs || []).slice(0, 10).map((log, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, padding: '3px 0', borderBottom: '1px solid #222', alignItems: 'center' }}>
-              <EventBadge event={log.event} />
-              <span style={{ color: log.success ? '#4ade80' : '#f87171', fontSize: 11 }}>{log.success ? '✓' : '✗'}</span>
-              <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 'auto' }}>{relTime(log.timestamp)}</span>
+  return (
+    <div style={{ padding: '14px 0' }}>
+
+      {/* Top row: integrations + token + logs */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        <div>
+          <p style={{ color: '#9ca3af', fontSize: 11, margin: '0 0 6px', fontWeight: 600, letterSpacing: '0.05em' }}>CONNECTED INTEGRATIONS</p>
+          {data.connectedCategories?.length ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {data.connectedCategories.map((c) => (
+                <span key={c} style={{ background: '#1e3a5f', color: '#60a5fa', padding: '2px 10px', borderRadius: 10, fontSize: 12 }}>{c}</span>
+              ))}
             </div>
-          ))}
-          {!data.recentLogs?.length && <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>No logs yet.</p>}
+          ) : <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>None connected</p>}
+
+          {data.tokenRecord && (
+            <>
+              <p style={{ color: '#9ca3af', fontSize: 11, margin: '14px 0 4px', fontWeight: 600, letterSpacing: '0.05em' }}>TOOL SESSION TOKEN</p>
+              <code style={{ color: '#a78bfa', fontSize: 11, wordBreak: 'break-all' }}>{data.tokenRecord.token}</code>
+            </>
+          )}
         </div>
+        <div>
+          <p style={{ color: '#9ca3af', fontSize: 11, margin: '0 0 6px', fontWeight: 600, letterSpacing: '0.05em' }}>RECENT LOGS</p>
+          <div style={{ maxHeight: 140, overflowY: 'auto' }}>
+            {(data.recentLogs || []).slice(0, 10).map((log, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, padding: '3px 0', borderBottom: '1px solid #222', alignItems: 'center' }}>
+                <EventBadge event={log.event} />
+                <span style={{ color: log.success ? '#4ade80' : '#f87171', fontSize: 11 }}>{log.success ? '✓' : '✗'}</span>
+                <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 'auto' }}>{relTime(log.timestamp)}</span>
+              </div>
+            ))}
+            {!data.recentLogs?.length && <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>No logs yet.</p>}
+          </div>
+        </div>
+      </div>
+
+      {/* Troubleshoot section */}
+      <div style={{ borderTop: '1px solid #2a2a2a', paddingTop: 14 }}>
+        <p style={{ color: '#fbbf24', fontSize: 11, margin: '0 0 10px', fontWeight: 600, letterSpacing: '0.05em' }}>🔧 TROUBLESHOOT</p>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          {['connections', 'workflows'].map((t) => (
+            <button
+              key={t}
+              onClick={() => setTsTab(t)}
+              style={{
+                padding: '4px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500, border: 'none',
+                background: tsTab === t ? '#7c3aed' : '#2a2a2a',
+                color: tsTab === t ? '#fff' : '#9ca3af',
+              }}
+            >{t.charAt(0).toUpperCase() + t.slice(1)}</button>
+          ))}
+        </div>
+
+        {/* Connections sub-tab */}
+        {tsTab === 'connections' && (
+          <div>
+            {!troubleshoot ? (
+              <p style={{ color: '#6b7280', fontSize: 13 }}>Loading…</p>
+            ) : Object.keys(troubleshoot.connections || {}).length === 0 ? (
+              <p style={{ color: '#6b7280', fontSize: 13 }}>No tool connections found.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {Object.entries(troubleshoot.connections).map(([cat, cfg]) => (
+                  <div key={cat} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ color: '#60a5fa', fontSize: 12, fontWeight: 600 }}>{cat}</span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                        {Object.entries(cfg || {}).map(([k, v]) => (
+                          <span key={k} style={{ background: '#111', border: '1px solid #333', borderRadius: 4, padding: '1px 8px', fontSize: 11, color: '#9ca3af' }}>
+                            <span style={{ color: '#6b7280' }}>{k}: </span>
+                            <span style={{ color: '#e5e7eb', fontFamily: 'monospace' }}>{String(v)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onClearConnection(cat)}
+                      title={`Clear ${cat} connection`}
+                      style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#dc2626', padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}
+                    >✕ Clear</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Workflows sub-tab */}
+        {tsTab === 'workflows' && (
+          <div>
+            {!troubleshoot ? (
+              <p style={{ color: '#6b7280', fontSize: 13 }}>Loading…</p>
+            ) : !troubleshoot.workflows?.length ? (
+              <p style={{ color: '#6b7280', fontSize: 13 }}>No saved workflows.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {troubleshoot.workflows.map((wf) => (
+                  <div key={wf.id} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '10px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ color: '#e5e7eb', fontSize: 13, fontWeight: 600 }}>{wf.name}</span>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span style={{ color: '#6b7280', fontSize: 11 }}>{wf.steps?.length || 0} steps</span>
+                        <span style={{ color: '#6b7280', fontSize: 11 }}>· {relTime(wf.updatedAt)}</span>
+                        <button
+                          onClick={() => onDeleteWorkflow(wf.id, wf.name)}
+                          style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#dc2626', padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}
+                        >✕ Delete</button>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {(wf.steps || []).map((s, i) => (
+                        <span key={i} style={{ background: '#1e3a5f', color: '#60a5fa', padding: '1px 8px', borderRadius: 4, fontSize: 11 }}>
+                          {i + 1}. {s.label || s.tool}
+                        </span>
+                      ))}
+                    </div>
+                    {wf.webhookToken && (
+                      <p style={{ color: '#6b7280', fontSize: 10, margin: '6px 0 0', fontFamily: 'monospace' }}>
+                        webhook: /workflows/trigger/{wf.webhookToken.slice(0, 8)}…
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

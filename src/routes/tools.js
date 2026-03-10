@@ -51,8 +51,7 @@ async function persistToolConfig(locationId, category, configObj) {
   if (config.isFirebaseEnabled) {
     await firebaseStore.saveToolConfig(locationId, category, configObj);
   } else {
-    const existing = await toolRegistry.getToolConfig(locationId);
-    tokenStore.saveToolConfig(locationId, { ...existing, [category]: configObj });
+    await toolRegistry.saveToolConfig(locationId, category, configObj);
   }
 }
 
@@ -63,7 +62,7 @@ async function deletePersistedToolConfig(locationId, category) {
     const existing = await toolRegistry.getToolConfig(locationId);
     const updated  = { ...existing };
     delete updated[category];
-    tokenStore.saveToolConfig(locationId, updated);
+    await toolTokenService.setCachedToolConfig(locationId, updated, 90 * 24 * 3600);
   }
 }
 

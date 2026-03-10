@@ -1,0 +1,9 @@
+# Don't upload pre-built frontend assets — Vercel builds them fresh each deploy.
+# Uploading old hashed filenames causes ENOENT when the build creates new hashes.
+public/ui/assets/
+public/ui/index.html
+frontend/node_modules/
+node_modules/
+.env
+.env.local
+*.log

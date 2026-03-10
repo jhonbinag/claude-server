@@ -16,14 +16,15 @@
  *  POST /oauth/billing/failed       → Report failed payment to GHL external billing webhook
  */
 
-const express        = require('express');
-const router         = express.Router();
-const ghlClient      = require('../services/ghlClient');
-const apiKeyService  = require('../services/apiKeyService');
-const tokenStore     = require('../services/tokenStore');
-const billingService = require('../services/billingService');
-const appSettings    = require('../services/appSettings');
-const config         = require('../config');
+const express           = require('express');
+const router            = express.Router();
+const ghlClient         = require('../services/ghlClient');
+const apiKeyService     = require('../services/apiKeyService');
+const tokenStore        = require('../services/tokenStore');
+const billingService    = require('../services/billingService');
+const appSettings       = require('../services/appSettings');
+const locationRegistry  = require('../services/locationRegistry');
+const config            = require('../config');
 
 // ─── All scopes requested during install ─────────────────────────────────────
 
@@ -170,6 +171,9 @@ router.get('/callback', async (req, res) => {
     let apiKey = await apiKeyService.getApiKey(locationId);
     if (!apiKey) apiKey = await apiKeyService.generateApiKey(locationId);
 
+    // Register location in Redis so admin dashboard can see it
+    locationRegistry.registerLocation(locationId, { companyId: tokenData.companyId }).catch(() => {});
+
     console.log(`[Auth] Installation complete for location: ${locationId}`);
 
     // Redirect to the app UI so the user lands on the dashboard after install.
@@ -190,6 +194,7 @@ router.post('/uninstall', (req, res) => {
     return res.status(400).json({ success: false, error: 'locationId required.' });
   }
   tokenStore.removeLocation(locationId);
+  locationRegistry.uninstallLocation(locationId).catch(() => {});
   console.log(`[Auth] App uninstalled for location: ${locationId}`);
   res.json({ success: true, message: `Location ${locationId} data removed.` });
 });

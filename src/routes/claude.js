@@ -135,15 +135,14 @@ router.post('/task/sync', async (req, res) => {
 // Transcribes via OpenAI Whisper, then streams the task result.
 
 router.post('/voice', upload.single('audio'), async (req, res) => {
-  const config    = require('../config');
-  const toolStore = require('../services/tokenStore');
+  const registry = require('../tools/toolRegistry');
 
   if (!req.file) {
     return res.status(400).json({ success: false, error: 'No audio file uploaded. Send field name: audio' });
   }
 
   // Get OpenAI key — from location toolConfigs or global env
-  const toolConfigs = await Promise.resolve(toolStore.getToolConfig(req.locationId));
+  const toolConfigs = await registry.loadToolConfigs(req.locationId);
   const openAiKey   = (toolConfigs.openai && toolConfigs.openai.apiKey) || process.env.OPENAI_API_KEY;
 
   if (!openAiKey) {

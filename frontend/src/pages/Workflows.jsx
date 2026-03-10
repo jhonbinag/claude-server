@@ -1,330 +1,441 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+/**
+ * Workflows.jsx — n8n-style multi-tool workflow builder
+ *
+ * Left panel  : Tool palette — click any connected tool to add a step
+ * Center panel: Ordered step nodes (numbered cards with connector arrows)
+ * Right panel : Live streaming output
+ *
+ * Each workflow is saved server-side (Redis, 1-year TTL) and gets a
+ * unique webhook URL so external systems can trigger it automatically.
+ */
+
+import { useState, useCallback, useEffect } from 'react';
+import { Link }           from 'react-router-dom';
 import { useApp }         from '../context/AppContext';
 import { useStreamFetch } from '../hooks/useStreamFetch';
-import AuthGate     from '../components/AuthGate';
-import Header       from '../components/Header';
-import StreamOutput from '../components/StreamOutput';
-import Spinner      from '../components/Spinner';
-import { INTEGRATIONS } from '../lib/integrations';
+import AuthGate           from '../components/AuthGate';
+import Header             from '../components/Header';
+import StreamOutput       from '../components/StreamOutput';
+import Spinner            from '../components/Spinner';
+import { INTEGRATIONS }   from '../lib/integrations';
 
-const MAX_SAVED = 20;
-const STORAGE_KEY = 'gtm_workflows';
+// ── Tool colours ───────────────────────────────────────────────────────────────
+
+const TOOL_COLOR = {
+  ghl:          '#22c55e',
+  perplexity:   '#6366f1',
+  openai:       '#10b981',
+  facebook_ads: '#1877f2',
+  sendgrid:     '#00a8a8',
+  slack:        '#9333ea',
+  apollo:       '#f97316',
+  heygen:       '#a855f7',
+};
+
+// ── Templates ──────────────────────────────────────────────────────────────────
 
 const TEMPLATES = [
   {
     name: '🔍 Research & Report',
     context: 'Research assistant workflow',
-    prompt: 'Research [topic] using Perplexity and compile a detailed report. Include key insights, statistics, and competitive analysis. Format as a professional summary.',
-    tools: ['perplexity', 'openai'],
-  },
-  {
-    name: '📧 Email Campaign',
-    context: 'Email marketing workflow',
-    prompt: 'Draft a promotional email campaign for [product/offer]. Write 3 subject line variations and the full email body. Then send via SendGrid to all GHL contacts tagged "subscribed".',
-    tools: ['sendgrid', 'openai'],
-  },
-  {
-    name: '📱 Social Content',
-    context: 'Social media workflow',
-    prompt: 'Create a week\'s worth of social media content for [brand/topic]. Include captions, hashtags, and image prompts for each post. Notify the team on Slack when ready.',
-    tools: ['openai', 'slack'],
+    steps: [
+      { tool: 'perplexity', label: 'Perplexity AI', icon: '🔍', instruction: 'Research [topic] using live web data. Extract key statistics, trends, and competitor insights.' },
+      { tool: 'openai',     label: 'OpenAI',        icon: '✨', instruction: 'Compile the research into a professional executive summary with key takeaways.' },
+    ],
   },
   {
     name: '🚀 Lead Outreach',
-    context: 'Sales prospecting workflow',
-    prompt: 'Find 10 [job title] at [industry] companies using Apollo. Enrich their profiles, add them to GHL as contacts tagged "apollo-lead", and draft a personalised outreach email for each.',
-    tools: ['apollo', 'sendgrid'],
+    context: 'B2B sales outreach',
+    steps: [
+      { tool: 'apollo',   label: 'Apollo.io', icon: '🚀', instruction: 'Find 10 [job title] prospects at [industry] companies.' },
+      { tool: 'ghl',      label: 'GHL CRM',   icon: '⚡', instruction: 'Add found prospects as GHL contacts tagged "apollo-lead".' },
+      { tool: 'sendgrid', label: 'SendGrid',  icon: '📧', instruction: 'Send a personalised intro email to each new contact.' },
+      { tool: 'slack',    label: 'Slack',     icon: '💬', instruction: 'Post a summary of new leads to the #sales channel.' },
+    ],
+  },
+  {
+    name: '📧 Email Campaign',
+    context: 'Email marketing campaign',
+    steps: [
+      { tool: 'openai',   label: 'OpenAI',   icon: '✨', instruction: 'Write 3 subject line variations and full email body for [product/offer].' },
+      { tool: 'ghl',      label: 'GHL CRM',  icon: '⚡', instruction: 'Get all contacts tagged "subscribed".' },
+      { tool: 'sendgrid', label: 'SendGrid', icon: '📧', instruction: 'Send the campaign to all subscribed contacts.' },
+    ],
+  },
+  {
+    name: '📱 Content + Notify',
+    context: 'Content creation and distribution',
+    steps: [
+      { tool: 'perplexity', label: 'Perplexity AI', icon: '🔍', instruction: 'Find trending topics and news in [niche].' },
+      { tool: 'openai',     label: 'OpenAI',        icon: '✨', instruction: "Generate a week's worth of social media posts based on trends." },
+      { tool: 'ghl',        label: 'GHL CRM',       icon: '⚡', instruction: 'Schedule the posts via GHL Social Planner.' },
+      { tool: 'slack',      label: 'Slack',         icon: '💬', instruction: 'Send the content calendar to #marketing channel.' },
+    ],
   },
 ];
 
-function applyEvent(prev, evtType, data) {
-  if (evtType === 'text') {
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function applyEvent(prev, type, data) {
+  if (type === 'text') {
     const last = prev[prev.length - 1];
-    if (last?.type === 'text') {
-      return [...prev.slice(0, -1), { ...last, text: last.text + data.text }];
-    }
+    if (last?.type === 'text') return [...prev.slice(0, -1), { ...last, text: last.text + data.text }];
     return [...prev, { type: 'text', text: data.text }];
   }
-  if (evtType === 'tool_call')   return [...prev, { type: 'tool_call',   name: data.name,   input:  data.input }];
-  if (evtType === 'tool_result') return [...prev, { type: 'tool_result', name: data.name,   result: data.result }];
-  if (evtType === 'done')        return [...prev, { type: 'done',  turns: data.turns, toolCallCount: data.toolCallCount }];
-  if (evtType === 'error')       return [...prev, { type: 'error', error: data.error }];
+  if (type === 'tool_call')   return [...prev, { type: 'tool_call',   name: data.name,   input:  data.input }];
+  if (type === 'tool_result') return [...prev, { type: 'tool_result', name: data.name,   result: data.result }];
+  if (type === 'done')        return [...prev, { type: 'done',        turns: data.turns, toolCallCount: data.toolCallCount }];
+  if (type === 'error')       return [...prev, { type: 'error',       error: data.error }];
   return prev;
 }
 
-function loadSaved() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+function buildPrompt(steps, context) {
+  const lines = steps
+    .map((s, i) => `STEP ${i + 1} [${s.label || s.tool.toUpperCase()}]:\n${s.instruction}`)
+    .join('\n\n');
+  const ctx = context ? `\n\nContext: ${context}` : '';
+  return `Execute this multi-step workflow:\n\n${lines}${ctx}\n\nComplete all steps in order and summarise results at the end.`;
 }
 
-function saveToDisk(list) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, MAX_SAVED)));
+function mkStep(tool, label, icon) {
+  return {
+    id:          `s_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    tool, label, icon,
+    instruction: '',
+  };
 }
+
+// ── Main ───────────────────────────────────────────────────────────────────────
 
 export default function Workflows() {
-  const { isAuthenticated, isAuthLoading, apiKey, integrations } = useApp();
+  const { isAuthenticated, isAuthLoading, locationId, integrations } = useApp();
   const { isRunning, stream, stop } = useStreamFetch();
 
-  // Node toggles — keys of active external integrations
-  const [activeTools, setActiveTools] = useState(new Set());
-  // Workflow fields
-  const [wfName,    setWfName]    = useState('');
-  const [wfContext, setWfContext] = useState('');
-  const [prompt,    setPrompt]    = useState('');
-  // Output
-  const [messages, setMessages] = useState([]);
-  // Saved workflows (localStorage)
-  const [saved,    setSaved]    = useState(loadSaved);
+  const [steps,      setSteps]      = useState([]);
+  const [wfName,     setWfName]     = useState('');
+  const [context,    setContext]    = useState('');
+  const [messages,   setMessages]   = useState([]);
+  const [saved,      setSaved]      = useState([]);
+  const [currentId,  setCurrentId]  = useState(null);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [saving,     setSaving]     = useState(false);
+  const [showSaved,  setShowSaved]  = useState(false);
+  const [copyDone,   setCopyDone]   = useState(false);
 
-  // Sync activeTools when integrations load (auto-enable connected ones)
-  const didSync = useRef(false);
-  useEffect(() => {
-    if (!didSync.current && integrations?.length > 0) {
-      didSync.current = true;
-      const connected = new Set(integrations.filter(i => i.enabled).map(i => i.key));
-      setActiveTools(connected);
-    }
-  }, [integrations]);
+  const enabledKeys = new Set((integrations || []).filter(i => i.enabled).map(i => i.key));
 
-  const toggleTool = key =>
-    setActiveTools(prev => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
+  // Load saved workflows
+  const loadSaved = useCallback(async () => {
+    if (!locationId) return;
+    try {
+      const res  = await fetch('/workflows', { headers: { 'x-location-id': locationId } });
+      const data = await res.json();
+      if (data.success) setSaved(data.data || []);
+    } catch { /* non-fatal */ }
+  }, [locationId]);
+
+  useEffect(() => { loadSaved(); }, [loadSaved]);
+
+  // ── Step management ──────────────────────────────────────────────────────────
+
+  const addStep = (tool, label, icon) =>
+    setSteps(prev => [...prev, mkStep(tool, label, icon)]);
+
+  const removeStep = (id) =>
+    setSteps(prev => prev.filter(s => s.id !== id));
+
+  const moveStep = (id, dir) => setSteps(prev => {
+    const i    = prev.findIndex(s => s.id === id);
+    const next = [...prev];
+    const j    = i + dir;
+    if (j < 0 || j >= next.length) return prev;
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  });
+
+  const setInstruction = (id, val) =>
+    setSteps(prev => prev.map(s => s.id === id ? { ...s, instruction: val } : s));
+
+  // ── Run ──────────────────────────────────────────────────────────────────────
 
   const run = useCallback(async () => {
-    if (!prompt.trim() || isRunning) return;
+    if (!steps.length || isRunning) return;
+    if (steps.some(s => !s.instruction.trim())) return;
     setMessages([]);
-    const allowedIntegrations = activeTools.size > 0 ? [...activeTools] : null;
-    const taskText = wfContext.trim()
-      ? `[Context: ${wfContext.trim()}]\n\n${prompt.trim()}`
-      : prompt.trim();
-
+    const prompt  = buildPrompt(steps, context);
+    const allowed = [...new Set(steps.map(s => s.tool).filter(t => t !== 'ghl'))];
     await stream(
       '/claude/task',
-      { task: taskText, allowedIntegrations },
+      { task: prompt, allowedIntegrations: allowed.length ? allowed : null },
       (evtType, data) => setMessages(prev => applyEvent(prev, evtType, data)),
-      apiKey,
+      locationId,
     );
-  }, [prompt, wfContext, isRunning, stream, apiKey, activeTools]);
+  }, [steps, context, isRunning, stream, locationId]);
 
-  const saveWorkflow = () => {
-    if (!prompt.trim()) return;
-    const wf = {
-      id:      Date.now(),
-      name:    wfName.trim() || `Workflow ${new Date().toLocaleDateString()}`,
-      context: wfContext.trim(),
-      prompt:  prompt.trim(),
-      tools:   [...activeTools],
-    };
-    const next = [wf, ...saved].slice(0, MAX_SAVED);
-    setSaved(next);
-    saveToDisk(next);
+  // ── Save / load ──────────────────────────────────────────────────────────────
+
+  const save = async () => {
+    if (!wfName.trim() || !steps.length) return;
+    setSaving(true);
+    try {
+      const res  = await fetch('/workflows', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
+        body:    JSON.stringify({ id: currentId, name: wfName.trim(), steps, context }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCurrentId(data.data.id);
+        setWebhookUrl(`${window.location.origin}/workflows/trigger/${data.data.webhookToken}`);
+        await loadSaved();
+        setShowSaved(false);
+      }
+    } catch { /* non-fatal */ }
+    finally { setSaving(false); }
   };
 
-  const loadWorkflow = wf => {
+  const loadWorkflow = (wf) => {
     setWfName(wf.name);
-    setWfContext(wf.context);
-    setPrompt(wf.prompt);
-    setActiveTools(new Set(wf.tools));
+    setContext(wf.context || '');
+    setSteps(wf.steps.map(s => ({ ...s, id: s.id || mkStep(s.tool, s.label, s.icon).id })));
+    setCurrentId(wf.id);
+    setWebhookUrl(`${window.location.origin}/workflows/trigger/${wf.webhookToken}`);
     setMessages([]);
+    setShowSaved(false);
   };
 
-  const deleteWorkflow = id => {
-    const next = saved.filter(w => w.id !== id);
-    setSaved(next);
-    saveToDisk(next);
+  const deleteWorkflow = async (id) => {
+    try {
+      await fetch(`/workflows/${id}`, { method: 'DELETE', headers: { 'x-location-id': locationId } });
+      await loadSaved();
+      if (currentId === id) { setCurrentId(null); setWebhookUrl(''); }
+    } catch { /* non-fatal */ }
   };
 
-  const applyTemplate = tpl => {
-    setWfName(tpl.name);
-    setWfContext(tpl.context);
-    setPrompt(tpl.prompt);
-    setActiveTools(new Set(tpl.tools));
-    setMessages([]);
+  const newWorkflow = () => {
+    setWfName(''); setContext(''); setSteps([]);
+    setMessages([]); setCurrentId(null); setWebhookUrl('');
   };
+
+  const applyTemplate = (tpl) => {
+    setWfName(tpl.name); setContext(tpl.context);
+    setSteps(tpl.steps.map(s => ({ ...mkStep(s.tool, s.label, s.icon), instruction: s.instruction })));
+    setMessages([]); setCurrentId(null); setWebhookUrl('');
+  };
+
+  const copyWebhook = () => {
+    navigator.clipboard.writeText(webhookUrl);
+    setCopyDone(true);
+    setTimeout(() => setCopyDone(false), 2000);
+  };
+
+  // ── Guards ───────────────────────────────────────────────────────────────────
 
   if (isAuthLoading)    return <Spinner />;
   if (!isAuthenticated) return (
     <AuthGate icon="🔀" title="Workflow Builder" subtitle="Connect your API key to build AI workflows">
-      <Link to="/" className="block text-center text-xs text-gray-500 mt-4 hover:text-gray-300">
-        ← Back to Dashboard
-      </Link>
+      <Link to="/" className="block text-center text-xs text-gray-500 mt-4 hover:text-gray-300">← Back</Link>
     </AuthGate>
   );
 
-  const serverMap = Object.fromEntries((integrations || []).map(i => [i.key, i]));
+  const canRun = steps.length > 0 && steps.every(s => s.instruction.trim());
 
   return (
     <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
-      <Header icon="🔀" title="Workflow Builder" subtitle="Design multi-tool AI pipelines · Claude as command center" />
+      <Header icon="🔀" title="Workflow Builder" subtitle="Build multi-tool AI pipelines · Claude as orchestrator" />
 
       <div className="flex flex-1 overflow-hidden">
 
-        {/* ── Left Panel — Tool Nodes ──────────────────────────────────── */}
-        <aside
-          className="w-56 flex flex-col overflow-y-auto flex-shrink-0 p-3 gap-2"
-          style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}
-        >
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-1 pt-1 mb-1">Pipeline Nodes</p>
+        {/* ── Tool Palette ──────────────────────────────────────────────── */}
+        <ToolPalette enabledKeys={enabledKeys} onAdd={addStep} />
 
-          {/* Always-on nodes */}
-          <AlwaysOnNode icon="🤖" label="Claude Opus 4.6" sub="Reasoning Engine" color="#6366f1" />
-          <AlwaysOnNode icon="⚡" label="GoHighLevel CRM" sub="26 tools · Always on" color="#22c55e" />
-
-          <div className="border-t my-1" style={{ borderColor: 'rgba(255,255,255,0.06)' }} />
-          <p className="text-xs text-gray-600 px-1">External integrations</p>
-
-          {INTEGRATIONS.map(cfg => {
-            const sv       = serverMap[cfg.key] || {};
-            const enabled  = sv.enabled || false;
-            const isActive = activeTools.has(cfg.key);
-            return (
-              <ToolNode
-                key={cfg.key}
-                cfg={cfg}
-                enabled={enabled}
-                isActive={isActive}
-                onToggle={() => toggleTool(cfg.key)}
-              />
-            );
-          })}
-
-          <div className="flex-1" />
-          <Link
-            to="/settings"
-            className="text-xs text-center text-indigo-400 hover:text-indigo-300 py-2"
-          >
-            + Connect more APIs
-          </Link>
-        </aside>
-
-        {/* ── Center — Builder ─────────────────────────────────────────── */}
+        {/* ── Workflow Canvas ───────────────────────────────────────────── */}
         <div
-          className="flex flex-col overflow-hidden"
-          style={{ flex: '1 1 0', borderRight: '1px solid rgba(255,255,255,0.06)' }}
+          className="flex flex-col flex-1 overflow-hidden"
+          style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}
         >
-          {/* Flow bar */}
-          <FlowBar activeTools={activeTools} serverMap={serverMap} />
+          {/* Toolbar */}
+          <div
+            className="flex items-center gap-2 px-4 py-2.5 flex-shrink-0"
+            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}
+          >
+            <input
+              value={wfName}
+              onChange={e => setWfName(e.target.value)}
+              placeholder="Workflow name…"
+              className="field flex-1 text-sm"
+            />
+            <button onClick={newWorkflow} className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap">
+              + New
+            </button>
+            <button
+              onClick={() => setShowSaved(v => !v)}
+              className={`btn-ghost px-3 py-1.5 text-xs whitespace-nowrap ${showSaved ? 'text-indigo-400' : ''}`}
+            >
+              📂 {saved.length > 0 ? `Saved (${saved.length})` : 'Saved'}
+            </button>
+          </div>
 
-          {/* Builder form */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-
-            {/* Templates */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Templates</p>
-              <div className="grid grid-cols-2 gap-2">
-                {TEMPLATES.map(tpl => (
-                  <button
-                    key={tpl.name}
-                    onClick={() => applyTemplate(tpl)}
-                    className="text-left text-xs px-3 py-2 rounded-xl transition-all"
-                    style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.06)',
-                      color: '#9ca3af',
-                    }}
-                    onMouseOver={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#a5b4fc'; }}
-                    onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#9ca3af'; }}
+          {/* Saved list dropdown */}
+          {showSaved && (
+            <div
+              className="flex-shrink-0 overflow-y-auto"
+              style={{ maxHeight: 220, borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.3)' }}
+            >
+              {saved.length === 0
+                ? <p className="text-xs text-gray-600 px-4 py-4 text-center">No saved workflows yet.</p>
+                : saved.map(wf => (
+                  <div
+                    key={wf.id}
+                    className="flex items-center gap-2 px-4 py-2.5"
+                    style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
                   >
-                    {tpl.name}
-                  </button>
-                ))}
+                    <button
+                      onClick={() => loadWorkflow(wf)}
+                      className="flex-1 text-left text-xs text-gray-300 hover:text-white truncate"
+                    >
+                      {wf.name}
+                      <span className="text-gray-600 ml-2">{wf.steps?.length} steps</span>
+                    </button>
+                    <button
+                      onClick={() => deleteWorkflow(wf.id)}
+                      className="text-gray-600 hover:text-red-400 text-sm px-1 flex-shrink-0"
+                    >×</button>
+                  </div>
+                ))
+              }
+            </div>
+          )}
+
+          {/* Canvas */}
+          <div className="flex-1 overflow-y-auto p-4">
+
+            {/* Templates — only when empty */}
+            {steps.length === 0 && (
+              <div className="mb-6">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                  Quick Templates
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {TEMPLATES.map(tpl => (
+                    <button
+                      key={tpl.name}
+                      onClick={() => applyTemplate(tpl)}
+                      className="text-left text-xs px-3 py-2.5 rounded-xl text-gray-400 hover:text-indigo-300 transition-all"
+                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+                      onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.35)'; }}
+                      onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
+                    >
+                      {tpl.name}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Workflow name */}
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Workflow Name</label>
-              <input
-                value={wfName}
-                onChange={e => setWfName(e.target.value)}
-                placeholder="e.g. Weekly Lead Outreach"
-                className="field w-full text-sm"
+            {/* Step nodes */}
+            {steps.map((step, idx) => (
+              <StepNode
+                key={step.id}
+                step={step}
+                index={idx}
+                total={steps.length}
+                onDelete={() => removeStep(step.id)}
+                onMoveUp={() => moveStep(step.id, -1)}
+                onMoveDown={() => moveStep(step.id, 1)}
+                onInstruction={val => setInstruction(step.id, val)}
               />
-            </div>
+            ))}
 
-            {/* Context */}
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">
-                Context <span className="text-gray-600">(optional — extra background for Claude)</span>
-              </label>
-              <input
-                value={wfContext}
-                onChange={e => setWfContext(e.target.value)}
-                placeholder="e.g. We sell B2B SaaS to marketing teams"
-                className="field w-full text-sm"
-              />
-            </div>
+            {/* Empty state */}
+            {steps.length === 0 && (
+              <div
+                className="rounded-2xl flex flex-col items-center justify-center py-14"
+                style={{ border: '1px dashed rgba(255,255,255,0.08)' }}
+              >
+                <p className="text-gray-600 text-sm mb-1">No steps yet</p>
+                <p className="text-gray-700 text-xs">Click a tool in the palette to add your first step</p>
+              </div>
+            )}
 
-            {/* Prompt */}
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Prompt / Task</label>
-              <textarea
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) run(); }}
-                placeholder="Describe what Claude should do across the selected tools…"
-                rows={6}
-                className="field w-full text-sm leading-relaxed"
-                style={{ resize: 'vertical' }}
-              />
-              <p className="text-xs text-gray-600 mt-1">Ctrl+Enter to run</p>
-            </div>
+            {steps.length > 0 && (
+              <p className="text-center text-xs text-gray-700 pt-3 pb-2">
+                ← Click a tool to add another step
+              </p>
+            )}
+          </div>
 
-            {/* Actions */}
+          {/* Bottom bar */}
+          <div
+            className="flex-shrink-0 px-4 py-3 space-y-2.5"
+            style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}
+          >
+            <input
+              value={context}
+              onChange={e => setContext(e.target.value)}
+              placeholder="Global context (optional) — e.g. We sell B2B SaaS to marketing teams"
+              className="field w-full text-xs"
+            />
+
             <div className="flex gap-2">
               <button
                 onClick={isRunning ? stop : run}
-                disabled={!isRunning && !prompt.trim()}
-                className="btn-primary flex-1 py-2.5 gap-2"
+                disabled={!isRunning && !canRun}
+                className="btn-primary flex-1 py-2 text-sm"
               >
                 {isRunning
-                  ? <><span className="spinner w-3.5 h-3.5 rounded-full border-2" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> Stop</>
-                  : '▶ Run Workflow'}
+                  ? <span className="flex items-center justify-center gap-2">
+                      <span
+                        className="w-3 h-3 rounded-full border-2 inline-block"
+                        style={{
+                          borderColor:    'rgba(255,255,255,0.3)',
+                          borderTopColor: '#fff',
+                          animation:      'spin 0.8s linear infinite',
+                        }}
+                      />
+                      Stop
+                    </span>
+                  : '▶  Run Workflow'}
               </button>
               <button
-                onClick={saveWorkflow}
-                disabled={!prompt.trim()}
-                className="btn-ghost px-4 py-2.5 text-sm"
+                onClick={save}
+                disabled={saving || !wfName.trim() || !steps.length}
+                className="btn-ghost px-4 py-2 text-sm"
               >
-                💾 Save
+                {saving ? '…' : '💾 Save'}
               </button>
               {messages.length > 0 && (
-                <button onClick={() => setMessages([])} className="btn-ghost px-3 py-2.5 text-sm">Clear</button>
+                <button onClick={() => setMessages([])} className="btn-ghost px-3 py-2 text-sm">✕</button>
               )}
             </div>
 
-            {/* Saved workflows */}
-            {saved.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Saved Workflows</p>
-                <div className="flex flex-wrap gap-2">
-                  {saved.map(wf => (
-                    <div
-                      key={wf.id}
-                      className="flex items-center gap-1 text-xs rounded-full px-3 py-1 cursor-pointer"
-                      style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)', color: '#a5b4fc' }}
-                      onClick={() => loadWorkflow(wf)}
-                    >
-                      {wf.name}
-                      <button
-                        onClick={e => { e.stopPropagation(); deleteWorkflow(wf.id); }}
-                        className="ml-1 text-gray-600 hover:text-red-400"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
+            {/* Webhook URL (shown after save) */}
+            {webhookUrl && (
+              <div
+                className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}
+              >
+                <span className="text-xs text-indigo-400 flex-shrink-0">🔗 Webhook</span>
+                <input
+                  readOnly
+                  value={webhookUrl}
+                  className="flex-1 bg-transparent text-xs text-gray-400 outline-none min-w-0"
+                  onClick={e => e.target.select()}
+                />
+                <button
+                  onClick={copyWebhook}
+                  className="text-xs flex-shrink-0 px-2 py-0.5 rounded-md"
+                  style={{ color: copyDone ? '#4ade80' : '#818cf8' }}
+                >
+                  {copyDone ? 'Copied!' : 'Copy'}
+                </button>
               </div>
             )}
           </div>
         </div>
 
-        {/* ── Right Panel — Stream output ──────────────────────────────── */}
-        <div className="flex flex-col overflow-hidden" style={{ width: '380px', flexShrink: 0 }}>
+        {/* ── Live Output ───────────────────────────────────────────────── */}
+        <div className="flex flex-col overflow-hidden" style={{ width: 360, flexShrink: 0 }}>
           <div
             className="px-4 py-3 flex items-center gap-2 flex-shrink-0"
             style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
@@ -332,7 +443,7 @@ export default function Workflows() {
             <span className="text-sm">⚡</span>
             <span className="text-sm font-semibold text-white">Live Output</span>
             {isRunning && (
-              <span className="ml-auto text-xs text-yellow-400 flex items-center gap-1">
+              <span className="ml-auto text-xs text-yellow-400 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
                 Running…
               </span>
@@ -341,96 +452,139 @@ export default function Workflows() {
           <StreamOutput
             messages={messages}
             isRunning={isRunning}
-            placeholder={{
-              icon: '🔀',
-              text: 'Configure your workflow and click Run\nClaude will execute across selected tools',
-            }}
+            placeholder={{ icon: '🔀', text: 'Build your workflow and click Run\nClaude executes each step in order' }}
           />
         </div>
+
       </div>
     </div>
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Tool Palette ───────────────────────────────────────────────────────────────
 
-function AlwaysOnNode({ icon, label, sub, color }) {
-  return (
-    <div
-      className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
-      style={{ background: `${color}18`, border: `1px solid ${color}40` }}
-    >
-      <span className="text-base">{icon}</span>
-      <div className="min-w-0">
-        <div className="text-xs font-semibold text-white truncate">{label}</div>
-        <div className="text-xs" style={{ color: `${color}cc` }}>{sub}</div>
-      </div>
-      <span className="ml-auto w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />
-    </div>
-  );
-}
-
-function ToolNode({ cfg, enabled, isActive, onToggle }) {
-  return (
-    <button
-      onClick={onToggle}
-      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all"
-      style={{
-        background: isActive ? `${cfg.color}` : 'rgba(255,255,255,0.03)',
-        border: `1px solid ${isActive ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.06)'}`,
-        opacity: !enabled ? 0.45 : 1,
-      }}
-    >
-      <span className="text-base flex-shrink-0">{cfg.icon}</span>
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium text-white truncate">{cfg.label}</div>
-        <div className="text-xs text-gray-600">{enabled ? 'Connected' : 'Not connected'}</div>
-      </div>
-      <span
-        className="w-3 h-3 rounded-sm flex-shrink-0 flex items-center justify-center"
-        style={{
-          background: isActive ? '#6366f1' : 'rgba(255,255,255,0.06)',
-          border: `1px solid ${isActive ? '#6366f1' : 'rgba(255,255,255,0.1)'}`,
-        }}
-      >
-        {isActive && <span className="text-white" style={{ fontSize: '8px', lineHeight: 1 }}>✓</span>}
-      </span>
-    </button>
-  );
-}
-
-function FlowBar({ activeTools, serverMap }) {
-  const nodes = [
-    { key: '__input', label: 'Input', icon: '📝', color: '#6366f1' },
-    { key: '__claude', label: 'Claude', icon: '🤖', color: '#8b5cf6' },
-    { key: '__ghl',   label: 'GHL',    icon: '⚡', color: '#22c55e' },
-    ...[...activeTools].map(key => {
-      const sv = serverMap[key] || {};
-      return { key, label: sv.label || key, icon: sv.icon || '🔌', color: '#6366f1' };
-    }),
+function ToolPalette({ enabledKeys, onAdd }) {
+  const tools = [
+    { key: 'ghl', label: 'GHL CRM', icon: '⚡', alwaysOn: true },
+    ...INTEGRATIONS.map(i => ({ key: i.key, label: i.label, icon: i.icon })),
   ];
 
   return (
-    <div
-      className="flex items-center gap-1 px-4 py-2.5 flex-shrink-0 overflow-x-auto"
-      style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.15)' }}
+    <aside
+      className="w-48 flex flex-col overflow-y-auto flex-shrink-0"
+      style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}
     >
-      {nodes.map((node, i) => (
-        <div key={node.key} className="flex items-center gap-1 flex-shrink-0">
-          {i > 0 && <span className="text-gray-700 text-xs">→</span>}
+      <div className="px-3 pt-3 pb-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tool Palette</p>
+        <p className="text-xs text-gray-600 mt-0.5">Click to add a step</p>
+      </div>
+
+      <div className="flex flex-col gap-1 px-2 pb-3">
+        {tools.map(t => {
+          const enabled = t.alwaysOn || enabledKeys.has(t.key);
+          const color   = TOOL_COLOR[t.key] || '#6366f1';
+          return (
+            <button
+              key={t.key}
+              onClick={() => enabled && onAdd(t.key, t.label, t.icon)}
+              title={enabled ? `Add ${t.label} step` : `Connect ${t.label} in Settings first`}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all"
+              style={{
+                background: 'rgba(255,255,255,0.03)',
+                border:     '1px solid rgba(255,255,255,0.06)',
+                opacity:    enabled ? 1 : 0.35,
+                cursor:     enabled ? 'pointer' : 'not-allowed',
+              }}
+              onMouseOver={e => { if (enabled) e.currentTarget.style.borderColor = `${color}60`; }}
+              onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
+            >
+              <span className="text-base flex-shrink-0">{t.icon}</span>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium text-white truncate">{t.label}</div>
+                <div className="text-xs" style={{ color: enabled ? color : '#6b7280' }}>
+                  {enabled ? (t.alwaysOn ? 'Always on' : 'Connected ✓') : 'Not connected'}
+                </div>
+              </div>
+              {enabled && <span className="text-gray-600 text-xs flex-shrink-0">+</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex-1" />
+      <Link
+        to="/settings"
+        className="text-xs text-center text-indigo-400 hover:text-indigo-300 py-3 block"
+      >
+        + Connect APIs
+      </Link>
+    </aside>
+  );
+}
+
+// ── Step Node ──────────────────────────────────────────────────────────────────
+
+function StepNode({ step, index, total, onDelete, onMoveUp, onMoveDown, onInstruction }) {
+  const color = TOOL_COLOR[step.tool] || '#6366f1';
+
+  return (
+    <div>
+      {/* Connector arrow */}
+      {index > 0 && (
+        <div className="flex flex-col items-center py-1">
+          <div className="w-px h-4" style={{ background: 'rgba(255,255,255,0.1)' }} />
+          <span style={{ color: 'rgba(255,255,255,0.15)', fontSize: 11, lineHeight: 1 }}>▼</span>
+        </div>
+      )}
+
+      {/* Card */}
+      <div
+        className="rounded-2xl overflow-hidden"
+        style={{ border: `1px solid ${color}28`, background: 'rgba(255,255,255,0.02)' }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center gap-2.5 px-3 py-2.5"
+          style={{ background: `${color}10`, borderBottom: `1px solid ${color}20` }}
+        >
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
-            style={{
-              background: `${node.color}18`,
-              border: `1px solid ${node.color}40`,
-              color: node.color,
-            }}
+            className="w-5 h-5 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
+            style={{ background: color, fontSize: 10 }}
           >
-            <span>{node.icon}</span>
-            <span className="font-medium">{node.label}</span>
+            {index + 1}
+          </div>
+          <span className="text-base flex-shrink-0">{step.icon}</span>
+          <span className="text-xs font-semibold text-white flex-1 truncate">{step.label}</span>
+
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            <button
+              onClick={onMoveUp}
+              disabled={index === 0}
+              className="text-gray-600 hover:text-gray-300 disabled:opacity-20 w-6 h-6 flex items-center justify-center rounded text-xs"
+            >↑</button>
+            <button
+              onClick={onMoveDown}
+              disabled={index === total - 1}
+              className="text-gray-600 hover:text-gray-300 disabled:opacity-20 w-6 h-6 flex items-center justify-center rounded text-xs"
+            >↓</button>
+            <button
+              onClick={onDelete}
+              className="text-gray-600 hover:text-red-400 w-6 h-6 flex items-center justify-center rounded text-sm"
+            >×</button>
           </div>
         </div>
-      ))}
+
+        {/* Instruction */}
+        <div className="px-3 py-2.5">
+          <textarea
+            value={step.instruction}
+            onChange={e => onInstruction(e.target.value)}
+            placeholder={`What should ${step.label} do in this step?`}
+            rows={3}
+            className="w-full bg-transparent text-sm text-gray-300 placeholder-gray-600 outline-none resize-none leading-relaxed"
+          />
+        </div>
+      </div>
     </div>
   );
 }

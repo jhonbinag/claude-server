@@ -168,7 +168,7 @@ async function saveToolConfig(locationId, category, configData) {
   const merged   = { ...existing, [category]: { ...(existing[category] || {}), ...configData } };
 
   if (config.isFirebaseEnabled) {
-    await firebaseStore.saveToolConfig(locationId, merged);
+    await firebaseStore.saveToolConfig(locationId, category, configData);
     // Invalidate cache so next read picks up from Firebase
     try { await toolTokenService.invalidateToolConfigCache(locationId); } catch { /* non-fatal */ }
   } else {

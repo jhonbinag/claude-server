@@ -34,6 +34,10 @@ export default function Settings() {
   const [tokenStatus, setTokenStatus] = useState(null);
   const [reconnecting, setReconnecting] = useState(false);
 
+  const [billing,        setBilling]        = useState(null);
+  const [billingLoading, setBillingLoading]  = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+
   // Anthropic key state
   const [anthropicKey,     setAnthropicKey]     = useState('');
   const [anthropicEditing, setAnthropicEditing] = useState(false);
@@ -69,6 +73,15 @@ export default function Settings() {
     }
     setExpanded(prev => ({ ...initial, ...prev }));
   }, [integrations]);
+
+  useEffect(() => {
+    if (!locationId) return;
+    setBillingLoading(true);
+    api.get('/billing').then(data => {
+      if (data.success) setBilling(data.data);
+      setBillingLoading(false);
+    }).catch(() => setBillingLoading(false));
+  }, [locationId]);
 
   // ── Toast helper ──────────────────────────────────────────────────────────
 
@@ -619,6 +632,105 @@ export default function Settings() {
             );
           })}
         </div>
+
+      {/* ── Billing ─────────────────────────────────────────────────────── */}
+      <section className="card p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-white">Billing &amp; Subscription</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Your current plan and payment history.</p>
+          </div>
+          {billing && (
+            <span
+              className="text-xs font-semibold px-3 py-1 rounded-full"
+              style={{
+                background: { active: '#14532d', trial: '#1e3a5f', past_due: '#450a0a', cancelled: '#1e1e1e', suspended: '#3a1a00' }[billing.status] || '#1e1e1e',
+                color:      { active: '#4ade80', trial: '#60a5fa', past_due: '#f87171', cancelled: '#6b7280', suspended: '#fb923c' }[billing.status] || '#9ca3af',
+              }}
+            >
+              {billing.plan?.charAt(0).toUpperCase() + billing.plan?.slice(1)} · {billing.status?.replace('_', ' ')}
+            </span>
+          )}
+        </div>
+
+        {billingLoading && <p className="text-xs text-gray-500">Loading billing…</p>}
+
+        {billing && (
+          <>
+            {/* Plan details */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <p className="text-xs text-gray-500 mb-1">Current Plan</p>
+                <p className="text-sm font-semibold text-white capitalize">{billing.plan}</p>
+                {billing.amount > 0 && <p className="text-xs text-gray-400">${billing.amount}/{billing.interval}</p>}
+                {billing.status === 'trial' && billing.trialEnd && (
+                  <p className="text-xs text-blue-400 mt-1">Trial ends {new Date(billing.trialEnd).toLocaleDateString()}</p>
+                )}
+                {billing.currentPeriodEnd && billing.status === 'active' && (
+                  <p className="text-xs text-gray-500 mt-1">Renews {new Date(billing.currentPeriodEnd).toLocaleDateString()}</p>
+                )}
+              </div>
+              <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <p className="text-xs text-gray-500 mb-1">Payment Method</p>
+                {billing.paymentMethod ? (
+                  <>
+                    <p className="text-sm font-medium text-white capitalize">{billing.paymentMethod.brand} ••••{billing.paymentMethod.last4}</p>
+                    <p className="text-xs text-gray-400">Expires {billing.paymentMethod.expiry}</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-500">No payment method on file</p>
+                )}
+              </div>
+            </div>
+
+            {/* Upgrade / manage button */}
+            {(billing.status === 'trial' || billing.status === 'cancelled') && (
+              <button
+                disabled={checkoutLoading}
+                onClick={async () => {
+                  if (!billing.stripeEnabled) {
+                    showToast('Contact support to upgrade your plan.', false);
+                    return;
+                  }
+                  setCheckoutLoading(true);
+                  const data = await api.post('/billing/checkout', { plan: 'pro' });
+                  setCheckoutLoading(false);
+                  if (data.success && data.url) window.location.href = data.url;
+                  else showToast(data.error || 'Checkout failed.', false);
+                }}
+                className="btn-primary w-full py-2.5 text-sm"
+              >
+                {checkoutLoading ? 'Redirecting…' : '⬆ Upgrade to Pro — $99/mo'}
+              </button>
+            )}
+
+            {/* Invoice history */}
+            {billing.invoices?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Invoice History</p>
+                <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
+                  {billing.invoices.slice(0, 10).map((inv, i) => {
+                    const invColor = { paid: '#4ade80', pending: '#facc15', overdue: '#f87171', refunded: '#6b7280', void: '#6b7280' }[inv.status] || '#9ca3af';
+                    return (
+                      <div key={inv.id} className="flex items-center gap-3 px-4 py-2.5" style={{ borderBottom: i < billing.invoices.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                        <span className="text-xs text-gray-300 flex-1">{inv.description}</span>
+                        <span className="text-xs text-gray-400">${inv.amount}</span>
+                        <span className="text-xs font-semibold" style={{ color: invColor }}>{inv.status}</span>
+                        <span className="text-xs text-gray-600">{inv.date ? new Date(inv.date).toLocaleDateString() : ''}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {billing.invoices?.length === 0 && (
+              <p className="text-xs text-gray-600">No invoices yet.</p>
+            )}
+          </>
+        )}
+      </section>
+
       </main>
 
       {/* Toast */}

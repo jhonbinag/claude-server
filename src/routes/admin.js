@@ -26,6 +26,8 @@ const activityLogger   = require('../services/activityLogger');
 const firebaseStore    = require('../services/firebaseStore');
 const tokenStore       = require('../services/tokenStore');
 const appSettings      = require('../services/appSettings');
+const billingStore     = require('../services/billingStore');
+const workflowStore    = require('../services/workflowStore');
 const config           = require('../config');
 
 router.use(adminAuth);
@@ -293,6 +295,231 @@ router.get('/stats', async (req, res) => {
     });
   } catch (err) {
     console.error('[Admin] GET /stats error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── GET /admin/billing — list all billing records ───────────────────────────
+
+router.get('/billing', async (req, res) => {
+  try {
+    const records = await billingStore.listAllBilling();
+    const summary = {
+      total:       records.length,
+      active:      records.filter(r => r.status === 'active').length,
+      trial:       records.filter(r => r.status === 'trial').length,
+      pastDue:     records.filter(r => r.status === 'past_due').length,
+      cancelled:   records.filter(r => r.status === 'cancelled').length,
+      revenue:     records.filter(r => r.status === 'active').reduce((s, r) => s + (r.amount || 0), 0),
+    };
+    res.json({ success: true, summary, data: records });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── GET /admin/billing/:locationId — single billing record ──────────────────
+
+router.get('/billing/:locationId', async (req, res) => {
+  try {
+    const rec = await billingStore.getOrCreateBilling(req.params.locationId);
+    res.json({ success: true, data: rec });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /admin/billing/:locationId — create / update subscription ───────────
+
+router.post('/billing/:locationId', async (req, res) => {
+  const { plan, status, amount, currency, interval, trialEnd, currentPeriodEnd, notes } = req.body;
+  try {
+    const rec = await billingStore.updateSubscription(req.params.locationId, {
+      plan, status, amount: amount !== undefined ? Number(amount) : undefined,
+      currency, interval, trialEnd, currentPeriodEnd, notes,
+    });
+    activityLogger.log({ locationId: req.params.locationId, event: 'billing_update', detail: { plan, status }, success: true, adminId: req.adminId });
+    res.json({ success: true, data: rec });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /admin/billing/:locationId/invoice — create invoice ────────────────
+
+router.post('/billing/:locationId/invoice', async (req, res) => {
+  const { amount, currency, description, status, date } = req.body;
+  if (amount === undefined) return res.status(400).json({ success: false, error: 'amount required.' });
+  try {
+    const inv = await billingStore.createInvoice(req.params.locationId, { amount: Number(amount), currency, description, status, date });
+    activityLogger.log({ locationId: req.params.locationId, event: 'billing_invoice_create', detail: { amount, status }, success: true, adminId: req.adminId });
+    res.json({ success: true, data: inv });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── PATCH /admin/billing/:locationId/invoice/:invoiceId — update invoice ────
+
+router.patch('/billing/:locationId/invoice/:invoiceId', async (req, res) => {
+  const { status, amount, description, date } = req.body;
+  try {
+    const inv = await billingStore.updateInvoice(req.params.locationId, req.params.invoiceId, {
+      ...(status      !== undefined && { status }),
+      ...(amount      !== undefined && { amount: Number(amount) }),
+      ...(description !== undefined && { description }),
+      ...(date        !== undefined && { date }),
+    });
+    activityLogger.log({ locationId: req.params.locationId, event: 'billing_invoice_update', detail: { invoiceId: req.params.invoiceId, status }, success: true, adminId: req.adminId });
+    res.json({ success: true, data: inv });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── DELETE /admin/billing/:locationId/invoice/:invoiceId — delete invoice ───
+
+router.delete('/billing/:locationId/invoice/:invoiceId', async (req, res) => {
+  try {
+    await billingStore.deleteInvoice(req.params.locationId, req.params.invoiceId);
+    activityLogger.log({ locationId: req.params.locationId, event: 'billing_invoice_delete', detail: { invoiceId: req.params.invoiceId }, success: true, adminId: req.adminId });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /admin/billing/:locationId/refund/:invoiceId — refund ──────────────
+
+router.post('/billing/:locationId/refund/:invoiceId', async (req, res) => {
+  try {
+    const stripe = billingStore.getStripe();
+    const rec    = await billingStore.getBilling(req.params.locationId);
+    if (!rec) return res.status(404).json({ success: false, error: 'Billing record not found.' });
+
+    const inv = rec.invoices.find(i => i.id === req.params.invoiceId);
+    if (!inv) return res.status(404).json({ success: false, error: 'Invoice not found.' });
+
+    // If Stripe is enabled and this invoice has a Stripe charge, issue real refund
+    if (stripe && inv.stripeInvoiceId) {
+      try {
+        const invoice = await stripe.invoices.retrieve(inv.stripeInvoiceId);
+        if (invoice.charge) await stripe.refunds.create({ charge: invoice.charge });
+      } catch (stripeErr) {
+        console.warn('[Admin] Stripe refund failed:', stripeErr.message);
+      }
+    }
+
+    const updated = await billingStore.updateInvoice(req.params.locationId, req.params.invoiceId, { status: 'refunded' });
+    activityLogger.log({ locationId: req.params.locationId, event: 'billing_refund', detail: { invoiceId: req.params.invoiceId, amount: inv.amount }, success: true, adminId: req.adminId });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── DELETE /admin/billing/:locationId — delete all billing data ──────────────
+
+router.delete('/billing/:locationId', async (req, res) => {
+  try {
+    await billingStore.deleteBilling(req.params.locationId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TROUBLESHOOTING — Workflows & Connections (admin read/edit for support)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── GET /admin/locations/:id/workflows — list user's saved workflows ─────────
+
+router.get('/locations/:id/workflows', async (req, res) => {
+  try {
+    const list = await workflowStore.listWorkflows(req.params.id);
+    res.json({ success: true, count: list.length, data: list });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── PUT /admin/locations/:id/workflows/:wfId — edit a workflow (troubleshoot) ─
+
+router.put('/locations/:id/workflows/:wfId', async (req, res) => {
+  const { name, steps, context } = req.body;
+  try {
+    const list = await workflowStore.listWorkflows(req.params.id);
+    const existing = list.find((w) => w.id === req.params.wfId);
+    if (!existing) return res.status(404).json({ success: false, error: 'Workflow not found.' });
+
+    const updated = await workflowStore.saveWorkflow(req.params.id, {
+      ...existing,
+      ...(name    !== undefined && { name }),
+      ...(steps   !== undefined && { steps }),
+      ...(context !== undefined && { context }),
+    });
+
+    activityLogger.log({ locationId: req.params.id, event: 'admin_workflow_edit', detail: { wfId: req.params.wfId }, success: true, adminId: req.adminId });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── DELETE /admin/locations/:id/workflows/:wfId — delete a workflow ──────────
+
+router.delete('/locations/:id/workflows/:wfId', async (req, res) => {
+  try {
+    await workflowStore.deleteWorkflow(req.params.id, req.params.wfId);
+    activityLogger.log({ locationId: req.params.id, event: 'admin_workflow_delete', detail: { wfId: req.params.wfId }, success: true, adminId: req.adminId });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── GET /admin/locations/:id/connections — view full tool configs ─────────────
+
+router.get('/locations/:id/connections', async (req, res) => {
+  try {
+    const configs = await toolRegistry.getToolConfig(req.params.id);
+    // Mask sensitive values (show key existence but not full value)
+    const masked = {};
+    for (const [cat, cfg] of Object.entries(configs || {})) {
+      masked[cat] = {};
+      for (const [k, v] of Object.entries(cfg || {})) {
+        if (typeof v === 'string' && v.length > 8) {
+          masked[cat][k] = v.slice(0, 4) + '••••' + v.slice(-4);
+        } else {
+          masked[cat][k] = v;
+        }
+      }
+    }
+    res.json({ success: true, data: masked });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── DELETE /admin/locations/:id/connections/:category — clear a broken integration
+
+router.delete('/locations/:id/connections/:category', async (req, res) => {
+  const { id, category } = req.params;
+  try {
+    if (config.isFirebaseEnabled) {
+      await firebaseStore.deleteToolConfig(id, category);
+    } else {
+      const existing = await toolRegistry.getToolConfig(id);
+      const updated  = { ...existing };
+      delete updated[category];
+      await toolTokenService.setCachedToolConfig(id, updated, 90 * 24 * 3600);
+    }
+    await toolTokenService.invalidateToolConfigCache(id);
+
+    activityLogger.log({ locationId: id, event: 'admin_connection_clear', detail: { category }, success: true, adminId: req.adminId });
+    res.json({ success: true, message: `${category} connection cleared for ${id}.` });
+  } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });

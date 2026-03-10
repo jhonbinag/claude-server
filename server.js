@@ -13,9 +13,11 @@ let apiRoutes;     try { apiRoutes     = require('./src/routes/api');         } 
 let webhookRoutes; try { webhookRoutes = require('./src/routes/webhooks');    } catch (e) { _errors.webhooks = e.message; }
 let claudeRoutes;  try { claudeRoutes  = require('./src/routes/claude');      } catch (e) { _errors.claude   = e.message; }
 let toolsRoutes;   try { toolsRoutes   = require('./src/routes/tools');       } catch (e) { _errors.tools    = e.message; }
-let adsRoutes;     try { adsRoutes     = require('./src/routes/adsGenerator');} catch (e) { _errors.ads      = e.message; }
-let adminRoutes;   try { adminRoutes   = require('./src/routes/admin');       } catch (e) { _errors.admin    = e.message; }
-let uiRoute;       try { uiRoute       = require('./src/routes/ui');          } catch (e) { _errors.ui       = e.message; }
+let adsRoutes;      try { adsRoutes      = require('./src/routes/adsGenerator');   } catch (e) { _errors.ads       = e.message; }
+let adminRoutes;    try { adminRoutes    = require('./src/routes/admin');         } catch (e) { _errors.admin     = e.message; }
+let workflowRoutes; try { workflowRoutes = require('./src/routes/savedWorkflows'); } catch (e) { _errors.workflows = e.message; }
+let billingRoutes;  try { billingRoutes  = require('./src/routes/billing');       } catch (e) { _errors.billing  = e.message; }
+let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui       = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
 const app = express();
@@ -63,9 +65,11 @@ if (apiRoutes)     app.use('/api',      apiRoutes);
 if (webhookRoutes) app.use('/webhooks', webhookRoutes);
 if (claudeRoutes)  app.use('/claude',   claudeRoutes);
 if (toolsRoutes)   app.use('/tools',    toolsRoutes);
-if (adsRoutes)     app.use('/ads',      adsRoutes);
-if (adminRoutes)   app.use('/admin',    adminRoutes);
-if (uiRoute)       app.use('/',         uiRoute);
+if (adsRoutes)       app.use('/ads',       adsRoutes);
+if (adminRoutes)     app.use('/admin',     adminRoutes);
+if (workflowRoutes)  app.use('/workflows', workflowRoutes);
+if (billingRoutes)   app.use('/billing',   billingRoutes);
+if (uiRoute)         app.use('/',          uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path }));
