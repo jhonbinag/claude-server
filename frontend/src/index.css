@@ -143,14 +143,16 @@ body {
 /* ── Ads Generator form panel width ──────────────────────────────────────── */
 .ads-form-panel {
   width: 100%;
-  flex-shrink: 0;
+  flex: 1;           /* fill remaining height on mobile so it can scroll */
+  min-height: 0;     /* allows flex child to shrink below content height  */
+  overflow-y: auto;
   border-right: none;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 @media (min-width: 768px) {
   .ads-form-panel {
+    flex: none;
+    flex-shrink: 0;
     width: 420px;
     border-right: 1px solid rgba(255,255,255,0.06);
-    border-bottom: none;
   }
 }

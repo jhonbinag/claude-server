@@ -172,7 +172,7 @@ export default function AdsGenerator() {
 
         {/* ── Left — Form ──────────────────────────────────────────────── */}
         <div
-          className={`ads-form-panel flex-col overflow-y-auto ${mobileTab === 'form' ? 'flex' : 'hidden md:flex'}`}
+          className={`ads-form-panel flex-col ${mobileTab === 'form' ? 'flex' : 'hidden md:flex'}`}
         >
           <div className="p-4 space-y-4 flex-1">
 
@@ -331,7 +331,7 @@ export default function AdsGenerator() {
         </div>
 
         {/* ── Right — Output ───────────────────────────────────────────── */}
-        <div className={`flex-col flex-1 overflow-hidden ${mobileTab === 'output' ? 'flex' : 'hidden md:flex'}`}>
+        <div className={`flex-col flex-1 min-h-0 overflow-hidden ${mobileTab === 'output' ? 'flex' : 'hidden md:flex'}`}>
           <div
             className="px-4 py-2.5 flex items-center gap-3 flex-shrink-0"
             style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.15)' }}
