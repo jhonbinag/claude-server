@@ -38,8 +38,9 @@ function applyEvent(prev, evtType, data) {
 
 export default function Dashboard() {
   const { isAuthenticated, isAuthLoading, apiKey, claudeReady, enabledTools, integrations } = useApp();
-  const [task, setTask]       = useState('');
+  const [task, setTask]         = useState('');
   const [messages, setMessages] = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { isRunning, stream, stop } = useStreamFetch();
 
   const navigate = useNavigate();
@@ -53,7 +54,7 @@ export default function Dashboard() {
   }, [isRunning, stream, apiKey]);
 
   const handleSubmit = () => { run(task); };
-  const handleChip   = (prompt) => { setTask(prompt); run(prompt); };
+  const handleChip   = (prompt) => { setTask(prompt); run(prompt); setSidebarOpen(false); };
 
   if (isAuthLoading)    return <Spinner />;
   if (!isAuthenticated) return (
@@ -71,15 +72,32 @@ export default function Dashboard() {
       <Header
         icon="🤖"
         title="GTM AI Command Center"
-        subtitle={`Claude Opus 4.6 · ${enabledTools.length} tools active · ${connected.length} integrations`}
+        subtitle={`Claude Opus 4.6 · ${enabledTools.length} tools · ${connected.length} integrations`}
+        onMenuClick={() => setSidebarOpen(v => !v)}
       />
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* ── Sidebar ─────────────────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden" style={{ position: 'relative' }}>
+
+        {/* ── Backdrop overlay (mobile only) ──────────────────────────────── */}
+        {sidebarOpen && (
+          <div
+            className="absolute inset-0 lg:hidden"
+            style={{ background: 'rgba(0,0,0,0.55)', zIndex: 25 }}
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        {/* ── Sidebar drawer ───────────────────────────────────────────────── */}
         <aside
-          className="hidden md:flex w-64 glass flex-col overflow-y-auto flex-shrink-0"
+          className={`sidebar-drawer ${sidebarOpen ? 'open' : 'closed'} w-64 glass flex flex-col overflow-y-auto flex-shrink-0`}
           style={{ borderRight: '1px solid rgba(255,255,255,0.08)' }}
         >
+          {/* Close button (mobile only) */}
+          <div className="flex items-center justify-between p-3 lg:hidden" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Menu</span>
+            <button onClick={() => setSidebarOpen(false)} className="nav-link text-gray-500" style={{ padding: '4px 8px' }}>✕</button>
+          </div>
+
           {/* GHL */}
           <div className="p-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             <div className="flex items-center gap-2 mb-1">
@@ -94,7 +112,7 @@ export default function Dashboard() {
           <div className="p-4 flex-1">
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Integrations</span>
-              <Link to="/settings" className="text-xs text-indigo-400 hover:text-indigo-300">+ Connect</Link>
+              <Link to="/settings" className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setSidebarOpen(false)}>+ Connect</Link>
             </div>
             <div className="space-y-1.5">
               {(integrations || []).length === 0 && (
@@ -116,7 +134,7 @@ export default function Dashboard() {
               ))}
             </div>
             {connected.length === 0 && (
-              <Link to="/settings" className="block mt-4 text-center text-xs text-indigo-400 hover:underline">
+              <Link to="/settings" className="block mt-4 text-center text-xs text-indigo-400 hover:underline" onClick={() => setSidebarOpen(false)}>
                 Connect your first integration →
               </Link>
             )}
@@ -126,9 +144,9 @@ export default function Dashboard() {
           <div className="p-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Quick links</p>
             <div className="space-y-1">
-              <Link to="/workflows"     className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🔀 Workflow Builder</Link>
-              <Link to="/ads-generator" className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🎯 Bulk Ads Generator</Link>
-              <Link to="/settings"      className="block text-xs text-gray-400 hover:text-indigo-400 py-1">⚙️ Integration Settings</Link>
+              <Link to="/workflows"     onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🔀 Workflow Builder</Link>
+              <Link to="/ads-generator" onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🎯 Bulk Ads Generator</Link>
+              <Link to="/settings"      onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">⚙️ Integration Settings</Link>
             </div>
           </div>
         </aside>
@@ -138,37 +156,38 @@ export default function Dashboard() {
           {/* Claude API key banner */}
           {!claudeReady && (
             <div
-              className="flex items-center justify-between gap-4 px-5 py-3 flex-shrink-0"
+              className="flex items-center justify-between gap-3 px-4 py-2.5 flex-shrink-0"
               style={{ background: 'rgba(251,191,36,0.08)', borderBottom: '1px solid rgba(251,191,36,0.2)' }}
             >
-              <div>
-                <span className="text-yellow-400 text-sm font-semibold">⚠️ Anthropic API key required</span>
-                <span className="text-gray-400 text-xs ml-2">Add your key in Settings to activate Claude.</span>
+              <div className="min-w-0">
+                <span className="text-yellow-400 text-xs font-semibold">⚠️ Anthropic API key required</span>
+                <span className="text-gray-400 text-xs ml-1 hidden sm:inline">Add your key in Settings to activate Claude.</span>
               </div>
               <button
                 onClick={() => navigate('/settings')}
-                className="btn-primary px-4 py-1.5 text-xs whitespace-nowrap"
+                className="btn-primary px-3 py-1.5 text-xs whitespace-nowrap flex-shrink-0"
               >
-                Add API Key →
+                Add Key →
               </button>
             </div>
           )}
 
-          {/* Quick action chips */}
+          {/* Quick action chips — horizontal carousel */}
           <div
-            className="p-3.5 flex gap-2 flex-shrink-0 overflow-x-auto"
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.15)', scrollbarWidth: 'none' }}
+            className="chips-row flex-shrink-0 gap-2 px-3 py-2.5"
+            style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.15)' }}
           >
             {QUICK_ACTIONS.map(({ label, prompt }) => (
               <button
                 key={label}
                 onClick={() => handleChip(prompt)}
                 disabled={isRunning}
-                className="text-xs px-3 py-1.5 rounded-full border transition-all whitespace-nowrap flex-shrink-0"
+                className="text-xs px-3 py-1.5 rounded-full border transition-all flex-shrink-0"
                 style={{
                   background: 'rgba(255,255,255,0.04)',
                   borderColor: 'rgba(255,255,255,0.08)',
                   color: '#9ca3af',
+                  whiteSpace: 'nowrap',
                 }}
                 onMouseOver={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#a5b4fc'; }}
                 onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#9ca3af'; }}
@@ -190,15 +209,15 @@ export default function Dashboard() {
 
           {/* Input */}
           <div
-            className="p-4 flex-shrink-0"
+            className="p-3 flex-shrink-0"
             style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}
           >
-            <div className="flex gap-3 items-end">
+            <div className="flex gap-2 items-end">
               <textarea
                 value={task}
                 onChange={e => setTask(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-                placeholder="Describe what you want Claude to do across your connected tools…"
+                placeholder="Describe what you want Claude to do…"
                 rows={3}
                 className="field flex-1 text-sm leading-relaxed"
                 style={{ resize: 'none' }}
@@ -207,7 +226,7 @@ export default function Dashboard() {
                 <button
                   onClick={isRunning ? stop : handleSubmit}
                   disabled={!isRunning && !task.trim()}
-                  className="btn-primary px-5 py-2.5 gap-2"
+                  className="btn-primary px-4 py-2.5 gap-2"
                 >
                   {isRunning
                     ? <><span className="spinner w-4 h-4 rounded-full border-2" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> Stop</>
@@ -218,7 +237,7 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-            <p className="text-xs text-gray-600 mt-2">
+            <p className="text-xs text-gray-600 mt-1.5 hidden sm:block">
               Enter to run · Shift+Enter for new line · Claude chains tool calls automatically
             </p>
           </div>
