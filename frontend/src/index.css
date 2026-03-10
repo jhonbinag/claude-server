@@ -139,3 +139,18 @@ body {
   scrollbar-width: none;
 }
 .chips-row::-webkit-scrollbar { display: none; }
+
+/* ── Ads Generator form panel width ──────────────────────────────────────── */
+.ads-form-panel {
+  width: 100%;
+  flex-shrink: 0;
+  border-right: none;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+@media (min-width: 768px) {
+  .ads-form-panel {
+    width: 420px;
+    border-right: 1px solid rgba(255,255,255,0.06);
+    border-bottom: none;
+  }
+}

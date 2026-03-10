@@ -27,47 +27,27 @@ const TONES = [
 const TEMPLATES = [
   {
     name: '🛍️ Product Launch',
-    adType: 'facebook',
-    objective: 'Conversions',
-    tone: 'Urgent',
-    product: 'New SaaS Product',
-    audience: 'Marketing professionals aged 25-45',
-    budget: '50',
-    variants: '3',
-    extra: 'Include a limited-time offer and strong CTA.',
+    adType: 'facebook', objective: 'Conversions', tone: 'Urgent',
+    product: 'New SaaS Product', audience: 'Marketing professionals aged 25-45',
+    budget: '50', variants: '3', extra: 'Include a limited-time offer and strong CTA.',
   },
   {
     name: '🎓 Lead Gen Course',
-    adType: 'facebook',
-    objective: 'Lead Generation',
-    tone: 'Educational',
-    product: 'Online Marketing Course',
-    audience: 'Small business owners interested in digital marketing',
-    budget: '30',
-    variants: '3',
-    extra: 'Emphasize transformation and results from past students.',
+    adType: 'facebook', objective: 'Lead Generation', tone: 'Educational',
+    product: 'Online Marketing Course', audience: 'Small business owners interested in digital marketing',
+    budget: '30', variants: '3', extra: 'Emphasize transformation and results from past students.',
   },
   {
     name: '🏪 Local Business',
-    adType: 'instagram',
-    objective: 'Brand Awareness',
-    tone: 'Friendly',
-    product: 'Local Restaurant / Service Business',
-    audience: 'People within 10 miles of [city], ages 18-55',
-    budget: '20',
-    variants: '2',
-    extra: 'Highlight community involvement and local values.',
+    adType: 'instagram', objective: 'Brand Awareness', tone: 'Friendly',
+    product: 'Local Restaurant / Service Business', audience: 'People within 10 miles of [city], ages 18-55',
+    budget: '20', variants: '2', extra: 'Highlight community involvement and local values.',
   },
   {
     name: '💼 B2B SaaS',
-    adType: 'linkedin',
-    objective: 'Lead Generation',
-    tone: 'Professional',
-    product: 'B2B Software Solution',
-    audience: 'C-suite executives and department heads at companies with 50+ employees',
-    budget: '100',
-    variants: '2',
-    extra: 'Focus on ROI, efficiency gains, and enterprise features.',
+    adType: 'linkedin', objective: 'Lead Generation', tone: 'Professional',
+    product: 'B2B Software Solution', audience: 'C-suite executives and department heads at companies with 50+ employees',
+    budget: '100', variants: '2', extra: 'Focus on ROI, efficiency gains, and enterprise features.',
   },
 ];
 
@@ -121,6 +101,7 @@ export default function AdsGenerator() {
   const [variants,  setVariants]  = useState('3');
   const [extra,     setExtra]     = useState('');
   const [messages,  setMessages]  = useState([]);
+  const [mobileTab, setMobileTab] = useState('form'); // 'form' | 'output'
 
   const fbEnabled = (integrations || []).some(i => i.key === 'facebook_ads' && i.enabled);
   const aiEnabled = (integrations || []).some(i => i.key === 'openai' && i.enabled);
@@ -128,6 +109,7 @@ export default function AdsGenerator() {
   const generate = useCallback(async () => {
     if (!product.trim() || !audience.trim() || isRunning) return;
     setMessages([]);
+    setMobileTab('output'); // auto-switch to output on mobile
 
     const taskPrompt = buildPrompt({ adType, objective, tone, product, audience, budget, variants, extra });
     const allowedIntegrations = ['openai', ...(fbEnabled ? ['facebook_ads'] : [])];
@@ -141,24 +123,32 @@ export default function AdsGenerator() {
   }, [adType, objective, tone, product, audience, budget, variants, extra, isRunning, stream, apiKey, fbEnabled]);
 
   const applyTemplate = tpl => {
-    setAdType(tpl.adType);
-    setObjective(tpl.objective);
-    setTone(tpl.tone);
-    setProduct(tpl.product);
-    setAudience(tpl.audience);
-    setBudget(tpl.budget);
-    setVariants(tpl.variants);
-    setExtra(tpl.extra || '');
+    setAdType(tpl.adType); setObjective(tpl.objective); setTone(tpl.tone);
+    setProduct(tpl.product); setAudience(tpl.audience); setBudget(tpl.budget);
+    setVariants(tpl.variants); setExtra(tpl.extra || '');
     setMessages([]);
   };
 
   if (isAuthLoading)    return <Spinner />;
   if (!isAuthenticated) return (
     <AuthGate icon="🎯" title="Bulk Ads Generator" subtitle="Connect your API key to generate AI-powered ads">
-      <Link to="/" className="block text-center text-xs text-gray-500 mt-4 hover:text-gray-300">
-        ← Back to Dashboard
-      </Link>
+      <Link to="/" className="block text-center text-xs text-gray-500 mt-4 hover:text-gray-300">← Back to Dashboard</Link>
     </AuthGate>
+  );
+
+  const tabBtn = (tab, label) => (
+    <button
+      onClick={() => setMobileTab(tab)}
+      className="flex-1 py-2 text-xs font-semibold transition-all"
+      style={{
+        borderBottom: mobileTab === tab ? '2px solid #6366f1' : '2px solid transparent',
+        color: mobileTab === tab ? '#a5b4fc' : '#6b7280',
+        background: 'none',
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
   );
 
   return (
@@ -166,25 +156,33 @@ export default function AdsGenerator() {
       <Header
         icon="🎯"
         title="Bulk Ads Generator"
-        subtitle="Claude · OpenAI · Facebook Ads — AI-powered ad creative at scale"
+        subtitle="AI-powered ad creative at scale"
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      {/* Mobile tab bar */}
+      <div
+        className="flex md:hidden flex-shrink-0"
+        style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.2)' }}
+      >
+        {tabBtn('form', '⚙️ Configure')}
+        {tabBtn('output', `✨ Output${messages.length ? ` (${messages.filter(m => m.type === 'done').length ? '✓' : '…'})` : ''}`)}
+      </div>
+
+      <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
 
         {/* ── Left — Form ──────────────────────────────────────────────── */}
         <div
-          className="flex flex-col overflow-y-auto"
-          style={{ width: '420px', flexShrink: 0, borderRight: '1px solid rgba(255,255,255,0.06)' }}
+          className={`ads-form-panel flex-col overflow-y-auto ${mobileTab === 'form' ? 'flex' : 'hidden md:flex'}`}
         >
-          <div className="p-5 space-y-5 flex-1">
+          <div className="p-4 space-y-4 flex-1">
 
             {/* Status banner */}
             {!aiEnabled && (
               <div
-                className="flex items-start gap-3 px-4 py-3 rounded-xl text-xs"
+                className="flex items-start gap-3 px-3 py-2.5 rounded-xl text-xs"
                 style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)', color: '#fbbf24' }}
               >
-                <span className="text-base flex-shrink-0">⚠️</span>
+                <span className="flex-shrink-0">⚠️</span>
                 <div>
                   <div className="font-medium mb-0.5">OpenAI not connected</div>
                   <div className="text-yellow-600">Claude will generate ads without GPT-4o assistance.</div>
@@ -224,14 +222,14 @@ export default function AdsGenerator() {
                   <button
                     key={t.value}
                     onClick={() => setAdType(t.value)}
-                    className="text-left px-3 py-2.5 rounded-xl transition-all"
+                    className="text-left px-3 py-2 rounded-xl transition-all"
                     style={{
                       background: adType === t.value ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)',
                       border: `1px solid ${adType === t.value ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.06)'}`,
                     }}
                   >
-                    <div className="text-sm text-white">{t.label}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">{t.desc}</div>
+                    <div className="text-xs font-medium text-white">{t.label}</div>
+                    <div className="text-xs text-gray-500 mt-0.5 hidden sm:block">{t.desc}</div>
                   </button>
                 ))}
               </div>
@@ -241,13 +239,13 @@ export default function AdsGenerator() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Objective</label>
-                <select value={objective} onChange={e => setObjective(e.target.value)} className="field w-full text-sm">
+                <select value={objective} onChange={e => setObjective(e.target.value)} className="field w-full text-xs">
                   {OBJECTIVES.map(o => <option key={o}>{o}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Tone</label>
-                <select value={tone} onChange={e => setTone(e.target.value)} className="field w-full text-sm">
+                <select value={tone} onChange={e => setTone(e.target.value)} className="field w-full text-xs">
                   {TONES.map(t => <option key={t}>{t}</option>)}
                 </select>
               </div>
@@ -305,7 +303,7 @@ export default function AdsGenerator() {
               <textarea
                 value={extra}
                 onChange={e => setExtra(e.target.value)}
-                placeholder="e.g. Include a discount code, focus on pain points, avoid competitor mentions…"
+                placeholder="e.g. Include a discount code, focus on pain points…"
                 rows={2}
                 className="field w-full text-sm"
                 style={{ resize: 'vertical' }}
@@ -318,7 +316,7 @@ export default function AdsGenerator() {
             <button
               onClick={isRunning ? stop : generate}
               disabled={!isRunning && (!product.trim() || !audience.trim())}
-              className="btn-primary w-full py-3 gap-2 text-base"
+              className="btn-primary w-full py-3 gap-2 text-sm"
             >
               {isRunning
                 ? <><span className="spinner w-4 h-4 rounded-full border-2" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> Stop</>
@@ -333,9 +331,9 @@ export default function AdsGenerator() {
         </div>
 
         {/* ── Right — Output ───────────────────────────────────────────── */}
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className={`flex-col flex-1 overflow-hidden ${mobileTab === 'output' ? 'flex' : 'hidden md:flex'}`}>
           <div
-            className="px-5 py-3 flex items-center gap-3 flex-shrink-0"
+            className="px-4 py-2.5 flex items-center gap-3 flex-shrink-0"
             style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.15)' }}
           >
             <span className="text-sm">✨</span>
@@ -347,12 +345,7 @@ export default function AdsGenerator() {
               </span>
             )}
             {messages.length > 0 && !isRunning && (
-              <button
-                onClick={() => setMessages([])}
-                className="ml-auto btn-ghost px-3 py-1 text-xs"
-              >
-                Clear
-              </button>
+              <button onClick={() => setMessages([])} className="ml-auto btn-ghost px-3 py-1 text-xs">Clear</button>
             )}
           </div>
 
