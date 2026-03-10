@@ -256,7 +256,7 @@ export default function Settings() {
     <div className="flex flex-col min-h-screen" style={{ background: '#0f0f13' }}>
       <Header icon="⚙️" title="Integration Hub" subtitle="Connect APIs · Sync Tools · Power Claude" />
 
-      <main className="flex-1 overflow-y-auto p-6" style={{ maxWidth: '72rem', margin: '0 auto', width: '100%' }}>
+      <main className="flex-1 overflow-y-auto p-4 md:p-6" style={{ maxWidth: '72rem', margin: '0 auto', width: '100%' }}>
 
         {/* ── Token status banner (shows when idle/expired) ─────────────── */}
         {needsReconnect && (
@@ -414,7 +414,7 @@ export default function Settings() {
         {/* ── External integrations ──────────────────────────────────────── */}
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">External Integrations</h2>
 
-        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
+        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(340px, 100%), 1fr))' }}>
           {INTEGRATIONS.map(cfg => {
             const sv      = serverMap[cfg.key] || {};
             const enabled = sv.enabled || false;
@@ -658,7 +658,7 @@ export default function Settings() {
         {billing && (
           <>
             {/* Plan details */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                 <p className="text-xs text-gray-500 mb-1">Current Plan</p>
                 <p className="text-sm font-semibold text-white capitalize">{billing.plan}</p>

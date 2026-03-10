@@ -12,6 +12,16 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
+function useIsMobile() {
+  const [m, setM] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  useEffect(() => {
+    const h = () => setM(window.innerWidth < 768);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
+  return m;
+}
+
 // ── API helper ────────────────────────────────────────────────────────────────
 
 const BASE = '';
@@ -66,15 +76,16 @@ function relTime(val) {
 // ── Event badge ───────────────────────────────────────────────────────────────
 
 const EVENT_COLORS = {
-  install:        '#4ade80',
-  uninstall:      '#f87171',
-  restore:        '#60a5fa',
-  tool_connect:   '#34d399',
-  tool_disconnect:'#fb923c',
-  tool_reconnect: '#a78bfa',
-  tool_call:      '#94a3b8',
-  admin_refresh:  '#fbbf24',
-  admin_revoke:   '#f43f5e',
+  install:           '#4ade80',
+  uninstall:         '#f87171',
+  restore:           '#60a5fa',
+  tool_connect:      '#34d399',
+  tool_disconnect:   '#fb923c',
+  tool_reconnect:    '#a78bfa',
+  tool_call:         '#94a3b8',
+  workflow_trigger:  '#f0abfc',
+  admin_refresh:     '#fbbf24',
+  admin_revoke:      '#f43f5e',
 };
 
 function EventBadge({ event }) {
@@ -87,6 +98,8 @@ function EventBadge({ event }) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function Admin() {
+  const isMobile = useIsMobile();
+
   const [adminKey,   setAdminKey]   = useState(() => localStorage.getItem('gtm_admin_key') || '');
   const [keyInput,   setKeyInput]   = useState('');
   const [authed,     setAuthed]     = useState(false);
@@ -100,9 +113,10 @@ export default function Admin() {
   const [actionMsg,  setActionMsg]  = useState('');
 
   const [logFilter,       setLogFilter]       = useState({ locationId: '', event: '' });
-  const [expandedId,      setExpandedId]      = useState(null);
-  const [detailData,      setDetailData]      = useState({});
-  const [troubleshootData, setTroubleshootData] = useState({}); // { [locationId]: { connections, workflows } }
+  const [expandedId,        setExpandedId]        = useState(null);
+  const [detailData,        setDetailData]        = useState({});
+  const [troubleshootData,  setTroubleshootData]  = useState({}); // { [locationId]: { connections, workflows } }
+  const [workflowRunLogs,   setWorkflowRunLogs]   = useState({}); // { [locationId]: [] }
 
   // App Settings state
   const [appSettingsData,   setAppSettingsData]   = useState(null);
@@ -216,9 +230,10 @@ export default function Admin() {
       if (data.success) setDetailData((prev) => ({ ...prev, [locationId]: data.data }));
     }
     if (!troubleshootData[locationId]) {
-      const [connRes, wfRes] = await Promise.all([
+      const [connRes, wfRes, logsRes] = await Promise.all([
         adminFetch(`/admin/locations/${locationId}/connections`, { adminKey }),
         adminFetch(`/admin/locations/${locationId}/workflows`, { adminKey }),
+        adminFetch(`/admin/logs?locationId=${locationId}&event=workflow_trigger&limit=50`, { adminKey }),
       ]);
       setTroubleshootData((prev) => ({
         ...prev,
@@ -226,6 +241,10 @@ export default function Admin() {
           connections: connRes.success ? connRes.data : {},
           workflows:   wfRes.success   ? wfRes.data  : [],
         },
+      }));
+      setWorkflowRunLogs((prev) => ({
+        ...prev,
+        [locationId]: logsRes.success ? logsRes.data : [],
       }));
     }
   };
@@ -270,8 +289,8 @@ export default function Admin() {
 
   if (!authed) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0f0f0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 40, width: 360 }}>
+      <div style={{ minHeight: '100vh', background: '#0f0f0f', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+        <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: '32px 24px', width: '100%', maxWidth: 360 }}>
           <h2 style={{ color: '#fff', margin: '0 0 8px', fontSize: 22 }}>Admin Access</h2>
           <p style={{ color: '#888', margin: '0 0 24px', fontSize: 14 }}>Enter your ADMIN_API_KEY to continue.</p>
           <input
@@ -307,14 +326,14 @@ export default function Admin() {
     <div style={{ minHeight: '100vh', background: '#0f0f0f', color: '#e5e7eb', fontFamily: 'system-ui, sans-serif' }}>
 
       {/* Header */}
-      <div style={{ background: '#1a1a1a', borderBottom: '1px solid #2a2a2a', padding: '14px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 20 }}>🛡️</span>
-          <span style={{ fontWeight: 700, fontSize: 18, color: '#fff' }}>HL Pro Tools — Admin</span>
+      <div style={{ background: '#1a1a1a', borderBottom: '1px solid #2a2a2a', padding: isMobile ? '12px 16px' : '14px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 18 }}>🛡️</span>
+          <span style={{ fontWeight: 700, fontSize: isMobile ? 15 : 18, color: '#fff' }}>HL Pro Tools — Admin</span>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button onClick={() => { loadStats(); loadLocations(); }} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Refresh</button>
-          <button onClick={logout} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#f87171', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>Sign Out</button>
+          <button onClick={() => { loadStats(); loadLocations(); }} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}>↻</button>
+          <button onClick={logout} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#f87171', padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}>Sign Out</button>
         </div>
       </div>
 
@@ -325,11 +344,11 @@ export default function Admin() {
         </div>
       )}
 
-      <div style={{ padding: '24px 28px' }}>
+      <div style={{ padding: isMobile ? '16px 12px' : '24px 28px' }}>
 
         {/* Stats cards */}
         {stats && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 28 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10, marginBottom: 20 }}>
             {[
               { label: 'Total Locations', value: stats.total,       color: '#fff' },
               { label: 'Active',          value: stats.active,      color: '#4ade80' },
@@ -346,7 +365,7 @@ export default function Admin() {
         )}
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 20, flexWrap: 'wrap' }}>
           {[
             { key: 'overview',     label: 'Overview' },
             { key: 'locations',    label: 'Locations' },
@@ -489,8 +508,8 @@ export default function Admin() {
               <button onClick={loadLocations} style={{ background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Reload</button>
             </div>
 
-            <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#9ca3af', textAlign: 'left' }}>
                     {['Location ID', 'Status', 'Integrations', 'Last Active', 'Installed', 'Actions'].map((h) => (
@@ -560,6 +579,7 @@ export default function Admin() {
                             <DetailPanel
                               data={detailData[loc.locationId]}
                               troubleshoot={troubleshootData[loc.locationId]}
+                              workflowRunLogs={workflowRunLogs[loc.locationId] || []}
                               onClearConnection={(cat) => clearConnection(loc.locationId, cat)}
                               onDeleteWorkflow={(id, name) => deleteWorkflow(loc.locationId, id, name)}
                             />
@@ -585,12 +605,12 @@ export default function Admin() {
         {tab === 'logs' && (
           <div>
             {/* Filters */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
               <input
                 placeholder="Filter by locationId…"
                 value={logFilter.locationId}
                 onChange={(e) => setLogFilter((f) => ({ ...f, locationId: e.target.value }))}
-                style={{ padding: '8px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, width: 260 }}
+                style={{ padding: '8px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, width: '100%', maxWidth: 260 }}
               />
               <select
                 value={logFilter.event}
@@ -598,7 +618,7 @@ export default function Admin() {
                 style={{ padding: '8px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13 }}
               >
                 <option value="">All events</option>
-                {['install','uninstall','restore','tool_connect','tool_disconnect','tool_reconnect','tool_call','admin_refresh','admin_revoke'].map((e) => (
+                {['install','uninstall','restore','tool_connect','tool_disconnect','tool_reconnect','tool_call','workflow_trigger','admin_refresh','admin_revoke'].map((e) => (
                   <option key={e} value={e}>{e}</option>
                 ))}
               </select>
@@ -618,7 +638,7 @@ export default function Admin() {
           <div>
             {/* Summary cards */}
             {billingSummary && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 10, marginBottom: 24 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10, marginBottom: 20 }}>
                 {[
                   { label: 'Total',      value: billingSummary.total,     color: '#e5e7eb' },
                   { label: 'Active',     value: billingSummary.active,    color: '#4ade80' },
@@ -650,8 +670,8 @@ export default function Admin() {
               </div>
             </div>
 
-            <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#9ca3af', textAlign: 'left' }}>
                     {['Location ID', 'Plan', 'Status', 'Amount', 'Payment Method', 'Next Renewal', 'Invoices', 'Actions'].map(h => (
@@ -860,7 +880,7 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
   const isNew     = modal.type === 'new-subscription';
 
   const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
-  const box     = { background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 28, width: 420, maxHeight: '90vh', overflowY: 'auto' };
+  const box     = { background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, width: 'min(420px, 94vw)', maxHeight: '90vh', overflowY: 'auto' };
   const inp     = { width: '100%', padding: '8px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, boxSizing: 'border-box', marginBottom: 12 };
   const sel     = { ...inp, cursor: 'pointer' };
   const lbl     = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 };
@@ -984,14 +1004,14 @@ function ActionBtn({ icon, title, color, onClick }) {
 
 // ── Detail panel (expanded row) ───────────────────────────────────────────────
 
-function DetailPanel({ data, troubleshoot, onClearConnection, onDeleteWorkflow }) {
+function DetailPanel({ data, troubleshoot, workflowRunLogs, onClearConnection, onDeleteWorkflow }) {
   const [tsTab, setTsTab] = useState('connections');
 
   return (
     <div style={{ padding: '14px 0' }}>
 
       {/* Top row: integrations + token + logs */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, marginBottom: 20 }}>
         <div>
           <p style={{ color: '#9ca3af', fontSize: 11, margin: '0 0 6px', fontWeight: 600, letterSpacing: '0.05em' }}>CONNECTED INTEGRATIONS</p>
           {data.connectedCategories?.length ? (
@@ -1084,31 +1104,65 @@ function DetailPanel({ data, troubleshoot, onClearConnection, onDeleteWorkflow }
               <p style={{ color: '#6b7280', fontSize: 13 }}>No saved workflows.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {troubleshoot.workflows.map((wf) => (
-                  <div key={wf.id} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '10px 14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ color: '#e5e7eb', fontSize: 13, fontWeight: 600 }}>{wf.name}</span>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <span style={{ color: '#6b7280', fontSize: 11 }}>{wf.steps?.length || 0} steps</span>
-                        <span style={{ color: '#6b7280', fontSize: 11 }}>· {relTime(wf.updatedAt)}</span>
-                        <button
-                          onClick={() => onDeleteWorkflow(wf.id, wf.name)}
-                          style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#dc2626', padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}
-                        >✕ Delete</button>
+                {troubleshoot.workflows.map((wf) => {
+                  const runs = (workflowRunLogs || []).filter(l => l.detail?.workflowId === wf.id);
+                  return (
+                    <div key={wf.id} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '10px 14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+                        <span style={{ color: '#e5e7eb', fontSize: 13, fontWeight: 600 }}>{wf.name}</span>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ color: '#6b7280', fontSize: 11 }}>{wf.steps?.length || 0} steps</span>
+                          <span style={{ color: '#6b7280', fontSize: 11 }}>· {relTime(wf.updatedAt)}</span>
+                          <button
+                            onClick={() => onDeleteWorkflow(wf.id, wf.name)}
+                            style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#dc2626', padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}
+                          >✕ Delete</button>
+                        </div>
                       </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                        {(wf.steps || []).map((s, i) => (
+                          <span key={i} style={{ background: '#1e3a5f', color: '#60a5fa', padding: '1px 8px', borderRadius: 4, fontSize: 11 }}>
+                            {i + 1}. {s.label || s.tool}
+                          </span>
+                        ))}
+                      </div>
+                      {wf.webhookToken && (
+                        <p style={{ color: '#6b7280', fontSize: 10, margin: '4px 0 6px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                          🔗 /workflows/trigger/{wf.webhookToken}
+                        </p>
+                      )}
+                      {/* Execution run history */}
+                      {runs.length > 0 && (
+                        <div style={{ borderTop: '1px solid #2a2a2a', paddingTop: 8, marginTop: 4 }}>
+                          <p style={{ color: '#9ca3af', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 5px' }}>
+                            Recent Runs ({runs.length})
+                          </p>
+                          {runs.slice(0, 5).map((r, i) => (
+                            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '2px 0', fontSize: 11 }}>
+                              <span style={{ color: r.success ? '#4ade80' : '#f87171' }}>{r.success ? '✓' : '✗'}</span>
+                              <span style={{ color: '#9ca3af' }}>{r.detail?.toolCallCount ?? 0} tool calls</span>
+                              <span style={{ color: '#9ca3af' }}>· {r.detail?.turns ?? 0} turns</span>
+                              <span style={{ color: '#6b7280', marginLeft: 'auto' }}>{relTime(r.timestamp)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {(wf.steps || []).map((s, i) => (
-                        <span key={i} style={{ background: '#1e3a5f', color: '#60a5fa', padding: '1px 8px', borderRadius: 4, fontSize: 11 }}>
-                          {i + 1}. {s.label || s.tool}
-                        </span>
-                      ))}
-                    </div>
-                    {wf.webhookToken && (
-                      <p style={{ color: '#6b7280', fontSize: 10, margin: '6px 0 0', fontFamily: 'monospace' }}>
-                        webhook: /workflows/trigger/{wf.webhookToken.slice(0, 8)}…
-                      </p>
-                    )}
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Unmatched run logs (webhook runs without a matched saved workflow) */}
+            {workflowRunLogs?.length > 0 && troubleshoot?.workflows?.length === 0 && (
+              <div style={{ marginTop: 12 }}>
+                <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>Webhook Trigger History</p>
+                {workflowRunLogs.slice(0, 10).map((r, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '3px 0', fontSize: 12, borderBottom: '1px solid #1e1e1e' }}>
+                    <span style={{ color: r.success ? '#4ade80' : '#f87171' }}>{r.success ? '✓' : '✗'}</span>
+                    <span style={{ color: '#e5e7eb' }}>{r.detail?.workflowName || '—'}</span>
+                    <span style={{ color: '#6b7280' }}>{r.detail?.toolCallCount ?? 0} calls</span>
+                    <span style={{ color: '#6b7280', marginLeft: 'auto' }}>{relTime(r.timestamp)}</span>
                   </div>
                 ))}
               </div>
@@ -1124,8 +1178,8 @@ function DetailPanel({ data, troubleshoot, onClearConnection, onDeleteWorkflow }
 
 function LogTable({ logs }) {
   return (
-    <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+    <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 500 }}>
         <thead>
           <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#9ca3af', textAlign: 'left' }}>
             {['Time', 'Location', 'Event', 'Status', 'Detail'].map((h) => (

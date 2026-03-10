@@ -244,7 +244,7 @@ export default function Workflows() {
     <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
       <Header icon="🔀" title="Workflow Builder" subtitle="Build multi-tool AI pipelines · Claude as orchestrator" />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-col md:flex-row flex-1 overflow-hidden" style={{ minHeight: 0 }}>
 
         {/* ── Tool Palette ──────────────────────────────────────────────── */}
         <ToolPalette enabledKeys={enabledKeys} onAdd={addStep} />
@@ -252,7 +252,7 @@ export default function Workflows() {
         {/* ── Workflow Canvas ───────────────────────────────────────────── */}
         <div
           className="flex flex-col flex-1 overflow-hidden"
-          style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}
+          style={{ borderRight: '1px solid rgba(255,255,255,0.06)', minHeight: 0 }}
         >
           {/* Toolbar */}
           <div
@@ -435,7 +435,7 @@ export default function Workflows() {
         </div>
 
         {/* ── Live Output ───────────────────────────────────────────────── */}
-        <div className="flex flex-col overflow-hidden" style={{ width: 360, flexShrink: 0 }}>
+        <div className="flex flex-col overflow-hidden" style={{ width: '100%', maxWidth: 360, flexShrink: 0 }}>
           <div
             className="px-4 py-3 flex items-center gap-2 flex-shrink-0"
             style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
@@ -471,15 +471,16 @@ function ToolPalette({ enabledKeys, onAdd }) {
 
   return (
     <aside
-      className="w-48 flex flex-col overflow-y-auto flex-shrink-0"
-      style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}
+      className="flex-shrink-0 md:w-48 md:flex-col md:overflow-y-auto flex flex-row overflow-x-auto border-b md:border-b-0 md:border-r"
+      style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)', scrollbarWidth: 'none' }}
     >
-      <div className="px-3 pt-3 pb-2">
+      {/* Desktop header */}
+      <div className="hidden md:block px-3 pt-3 pb-2 flex-shrink-0">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tool Palette</p>
         <p className="text-xs text-gray-600 mt-0.5">Click to add a step</p>
       </div>
 
-      <div className="flex flex-col gap-1 px-2 pb-3">
+      <div className="flex md:flex-col flex-row gap-1 px-2 py-2 md:pb-3">
         {tools.map(t => {
           const enabled = t.alwaysOn || enabledKeys.has(t.key);
           const color   = TOOL_COLOR[t.key] || '#6366f1';
@@ -488,7 +489,7 @@ function ToolPalette({ enabledKeys, onAdd }) {
               key={t.key}
               onClick={() => enabled && onAdd(t.key, t.label, t.icon)}
               title={enabled ? `Add ${t.label} step` : `Connect ${t.label} in Settings first`}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all"
+              className="flex-shrink-0 flex items-center gap-2 md:gap-2.5 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all"
               style={{
                 background: 'rgba(255,255,255,0.03)',
                 border:     '1px solid rgba(255,255,255,0.06)',
@@ -499,22 +500,21 @@ function ToolPalette({ enabledKeys, onAdd }) {
               onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
             >
               <span className="text-base flex-shrink-0">{t.icon}</span>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-white truncate">{t.label}</div>
-                <div className="text-xs" style={{ color: enabled ? color : '#6b7280' }}>
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-white whitespace-nowrap">{t.label}</div>
+                <div className="text-xs hidden md:block" style={{ color: enabled ? color : '#6b7280' }}>
                   {enabled ? (t.alwaysOn ? 'Always on' : 'Connected ✓') : 'Not connected'}
                 </div>
               </div>
-              {enabled && <span className="text-gray-600 text-xs flex-shrink-0">+</span>}
             </button>
           );
         })}
       </div>
 
-      <div className="flex-1" />
+      <div className="hidden md:flex flex-1" />
       <Link
         to="/settings"
-        className="text-xs text-center text-indigo-400 hover:text-indigo-300 py-3 block"
+        className="hidden md:block text-xs text-center text-indigo-400 hover:text-indigo-300 py-3"
       >
         + Connect APIs
       </Link>

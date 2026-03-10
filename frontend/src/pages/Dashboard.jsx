@@ -77,7 +77,7 @@ export default function Dashboard() {
       <div className="flex flex-1 overflow-hidden">
         {/* ── Sidebar ─────────────────────────────────────────────────── */}
         <aside
-          className="w-64 glass flex flex-col overflow-y-auto flex-shrink-0"
+          className="hidden md:flex w-64 glass flex-col overflow-y-auto flex-shrink-0"
           style={{ borderRight: '1px solid rgba(255,255,255,0.08)' }}
         >
           {/* GHL */}
@@ -156,15 +156,15 @@ export default function Dashboard() {
 
           {/* Quick action chips */}
           <div
-            className="p-3.5 flex flex-wrap gap-2 flex-shrink-0"
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.15)' }}
+            className="p-3.5 flex gap-2 flex-shrink-0 overflow-x-auto"
+            style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.15)', scrollbarWidth: 'none' }}
           >
             {QUICK_ACTIONS.map(({ label, prompt }) => (
               <button
                 key={label}
                 onClick={() => handleChip(prompt)}
                 disabled={isRunning}
-                className="text-xs px-3 py-1.5 rounded-full border transition-all"
+                className="text-xs px-3 py-1.5 rounded-full border transition-all whitespace-nowrap flex-shrink-0"
                 style={{
                   background: 'rgba(255,255,255,0.04)',
                   borderColor: 'rgba(255,255,255,0.08)',

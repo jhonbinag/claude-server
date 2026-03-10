@@ -10,11 +10,12 @@
  *   POST   /workflows/trigger/:token    Webhook trigger — runs workflow, returns JSON result
  */
 
-const express       = require('express');
-const router        = express.Router();
-const authenticate  = require('../middleware/authenticate');
-const workflowStore = require('../services/workflowStore');
-const claudeService = require('../services/claudeService');
+const express          = require('express');
+const router           = express.Router();
+const authenticate     = require('../middleware/authenticate');
+const workflowStore    = require('../services/workflowStore');
+const claudeService    = require('../services/claudeService');
+const activityLogger   = require('../services/activityLogger');
 
 // ── Build structured prompt from workflow steps ───────────────────────────────
 
@@ -85,6 +86,13 @@ router.post('/trigger/:token', async (req, res) => {
       allowedIntegrations: allowed.length ? allowed : null,
     });
 
+    activityLogger.log({
+      locationId,
+      event:   'workflow_trigger',
+      detail:  { workflowId: workflow.id, workflowName: workflow.name, steps: workflow.steps.length, turns: result.turns, toolCallCount: result.toolCallCount },
+      success: true,
+    });
+
     res.json({
       success:       true,
       workflow:      workflow.name,
@@ -93,6 +101,7 @@ router.post('/trigger/:token', async (req, res) => {
       toolCallCount: result.toolCallCount,
     });
   } catch (err) {
+    activityLogger.log({ locationId: req.params.token, event: 'workflow_trigger', detail: { error: err.message }, success: false });
     res.status(500).json({ success: false, error: err.message });
   }
 });

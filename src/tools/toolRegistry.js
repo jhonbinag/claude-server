@@ -161,7 +161,8 @@ async function getToolConfig(locationId) {
 
 /**
  * Save a single integration's config for a location.
- * Writes to Firebase (if enabled) or tokenStore, then invalidates Redis cache.
+ * Writes to Firebase (if enabled) or tokenStore, then updates Redis cache
+ * with the full merged config so refreshStatus sees the change immediately.
  */
 async function saveToolConfig(locationId, category, configData) {
   const existing = await loadToolConfigs(locationId);
@@ -169,14 +170,15 @@ async function saveToolConfig(locationId, category, configData) {
 
   if (config.isFirebaseEnabled) {
     await firebaseStore.saveToolConfig(locationId, category, configData);
-    // Invalidate cache so next read picks up from Firebase
-    try { await toolTokenService.invalidateToolConfigCache(locationId); } catch { /* non-fatal */ }
   } else {
     // No Firebase — persist directly to Redis with 90-day TTL (acts as primary store)
     try { await toolTokenService.setCachedToolConfig(locationId, merged, 90 * 24 * 3600); } catch { /* non-fatal */ }
     // Also write to tokenStore for local dev
     try { await Promise.resolve(tokenStore.saveToolConfig(locationId, merged)); } catch { /* non-fatal */ }
   }
+
+  // Always update Redis cache with merged config so next read is instant and correct
+  try { await toolTokenService.setCachedToolConfig(locationId, merged); } catch { /* non-fatal */ }
 }
 
 module.exports = {
