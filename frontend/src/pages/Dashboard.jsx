@@ -72,7 +72,7 @@ export default function Dashboard() {
       <Header
         icon="🤖"
         title="GTM AI Command Center"
-        subtitle={`Claude Opus 4.6 · ${enabledTools.length} tools · ${connected.length} integrations`}
+        subtitle={`Claude Opus 4.6 · ${enabledTools.length} active tools · ${connected.length} connected`}
         onMenuClick={() => setSidebarOpen(v => !v)}
       />
 
