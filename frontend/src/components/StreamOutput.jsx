@@ -1,6 +1,89 @@
 import { useRef, useEffect } from 'react';
 
-export default function StreamOutput({ messages = [], isRunning = false, placeholder }) {
+const VOICE_STYLES = `
+@keyframes vo-breathe {
+  0%,100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.55), 0 0 32px 4px rgba(99,102,241,0.18); transform: scale(1); }
+  50%      { box-shadow: 0 0 0 10px rgba(99,102,241,0.12), 0 0 48px 8px rgba(99,102,241,0.28); transform: scale(1.04); }
+}
+@keyframes vo-ring1 {
+  0%   { transform: scale(1);   opacity: .7; }
+  100% { transform: scale(2.4); opacity: 0;  }
+}
+@keyframes vo-ring2 {
+  0%   { transform: scale(1);   opacity: .5; }
+  100% { transform: scale(2.0); opacity: 0;  }
+}
+@keyframes vo-bar {
+  0%,100% { transform: scaleY(.25); }
+  50%     { transform: scaleY(1);   }
+}
+`;
+
+function VoiceOrb({ listening, supported, onToggle }) {
+  if (!supported) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, marginTop: 28 }}>
+      {/* Orb wrapper — rings sit behind the button */}
+      <div style={{ position: 'relative', width: 88, height: 88, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+
+        {/* Pulse rings — only when listening */}
+        {listening && <>
+          <span style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            border: '2px solid rgba(239,68,68,0.6)',
+            animation: 'vo-ring1 1.4s ease-out infinite',
+          }} />
+          <span style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            border: '2px solid rgba(239,68,68,0.4)',
+            animation: 'vo-ring2 1.4s ease-out infinite .3s',
+          }} />
+        </>}
+
+        {/* Main orb button */}
+        <button
+          onClick={onToggle}
+          title={listening ? 'Stop recording' : 'Click to speak'}
+          style={{
+            width: 88, height: 88, borderRadius: '50%', border: 'none', cursor: 'pointer',
+            background: listening
+              ? 'radial-gradient(circle at 35% 35%, #f87171, #ef4444)'
+              : 'radial-gradient(circle at 35% 35%, #818cf8, #4f46e5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 30,
+            animation: listening ? 'none' : 'vo-breathe 2.8s ease-in-out infinite',
+            transition: 'background .3s',
+            position: 'relative', zIndex: 1,
+          }}
+        >
+          {listening ? '⏹' : '🎤'}
+        </button>
+      </div>
+
+      {/* Sound-wave bars — visible only while listening */}
+      {listening && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, height: 28 }}>
+          {[0, .15, .3, .45, .6, .45, .3, .15, 0].map((delay, i) => (
+            <span key={i} style={{
+              display: 'block', width: 4, height: 28,
+              borderRadius: 4,
+              background: 'linear-gradient(to top, #ef4444, #f87171)',
+              transformOrigin: 'bottom',
+              animation: `vo-bar .8s ease-in-out infinite ${delay}s`,
+            }} />
+          ))}
+        </div>
+      )}
+
+      {/* Label */}
+      <p style={{ fontSize: 13, color: listening ? '#f87171' : '#6b7280', letterSpacing: '.01em', margin: 0 }}>
+        {listening ? 'Listening… pause when done' : 'Click to speak your command'}
+      </p>
+    </div>
+  );
+}
+
+export default function StreamOutput({ messages = [], isRunning = false, placeholder, voice }) {
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -10,9 +93,19 @@ export default function StreamOutput({ messages = [], isRunning = false, placeho
   if (!messages.length && !isRunning) {
     return (
       <div className="flex-1 overflow-y-auto p-4 flex items-center justify-center">
-        <div className="text-center text-gray-700">
-          <div className="text-4xl mb-3">{placeholder?.icon || '🤖'}</div>
-          <p className="text-sm text-gray-600 whitespace-pre-line">{placeholder?.text || 'Run a task to see output here'}</p>
+        <style>{VOICE_STYLES}</style>
+        <div className="text-center" style={{ color: '#6b7280' }}>
+          <div style={{ fontSize: 42, marginBottom: 10 }}>{placeholder?.icon || '🤖'}</div>
+          <p style={{ fontSize: 13, color: '#4b5563', whiteSpace: 'pre-line', margin: 0 }}>
+            {placeholder?.text || 'Run a task to see output here'}
+          </p>
+          {voice && (
+            <VoiceOrb
+              listening={voice.listening}
+              supported={voice.supported}
+              onToggle={voice.toggle}
+            />
+          )}
         </div>
       </div>
     );

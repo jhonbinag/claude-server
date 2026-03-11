@@ -254,6 +254,7 @@ export default function Dashboard() {
               icon: '🤖',
               text: 'Type a task below or click a quick action\nClaude will use all your connected tools automatically',
             }}
+            voice={{ listening, supported: voiceSupported, toggle: toggleVoice }}
           />
 
           {/* Input */}
