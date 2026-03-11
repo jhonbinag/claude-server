@@ -1866,104 +1866,116 @@ const WF_TOOLS = [
   { key: 'heygen',       label: 'HeyGen',       icon: '🎬', color: '#f472b6' },
 ];
 
-function ToolPill({ tool }) {
-  const t = WF_TOOLS.find(x => x.key === tool) || { icon: '🔧', label: tool, color: '#9ca3af' };
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 5,
-      background: `${t.color}18`, border: `1px solid ${t.color}40`,
-      color: t.color, borderRadius: 20, padding: '2px 10px',
-      fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
-    }}>
-      {t.icon} {t.label}
-    </span>
-  );
-}
+// Canvas layout constants
+const CN_W = 220;   // node width
+const CN_H = 68;    // node height
+const CN_GAP = 72;  // vertical gap between nodes (space for connector line)
+const CN_PAD = 24;  // canvas top/bottom padding
 
-function StepCard({ step, index, total, onChange, onDelete, onMoveUp, onMoveDown }) {
+// ── Workflow canvas node (visual) ─────────────────────────────────────────────
+
+function WfNode({ step, index, selected, onSelect, onDelete }) {
   const t = WF_TOOLS.find(x => x.key === step.tool) || { icon: '🔧', label: step.tool, color: '#9ca3af' };
-  const inp = { width: '100%', padding: '7px 10px', background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 8, color: '#e5e7eb', fontSize: 13, boxSizing: 'border-box' };
-
   return (
-    <div style={{
-      background: '#111', border: `1px solid ${t.color}30`,
-      borderLeft: `3px solid ${t.color}`, borderRadius: 10,
-      padding: '14px 16px', position: 'relative',
-    }}>
-      {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        {/* Step number */}
+    <div
+      onClick={onSelect}
+      style={{
+        width: CN_W, height: CN_H,
+        background: selected ? '#1e1e2e' : '#141414',
+        border: `2px solid ${selected ? t.color : t.color + '55'}`,
+        borderRadius: 12, cursor: 'pointer', userSelect: 'none',
+        padding: '10px 14px', boxSizing: 'border-box',
+        boxShadow: selected ? `0 0 0 3px ${t.color}30` : 'none',
+        transition: 'border-color .15s, box-shadow .15s',
+        display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4,
+        position: 'relative',
+      }}
+    >
+      {/* Delete button */}
+      <button
+        onClick={e => { e.stopPropagation(); onDelete(); }}
+        style={{
+          position: 'absolute', top: 6, right: 8,
+          background: 'none', border: 'none', color: '#4b5563',
+          cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0,
+        }}
+        title="Remove node"
+      >✕</button>
+
+      {/* Tool badge + step number */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{
-          width: 24, height: 24, borderRadius: '50%', background: `${t.color}22`,
-          color: t.color, fontSize: 11, fontWeight: 700,
+          width: 20, height: 20, borderRadius: '50%',
+          background: t.color + '22', color: t.color,
+          fontSize: 10, fontWeight: 700,
           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}>
-          {index + 1}
-        </span>
-
-        {/* Tool selector */}
-        <select
-          value={step.tool}
-          onChange={e => onChange({ ...step, tool: e.target.value })}
-          style={{ ...inp, width: 'auto', flex: '0 0 auto', color: t.color, background: '#0d0d0d' }}
-        >
-          {WF_TOOLS.map(x => (
-            <option key={x.key} value={x.key}>{x.icon} {x.label}</option>
-          ))}
-        </select>
-
-        {/* Label */}
-        <input
-          value={step.label || ''}
-          onChange={e => onChange({ ...step, label: e.target.value })}
-          placeholder={`${t.label} step…`}
-          style={{ ...inp, flex: 1 }}
-        />
-
-        {/* Move + delete buttons */}
-        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-          <button onClick={onMoveUp}   disabled={index === 0}       title="Move up"   style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: index === 0 ? '#333' : '#9ca3af', padding: '3px 7px', cursor: index === 0 ? 'default' : 'pointer', fontSize: 12 }}>▲</button>
-          <button onClick={onMoveDown} disabled={index === total-1} title="Move down" style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: index === total-1 ? '#333' : '#9ca3af', padding: '3px 7px', cursor: index === total-1 ? 'default' : 'pointer', fontSize: 12 }}>▼</button>
-          <button onClick={onDelete}   title="Remove step"          style={{ background: 'none', border: '1px solid #3f1515', borderRadius: 6, color: '#f87171', padding: '3px 8px', cursor: 'pointer', fontSize: 12 }}>✕</button>
-        </div>
+        }}>{index + 1}</span>
+        <span style={{ fontSize: 11, color: t.color, fontWeight: 600 }}>{t.icon} {t.label}</span>
       </div>
 
-      {/* Instruction */}
-      <label style={{ display: 'block', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>
-        Instruction
-      </label>
-      <textarea
-        value={step.instruction || ''}
-        onChange={e => onChange({ ...step, instruction: e.target.value })}
-        rows={3}
-        placeholder={`What should ${t.label} do in this step?`}
-        style={{ ...inp, resize: 'vertical', lineHeight: 1.55, fontFamily: 'inherit' }}
-      />
+      {/* Label */}
+      <div style={{
+        fontSize: 12, color: '#e5e7eb', fontWeight: 500,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        maxWidth: CN_W - 40,
+      }}>
+        {step.label || <span style={{ color: '#4b5563', fontStyle: 'italic' }}>Untitled step</span>}
+      </div>
+
+      {/* Output port (bottom-center) */}
+      <span style={{
+        position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)',
+        width: 12, height: 12, borderRadius: '50%',
+        background: t.color, border: '2px solid #141414',
+      }} />
+      {/* Input port (top-center) */}
+      {index > 0 && (
+        <span style={{
+          position: 'absolute', top: -6, left: '50%', transform: 'translateX(-50%)',
+          width: 12, height: 12, borderRadius: '50%',
+          background: '#1a1a1a', border: `2px solid ${t.color}`,
+        }} />
+      )}
     </div>
   );
 }
 
+// Build SVG bezier path between two node center-bottom/top ports
+function bezierPath(x1, y1, x2, y2) {
+  const cy = (y1 + y2) / 2;
+  return `M${x1},${y1} C${x1},${cy} ${x2},${cy} ${x2},${y2}`;
+}
+
 function EditWorkflowModal({ modal, adminKey, onClose, onSaved, onFlash }) {
   const wf = modal.data;
-  const [name,    setName]    = useState(wf.name    || '');
-  const [context, setContext] = useState(wf.context || '');
-  const [steps,   setSteps]   = useState(() => {
+  const [name,      setName]      = useState(wf.name    || '');
+  const [context,   setContext]   = useState(wf.context || '');
+  const [steps,     setSteps]     = useState(() => {
     if (!Array.isArray(wf.steps) || wf.steps.length === 0)
       return [{ tool: 'ghl', label: '', instruction: '' }];
     return wf.steps.map(s => ({ tool: s.tool || 'ghl', label: s.label || '', instruction: s.instruction || '' }));
   });
-  const [saving, setSaving] = useState(false);
+  const [selected,  setSelected]  = useState(0);
+  const [saving,    setSaving]    = useState(false);
 
-  const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 };
-  const box     = { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24, width: 'min(680px, 100%)', maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0 };
-  const inp     = { width: '100%', padding: '8px 12px', background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, color: '#fff', fontSize: 13, boxSizing: 'border-box' };
-  const lbl     = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 };
+  const inp = { width: '100%', padding: '7px 10px', background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 8, color: '#e5e7eb', fontSize: 13, boxSizing: 'border-box' };
+  const lbl = { display: 'block', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 };
 
-  const updateStep  = (i, s) => setSteps(p => p.map((x, j) => j === i ? s : x));
-  const deleteStep  = (i)    => setSteps(p => p.filter((_, j) => j !== i));
-  const addStep     = ()     => setSteps(p => [...p, { tool: 'ghl', label: '', instruction: '' }]);
-  const moveUp      = (i)    => { if (i === 0) return; setSteps(p => { const a = [...p]; [a[i-1], a[i]] = [a[i], a[i-1]]; return a; }); };
-  const moveDown    = (i)    => { if (i === steps.length-1) return; setSteps(p => { const a = [...p]; [a[i], a[i+1]] = [a[i+1], a[i]]; return a; }); };
+  const updateStep = (i, s) => setSteps(p => p.map((x, j) => j === i ? s : x));
+  const deleteStep = (i)    => {
+    setSteps(p => { const n = p.filter((_, j) => j !== i); if (!n.length) return [{ tool: 'ghl', label: '', instruction: '' }]; return n; });
+    setSelected(i => Math.max(0, i - (i >= steps.length - 1 ? 1 : 0)));
+  };
+  const addStep = () => {
+    setSteps(p => [...p, { tool: 'ghl', label: '', instruction: '' }]);
+    setSelected(steps.length);
+  };
+
+  // Canvas geometry
+  const CANVAS_W = CN_W + 60;  // node centered in canvas
+  const nodeX    = 30;         // left offset so ports don't clip
+  const canvasH  = steps.length * (CN_H + CN_GAP) - CN_GAP + CN_PAD * 2;
+  const nodeY    = (i) => CN_PAD + i * (CN_H + CN_GAP);
 
   const save = async () => {
     const validSteps = steps.filter(s => s.instruction.trim());
@@ -1980,78 +1992,168 @@ function EditWorkflowModal({ modal, adminKey, onClose, onSaved, onFlash }) {
     setSaving(false);
   };
 
+  const selStep = steps[selected] || steps[0];
+
   return (
-    <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={box}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        background: '#111', border: '1px solid #222', borderRadius: 16,
+        width: 'min(900px, 100%)', maxHeight: '94vh',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
+
+        {/* ── Header ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #1e1e1e' }}>
           <div>
-            <h3 style={{ color: '#fff', margin: 0, fontSize: 17 }}>Edit Workflow</h3>
-            <p style={{ color: '#6b7280', fontSize: 12, margin: '3px 0 0' }}>
-              {steps.length} step{steps.length !== 1 ? 's' : ''} · {modal.locationId}
-            </p>
+            <h3 style={{ color: '#fff', margin: 0, fontSize: 16, fontWeight: 700 }}>Edit Workflow</h3>
+            <p style={{ color: '#4b5563', fontSize: 12, margin: '2px 0 0' }}>{steps.length} node{steps.length !== 1 ? 's' : ''} · {modal.locationId}</p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 22, lineHeight: 1 }}>×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 22 }}>×</button>
         </div>
 
-        {/* Name + Context */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={lbl}>Workflow Name</label>
-          <input style={{ ...inp, marginBottom: 12 }} value={name} onChange={e => setName(e.target.value)} placeholder="My Workflow" />
-          <label style={lbl}>Context / System Prompt</label>
-          <textarea
-            value={context}
-            onChange={e => setContext(e.target.value)}
-            rows={3}
-            placeholder="Overall goal or system context for this workflow…"
-            style={{ ...inp, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
-          />
-        </div>
+        {/* ── Body: canvas LEFT + editor RIGHT ── */}
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
 
-        {/* Step divider */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 16px' }}>
-          <span style={{ color: '#4b5563', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
-            Workflow Steps
-          </span>
-          <div style={{ flex: 1, height: 1, background: '#2a2a2a' }} />
-          <span style={{ color: '#6b7280', fontSize: 12 }}>{steps.length} step{steps.length !== 1 ? 's' : ''}</span>
-        </div>
-
-        {/* Step cards */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {steps.map((step, i) => (
-            <div key={i}>
-              <StepCard
-                step={step}
-                index={i}
-                total={steps.length}
-                onChange={(s) => updateStep(i, s)}
-                onDelete={() => deleteStep(i)}
-                onMoveUp={() => moveUp(i)}
-                onMoveDown={() => moveDown(i)}
-              />
-              {/* Connector arrow */}
-              {i < steps.length - 1 && (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0' }}>
-                  <span style={{ color: '#374151', fontSize: 18, lineHeight: 1 }}>↓</span>
-                </div>
-              )}
+          {/* LEFT — visual canvas */}
+          <div style={{
+            width: CANVAS_W + 20, flexShrink: 0,
+            background: '#0a0a0a',
+            borderRight: '1px solid #1e1e1e',
+            overflowY: 'auto',
+            padding: '0 10px',
+          }}>
+            {/* + Add Node button at top */}
+            <div style={{ padding: '12px 0 8px', display: 'flex', justifyContent: 'center' }}>
+              <button
+                onClick={addStep}
+                style={{ background: '#1a1a1a', border: '1px dashed #333', borderRadius: 8, color: '#6b7280', fontSize: 12, padding: '5px 16px', cursor: 'pointer' }}
+                onMouseOver={e => { e.currentTarget.style.borderColor = '#7c3aed'; e.currentTarget.style.color = '#a78bfa'; }}
+                onMouseOut={e => { e.currentTarget.style.borderColor = '#333'; e.currentTarget.style.color = '#6b7280'; }}
+              >
+                + Add Node
+              </button>
             </div>
-          ))}
+
+            {/* Canvas */}
+            <div style={{ position: 'relative', width: CANVAS_W, height: canvasH, margin: '0 auto' }}>
+
+              {/* SVG connector lines */}
+              <svg
+                style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}
+                width={CANVAS_W} height={canvasH}
+              >
+                {steps.slice(0, -1).map((step, i) => {
+                  const t = WF_TOOLS.find(x => x.key === steps[i + 1]?.tool) || { color: '#4b5563' };
+                  const x1 = nodeX + CN_W / 2;
+                  const y1 = nodeY(i) + CN_H;
+                  const x2 = nodeX + CN_W / 2;
+                  const y2 = nodeY(i + 1);
+                  return (
+                    <g key={i}>
+                      <path
+                        d={bezierPath(x1, y1, x2, y2)}
+                        fill="none"
+                        stroke={t.color + '60'}
+                        strokeWidth={2}
+                        strokeDasharray="5 4"
+                      />
+                      {/* Animated flow dot */}
+                      <circle r={4} fill={t.color} opacity={0.8}>
+                        <animateMotion
+                          dur="1.4s"
+                          repeatCount="indefinite"
+                          path={bezierPath(x1, y1, x2, y2)}
+                        />
+                      </circle>
+                    </g>
+                  );
+                })}
+              </svg>
+
+              {/* Nodes */}
+              {steps.map((step, i) => (
+                <div
+                  key={i}
+                  style={{ position: 'absolute', top: nodeY(i), left: nodeX }}
+                >
+                  <WfNode
+                    step={step}
+                    index={i}
+                    selected={selected === i}
+                    onSelect={() => setSelected(i)}
+                    onDelete={() => deleteStep(i)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* RIGHT — selected node editor + workflow meta */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* Workflow meta */}
+            <div>
+              <label style={lbl}>Workflow Name</label>
+              <input style={{ ...inp, marginBottom: 12 }} value={name} onChange={e => setName(e.target.value)} placeholder="My Workflow" />
+              <label style={lbl}>Context / System Prompt</label>
+              <textarea
+                value={context}
+                onChange={e => setContext(e.target.value)}
+                rows={2}
+                placeholder="Overall goal or context…"
+                style={{ ...inp, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
+              />
+            </div>
+
+            {/* Selected node editor */}
+            {selStep && (
+              <div style={{ background: '#0d0d0d', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                  {(() => { const t = WF_TOOLS.find(x => x.key === selStep.tool) || { color: '#9ca3af' }; return (
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
+                  ); })()}
+                  <span style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Node {selected + 1}
+                  </span>
+                </div>
+
+                <label style={lbl}>Tool</label>
+                <select
+                  value={selStep.tool}
+                  onChange={e => updateStep(selected, { ...selStep, tool: e.target.value })}
+                  style={{ ...inp, marginBottom: 12 }}
+                >
+                  {WF_TOOLS.map(x => (
+                    <option key={x.key} value={x.key}>{x.icon} {x.label}</option>
+                  ))}
+                </select>
+
+                <label style={lbl}>Label</label>
+                <input
+                  value={selStep.label || ''}
+                  onChange={e => updateStep(selected, { ...selStep, label: e.target.value })}
+                  placeholder="Short node label…"
+                  style={{ ...inp, marginBottom: 12 }}
+                />
+
+                <label style={lbl}>Instruction</label>
+                <textarea
+                  value={selStep.instruction || ''}
+                  onChange={e => updateStep(selected, { ...selStep, instruction: e.target.value })}
+                  rows={6}
+                  placeholder="What should this step do?"
+                  style={{ ...inp, resize: 'vertical', lineHeight: 1.6, fontFamily: 'inherit' }}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Add step */}
-        <button
-          onClick={addStep}
-          style={{ marginTop: 14, padding: '9px 0', background: 'transparent', border: '1px dashed #2a2a2a', borderRadius: 10, color: '#6b7280', fontSize: 13, cursor: 'pointer', width: '100%', transition: 'all .15s' }}
-          onMouseOver={e => { e.currentTarget.style.borderColor = '#7c3aed'; e.currentTarget.style.color = '#a78bfa'; }}
-          onMouseOut={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.color = '#6b7280'; }}
-        >
-          + Add Step
-        </button>
-
-        {/* Footer actions */}
-        <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+        {/* ── Footer ── */}
+        <div style={{ display: 'flex', gap: 8, padding: '14px 20px', borderTop: '1px solid #1e1e1e' }}>
           <button
             onClick={save}
             disabled={saving || !name.trim()}
@@ -2059,7 +2161,7 @@ function EditWorkflowModal({ modal, adminKey, onClose, onSaved, onFlash }) {
           >
             {saving ? 'Saving…' : 'Save Workflow'}
           </button>
-          <button onClick={onClose} style={{ padding: '11px 22px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}>
+          <button onClick={onClose} style={{ padding: '11px 22px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}>
             Cancel
           </button>
         </div>
