@@ -2,9 +2,9 @@
 node_modules/
 frontend/node_modules/
 
-# Build output
-public/ui/assets/
-public/ui/index.html
+# Build output (tracked — committed after each build)
+# public/ui/assets/
+# public/ui/index.html
 
 # Environment & secrets — NEVER commit these
 .env
