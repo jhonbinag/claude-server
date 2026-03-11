@@ -80,6 +80,56 @@ export const INTEGRATIONS = [
       { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'Your HeyGen API key' },
     ],
   },
+  {
+    key:         'stripe',
+    label:       'Stripe',
+    icon:        '💳',
+    color:       'rgba(99,102,241,0.15)',
+    description: 'Payment processing, subscriptions, revenue reports and payment links.',
+    docsUrl:     'https://dashboard.stripe.com/apikeys',
+    fields: [
+      { key: 'secretKey', label: 'Secret Key', type: 'password', placeholder: 'sk_live_...' },
+    ],
+  },
+  {
+    key:         'paypal',
+    label:       'PayPal',
+    icon:        '🅿️',
+    color:       'rgba(0,112,240,0.1)',
+    description: 'Orders, subscriptions and transaction history via PayPal REST API.',
+    docsUrl:     'https://developer.paypal.com/dashboard',
+    fields: [
+      { key: 'clientId',     label: 'Client ID',     type: 'text',     placeholder: 'AaBbCc...' },
+      { key: 'clientSecret', label: 'Client Secret', type: 'password', placeholder: 'Your client secret' },
+      { key: 'mode',         label: 'Mode',          type: 'text',     placeholder: 'live' },
+    ],
+  },
+  {
+    key:         'square',
+    label:       'Square',
+    icon:        '⬛',
+    color:       'rgba(0,0,0,0.3)',
+    description: 'Payments, customer lookup and invoice creation via Square.',
+    docsUrl:     'https://developer.squareup.com/apps',
+    fields: [
+      { key: 'accessToken',  label: 'Access Token',  type: 'password', placeholder: 'EAAAl...' },
+      { key: 'locationId',   label: 'Location ID',   type: 'text',     placeholder: 'Your Square location ID' },
+      { key: 'environment',  label: 'Environment',   type: 'text',     placeholder: 'production' },
+    ],
+  },
+  {
+    key:         'authorizenet',
+    label:       'Authorize.net',
+    icon:        '🔐',
+    color:       'rgba(34,197,94,0.08)',
+    description: 'Transaction listing, batch reporting and settlement data.',
+    docsUrl:     'https://developer.authorize.net/hello_world/',
+    fields: [
+      { key: 'apiLoginId',     label: 'API Login ID',    type: 'text',     placeholder: 'Your API Login ID' },
+      { key: 'transactionKey', label: 'Transaction Key', type: 'password', placeholder: 'Your Transaction Key' },
+      { key: 'mode',           label: 'Mode',            type: 'text',     placeholder: 'live' },
+    ],
+  },
 ];
 
 export const INTEGRATION_MAP = Object.fromEntries(INTEGRATIONS.map(i => [i.key, i]));

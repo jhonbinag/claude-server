@@ -272,6 +272,222 @@ const EXTERNAL_TOOL_DEFINITIONS = {
       },
     },
   ],
+
+  // ── Stripe ───────────────────────────────────────────────────────────────────
+  stripe: [
+    {
+      name: 'stripe_list_customers',
+      description: 'List Stripe customers with optional email, name, or limit filter.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          email: { type: 'string', description: 'Filter by exact email address (optional)' },
+          limit: { type: 'number', description: 'Max results to return (default 20, max 100)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'stripe_list_payments',
+      description: 'List recent Stripe payment intents / charges. Returns amount, status, customer, description.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit:           { type: 'number', description: 'Max results (default 20)' },
+          status:          { type: 'string', enum: ['succeeded', 'requires_payment_method', 'canceled', 'processing'], description: 'Filter by status (optional)' },
+          createdAfterDays: { type: 'number', description: 'Only show payments created within the last N days (optional)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'stripe_list_subscriptions',
+      description: 'List Stripe subscriptions with status filter. Returns customer, plan, amount, renewal date.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['active', 'past_due', 'canceled', 'trialing', 'all'], description: 'Filter by subscription status (default: active)' },
+          limit:  { type: 'number', description: 'Max results (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'stripe_create_payment_link',
+      description: 'Create a Stripe Payment Link that customers can use to pay. Returns a shareable URL.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          priceId:  { type: 'string', description: 'Stripe Price ID (price_xxx) for the product' },
+          quantity: { type: 'number', description: 'Quantity (default 1)' },
+          currency: { type: 'string', description: 'Currency code (e.g. usd, eur) — only needed if creating an ad-hoc price' },
+          amount:   { type: 'number', description: 'Amount in cents (e.g. 4900 = $49) — used only if priceId is omitted' },
+          productName: { type: 'string', description: 'Product name — used only if priceId is omitted' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'stripe_get_revenue',
+      description: 'Get Stripe revenue summary: total charged, refunded, net, and count for a date range.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          days: { type: 'number', description: 'Look back N days from today (default 30)' },
+        },
+        required: [],
+      },
+    },
+  ],
+
+  // ── PayPal ───────────────────────────────────────────────────────────────────
+  paypal: [
+    {
+      name: 'paypal_list_orders',
+      description: 'List recent PayPal orders with their status and amounts.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          startDate: { type: 'string', description: 'Start date ISO 8601 (e.g. 2024-01-01T00:00:00Z)' },
+          endDate:   { type: 'string', description: 'End date ISO 8601 (optional, defaults to now)' },
+        },
+        required: ['startDate'],
+      },
+    },
+    {
+      name: 'paypal_get_order',
+      description: 'Get details of a specific PayPal order by order ID.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          orderId: { type: 'string', description: 'PayPal order ID' },
+        },
+        required: ['orderId'],
+      },
+    },
+    {
+      name: 'paypal_list_transactions',
+      description: 'List PayPal transactions for a date range. Returns payer, amount, status, and transaction IDs.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          startDate: { type: 'string', description: 'Start date YYYY-MM-DDT00:00:00Z' },
+          endDate:   { type: 'string', description: 'End date YYYY-MM-DDT23:59:59Z' },
+          pageSize:  { type: 'number', description: 'Results per page (default 20, max 500)' },
+        },
+        required: ['startDate', 'endDate'],
+      },
+    },
+    {
+      name: 'paypal_list_subscriptions',
+      description: 'List PayPal subscriptions by plan ID.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          planId: { type: 'string', description: 'PayPal billing plan ID (P-xxxx)' },
+          status: { type: 'string', enum: ['ACTIVE', 'INACTIVE', 'CANCELLED', 'SUSPENDED', 'EXPIRED'], description: 'Filter by status (optional)' },
+        },
+        required: ['planId'],
+      },
+    },
+  ],
+
+  // ── Square ───────────────────────────────────────────────────────────────────
+  square: [
+    {
+      name: 'square_list_payments',
+      description: 'List Square payments with optional date range and status filter.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          beginTime: { type: 'string', description: 'Start time in RFC 3339 (e.g. 2024-01-01T00:00:00Z)' },
+          endTime:   { type: 'string', description: 'End time RFC 3339 (optional)' },
+          sortOrder: { type: 'string', enum: ['ASC', 'DESC'], description: 'Sort order (default DESC)' },
+          limit:     { type: 'number', description: 'Max results (default 20, max 100)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'square_list_customers',
+      description: 'List Square customers with optional text filter.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search by name or email (optional)' },
+          limit: { type: 'number', description: 'Max results (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'square_list_invoices',
+      description: 'List Square invoices with optional status filter.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          locationId: { type: 'string', description: 'Square location ID (uses configured default if omitted)' },
+          limit:      { type: 'number', description: 'Max results (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'square_create_invoice',
+      description: 'Create a Square invoice for a customer.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          customerId:  { type: 'string', description: 'Square customer ID' },
+          amountCents: { type: 'number', description: 'Invoice amount in cents (e.g. 5000 = $50)' },
+          currency:    { type: 'string', description: 'Currency code (default USD)' },
+          title:       { type: 'string', description: 'Invoice title' },
+          description: { type: 'string', description: 'Invoice line item description' },
+          dueDate:     { type: 'string', description: 'Due date YYYY-MM-DD' },
+        },
+        required: ['customerId', 'amountCents', 'title'],
+      },
+    },
+  ],
+
+  // ── Authorize.net ────────────────────────────────────────────────────────────
+  authorizenet: [
+    {
+      name: 'authorizenet_list_transactions',
+      description: 'List recent Authorize.net transactions with their status and amounts.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          batchId: { type: 'string', description: 'Settled batch ID to list transactions for (optional — omit for pending)' },
+          limit:   { type: 'number', description: 'Max results (default 25)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'authorizenet_get_transaction',
+      description: 'Get full details of an Authorize.net transaction by its transaction ID.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          transId: { type: 'string', description: 'Authorize.net transaction ID' },
+        },
+        required: ['transId'],
+      },
+    },
+    {
+      name: 'authorizenet_get_settled_batches',
+      description: 'List recently settled batches from Authorize.net with date ranges and payment totals.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          firstSettlementDate: { type: 'string', description: 'Start date YYYY-MM-DD (optional, defaults to 30 days ago)' },
+          lastSettlementDate:  { type: 'string', description: 'End date YYYY-MM-DD (optional, defaults to today)' },
+        },
+        required: [],
+      },
+    },
+  ],
 };
 
 // ─── Executors ────────────────────────────────────────────────────────────────
@@ -547,6 +763,297 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     return resp.data;
   }
 
+  // ── Stripe ───────────────────────────────────────────────────────────────────
+  if (toolName === 'stripe_list_customers') {
+    const { secretKey } = toolConfigs.stripe || {};
+    if (!secretKey) throw new Error('Stripe secret key not configured.');
+    const params = { limit: Math.min(input.limit || 20, 100) };
+    if (input.email) params.email = input.email;
+    const resp = await axios.get('https://api.stripe.com/v1/customers', {
+      auth: { username: secretKey, password: '' }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'stripe_list_payments') {
+    const { secretKey } = toolConfigs.stripe || {};
+    if (!secretKey) throw new Error('Stripe secret key not configured.');
+    const params = { limit: Math.min(input.limit || 20, 100) };
+    if (input.status) params.status = input.status;
+    if (input.createdAfterDays) {
+      params['created[gte]'] = Math.floor((Date.now() - input.createdAfterDays * 86400000) / 1000);
+    }
+    const resp = await axios.get('https://api.stripe.com/v1/payment_intents', {
+      auth: { username: secretKey, password: '' }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'stripe_list_subscriptions') {
+    const { secretKey } = toolConfigs.stripe || {};
+    if (!secretKey) throw new Error('Stripe secret key not configured.');
+    const params = { limit: Math.min(input.limit || 20, 100), status: input.status || 'active' };
+    if (params.status === 'all') delete params.status;
+    const resp = await axios.get('https://api.stripe.com/v1/subscriptions', {
+      auth: { username: secretKey, password: '' }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'stripe_create_payment_link') {
+    const { secretKey } = toolConfigs.stripe || {};
+    if (!secretKey) throw new Error('Stripe secret key not configured.');
+
+    let priceId = input.priceId;
+
+    // If no priceId, create an ad-hoc price
+    if (!priceId && input.amount) {
+      const priceResp = await axios.post('https://api.stripe.com/v1/prices',
+        new URLSearchParams({
+          unit_amount: String(input.amount),
+          currency:    input.currency || 'usd',
+          'product_data[name]': input.productName || 'Product',
+        }).toString(),
+        { auth: { username: secretKey, password: '' }, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      priceId = priceResp.data.id;
+    }
+    if (!priceId) throw new Error('Provide either priceId or amount + productName to create a payment link.');
+
+    const resp = await axios.post('https://api.stripe.com/v1/payment_links',
+      new URLSearchParams({ 'line_items[0][price]': priceId, 'line_items[0][quantity]': String(input.quantity || 1) }).toString(),
+      { auth: { username: secretKey, password: '' }, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+    return { id: resp.data.id, url: resp.data.url, active: resp.data.active };
+  }
+
+  if (toolName === 'stripe_get_revenue') {
+    const { secretKey } = toolConfigs.stripe || {};
+    if (!secretKey) throw new Error('Stripe secret key not configured.');
+    const days = input.days || 30;
+    const since = Math.floor((Date.now() - days * 86400000) / 1000);
+    const resp = await axios.get('https://api.stripe.com/v1/charges', {
+      auth: { username: secretKey, password: '' },
+      params: { limit: 100, 'created[gte]': since },
+    });
+    const charges = resp.data.data || [];
+    const succeeded = charges.filter(c => c.status === 'succeeded');
+    const totalCharged = succeeded.reduce((s, c) => s + c.amount, 0);
+    const totalRefunded = succeeded.reduce((s, c) => s + (c.amount_refunded || 0), 0);
+    return {
+      period:        `Last ${days} days`,
+      totalCharged:  `$${(totalCharged / 100).toFixed(2)}`,
+      totalRefunded: `$${(totalRefunded / 100).toFixed(2)}`,
+      net:           `$${((totalCharged - totalRefunded) / 100).toFixed(2)}`,
+      successfulPayments: succeeded.length,
+      totalTransactions:  charges.length,
+    };
+  }
+
+  // ── PayPal ───────────────────────────────────────────────────────────────────
+
+  async function getPayPalToken(clientId, clientSecret, mode) {
+    const base = mode === 'sandbox' ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+    const resp = await axios.post(`${base}/v1/oauth2/token`,
+      'grant_type=client_credentials',
+      {
+        auth: { username: clientId, password: clientSecret },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      }
+    );
+    return { token: resp.data.access_token, base };
+  }
+
+  if (toolName === 'paypal_list_orders') {
+    const { clientId, clientSecret, mode } = toolConfigs.paypal || {};
+    if (!clientId || !clientSecret) throw new Error('PayPal Client ID and Secret not configured.');
+    const { token, base } = await getPayPalToken(clientId, clientSecret, mode);
+    const params = { start_time: input.startDate };
+    if (input.endDate) params.end_time = input.endDate;
+    const resp = await axios.get(`${base}/v2/checkout/orders`, {
+      headers: { Authorization: `Bearer ${token}` }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'paypal_get_order') {
+    const { clientId, clientSecret, mode } = toolConfigs.paypal || {};
+    if (!clientId || !clientSecret) throw new Error('PayPal Client ID and Secret not configured.');
+    const { token, base } = await getPayPalToken(clientId, clientSecret, mode);
+    const resp = await axios.get(`${base}/v2/checkout/orders/${input.orderId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'paypal_list_transactions') {
+    const { clientId, clientSecret, mode } = toolConfigs.paypal || {};
+    if (!clientId || !clientSecret) throw new Error('PayPal Client ID and Secret not configured.');
+    const { token, base } = await getPayPalToken(clientId, clientSecret, mode);
+    const resp = await axios.get(`${base}/v1/reporting/transactions`, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: {
+        start_date:  input.startDate,
+        end_date:    input.endDate,
+        page_size:   Math.min(input.pageSize || 20, 500),
+        fields:      'all',
+      },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'paypal_list_subscriptions') {
+    const { clientId, clientSecret, mode } = toolConfigs.paypal || {};
+    if (!clientId || !clientSecret) throw new Error('PayPal Client ID and Secret not configured.');
+    const { token, base } = await getPayPalToken(clientId, clientSecret, mode);
+    const params = { plan_id: input.planId };
+    if (input.status) params.status = input.status;
+    const resp = await axios.get(`${base}/v1/billing/subscriptions`, {
+      headers: { Authorization: `Bearer ${token}` }, params,
+    });
+    return resp.data;
+  }
+
+  // ── Square ───────────────────────────────────────────────────────────────────
+
+  if (toolName === 'square_list_payments') {
+    const { accessToken, environment } = toolConfigs.square || {};
+    if (!accessToken) throw new Error('Square access token not configured.');
+    const base = environment === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+    const params = {
+      sort_order: input.sortOrder || 'DESC',
+      limit:      Math.min(input.limit || 20, 100),
+    };
+    if (input.beginTime) params.begin_time = input.beginTime;
+    if (input.endTime)   params.end_time   = input.endTime;
+    const resp = await axios.get(`${base}/v2/payments`, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Square-Version': '2024-01-18' }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'square_list_customers') {
+    const { accessToken, environment } = toolConfigs.square || {};
+    if (!accessToken) throw new Error('Square access token not configured.');
+    const base = environment === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+    const body = { limit: Math.min(input.limit || 20, 100) };
+    if (input.query) body.query = { filter: { text_filter: { phone_number: input.query } } };
+    const resp = await axios.post(`${base}/v2/customers/search`, body, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Square-Version': '2024-01-18', 'Content-Type': 'application/json' },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'square_list_invoices') {
+    const { accessToken, environment, locationId: cfgLocId } = toolConfigs.square || {};
+    if (!accessToken) throw new Error('Square access token not configured.');
+    const base = environment === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+    const locId = input.locationId || cfgLocId;
+    if (!locId) throw new Error('Square location ID not configured. Add it to your Square settings or pass locationId in the call.');
+    const params = { location_id: locId, limit: Math.min(input.limit || 20, 200) };
+    const resp = await axios.get(`${base}/v2/invoices`, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Square-Version': '2024-01-18' }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'square_create_invoice') {
+    const { accessToken, environment, locationId: cfgLocId } = toolConfigs.square || {};
+    if (!accessToken) throw new Error('Square access token not configured.');
+    const base = environment === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+    const locId = cfgLocId;
+    if (!locId) throw new Error('Square location ID is required. Add it to your Square settings.');
+
+    const body = {
+      idempotency_key: `inv-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      invoice: {
+        location_id: locId,
+        primary_recipient: { customer_id: input.customerId },
+        payment_requests: [
+          {
+            request_type: 'BALANCE',
+            due_date: input.dueDate || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+            tipping_enabled: false,
+          },
+        ],
+        line_items: [
+          {
+            quantity: '1',
+            label: input.description || input.title,
+            base_price_money: { amount: input.amountCents, currency: input.currency || 'USD' },
+          },
+        ],
+        title: input.title,
+        delivery_method: 'EMAIL',
+        invoice_number: `INV-${Date.now().toString().slice(-6)}`,
+      },
+    };
+    const resp = await axios.post(`${base}/v2/invoices`, body, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Square-Version': '2024-01-18', 'Content-Type': 'application/json' },
+    });
+    return resp.data;
+  }
+
+  // ── Authorize.net ─────────────────────────────────────────────────────────────
+
+  if (toolName === 'authorizenet_list_transactions') {
+    const { apiLoginId, transactionKey, mode } = toolConfigs.authorizenet || {};
+    if (!apiLoginId || !transactionKey) throw new Error('Authorize.net API Login ID and Transaction Key not configured.');
+    const host = mode === 'live' ? 'https://api.authorize.net' : 'https://apitest.authorize.net';
+
+    if (input.batchId) {
+      const resp = await axios.post(`${host}/xml/v1/request.api`, {
+        getTransactionListRequest: {
+          merchantAuthentication: { name: apiLoginId, transactionKey },
+          batchId: input.batchId,
+          paging: { limit: Math.min(input.limit || 25, 1000), offset: 1 },
+        },
+      });
+      return resp.data;
+    } else {
+      // Get unsettled transactions
+      const resp = await axios.post(`${host}/xml/v1/request.api`, {
+        getUnsettledTransactionListRequest: {
+          merchantAuthentication: { name: apiLoginId, transactionKey },
+          paging: { limit: Math.min(input.limit || 25, 1000), offset: 1 },
+        },
+      });
+      return resp.data;
+    }
+  }
+
+  if (toolName === 'authorizenet_get_transaction') {
+    const { apiLoginId, transactionKey, mode } = toolConfigs.authorizenet || {};
+    if (!apiLoginId || !transactionKey) throw new Error('Authorize.net API Login ID and Transaction Key not configured.');
+    const host = mode === 'live' ? 'https://api.authorize.net' : 'https://apitest.authorize.net';
+    const resp = await axios.post(`${host}/xml/v1/request.api`, {
+      getTransactionDetailsRequest: {
+        merchantAuthentication: { name: apiLoginId, transactionKey },
+        transId: input.transId,
+      },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'authorizenet_get_settled_batches') {
+    const { apiLoginId, transactionKey, mode } = toolConfigs.authorizenet || {};
+    if (!apiLoginId || !transactionKey) throw new Error('Authorize.net API Login ID and Transaction Key not configured.');
+    const host = mode === 'live' ? 'https://api.authorize.net' : 'https://apitest.authorize.net';
+
+    const now    = new Date();
+    const past30 = new Date(now.getTime() - 30 * 86400000);
+    const fmt    = (d) => d.toISOString().split('T')[0] + 'T00:00:00';
+
+    const resp = await axios.post(`${host}/xml/v1/request.api`, {
+      getSettledBatchListRequest: {
+        merchantAuthentication: { name: apiLoginId, transactionKey },
+        firstSettlementDate: input.firstSettlementDate ? `${input.firstSettlementDate}T00:00:00` : fmt(past30),
+        lastSettlementDate:  input.lastSettlementDate  ? `${input.lastSettlementDate}T23:59:59`  : fmt(now),
+      },
+    });
+    return resp.data;
+  }
+
   throw new Error(`Unknown external tool: ${toolName}`);
 }
 
@@ -619,6 +1126,44 @@ const TOOL_METADATA = {
     description: 'AI spokesperson video generation for ads and outreach',
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'your-heygen-api-key' },
+    ],
+  },
+  stripe: {
+    label:       'Stripe',
+    icon:        '💳',
+    description: 'Payment processing, subscriptions, invoices and revenue reporting',
+    configFields: [
+      { key: 'secretKey', label: 'Secret Key', type: 'password', placeholder: 'sk_live_...' },
+    ],
+  },
+  paypal: {
+    label:       'PayPal',
+    icon:        '🅿️',
+    description: 'Orders, subscriptions and transaction reporting via PayPal',
+    configFields: [
+      { key: 'clientId',     label: 'Client ID',     type: 'text',     placeholder: 'AaBbCc...' },
+      { key: 'clientSecret', label: 'Client Secret', type: 'password', placeholder: 'EcFf...' },
+      { key: 'mode',         label: 'Mode',          type: 'text',     placeholder: 'live or sandbox' },
+    ],
+  },
+  square: {
+    label:       'Square',
+    icon:        '⬛',
+    description: 'Payments, customers and invoicing via Square',
+    configFields: [
+      { key: 'accessToken',  label: 'Access Token',  type: 'password', placeholder: 'EAAAl...' },
+      { key: 'locationId',   label: 'Location ID',   type: 'text',     placeholder: 'Your Square location ID' },
+      { key: 'environment',  label: 'Environment',   type: 'text',     placeholder: 'production or sandbox' },
+    ],
+  },
+  authorizenet: {
+    label:       'Authorize.net',
+    icon:        '🔐',
+    description: 'Transaction listing and reporting via Authorize.net',
+    configFields: [
+      { key: 'apiLoginId',     label: 'API Login ID',     type: 'text',     placeholder: 'Your API Login ID' },
+      { key: 'transactionKey', label: 'Transaction Key',  type: 'password', placeholder: 'Your Transaction Key' },
+      { key: 'mode',           label: 'Mode',             type: 'text',     placeholder: 'live or sandbox' },
     ],
   },
 };

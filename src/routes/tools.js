@@ -227,6 +227,46 @@ router.post('/test/:category', async (req, res) => {
         headers: { 'X-Api-Key': cfg.apiKey },
         timeout: 10000,
       });
+    } else if (category === 'stripe') {
+      if (!cfg.secretKey) throw new Error('Secret key not configured.');
+      const r = await axios.get('https://api.stripe.com/v1/account', {
+        auth: { username: cfg.secretKey, password: '' },
+        timeout: 10000,
+      });
+      info = `Stripe connected (${r.data.email || r.data.id})`;
+    } else if (category === 'paypal') {
+      if (!cfg.clientId || !cfg.clientSecret) throw new Error('Client ID and Secret required.');
+      const base = cfg.mode === 'sandbox' ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+      const r = await axios.post(`${base}/v1/oauth2/token`,
+        'grant_type=client_credentials',
+        {
+          auth: { username: cfg.clientId, password: cfg.clientSecret },
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          timeout: 10000,
+        }
+      );
+      info = `PayPal connected (${cfg.mode || 'live'} — token ok)`;
+    } else if (category === 'square') {
+      if (!cfg.accessToken) throw new Error('Access token not configured.');
+      const base = cfg.environment === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+      const r = await axios.get(`${base}/v2/merchants`, {
+        headers: { Authorization: `Bearer ${cfg.accessToken}`, 'Square-Version': '2024-01-18' },
+        timeout: 10000,
+      });
+      const merchant = r.data?.merchant?.[0];
+      info = `Square connected${merchant ? ` (${merchant.business_name || merchant.id})` : ''}`;
+    } else if (category === 'authorizenet') {
+      if (!cfg.apiLoginId || !cfg.transactionKey) throw new Error('API Login ID and Transaction Key required.');
+      const host = cfg.mode === 'live' ? 'https://api.authorize.net' : 'https://apitest.authorize.net';
+      const r = await axios.post(`${host}/xml/v1/request.api`, {
+        authenticateTestRequest: {
+          merchantAuthentication: { name: cfg.apiLoginId, transactionKey: cfg.transactionKey },
+        },
+      }, { timeout: 10000 });
+      if (r.data?.messages?.resultCode !== 'Ok') {
+        throw new Error(r.data?.messages?.message?.[0]?.text || 'Authentication failed');
+      }
+      info = `Authorize.net connected (${cfg.mode || 'sandbox'})`;
     }
 
     res.json({ success: true, info });
