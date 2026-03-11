@@ -344,6 +344,17 @@ router.post('/:category', async (req, res) => {
 
 router.delete('/:category', async (req, res) => {
   const { category } = req.params;
+
+  // The Anthropic/Claude API key is a permanent connection — it can only be
+  // removed by explicitly deleting it from the database (admin action), never
+  // through the generic tools disconnect flow.
+  if (category === 'anthropic') {
+    return res.status(403).json({
+      success: false,
+      error:   'The Claude API key cannot be removed through this endpoint. Delete it directly from the database if needed.',
+    });
+  }
+
   const allMeta      = toolRegistry.getAllIntegrationsMeta();
   const meta         = allMeta.find((m) => m.key === category);
   const label        = meta?.label ?? category;

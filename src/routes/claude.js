@@ -278,11 +278,31 @@ router.post('/voice', upload.single('audio'), async (req, res) => {
 
 router.get('/status', async (req, res) => {
   try {
-    const registry = require('../tools/toolRegistry');
-    const config   = require('../config');
-    const configs  = await registry.loadToolConfigs(req.locationId);
-    const tools    = await registry.getTools(req.locationId);
-    const hasKey   = !!(configs.anthropic?.apiKey || config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY);
+    const registry    = require('../tools/toolRegistry');
+    const firebaseSvc = require('../services/firebaseStore');
+    const config      = require('../config');
+
+    const configs = await registry.loadToolConfigs(req.locationId);
+    const tools   = await registry.getTools(req.locationId);
+
+    let hasKey = !!(configs.anthropic?.apiKey || config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY);
+
+    // If the cache/load returned no anthropic key but Firebase is enabled,
+    // do a direct DB check so a transient cache failure never falsely shows
+    // the location as disconnected when the key actually exists in the database.
+    if (!hasKey && config.isFirebaseEnabled && firebaseSvc.isEnabled()) {
+      try {
+        const direct = await firebaseSvc.getToolConfig(req.locationId);
+        if (direct.anthropic?.apiKey) {
+          hasKey = true;
+          // Repair the cache entry so subsequent calls don't need this fallback
+          const toolTokenService = require('../services/toolTokenService');
+          const merged = { ...configs, anthropic: direct.anthropic };
+          await toolTokenService.setCachedToolConfig(req.locationId, merged).catch(() => {});
+        }
+      } catch { /* non-fatal — trust cache result */ }
+    }
+
     res.json({
       success:      true,
       locationId:   req.locationId,

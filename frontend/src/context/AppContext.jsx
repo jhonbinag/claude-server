@@ -25,7 +25,12 @@ export function AppProvider({ children }) {
   // Auth is immediate: if we have a locationId, user is in. No API gatekeeping.
   const [isAuthenticated,    setIsAuthenticated]    = useState(() => !!getInitialLocationId());
   const [isAuthLoading,      setIsAuthLoading]      = useState(false);
-  const [claudeReady,        setClaudeReady]        = useState(false);
+  // Seed claudeReady from localStorage so it never flickers to false on reload
+  // when the API key is already saved in the database for this location.
+  const [claudeReady,        setClaudeReady]        = useState(() => {
+    const locId = getInitialLocationId();
+    return locId ? localStorage.getItem(`claude_ready_${locId}`) === '1' : false;
+  });
   const [enabledTools,       setEnabledTools]       = useState([]);
   const [integrations,       setIntegrations]       = useState([]);
   const [integrationsLoaded, setIntegrationsLoaded] = useState(false);
@@ -48,9 +53,20 @@ export function AppProvider({ children }) {
     try {
       const data = await apiFetch('/claude/status', locId);
       if (data.success) {
-        setClaudeReady(data.claudeReady || false);
+        const ready = data.claudeReady || false;
+        setClaudeReady(ready);
         setEnabledTools(data.enabledTools || []);
+        // Persist readiness so the UI never flickers to "not ready" on reload
+        // when the key already exists in the DB. Only clear it when explicitly
+        // told the key is gone (ready === false from a successful status call).
+        if (ready) {
+          localStorage.setItem(`claude_ready_${locId}`, '1');
+        } else {
+          localStorage.removeItem(`claude_ready_${locId}`);
+        }
       }
+      // If the request fails entirely, leave the last-known state intact
+      // so a transient network error doesn't show the user as disconnected.
     } catch {}
   }, []);
 
@@ -96,9 +112,11 @@ export function AppProvider({ children }) {
 
   // ── Logout ────────────────────────────────────────────────────────────────
   const logout = () => {
+    if (locationId) localStorage.removeItem(`claude_ready_${locationId}`);
     localStorage.removeItem('gtm_location_id');
     setLocationId('');
     setIsAuthenticated(false);
+    setClaudeReady(false);
     setIntegrations([]);
     setIntegrationsLoaded(false);
   };
