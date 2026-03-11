@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp }          from '../context/AppContext';
 import { useStreamFetch }  from '../hooks/useStreamFetch';
@@ -6,6 +6,45 @@ import AuthGate      from '../components/AuthGate';
 import Header        from '../components/Header';
 import StreamOutput  from '../components/StreamOutput';
 import Spinner       from '../components/Spinner';
+
+// ── Voice input hook (Web Speech API) ────────────────────────────────────────
+function useVoice(onTranscript) {
+  const [listening, setListening]   = useState(false);
+  const [supported, setSupported]   = useState(false);
+  const recognitionRef               = useRef(null);
+
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    setSupported(true);
+    const r = new SR();
+    r.continuous      = false;
+    r.interimResults  = true;
+    r.lang            = 'en-US';
+    r.onresult = (e) => {
+      const transcript = Array.from(e.results)
+        .map(res => res[0].transcript).join('');
+      if (e.results[e.results.length - 1].isFinal) {
+        onTranscript(transcript);
+        setListening(false);
+      }
+    };
+    r.onerror  = () => setListening(false);
+    r.onend    = () => setListening(false);
+    recognitionRef.current = r;
+    return () => r.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggle = useCallback(() => {
+    const r = recognitionRef.current;
+    if (!r) return;
+    if (listening) { r.stop(); setListening(false); }
+    else           { r.start(); setListening(true);  }
+  }, [listening]);
+
+  return { listening, supported, toggle };
+}
 
 const QUICK_ACTIONS = [
   { label: 'Search contacts',       prompt: 'List the 10 most recently added contacts in GHL.' },
@@ -42,6 +81,10 @@ export default function Dashboard() {
   const [messages, setMessages] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { isRunning, stream, stop } = useStreamFetch();
+
+  const { listening, supported: voiceSupported, toggle: toggleVoice } = useVoice(
+    (transcript) => setTask(prev => (prev ? prev + ' ' + transcript : transcript))
+  );
 
   const navigate = useNavigate();
 
@@ -218,16 +261,56 @@ export default function Dashboard() {
             className="p-3 flex-shrink-0"
             style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}
           >
+            {/* Listening indicator bar */}
+            {listening && (
+              <div
+                className="flex items-center gap-2 mb-2 px-3 py-1.5 rounded-xl text-xs font-medium"
+                style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block', animation: 'pulse 1s infinite' }} />
+                Listening… speak your command, then pause to finish
+              </div>
+            )}
+
             <div className="flex gap-2 items-end">
-              <textarea
-                value={task}
-                onChange={e => setTask(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-                placeholder="Describe what you want Claude to do…"
-                rows={3}
-                className="field flex-1 text-sm leading-relaxed"
-                style={{ resize: 'none' }}
-              />
+              <div className="relative flex-1">
+                <textarea
+                  value={task}
+                  onChange={e => setTask(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+                  placeholder={listening ? 'Listening…' : 'Describe what you want Claude to do…'}
+                  rows={3}
+                  className="field w-full text-sm leading-relaxed"
+                  style={{ resize: 'none', paddingRight: voiceSupported ? '2.75rem' : undefined }}
+                />
+                {/* Mic button — inside textarea (bottom-right corner) */}
+                {voiceSupported && (
+                  <button
+                    onClick={toggleVoice}
+                    title={listening ? 'Stop recording' : 'Voice input'}
+                    style={{
+                      position: 'absolute',
+                      bottom: '8px',
+                      right: '10px',
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      border: listening ? '1.5px solid #ef4444' : '1.5px solid rgba(255,255,255,0.15)',
+                      background: listening ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.06)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      fontSize: 14,
+                      animation: listening ? 'pulse 1s infinite' : 'none',
+                    }}
+                  >
+                    {listening ? '⏹' : '🎤'}
+                  </button>
+                )}
+              </div>
+
               <div className="flex flex-col gap-2 flex-shrink-0">
                 <button
                   onClick={isRunning ? stop : handleSubmit}
@@ -244,7 +327,7 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-xs text-gray-600 mt-1.5 hidden sm:block">
-              Enter to run · Shift+Enter for new line · Claude chains tool calls automatically
+              Enter to run · Shift+Enter for new line · {voiceSupported ? '🎤 Click mic or ' : ''}Claude chains tool calls automatically
             </p>
           </div>
         </main>
