@@ -145,9 +145,12 @@ export default function Admin() {
   const [billingLoading,  setBillingLoading]  = useState(false);
 
   // Plan Tiers state
-  const [tiers,        setTiers]        = useState(null);
-  const [tiersLoading, setTiersLoading] = useState(false);
-  const [tierModal,    setTierModal]    = useState(null); // { tier, data }
+  const [tiers,              setTiers]              = useState(null);
+  const [tiersLoading,       setTiersLoading]       = useState(false);
+  const [tierModal,          setTierModal]          = useState(null); // { tier, data }
+  const [ghlProducts,        setGhlProducts]        = useState([]);
+  const [ghlProductsLocId,   setGhlProductsLocId]   = useState('');
+  const [ghlProductsLoading, setGhlProductsLoading] = useState(false);
 
   // All available integration keys (hardcoded to match backend)
   const ALL_INTEGRATIONS = [
@@ -899,6 +902,40 @@ export default function Admin() {
 
             {tiersLoading && <p style={{ color: '#6b7280', fontSize: 13 }}>Loading tiers…</p>}
 
+            {/* ── GHL Product Sync ── */}
+            <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, padding: 16, marginBottom: 20 }}>
+              <p style={{ color: '#e5e7eb', fontSize: 13, fontWeight: 600, margin: '0 0 10px' }}>🔗 Sync with GHL Products</p>
+              <p style={{ color: '#6b7280', fontSize: 12, margin: '0 0 12px' }}>
+                Enter a location ID to load its GHL products, then link each tier to a GHL product so prices stay in sync.
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input
+                  placeholder="Enter Location ID…"
+                  value={ghlProductsLocId}
+                  onChange={e => setGhlProductsLocId(e.target.value)}
+                  style={{ flex: 1, minWidth: 200, padding: '8px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13 }}
+                />
+                <button
+                  disabled={!ghlProductsLocId.trim() || ghlProductsLoading}
+                  onClick={async () => {
+                    setGhlProductsLoading(true);
+                    try {
+                      const data = await adminFetch(`/admin/ghl-products?locationId=${encodeURIComponent(ghlProductsLocId.trim())}`, { adminKey });
+                      if (data.success) { setGhlProducts(data.data); flash(`✓ Loaded ${data.data.length} GHL products`); }
+                      else flash(`✗ ${data.error || 'Failed to load products'}`);
+                    } catch { flash('✗ Request failed'); }
+                    setGhlProductsLoading(false);
+                  }}
+                  style={{ padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: (!ghlProductsLocId.trim() || ghlProductsLoading) ? 0.5 : 1 }}
+                >
+                  {ghlProductsLoading ? 'Loading…' : '⬇ Load Products'}
+                </button>
+              </div>
+              {ghlProducts.length > 0 && (
+                <p style={{ color: '#4ade80', fontSize: 12, margin: '8px 0 0' }}>✓ {ghlProducts.length} products loaded — open a tier to assign one</p>
+              )}
+            </div>
+
             {tiers && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
                 {['bronze', 'silver', 'gold', 'diamond'].map(tierKey => {
@@ -921,17 +958,27 @@ export default function Admin() {
                         >✏️ Edit</button>
                       </div>
 
-                      <div style={{ marginBottom: 10 }}>
-                        <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>
-                          Integration Limit
-                        </p>
-                        <span style={{ color: tierColor, fontWeight: 700, fontSize: 20 }}>
-                          {tier.integrationLimit === -1 ? '∞' : tier.integrationLimit}
-                        </span>
-                        <span style={{ color: '#6b7280', fontSize: 12, marginLeft: 4 }}>
-                          {tier.integrationLimit === -1 ? 'unlimited' : `max`}
-                        </span>
+                      <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+                        <div>
+                          <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 4px' }}>Integrations</p>
+                          <span style={{ color: tierColor, fontWeight: 700, fontSize: 18 }}>
+                            {tier.integrationLimit === -1 ? '∞' : tier.integrationLimit}
+                          </span>
+                          <span style={{ color: '#6b7280', fontSize: 12, marginLeft: 4 }}>{tier.integrationLimit === -1 ? 'unlimited' : 'max'}</span>
+                        </div>
+                        <div>
+                          <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 4px' }}>Price</p>
+                          <span style={{ color: '#e5e7eb', fontWeight: 700, fontSize: 18 }}>
+                            {tier.price ? `$${tier.price}` : 'Free'}
+                          </span>
+                          {tier.price > 0 && <span style={{ color: '#6b7280', fontSize: 12, marginLeft: 4 }}>/{tier.interval || 'mo'}</span>}
+                        </div>
                       </div>
+                      {tier.ghlProductName && (
+                        <p style={{ color: '#6366f1', fontSize: 11, margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          🔗 <span>{tier.ghlProductName}</span>
+                        </p>
+                      )}
 
                       <div>
                         <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>
@@ -972,6 +1019,7 @@ export default function Admin() {
                 tierKey={tierModal.tier}
                 data={tierModal.data}
                 allIntegrations={ALL_INTEGRATIONS}
+                ghlProducts={ghlProducts}
                 adminKey={adminKey}
                 onClose={() => setTierModal(null)}
                 onSaved={(tierKey, saved) => {
@@ -1550,7 +1598,7 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
 
 // ── Tier Edit Modal ────────────────────────────────────────────────────────────
 
-function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSaved, onFlash }) {
+function TierEditModal({ tierKey, data, allIntegrations, ghlProducts, adminKey, onClose, onSaved, onFlash }) {
   const tierColor = { bronze: '#cd7f32', silver: '#9ca3af', gold: '#fbbf24', diamond: '#a78bfa' }[tierKey] || '#9ca3af';
 
   const [name,             setName]             = useState(data.name || '');
@@ -1558,8 +1606,14 @@ function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSa
   const [description,      setDescription]      = useState(data.description || '');
   const [price,            setPrice]            = useState(data.price ?? 0);
   const [interval,         setInterval]         = useState(data.interval || 'mo');
+  const [ghlProductId,     setGhlProductId]     = useState(data.ghlProductId || '');
+  const [ghlPriceId,       setGhlPriceId]       = useState(data.ghlPriceId   || '');
+  const [ghlProductName,   setGhlProductName]   = useState(data.ghlProductName || '');
   const [integrationLimit, setIntegrationLimit] = useState(data.integrationLimit ?? 2);
   const [unlimited,        setUnlimited]        = useState(data.integrationLimit === -1);
+
+  // Prices of the currently selected GHL product
+  const selectedGhlProduct = ghlProducts?.find(p => p.id === ghlProductId) || null;
   const [allAllowed,       setAllAllowed]        = useState(data.allowedIntegrations === null);
   const [selected,         setSelected]         = useState(() =>
     data.allowedIntegrations === null
@@ -1585,6 +1639,9 @@ function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSa
         description:         description.trim(),
         price:               Number(price) || 0,
         interval:            interval || 'mo',
+        ghlProductId:        ghlProductId  || null,
+        ghlPriceId:          ghlPriceId    || null,
+        ghlProductName:      ghlProductName || null,
         integrationLimit:    unlimited ? -1 : Number(integrationLimit),
         allowedIntegrations: allAllowed ? null : [...selected],
       };
@@ -1649,6 +1706,62 @@ function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSa
             </select>
           </div>
         </div>
+
+        {/* GHL Product Link */}
+        <label style={lbl}>GHL Product (optional)</label>
+        {(!ghlProducts || ghlProducts.length === 0) ? (
+          <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+            Load GHL products from the Plan Tiers tab first to link a product.
+          </p>
+        ) : (
+          <>
+            <select
+              style={{ ...inp, marginBottom: 8 }}
+              value={ghlProductId}
+              onChange={e => {
+                const pid = e.target.value;
+                setGhlProductId(pid);
+                setGhlPriceId('');
+                const prod = ghlProducts.find(p => p.id === pid);
+                setGhlProductName(prod ? prod.name : '');
+              }}
+            >
+              <option value="">— No GHL product linked —</option>
+              {ghlProducts.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+
+            {selectedGhlProduct && selectedGhlProduct.prices?.length > 0 && (
+              <>
+                <label style={lbl}>GHL Price / Variant</label>
+                <select
+                  style={{ ...inp, marginBottom: 8 }}
+                  value={ghlPriceId}
+                  onChange={e => {
+                    const pid = e.target.value;
+                    setGhlPriceId(pid);
+                    const pr = selectedGhlProduct.prices.find(p => p.id === pid);
+                    if (pr) {
+                      setPrice(pr.amount);
+                      setInterval(pr.recurring?.interval === 'year' ? 'yr' : 'mo');
+                    }
+                  }}
+                >
+                  <option value="">— Select a price —</option>
+                  {selectedGhlProduct.prices.map(pr => (
+                    <option key={pr.id} value={pr.id}>
+                      {pr.name} — ${pr.amount}/{pr.recurring?.interval || 'mo'}
+                    </option>
+                  ))}
+                </select>
+                {ghlPriceId && (
+                  <p style={{ fontSize: 11, color: '#4ade80', marginBottom: 12 }}>✓ Price auto-synced from GHL product</p>
+                )}
+              </>
+            )}
+          </>
+        )}
 
         {/* Integration limit */}
         <label style={lbl}>Integration Limit</label>

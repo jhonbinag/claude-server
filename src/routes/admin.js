@@ -600,8 +600,32 @@ router.post('/locations/:id/run-task', async (req, res) => {
 
 // ─── Plan Tier routes ─────────────────────────────────────────────────────────
 
-const planTierStore = require('../services/planTierStore');
-const VALID_TIERS   = ['bronze', 'silver', 'gold', 'diamond'];
+const planTierStore  = require('../services/planTierStore');
+const { ghlRequest } = require('../services/ghlClient');
+const VALID_TIERS    = ['bronze', 'silver', 'gold', 'diamond'];
+
+// GET /admin/ghl-products?locationId=xxx — list GHL products with prices for a location
+router.get('/ghl-products', async (req, res) => {
+  const { locationId } = req.query;
+  if (!locationId) return res.status(400).json({ success: false, error: 'locationId query param required' });
+  try {
+    const data = await ghlRequest(locationId, 'GET', '/products/', null, { locationId, limit: 100 });
+    const products = (data.products || []).map(p => ({
+      id:     p._id || p.id,
+      name:   p.name,
+      prices: (p.prices || []).map(pr => ({
+        id:        pr._id || pr.id,
+        name:      pr.name || pr.variantOptionName || p.name,
+        amount:    pr.amount,
+        currency:  pr.currency || 'USD',
+        recurring: pr.recurring || null,
+      })),
+    }));
+    res.json({ success: true, data: products });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // GET /admin/plan-tiers — get all tier configs
 router.get('/plan-tiers', async (req, res) => {
@@ -619,15 +643,19 @@ router.post('/plan-tiers/:tier', async (req, res) => {
   if (!VALID_TIERS.includes(tier)) {
     return res.status(400).json({ success: false, error: `Invalid tier. Valid: ${VALID_TIERS.join(', ')}` });
   }
-  const { name, icon, integrationLimit, allowedIntegrations, description, price, interval } = req.body;
+  const { name, icon, integrationLimit, allowedIntegrations, description, price, interval,
+          ghlProductId, ghlPriceId, ghlProductName } = req.body;
   const updates = {};
   if (name                !== undefined) updates.name               = name;
   if (icon                !== undefined) updates.icon               = icon;
   if (description         !== undefined) updates.description        = description;
   if (integrationLimit    !== undefined) updates.integrationLimit   = Number(integrationLimit);
-  if (allowedIntegrations !== undefined) updates.allowedIntegrations = allowedIntegrations; // null or string[]
+  if (allowedIntegrations !== undefined) updates.allowedIntegrations = allowedIntegrations;
   if (price               !== undefined) updates.price              = Number(price);
   if (interval            !== undefined) updates.interval           = interval;
+  if (ghlProductId        !== undefined) updates.ghlProductId       = ghlProductId || null;
+  if (ghlPriceId          !== undefined) updates.ghlPriceId         = ghlPriceId   || null;
+  if (ghlProductName      !== undefined) updates.ghlProductName     = ghlProductName || null;
   if (!Object.keys(updates).length) {
     return res.status(400).json({ success: false, error: 'No fields to update.' });
   }
