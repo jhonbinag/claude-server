@@ -2,11 +2,12 @@ import { Link, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 
 const NAV = [
-  { to: '/',              label: 'Dashboard', icon: '🏠' },
-  { to: '/workflows',     label: 'Workflows',  icon: '🔀' },
-  { to: '/ads-generator', label: 'Bulk Ads',   icon: '🎯' },
-  { to: '/billing',       label: 'Billing',    icon: '💳' },
-  { to: '/settings',      label: 'Settings',   icon: '⚙️' },
+  { to: '/',                 label: 'Dashboard', icon: '🏠' },
+  { to: '/campaign-builder', label: 'Builder',   icon: '🏗️' },
+  { to: '/workflows',        label: 'Workflows',  icon: '🔀' },
+  { to: '/ads-generator',    label: 'Bulk Ads',   icon: '🎯' },
+  { to: '/billing',          label: 'Billing',    icon: '💳' },
+  { to: '/settings',         label: 'Settings',   icon: '⚙️' },
 ];
 
 export default function Header({ icon, title, subtitle, onMenuClick }) {
