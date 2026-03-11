@@ -411,12 +411,16 @@ async function executeExternalTool(toolName, input, toolConfigs) {
 
   // ── SendGrid ─────────────────────────────────────────────────────────────────
   if (toolName === 'sendgrid_send_email') {
-    const { apiKey, defaultFromEmail, defaultFromName } = toolConfigs.sendgrid || {};
+    const sg = toolConfigs.sendgrid || {};
+    const { apiKey } = sg;
+    // Accept both 'fromEmail' (frontend field key) and 'defaultFromEmail' (legacy) for backwards compat
+    const configFromEmail = sg.fromEmail || sg.defaultFromEmail;
+    const configFromName  = sg.fromName  || sg.defaultFromName;
     if (!apiKey) throw new Error('SendGrid API key not configured for this location.');
 
     const payload = {
       personalizations: [{ to: input.to }],
-      from: { email: input.fromEmail || defaultFromEmail, name: input.fromName || defaultFromName },
+      from: { email: input.fromEmail || configFromEmail, name: input.fromName || configFromName },
       subject: input.subject,
     };
     if (input.replyTo)    payload.reply_to = { email: input.replyTo };
@@ -430,9 +434,16 @@ async function executeExternalTool(toolName, input, toolConfigs) {
       if (!payload.content.length) payload.content.push({ type: 'text/plain', value: input.subject });
     }
 
-    const resp = await axios.post('https://api.sendgrid.com/v3/mail/send', payload, {
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    });
+    let resp;
+    try {
+      resp = await axios.post('https://api.sendgrid.com/v3/mail/send', payload, {
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      const sgErrors = err.response?.data?.errors;
+      const msg = sgErrors?.length ? sgErrors.map(e => e.message).join('; ') : err.message;
+      throw new Error(`SendGrid error: ${msg}`);
+    }
     return { success: true, statusCode: resp.status, recipientCount: input.to.length };
   }
 
@@ -576,9 +587,9 @@ const TOOL_METADATA = {
     icon:        '📧',
     description: 'Transactional & marketing email campaigns',
     configFields: [
-      { key: 'apiKey',          label: 'API Key',              type: 'password', placeholder: 'SG.xxxxx' },
-      { key: 'defaultFromEmail', label: 'Default From Email',  type: 'text',     placeholder: 'you@yourdomain.com' },
-      { key: 'defaultFromName',  label: 'Default From Name',   type: 'text',     placeholder: 'Your Company' },
+      { key: 'apiKey',     label: 'API Key',       type: 'password', placeholder: 'SG.xxxxx' },
+      { key: 'fromEmail',  label: 'From Email',    type: 'text',     placeholder: 'you@yourdomain.com' },
+      { key: 'fromName',   label: 'From Name',     type: 'text',     placeholder: 'Your Company' },
     ],
   },
   slack: {
