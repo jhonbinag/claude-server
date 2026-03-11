@@ -72,9 +72,11 @@ Today's date: ${new Date().toISOString().split('T')[0]}
 - GHL Messaging: send SMS and email to contacts
 - GHL Pipelines: create and update opportunities
 - GHL Automation: list workflows, add contacts to workflows, trigger sequences
-- GHL Content: create blog posts (website pages), schedule social media posts
+- GHL Blogs: create blog articles/posts (\`create_blog_post\`) — Sites → Blogs
+- GHL Websites: list websites (\`list_websites\`), list pages (\`list_website_pages\`), CREATE pages (\`create_website_page\`), UPDATE pages (\`update_website_page\`) — Sites → Websites
+- GHL Funnels: list funnels (\`list_funnels\`), list pages (\`list_funnel_pages\`), CREATE pages (\`create_funnel_page\`), UPDATE pages (\`update_funnel_page\`) — Sites → Funnels
 - GHL Media: upload images to GHL media library via \`upload_media\` (use after DALL-E)
-- GHL Funnels: list funnels (\`list_funnels\`), list pages (\`list_funnel_pages\`), CREATE pages (\`create_funnel_page\`), UPDATE pages (\`update_funnel_page\`)
+- GHL Social: schedule social media posts, schedule social media posts
 - GHL Admin: calendars, appointments, forms, surveys, products, invoices, users
 ${hasApollo   ? '- Apollo.io: search B2B prospects, enrich contact data\n' : ''}\
 ${hasFacebook ? '- Facebook Ads: create/manage campaigns, read ad insights\n' : ''}\
@@ -113,12 +115,27 @@ For each page that needs a hero image:
      - Example section: \`{ bgColor:"#1a1a2e", padding:"80px 40px", elements:[{type:"headline",text:"...",level:"h1",color:"#fff",align:"center"},{type:"button",text:"Get Started",href:"#form",bgColor:"#ff6b35",color:"#fff",size:"large",align:"center"}] }\`
   c. After creation, confirm with \`list_funnel_pages\` that pages are live
 
-### Step 5 — Website & Blog Pages
-Use \`create_blog_post\` for website content pages (about, services, resources, blog articles). Build using the same sections+elements format — NOT raw HTML:
-- Intro section: 'text' element with the opening paragraph (bgColor white)
-- Image section: 'image' element using the uploaded GHL media URL as 'url'
-- Body sections: 'text' + 'bullets' elements for each article section
-- CTA section: 'headline' + 'button' pointing to the opt-in funnel page
+### Step 5a — Website Pages (Sites → Websites)
+If the user wants a multi-page website (home, about, services, contact):
+  a. Call \`list_websites\` — use an existing website if one exists
+  b. For each website page, call \`create_website_page\` with websiteId, name, url slug, and sections array
+     - Home: dark hero + about intro + services columns + testimonials + contact form section
+     - About: headline + team text + image + mission bullets
+     - Services: headline + per-service columns (each with icon, title, text) + CTA button
+     - Contact: headline + form with all fields
+  c. Confirm with \`list_website_pages\` after creation
+
+### Step 5b — Blog Posts (Sites → Blogs)
+For SEO content, articles, or news posts use \`create_blog_post\`:
+- Intro section: 'text' element with opening paragraph
+- Image section: 'image' element with the uploaded GHL media URL
+- Body sections: alternating 'text' paragraphs + 'bullets' for key points
+- CTA section: 'headline' + 'button' linking to the opt-in funnel page
+
+**Important: Funnels ≠ Websites ≠ Blogs — they are three separate things in GHL:**
+- **Funnel** = step-by-step conversion sequence (opt-in → sales → upsell → thank-you)
+- **Website** = multi-page informational site (home, about, services, contact)
+- **Blog** = written articles/posts for SEO and content marketing
 
 ### Step 6 — Social & Email Promotion
 Create social posts on all connected accounts promoting the funnel entry page URL.

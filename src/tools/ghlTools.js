@@ -360,12 +360,12 @@ const TOOL_DEFINITIONS = [
 
   {
     name: 'create_blog_post',
-    description: `Create a new blog post / website page in GHL using native page-builder element format (NOT raw HTML). Build the post body as an array of sections using the same element types as create_funnel_page: headline, subheadline, text, image, button, bullets, testimonial, columns, divider, spacer. For a blog article structure the sections as:
-1. Intro section (bgColor white): subheadline (article intro paragraph as 'text' element)
-2. Featured image section: image element with the uploaded GHL media URL
-3. Body sections: alternate text + image + bullets as needed for the article content
-4. CTA section: headline "Ready to get started?" + button pointing to opt-in page or contact
-Example text element: { type:"text", text:"Your paragraph here...", color:"#374151" }`,
+    description: `Create a new blog post in GHL (Sites → Blogs) using native page-builder element format (NOT raw HTML). Use this ONLY for blog articles and news posts — for website pages use create_website_page, for funnel pages use create_funnel_page. Build the post body as sections with elements. Recommended blog article structure:
+1. Intro section (bgColor:"#ffffff", padding:"48px 40px"): text element with the opening paragraph
+2. Featured image section: image element using the uploaded GHL media URL
+3. Body sections: alternate text paragraphs + bullets for key points
+4. CTA section: headline "Ready to get started?" + button linking to the opt-in funnel page
+Example: { bgColor:"#ffffff", padding:"32px 40px", elements:[{ type:"text", text:"Your intro...", color:"#374151" }] }`,
     input_schema: {
       type: 'object',
       properties: {
@@ -587,6 +587,85 @@ Section wrapper: { bgColor:"#1a1a2e", padding:"80px 40px", elements:[...] }`,
         title:       { type: 'string',  description: 'Updated SEO title' },
         description: { type: 'string',  description: 'Updated meta description' },
         sections:    { type: 'array',   description: 'Updated sections array (same format as create_funnel_page)' },
+        published:   { type: 'boolean', description: 'Publish or unpublish the page' },
+      },
+      required: ['pageId'],
+    },
+  },
+
+  // ─── Websites ──────────────────────────────────────────────────────────────
+
+  {
+    name: 'list_websites',
+    description: 'List all websites in the GHL location (Sites → Websites). Returns website IDs and names. Use websiteId when creating new pages inside a website.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit:  { type: 'number', description: 'Max results (default 20)' },
+        offset: { type: 'number', description: 'Pagination offset' },
+      },
+      required: [],
+    },
+  },
+
+  {
+    name: 'list_website_pages',
+    description: 'List all pages inside a GHL website. Returns page IDs, names, URL slugs, and published status. Call list_websites first to get the websiteId.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        websiteId: { type: 'string', description: 'GHL website ID (from list_websites)' },
+      },
+      required: ['websiteId'],
+    },
+  },
+
+  {
+    name: 'create_website_page',
+    description: `Create a new page inside an existing GHL website (Sites → Websites) using GHL native page-builder element format — NOT raw HTML. ALWAYS call list_websites first to get the websiteId. Use the same sections+elements format as create_funnel_page. Common website page structures:
+- Home page: hero section + about/services section + testimonials + CTA/contact form
+- About page: headline + team intro text + image + mission/values bullets
+- Services page: headline + per-service columns (icon, title, text) + CTA button
+- Contact page: headline + form element with all contact fields`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        websiteId:   { type: 'string',  description: 'GHL website ID (from list_websites)' },
+        name:        { type: 'string',  description: 'Page name, e.g. "Home", "About Us", "Services", "Contact"' },
+        url:         { type: 'string',  description: 'URL slug, e.g. "home", "about", "services", "contact" (no slashes)' },
+        title:       { type: 'string',  description: 'Browser tab title and SEO title' },
+        description: { type: 'string',  description: 'Meta description for SEO' },
+        keywords:    { type: 'string',  description: 'Meta keywords for SEO' },
+        sections: {
+          type: 'array',
+          description: 'Page content as GHL native element sections (same format as create_funnel_page sections)',
+          items: {
+            type: 'object',
+            properties: {
+              bgColor:  { type: 'string' },
+              padding:  { type: 'string' },
+              id:       { type: 'string' },
+              elements: { type: 'array' },
+            },
+          },
+        },
+        published:   { type: 'boolean', description: 'Publish immediately (default true)' },
+      },
+      required: ['websiteId', 'name', 'url', 'sections'],
+    },
+  },
+
+  {
+    name: 'update_website_page',
+    description: 'Update an existing GHL website page — replace sections/elements, change title, or publish status. Get pageId from list_website_pages. Use the same sections+elements format as create_website_page.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        pageId:      { type: 'string',  description: 'GHL website page ID (from list_website_pages)' },
+        name:        { type: 'string',  description: 'Updated page name' },
+        title:       { type: 'string',  description: 'Updated SEO title' },
+        description: { type: 'string',  description: 'Updated meta description' },
+        sections:    { type: 'array',   description: 'Updated sections array (same format as create_website_page)' },
         published:   { type: 'boolean', description: 'Publish or unpublish the page' },
       },
       required: ['pageId'],
@@ -863,10 +942,10 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
     // ── Blogs ─────────────────────────────────────────────────────────────────
 
     case 'list_blogs':
-      return call('GET', '/blogs/site', null, { locationId });
+      return call('GET', '/blogs/site/all', null, { locationId });
 
     case 'create_blog_post':
-      return call('POST', '/blogs/post', {
+      return call('POST', '/blogs/posts', {
         locationId,
         title:       input.title,
         rawHTML:     buildPageHtml(input.sections || []),
@@ -877,6 +956,44 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
         categories:  input.categories  || [],
         tags:        input.tags        || [],
       });
+
+    // ── Websites ──────────────────────────────────────────────────────────────
+
+    case 'list_websites':
+      return call('GET', '/funnels/funnel/list', null, {
+        locationId,
+        type:   'website',
+        limit:  input.limit  || 20,
+        offset: input.offset || 0,
+      });
+
+    case 'list_website_pages':
+      return call('GET', '/funnels/page', null, {
+        locationId,
+        funnelId: input.websiteId,
+      });
+
+    case 'create_website_page': {
+      const { websiteId, name, url, title, description, keywords, sections, published } = input;
+      return call('POST', '/funnels/page', {
+        locationId,
+        funnelId:    websiteId,
+        name,
+        url,
+        title:       title       || name,
+        description: description || '',
+        keywords:    keywords    || '',
+        content:     buildPageHtml(sections || []),
+        published:   published   !== false,
+      });
+    }
+
+    case 'update_website_page': {
+      const { pageId, sections: updSections, ...rest } = input;
+      const updates = { ...rest };
+      if (updSections) updates.content = buildPageHtml(updSections);
+      return call('PUT', `/funnels/page/${pageId}`, updates);
+    }
 
     // ── Location ──────────────────────────────────────────────────────────────
 
