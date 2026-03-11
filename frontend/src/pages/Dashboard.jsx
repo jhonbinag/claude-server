@@ -37,7 +37,7 @@ function applyEvent(prev, evtType, data) {
 }
 
 export default function Dashboard() {
-  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, enabledTools, integrations } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, enabledTools, integrations, integrationsLoaded } = useApp();
   const [task, setTask]         = useState('');
   const [messages, setMessages] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -108,17 +108,22 @@ export default function Dashboard() {
             <p className="text-xs text-gray-500">CRM, contacts, workflows, blogs</p>
           </div>
 
-          {/* Integrations */}
+          {/* Integrations — only show connected ones */}
           <div className="p-4 flex-1">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Integrations</span>
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Active Tools {connected.length > 0 && <span className="text-gray-600 normal-case font-normal">({connected.length})</span>}
+              </span>
               <Link to="/settings" className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setSidebarOpen(false)}>+ Connect</Link>
             </div>
             <div className="space-y-1.5">
-              {(integrations || []).length === 0 && (
+              {!integrationsLoaded && (
                 <div className="text-xs text-gray-600 text-center py-4">Loading…</div>
               )}
-              {(integrations || []).map(item => (
+              {integrationsLoaded && connected.length === 0 && (
+                <div className="text-xs text-gray-600 text-center py-4">No integrations connected yet</div>
+              )}
+              {connected.map(item => (
                 <div
                   key={item.key}
                   className="flex items-center gap-2 px-2.5 py-2 rounded-xl"
@@ -129,12 +134,12 @@ export default function Dashboard() {
                     <div className="text-xs font-medium text-white truncate">{item.label}</div>
                     <div className="text-xs text-gray-600">{item.toolCount} tools</div>
                   </div>
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${item.enabled ? 'bg-green-400' : 'bg-gray-700'}`} />
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-400" />
                 </div>
               ))}
             </div>
             {connected.length === 0 && (
-              <Link to="/settings" className="block mt-4 text-center text-xs text-indigo-400 hover:underline" onClick={() => setSidebarOpen(false)}>
+              <Link to="/settings" className="block mt-3 text-center text-xs text-indigo-400 hover:underline" onClick={() => setSidebarOpen(false)}>
                 Connect your first integration →
               </Link>
             )}
