@@ -1556,6 +1556,8 @@ function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSa
   const [name,             setName]             = useState(data.name || '');
   const [icon,             setIcon]             = useState(data.icon || '');
   const [description,      setDescription]      = useState(data.description || '');
+  const [price,            setPrice]            = useState(data.price ?? 0);
+  const [interval,         setInterval]         = useState(data.interval || 'mo');
   const [integrationLimit, setIntegrationLimit] = useState(data.integrationLimit ?? 2);
   const [unlimited,        setUnlimited]        = useState(data.integrationLimit === -1);
   const [allAllowed,       setAllAllowed]        = useState(data.allowedIntegrations === null);
@@ -1581,6 +1583,8 @@ function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSa
         name:                name.trim() || data.name,
         icon:                icon.trim() || data.icon,
         description:         description.trim(),
+        price:               Number(price) || 0,
+        interval:            interval || 'mo',
         integrationLimit:    unlimited ? -1 : Number(integrationLimit),
         allowedIntegrations: allAllowed ? null : [...selected],
       };
@@ -1617,6 +1621,34 @@ function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSa
 
         <label style={lbl}>Description</label>
         <input style={inp} value={description} onChange={e => setDescription(e.target.value)} placeholder="Plan description…" />
+
+        {/* Pricing */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 8, marginBottom: 4 }}>
+          <div>
+            <label style={lbl}>Price (USD)</label>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#6b7280', fontSize: 13 }}>$</span>
+              <input
+                type="number" min={0} step={0.01}
+                style={{ ...inp, paddingLeft: 22, marginBottom: 12 }}
+                value={price}
+                onChange={e => setPrice(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+          </div>
+          <div>
+            <label style={lbl}>Interval</label>
+            <select
+              style={{ ...inp, marginBottom: 12 }}
+              value={interval}
+              onChange={e => setInterval(e.target.value)}
+            >
+              <option value="mo">/ month</option>
+              <option value="yr">/ year</option>
+            </select>
+          </div>
+        </div>
 
         {/* Integration limit */}
         <label style={lbl}>Integration Limit</label>

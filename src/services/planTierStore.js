@@ -30,6 +30,8 @@ const DEFAULT_TIERS = {
     integrationLimit:    2,
     allowedIntegrations: ['perplexity', 'openai'],
     description:         'Up to 2 integrations — great for getting started.',
+    price:               0,
+    interval:            'mo',
   },
   silver: {
     name:                'Silver',
@@ -37,6 +39,8 @@ const DEFAULT_TIERS = {
     integrationLimit:    6,
     allowedIntegrations: ['perplexity', 'openai', 'facebook_ads', 'sendgrid', 'slack', 'apollo'],
     description:         'Up to 6 integrations — ideal for growing teams.',
+    price:               49,
+    interval:            'mo',
   },
   gold: {
     name:                'Gold',
@@ -44,6 +48,8 @@ const DEFAULT_TIERS = {
     integrationLimit:    10,
     allowedIntegrations: ['perplexity', 'openai', 'facebook_ads', 'sendgrid', 'slack', 'apollo', 'heygen'],
     description:         'Up to 10 integrations — full toolkit access.',
+    price:               99,
+    interval:            'mo',
   },
   diamond: {
     name:                'Diamond',
@@ -51,6 +57,8 @@ const DEFAULT_TIERS = {
     integrationLimit:    -1,
     allowedIntegrations: null,
     description:         'Unlimited integrations — everything, no limits.',
+    price:               199,
+    interval:            'mo',
   },
 };
 

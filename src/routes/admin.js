@@ -619,13 +619,15 @@ router.post('/plan-tiers/:tier', async (req, res) => {
   if (!VALID_TIERS.includes(tier)) {
     return res.status(400).json({ success: false, error: `Invalid tier. Valid: ${VALID_TIERS.join(', ')}` });
   }
-  const { name, icon, integrationLimit, allowedIntegrations, description } = req.body;
+  const { name, icon, integrationLimit, allowedIntegrations, description, price, interval } = req.body;
   const updates = {};
-  if (name               !== undefined) updates.name               = name;
-  if (icon               !== undefined) updates.icon               = icon;
-  if (description        !== undefined) updates.description        = description;
-  if (integrationLimit   !== undefined) updates.integrationLimit   = Number(integrationLimit);
+  if (name                !== undefined) updates.name               = name;
+  if (icon                !== undefined) updates.icon               = icon;
+  if (description         !== undefined) updates.description        = description;
+  if (integrationLimit    !== undefined) updates.integrationLimit   = Number(integrationLimit);
   if (allowedIntegrations !== undefined) updates.allowedIntegrations = allowedIntegrations; // null or string[]
+  if (price               !== undefined) updates.price              = Number(price);
+  if (interval            !== undefined) updates.interval           = interval;
   if (!Object.keys(updates).length) {
     return res.status(400).json({ success: false, error: 'No fields to update.' });
   }
