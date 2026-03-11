@@ -473,6 +473,37 @@ const TOOL_DEFINITIONS = [
     },
   },
 
+  // ─── Media Library ─────────────────────────────────────────────────────────
+
+  {
+    name: 'upload_media',
+    description: 'Upload an image or file to the GHL media library from a public URL. Use this after generating images with openai_generate_image to store them in GHL for use in funnels, emails, blog posts, and social posts. Returns the hosted GHL media URL.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url:      { type: 'string', description: 'Public URL of the image or file to upload (e.g. DALL-E image URL)' },
+        name:     { type: 'string', description: 'File name to save it as in GHL (e.g. "hero-banner.png")' },
+        folderId: { type: 'string', description: 'Optional folder ID in the GHL media library' },
+      },
+      required: ['url', 'name'],
+    },
+  },
+
+  // ─── Funnels ───────────────────────────────────────────────────────────────
+
+  {
+    name: 'list_funnels',
+    description: 'List all funnels in the GHL location. Use this to see existing funnel structures, page names, and URLs that can be referenced in campaigns, emails, and social posts.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit:  { type: 'number', description: 'Max results (default 20)' },
+        offset: { type: 'number', description: 'Pagination offset' },
+      },
+      required: [],
+    },
+  },
+
 ];
 
 // ─── Tool Executors ───────────────────────────────────────────────────────────
@@ -709,6 +740,25 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
 
     case 'list_knowledge_bases':
       return call('GET', '/knowledge-base/', null, { locationId });
+
+    // ── Media Library ─────────────────────────────────────────────────────────
+
+    case 'upload_media':
+      return call('POST', '/medias/upload-file', {
+        locationId,
+        url:      input.url,
+        name:     input.name,
+        folderId: input.folderId || undefined,
+      });
+
+    // ── Funnels ───────────────────────────────────────────────────────────────
+
+    case 'list_funnels':
+      return call('GET', '/funnels/funnel/list', null, {
+        locationId,
+        limit:  input.limit  || 20,
+        offset: input.offset || 0,
+      });
 
     default:
       throw new Error(`Unknown GHL tool: ${toolName}`);
