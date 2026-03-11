@@ -351,11 +351,13 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     const { accessToken, adAccountId } = toolConfigs.facebook_ads || {};
     if (!accessToken || !adAccountId) throw new Error('Facebook Ads not configured. Need accessToken and adAccountId.');
 
-    const status  = input.status === 'ALL' ? undefined : input.status;
-    const params  = { access_token: accessToken, fields: 'id,name,status,objective,daily_budget,lifetime_budget,spend_cap', limit: input.limit || 25 };
+    // Strip act_ prefix if user accidentally included it
+    const accountId = adAccountId.startsWith('act_') ? adAccountId.slice(4) : adAccountId;
+    const status    = input.status === 'ALL' ? undefined : input.status;
+    const params    = { access_token: accessToken, fields: 'id,name,status,objective,daily_budget,lifetime_budget,spend_cap', limit: input.limit || 25 };
     if (status) params.effective_status = `["${status}"]`;
 
-    const resp = await axios.get(`https://graph.facebook.com/v20.0/act_${adAccountId}/campaigns`, { params });
+    const resp = await axios.get(`https://graph.facebook.com/v20.0/act_${accountId}/campaigns`, { params });
     return resp.data;
   }
 
@@ -363,6 +365,7 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     const { accessToken, adAccountId } = toolConfigs.facebook_ads || {};
     if (!accessToken || !adAccountId) throw new Error('Facebook Ads not configured.');
 
+    const accountId = adAccountId.startsWith('act_') ? adAccountId.slice(4) : adAccountId;
     const params = {
       access_token: accessToken,
       level:        input.level,
@@ -372,7 +375,7 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     };
     const url = input.campaignId
       ? `https://graph.facebook.com/v20.0/${input.campaignId}/insights`
-      : `https://graph.facebook.com/v20.0/act_${adAccountId}/insights`;
+      : `https://graph.facebook.com/v20.0/act_${accountId}/insights`;
 
     const resp = await axios.get(url, { params });
     return resp.data;
@@ -382,6 +385,7 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     const { accessToken, adAccountId } = toolConfigs.facebook_ads || {};
     if (!accessToken || !adAccountId) throw new Error('Facebook Ads not configured.');
 
+    const accountId = adAccountId.startsWith('act_') ? adAccountId.slice(4) : adAccountId;
     const body = {
       access_token:          accessToken,
       name:                  input.name,
@@ -394,7 +398,7 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     if (input.startTime)      body.start_time      = input.startTime;
     if (input.stopTime)       body.stop_time       = input.stopTime;
 
-    const resp = await axios.post(`https://graph.facebook.com/v20.0/act_${adAccountId}/campaigns`, body);
+    const resp = await axios.post(`https://graph.facebook.com/v20.0/act_${accountId}/campaigns`, body);
     return resp.data;
   }
 

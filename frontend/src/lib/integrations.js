@@ -30,7 +30,7 @@ export const INTEGRATIONS = [
     docsUrl:     'https://developers.facebook.com/docs/marketing-api',
     fields: [
       { key: 'accessToken', label: 'User Access Token', type: 'password', placeholder: 'EAABs...' },
-      { key: 'adAccountId', label: 'Ad Account ID',     type: 'text',     placeholder: 'act_XXXXXXXXXX' },
+      { key: 'adAccountId', label: 'Ad Account ID',     type: 'text',     placeholder: 'XXXXXXXXXX (numbers only, without act_ prefix)' },
     ],
   },
   {
@@ -54,8 +54,8 @@ export const INTEGRATIONS = [
     description: 'Send messages and notifications to Slack channels.',
     docsUrl:     'https://api.slack.com/apps',
     fields: [
-      { key: 'botToken',       label: 'Bot Token',       type: 'password', placeholder: 'xoxb-...' },
-      { key: 'defaultChannel', label: 'Default Channel', type: 'text',     placeholder: '#general' },
+      { key: 'webhookUrl',     label: 'Incoming Webhook URL', type: 'password', placeholder: 'https://hooks.slack.com/services/...' },
+      { key: 'defaultChannel', label: 'Default Channel',      type: 'text',     placeholder: '#general' },
     ],
   },
   {

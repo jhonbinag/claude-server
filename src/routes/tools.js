@@ -214,12 +214,10 @@ router.post('/test/:category', async (req, res) => {
       });
       info = `SendGrid connected (${r.data.email || 'verified'})`;
     } else if (category === 'slack') {
-      const r = await axios.post('https://slack.com/api/auth.test', null, {
-        headers: { Authorization: `Bearer ${cfg.botToken}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeout: 10000,
-      });
-      if (!r.data.ok) throw new Error(r.data.error);
-      info = `Slack connected (workspace: ${r.data.team})`;
+      if (!cfg.webhookUrl) throw new Error('Slack webhook URL not configured.');
+      const r = await axios.post(cfg.webhookUrl, { text: '✅ HL Pro Tools — Slack integration connected successfully!' }, { timeout: 10000 });
+      if (r.data !== 'ok') throw new Error('Webhook returned unexpected response');
+      info = 'Slack webhook verified — test message sent';
     } else if (category === 'apollo') {
       await axios.post('https://api.apollo.io/v1/auth/health', {},
         { headers: { 'X-Api-Key': cfg.apiKey, 'Content-Type': 'application/json' }, timeout: 10000 }
