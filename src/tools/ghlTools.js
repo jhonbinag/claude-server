@@ -489,11 +489,11 @@ const TOOL_DEFINITIONS = [
     },
   },
 
-  // ─── Funnels ───────────────────────────────────────────────────────────────
+  // ─── Funnels & Pages ───────────────────────────────────────────────────────
 
   {
     name: 'list_funnels',
-    description: 'List all funnels in the GHL location. Use this to see existing funnel structures, page names, and URLs that can be referenced in campaigns, emails, and social posts.',
+    description: 'List all funnels in the GHL location. Returns funnel IDs, names, and domain info. Use funnelId when creating new pages inside a funnel.',
     input_schema: {
       type: 'object',
       properties: {
@@ -501,6 +501,55 @@ const TOOL_DEFINITIONS = [
         offset: { type: 'number', description: 'Pagination offset' },
       },
       required: [],
+    },
+  },
+
+  {
+    name: 'list_funnel_pages',
+    description: 'List all pages inside a specific funnel. Returns page IDs, names, URLs, and step order. Use this to understand the existing funnel structure before adding pages.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        funnelId: { type: 'string', description: 'GHL funnel ID (get from list_funnels)' },
+      },
+      required: ['funnelId'],
+    },
+  },
+
+  {
+    name: 'create_funnel_page',
+    description: 'Create a new page inside an existing GHL funnel — opt-in pages, sales pages, thank-you pages, upsell pages. Provide full HTML for the page body. ALWAYS call list_funnels first to get the funnelId.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        funnelId:    { type: 'string',  description: 'GHL funnel ID to add the page to (from list_funnels)' },
+        name:        { type: 'string',  description: 'Page name, e.g. "Opt-in Page", "Sales Page", "Thank You"' },
+        url:         { type: 'string',  description: 'URL slug, e.g. "opt-in", "sales", "thank-you" (no slashes)' },
+        title:       { type: 'string',  description: 'Browser tab title and SEO title' },
+        description: { type: 'string',  description: 'Meta description for SEO' },
+        keywords:    { type: 'string',  description: 'Meta keywords for SEO' },
+        content:     { type: 'string',  description: 'Full HTML body content. Include hero section with uploaded image URLs, headline, subheadline, body copy, CTA buttons, social proof, and footer.' },
+        stepOrder:   { type: 'number',  description: 'Step number in the funnel (1 = first/entry page)' },
+        published:   { type: 'boolean', description: 'Publish immediately (default true)' },
+      },
+      required: ['funnelId', 'name', 'url'],
+    },
+  },
+
+  {
+    name: 'update_funnel_page',
+    description: 'Update an existing GHL funnel page — change copy, images, title, or publish status. Get pageId from list_funnel_pages.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        pageId:      { type: 'string',  description: 'GHL funnel page ID (from list_funnel_pages)' },
+        name:        { type: 'string',  description: 'Updated page name' },
+        title:       { type: 'string',  description: 'Updated SEO title' },
+        description: { type: 'string',  description: 'Updated meta description' },
+        content:     { type: 'string',  description: 'Updated full HTML body content' },
+        published:   { type: 'boolean', description: 'Publish or unpublish the page' },
+      },
+      required: ['pageId'],
     },
   },
 
@@ -751,7 +800,7 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
         folderId: input.folderId || undefined,
       });
 
-    // ── Funnels ───────────────────────────────────────────────────────────────
+    // ── Funnels & Pages ───────────────────────────────────────────────────────
 
     case 'list_funnels':
       return call('GET', '/funnels/funnel/list', null, {
@@ -759,6 +808,33 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
         limit:  input.limit  || 20,
         offset: input.offset || 0,
       });
+
+    case 'list_funnel_pages':
+      return call('GET', '/funnels/page', null, {
+        locationId,
+        funnelId: input.funnelId,
+      });
+
+    case 'create_funnel_page': {
+      const { funnelId, name, url, title, description, keywords, content, stepOrder, published } = input;
+      return call('POST', '/funnels/page', {
+        locationId,
+        funnelId,
+        name,
+        url,
+        title:       title       || name,
+        description: description || '',
+        keywords:    keywords    || '',
+        content:     content     || '',
+        stepOrder:   stepOrder   || 1,
+        published:   published   !== false,
+      });
+    }
+
+    case 'update_funnel_page': {
+      const { pageId, ...updates } = input;
+      return call('PUT', `/funnels/page/${pageId}`, updates);
+    }
 
     default:
       throw new Error(`Unknown GHL tool: ${toolName}`);

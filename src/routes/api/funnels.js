@@ -25,6 +25,22 @@ router.get('/page/count', async (req, res) => {
   } catch (err) { res.status(502).json({ success: false, error: err.message }); }
 });
 
+// POST /funnels/page — create a new page inside an existing funnel
+router.post('/page', async (req, res) => {
+  try {
+    const data = await req.ghl('POST', '/funnels/page', { ...req.body, locationId: req.locationId });
+    res.status(201).json({ success: true, data });
+  } catch (err) { res.status(502).json({ success: false, error: err.message }); }
+});
+
+// PUT /funnels/page/:pageId — update funnel page content/settings
+router.put('/page/:pageId', async (req, res) => {
+  try {
+    const data = await req.ghl('PUT', `/funnels/page/${req.params.pageId}`, req.body);
+    res.json({ success: true, data });
+  } catch (err) { res.status(502).json({ success: false, error: err.message }); }
+});
+
 // ─── Redirects ────────────────────────────────────────────────────────────────
 router.get('/lookup/redirect/list', async (req, res) => {
   try {
