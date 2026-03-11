@@ -17,16 +17,26 @@ const VOICE_STYLES = `
   0%,100% { transform: scaleY(.25); }
   50%     { transform: scaleY(1);   }
 }
+@keyframes vo-blink {
+  0%,100% { opacity: 1; }
+  50%     { opacity: 0; }
+}
 `;
 
-function VoiceOrb({ listening, supported, onToggle }) {
+function fmt(s) {
+  const m = String(Math.floor(s / 60)).padStart(2, '0');
+  const sec = String(s % 60).padStart(2, '0');
+  return `${m}:${sec}`;
+}
+
+function VoiceOrb({ listening, supported, onToggle, elapsed = 0, liveText = '' }) {
   if (!supported) return null;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, marginTop: 28 }}>
-      {/* Orb wrapper — rings sit behind the button */}
-      <div style={{ position: 'relative', width: 88, height: 88, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, marginTop: 28 }}>
 
-        {/* Pulse rings — only when listening */}
+      {/* Orb wrapper */}
+      <div style={{ position: 'relative', width: 96, height: 96, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {/* Pulse rings — when listening */}
         {listening && <>
           <span style={{
             position: 'absolute', inset: 0, borderRadius: '50%',
@@ -35,8 +45,13 @@ function VoiceOrb({ listening, supported, onToggle }) {
           }} />
           <span style={{
             position: 'absolute', inset: 0, borderRadius: '50%',
-            border: '2px solid rgba(239,68,68,0.4)',
-            animation: 'vo-ring2 1.4s ease-out infinite .3s',
+            border: '2px solid rgba(239,68,68,0.35)',
+            animation: 'vo-ring2 1.4s ease-out infinite .35s',
+          }} />
+          <span style={{
+            position: 'absolute', inset: '-16px', borderRadius: '50%',
+            border: '1.5px solid rgba(239,68,68,0.2)',
+            animation: 'vo-ring1 1.4s ease-out infinite .7s',
           }} />
         </>}
 
@@ -45,39 +60,64 @@ function VoiceOrb({ listening, supported, onToggle }) {
           onClick={onToggle}
           title={listening ? 'Stop recording' : 'Click to speak'}
           style={{
-            width: 88, height: 88, borderRadius: '50%', border: 'none', cursor: 'pointer',
+            width: 96, height: 96, borderRadius: '50%', border: 'none', cursor: 'pointer',
             background: listening
               ? 'radial-gradient(circle at 35% 35%, #f87171, #ef4444)'
               : 'radial-gradient(circle at 35% 35%, #818cf8, #4f46e5)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 30,
+            fontSize: 34,
             animation: listening ? 'none' : 'vo-breathe 2.8s ease-in-out infinite',
             transition: 'background .3s',
             position: 'relative', zIndex: 1,
+            boxShadow: listening ? '0 0 24px 4px rgba(239,68,68,0.35)' : undefined,
           }}
         >
           {listening ? '⏹' : '🎤'}
         </button>
       </div>
 
-      {/* Sound-wave bars — visible only while listening */}
+      {/* Timer — only while recording */}
       {listening && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, height: 28 }}>
-          {[0, .15, .3, .45, .6, .45, .3, .15, 0].map((delay, i) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Blinking red dot */}
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%', background: '#ef4444', flexShrink: 0,
+            animation: 'vo-blink 1s step-start infinite',
+          }} />
+          <span style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 700, color: '#f87171', letterSpacing: '0.05em' }}>
+            {fmt(elapsed)}
+          </span>
+        </div>
+      )}
+
+      {/* Sound-wave bars — while listening */}
+      {listening && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 32 }}>
+          {[0, .1, .2, .3, .4, .5, .4, .3, .2, .1, 0].map((delay, i) => (
             <span key={i} style={{
-              display: 'block', width: 4, height: 28,
+              display: 'block', width: 4, height: 32,
               borderRadius: 4,
               background: 'linear-gradient(to top, #ef4444, #f87171)',
-              transformOrigin: 'bottom',
-              animation: `vo-bar .8s ease-in-out infinite ${delay}s`,
+              transformOrigin: 'center',
+              animation: `vo-bar .7s ease-in-out infinite ${delay}s`,
             }} />
           ))}
         </div>
       )}
 
+      {/* Live interim transcript preview */}
+      {listening && liveText && (
+        <p style={{
+          fontSize: 12, color: '#9ca3af', maxWidth: 280, textAlign: 'center',
+          margin: 0, fontStyle: 'italic', lineHeight: 1.5,
+        }}>
+          "{liveText}"
+        </p>
+      )}
+
       {/* Label */}
       <p style={{ fontSize: 13, color: listening ? '#f87171' : '#6b7280', letterSpacing: '.01em', margin: 0 }}>
-        {listening ? 'Listening… pause when done' : 'Click to speak your command'}
+        {listening ? 'Recording… click ⏹ to finish' : 'Click to speak your command'}
       </p>
     </div>
   );
@@ -104,6 +144,8 @@ export default function StreamOutput({ messages = [], isRunning = false, placeho
               listening={voice.listening}
               supported={voice.supported}
               onToggle={voice.toggle}
+              elapsed={voice.elapsed}
+              liveText={voice.liveText}
             />
           )}
         </div>

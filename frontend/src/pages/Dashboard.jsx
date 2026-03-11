@@ -9,41 +9,77 @@ import Spinner       from '../components/Spinner';
 
 // ── Voice input hook (Web Speech API) ────────────────────────────────────────
 function useVoice(onTranscript) {
-  const [listening, setListening]   = useState(false);
-  const [supported, setSupported]   = useState(false);
-  const recognitionRef               = useRef(null);
+  const [listening, setListening]     = useState(false);
+  const [supported, setSupported]     = useState(false);
+  const [elapsed, setElapsed]         = useState(0);       // seconds
+  const [liveText, setLiveText]       = useState('');      // interim preview
+  const recognitionRef                = useRef(null);
+  const finalTextRef                  = useRef('');        // accumulated finals
+  const timerRef                      = useRef(null);
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     setSupported(true);
     const r = new SR();
-    r.continuous      = false;
-    r.interimResults  = true;
-    r.lang            = 'en-US';
+    r.continuous     = true;   // keep recording until user stops
+    r.interimResults = true;
+    r.lang           = 'en-US';
+
     r.onresult = (e) => {
-      const transcript = Array.from(e.results)
-        .map(res => res[0].transcript).join('');
-      if (e.results[e.results.length - 1].isFinal) {
-        onTranscript(transcript);
-        setListening(false);
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalTextRef.current += t + ' ';
+        else interim += t;
+      }
+      setLiveText(interim);
+    };
+
+    r.onerror = () => stopRecording(r);
+    r.onend   = () => {
+      // auto-restart if still listening (browser cuts off after ~60s silence)
+      if (recognitionRef.current?._keepGoing) {
+        try { r.start(); } catch (_) { stopRecording(r); }
       }
     };
-    r.onerror  = () => setListening(false);
-    r.onend    = () => setListening(false);
+
     recognitionRef.current = r;
-    return () => r.abort();
+    return () => { r._keepGoing = false; r.abort(); clearInterval(timerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function stopRecording(r) {
+    if (!r) return;
+    r._keepGoing = false;
+    r.stop();
+    clearInterval(timerRef.current);
+    setListening(false);
+    setElapsed(0);
+    setLiveText('');
+    const text = finalTextRef.current.trim();
+    finalTextRef.current = '';
+    if (text) onTranscript(text);
+  }
 
   const toggle = useCallback(() => {
     const r = recognitionRef.current;
     if (!r) return;
-    if (listening) { r.stop(); setListening(false); }
-    else           { r.start(); setListening(true);  }
+    if (listening) {
+      stopRecording(r);
+    } else {
+      finalTextRef.current = '';
+      setElapsed(0);
+      setLiveText('');
+      r._keepGoing = true;
+      r.start();
+      setListening(true);
+      timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listening]);
 
-  return { listening, supported, toggle };
+  return { listening, supported, toggle, elapsed, liveText };
 }
 
 const QUICK_ACTIONS = [
@@ -82,7 +118,7 @@ export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { isRunning, stream, stop } = useStreamFetch();
 
-  const { listening, supported: voiceSupported, toggle: toggleVoice } = useVoice(
+  const { listening, supported: voiceSupported, toggle: toggleVoice, elapsed, liveText } = useVoice(
     (transcript) => setTask(prev => (prev ? prev + ' ' + transcript : transcript))
   );
 
@@ -254,7 +290,7 @@ export default function Dashboard() {
               icon: '🤖',
               text: 'Type a task below or click a quick action\nClaude will use all your connected tools automatically',
             }}
-            voice={{ listening, supported: voiceSupported, toggle: toggleVoice }}
+            voice={{ listening, supported: voiceSupported, toggle: toggleVoice, elapsed, liveText }}
           />
 
           {/* Input */}
