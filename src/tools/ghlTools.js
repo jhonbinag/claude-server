@@ -360,21 +360,37 @@ const TOOL_DEFINITIONS = [
 
   {
     name: 'create_blog_post',
-    description: 'Create a new blog post in GHL.',
+    description: `Create a new blog post / website page in GHL using native page-builder element format (NOT raw HTML). Build the post body as an array of sections using the same element types as create_funnel_page: headline, subheadline, text, image, button, bullets, testimonial, columns, divider, spacer. For a blog article structure the sections as:
+1. Intro section (bgColor white): subheadline (article intro paragraph as 'text' element)
+2. Featured image section: image element with the uploaded GHL media URL
+3. Body sections: alternate text + image + bullets as needed for the article content
+4. CTA section: headline "Ready to get started?" + button pointing to opt-in page or contact
+Example text element: { type:"text", text:"Your paragraph here...", color:"#374151" }`,
     input_schema: {
       type: 'object',
       properties: {
-        locationId:    { type: 'string', description: 'Location ID (auto-filled)' },
-        title:         { type: 'string', description: 'Blog post title' },
-        rawHTML:       { type: 'string', description: 'Blog post HTML content' },
-        status:        { type: 'string', enum: ['DRAFT', 'PUBLISHED'], description: 'Publication status' },
-        imageUrl:      { type: 'string', description: 'Featured image URL (optional)' },
-        description:   { type: 'string', description: 'SEO meta description' },
-        author:        { type: 'string', description: 'Author name' },
-        categories:    { type: 'array', items: { type: 'string' }, description: 'Category IDs' },
-        tags:          { type: 'array', items: { type: 'string' }, description: 'Blog tags' },
+        title:       { type: 'string', description: 'Blog post / page title' },
+        sections: {
+          type: 'array',
+          description: 'Post body as GHL native element sections (same format as create_funnel_page sections)',
+          items: {
+            type: 'object',
+            properties: {
+              bgColor:  { type: 'string' },
+              padding:  { type: 'string' },
+              id:       { type: 'string' },
+              elements: { type: 'array' },
+            },
+          },
+        },
+        status:      { type: 'string', enum: ['DRAFT', 'PUBLISHED'], description: 'Publication status' },
+        imageUrl:    { type: 'string', description: 'Featured image URL shown at top of post (use GHL media URL from upload_media)' },
+        description: { type: 'string', description: 'SEO meta description' },
+        author:      { type: 'string', description: 'Author name' },
+        categories:  { type: 'array', items: { type: 'string' }, description: 'Category IDs' },
+        tags:        { type: 'array', items: { type: 'string' }, description: 'Blog tags' },
       },
-      required: ['title', 'rawHTML', 'status'],
+      required: ['title', 'sections', 'status'],
     },
   },
 
@@ -853,13 +869,13 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
       return call('POST', '/blogs/post', {
         locationId,
         title:       input.title,
-        rawHTML:     input.rawHTML,
+        rawHTML:     buildPageHtml(input.sections || []),
         status:      input.status,
-        imageUrl:    input.imageUrl,
-        description: input.description,
-        author:      input.author,
-        categories:  input.categories || [],
-        tags:        input.tags || [],
+        imageUrl:    input.imageUrl    || null,
+        description: input.description || '',
+        author:      input.author      || '',
+        categories:  input.categories  || [],
+        tags:        input.tags        || [],
       });
 
     // ── Location ──────────────────────────────────────────────────────────────

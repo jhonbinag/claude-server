@@ -113,9 +113,12 @@ For each page that needs a hero image:
      - Example section: \`{ bgColor:"#1a1a2e", padding:"80px 40px", elements:[{type:"headline",text:"...",level:"h1",color:"#fff",align:"center"},{type:"button",text:"Get Started",href:"#form",bgColor:"#ff6b35",color:"#fff",size:"large",align:"center"}] }\`
   c. After creation, confirm with \`list_funnel_pages\` that pages are live
 
-### Step 5 — Website Blog Pages
-Use \`create_blog_post\` for any website content pages (about, services, resources, blog articles).
-Include the uploaded GHL image URL in the blog post HTML body content.
+### Step 5 — Website & Blog Pages
+Use \`create_blog_post\` for website content pages (about, services, resources, blog articles). Build using the same sections+elements format — NOT raw HTML:
+- Intro section: 'text' element with the opening paragraph (bgColor white)
+- Image section: 'image' element using the uploaded GHL media URL as 'url'
+- Body sections: 'text' + 'bullets' elements for each article section
+- CTA section: 'headline' + 'button' pointing to the opt-in funnel page
 
 ### Step 6 — Social & Email Promotion
 Create social posts on all connected accounts promoting the funnel entry page URL.
