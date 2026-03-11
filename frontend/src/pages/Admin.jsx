@@ -1607,13 +1607,7 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
                           >✕ Delete</button>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-                        {(wf.steps || []).map((s, i) => (
-                          <span key={i} style={{ background: '#1e3a5f', color: '#60a5fa', padding: '1px 8px', borderRadius: 4, fontSize: 11 }}>
-                            {i + 1}. {s.label || s.tool}
-                          </span>
-                        ))}
-                      </div>
+                      <WorkflowMiniCanvas steps={wf.steps || []} />
                       {wf.webhookToken && (
                         <p style={{ color: '#6b7280', fontSize: 10, margin: '4px 0 6px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
                           🔗 /workflows/trigger/{wf.webhookToken}
@@ -1867,10 +1861,108 @@ const WF_TOOLS = [
 ];
 
 // Canvas layout constants
-const CN_W = 220;   // node width
+const CN_W = 220;   // node width (full modal canvas)
 const CN_H = 68;    // node height
 const CN_GAP = 72;  // vertical gap between nodes (space for connector line)
 const CN_PAD = 24;  // canvas top/bottom padding
+
+// Mini canvas constants (inline in troubleshoot card — horizontal layout)
+const MN_W = 148;   // mini node width
+const MN_H = 46;    // mini node height
+const MN_GAP = 44;  // horizontal gap between mini nodes
+
+function WorkflowMiniCanvas({ steps = [] }) {
+  if (!steps.length) return null;
+  const canvasW = steps.length * MN_W + (steps.length - 1) * MN_GAP + 2;
+  const canvasH = MN_H + 16; // node + port overflow
+  const nodeY   = 8;         // top padding for port overflow
+
+  function nodeX(i) { return i * (MN_W + MN_GAP); }
+  function hBezier(x1, y1, x2, y2) {
+    const cx = (x1 + x2) / 2;
+    return `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`;
+  }
+
+  return (
+    <div style={{ overflowX: 'auto', paddingBottom: 4, marginTop: 8 }}>
+      <div style={{ position: 'relative', width: canvasW, height: canvasH, flexShrink: 0 }}>
+        <svg
+          style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none' }}
+          width={canvasW} height={canvasH}
+        >
+          {steps.slice(0, -1).map((_, i) => {
+            const tc = (WF_TOOLS.find(x => x.key === steps[i + 1]?.tool) || { color: '#4b5563' }).color;
+            const x1 = nodeX(i) + MN_W;
+            const y1 = nodeY + MN_H / 2;
+            const x2 = nodeX(i + 1);
+            const y2 = nodeY + MN_H / 2;
+            return (
+              <g key={i}>
+                <path d={hBezier(x1, y1, x2, y2)} fill="none" stroke={tc + '50'} strokeWidth={2} strokeDasharray="4 3" />
+                <circle r={3} fill={tc} opacity={0.85}>
+                  <animateMotion dur="1.2s" repeatCount="indefinite" path={hBezier(x1, y1, x2, y2)} />
+                </circle>
+              </g>
+            );
+          })}
+        </svg>
+
+        {steps.map((step, i) => {
+          const t = WF_TOOLS.find(x => x.key === step.tool) || { icon: '🔧', label: step.tool, color: '#9ca3af' };
+          return (
+            <div
+              key={i}
+              style={{
+                position: 'absolute',
+                top: nodeY, left: nodeX(i),
+                width: MN_W, height: MN_H,
+                background: '#0d0d0d',
+                border: `1.5px solid ${t.color}55`,
+                borderLeft: `3px solid ${t.color}`,
+                borderRadius: 8,
+                padding: '6px 10px',
+                boxSizing: 'border-box',
+                display: 'flex', flexDirection: 'column', justifyContent: 'center',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: t.color + '22', color: t.color,
+                  fontSize: 9, fontWeight: 700, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>{i + 1}</span>
+                <span style={{ fontSize: 10, color: t.color, fontWeight: 600, whiteSpace: 'nowrap' }}>{t.icon} {t.label}</span>
+              </div>
+              <div style={{
+                fontSize: 11, color: '#9ca3af', marginTop: 3,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                maxWidth: MN_W - 20,
+              }}>
+                {step.label || <span style={{ color: '#374151', fontStyle: 'italic' }}>no label</span>}
+              </div>
+
+              {/* Output port — right center */}
+              <span style={{
+                position: 'absolute', right: -5, top: '50%', transform: 'translateY(-50%)',
+                width: 9, height: 9, borderRadius: '50%',
+                background: t.color, border: '2px solid #0d0d0d',
+              }} />
+              {/* Input port — left center */}
+              {i > 0 && (
+                <span style={{
+                  position: 'absolute', left: -5, top: '50%', transform: 'translateY(-50%)',
+                  width: 9, height: 9, borderRadius: '50%',
+                  background: '#0d0d0d', border: `2px solid ${t.color}`,
+                }} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // ── Workflow canvas node (visual) ─────────────────────────────────────────────
 
