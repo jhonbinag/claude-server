@@ -169,4 +169,69 @@ router.post('/upgrade-tier', async (req, res) => {
   }
 });
 
+// ── POST /billing/create-upgrade-invoice — GHL Marketplace payment ────────────
+// If tier has a linked GHL product, creates a GHL Invoice and returns payment URL.
+// If no GHL product is linked, returns { useCardForm: true } to fall back to card form.
+
+router.post('/create-upgrade-invoice', async (req, res) => {
+  const { tier } = req.body;
+  if (!tier || !VALID_TIERS.includes(tier)) {
+    return res.status(400).json({ success: false, error: 'Invalid tier.' });
+  }
+
+  try {
+    const tierConfig = await planTierStore.getTier(tier);
+
+    // No GHL product linked — fall back to card form
+    if (!tierConfig?.ghlProductId || !tierConfig?.ghlPriceId) {
+      return res.json({ success: true, useCardForm: true });
+    }
+
+    // Create GHL Invoice via Marketplace OAuth token
+    const invoiceData = {
+      altId:    req.locationId,
+      altType:  'location',
+      name:     `${tierConfig.name} Plan — HL Pro Tools`,
+      currency: 'USD',
+      status:   'draft',
+      lineItems: [{
+        name:       `${tierConfig.name} Integration Tier`,
+        qty:        1,
+        unitAmt:    Math.round((tierConfig.price || 0) * 100),
+        productId:  tierConfig.ghlProductId,
+        priceId:    tierConfig.ghlPriceId,
+      }],
+    };
+
+    const invoice = await req.ghl('POST', '/invoices/', invoiceData);
+
+    // Send the invoice so the payment link becomes live
+    const invoiceId = invoice?.invoice?.id || invoice?.id;
+    if (invoiceId) {
+      try {
+        await req.ghl('POST', `/invoices/${invoiceId}/send`, {
+          action: 'sms_and_email',
+        });
+      } catch { /* non-fatal — payment URL still works */ }
+    }
+
+    const paymentUrl =
+      invoice?.invoice?.liveMode?.paymentUrl ||
+      invoice?.invoice?.paymentUrl ||
+      invoice?.paymentUrl ||
+      null;
+
+    if (!paymentUrl) {
+      // GHL invoice created but no URL — fall back to card form
+      return res.json({ success: true, useCardForm: true, invoiceId });
+    }
+
+    res.json({ success: true, paymentUrl, invoiceId });
+  } catch (err) {
+    // If GHL API fails, fall back gracefully
+    console.error('[billing] create-upgrade-invoice error:', err.message);
+    res.json({ success: true, useCardForm: true });
+  }
+});
+
 module.exports = router;

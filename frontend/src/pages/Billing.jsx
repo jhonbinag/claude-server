@@ -52,7 +52,11 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
   const [step,      setStep]      = useState(1);
   const [selected,  setSelected]  = useState(null); // tier key chosen in step 1
 
-  // Checkout form
+  // GHL payment flow
+  const [ghlLoading,  setGhlLoading]  = useState(false);
+  const [useCardForm, setUseCardForm] = useState(false);
+
+  // Checkout form (card fallback)
   const [cardName,  setCardName]  = useState('');
   const [cardNum,   setCardNum]   = useState('');
   const [expiry,    setExpiry]    = useState('');
@@ -73,6 +77,28 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
     const d = v.replace(/\D/g, '').slice(0, 4);
     return d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
   };
+
+  // Step 2 entry — try GHL payment first
+  async function enterCheckout(tierKey) {
+    setSelected(tierKey);
+    setError(null);
+    setUseCardForm(false);
+    setGhlLoading(true);
+    setStep(2);
+    try {
+      const data = await api.post('/billing/create-upgrade-invoice', { tier: tierKey });
+      if (data.success && data.paymentUrl) {
+        // Redirect to GHL hosted payment page
+        window.location.href = data.paymentUrl;
+        return;
+      }
+      // No GHL product linked or API error — show card form
+      setUseCardForm(true);
+    } catch {
+      setUseCardForm(true);
+    }
+    setGhlLoading(false);
+  }
 
   async function handlePay() {
     if (!cardName.trim() || cardNum.replace(/\s/g, '').length < 16 || expiry.length < 5 || cvv.length < 3) {
@@ -191,16 +217,15 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
                     <button
                       disabled={isCurrent}
                       onClick={() => {
-                        setSelected(key);
-                        setError(null);
                         if (isFree) {
                           // Free tier — skip payment step
+                          setSelected(key);
                           api.post('/billing/upgrade-tier', { tier: key }).then(d => {
                             if (d.success) { onUpgraded(key, t); onClose(); }
                             else setError(d.error || 'Upgrade failed.');
                           }).catch(() => setError('Upgrade failed.'));
                         } else {
-                          setStep(2);
+                          enterCheckout(key);
                         }
                       }}
                       className="w-full py-2 rounded-lg text-xs font-semibold mt-auto"
@@ -239,71 +264,83 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
                 </div>
               </div>
 
-              {/* Card form */}
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Name on Card</label>
-                  <input
-                    className="w-full rounded-lg px-3 py-2.5 text-sm text-white"
-                    style={{ background: '#111', border: '1px solid rgba(255,255,255,0.12)' }}
-                    placeholder="John Smith"
-                    value={cardName}
-                    onChange={e => setCardName(e.target.value)}
-                  />
+              {/* GHL payment loading */}
+              {ghlLoading && (
+                <div className="flex flex-col items-center gap-3 py-8">
+                  <Spinner />
+                  <p className="text-sm text-gray-400">Preparing your GoHighLevel payment…</p>
                 </div>
+              )}
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Card Number</label>
-                  <div className="relative">
-                    <input
-                      className="w-full rounded-lg px-3 py-2.5 text-sm text-white pr-10"
-                      style={{ background: '#111', border: '1px solid rgba(255,255,255,0.12)' }}
-                      placeholder="1234 5678 9012 3456"
-                      value={cardNum}
-                      onChange={e => setCardNum(fmtCard(e.target.value))}
-                      maxLength={19}
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">💳</span>
+              {/* Card form fallback — shown when no GHL product is linked */}
+              {!ghlLoading && useCardForm && (
+                <>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Name on Card</label>
+                      <input
+                        className="w-full rounded-lg px-3 py-2.5 text-sm text-white"
+                        style={{ background: '#111', border: '1px solid rgba(255,255,255,0.12)' }}
+                        placeholder="John Smith"
+                        value={cardName}
+                        onChange={e => setCardName(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Card Number</label>
+                      <div className="relative">
+                        <input
+                          className="w-full rounded-lg px-3 py-2.5 text-sm text-white pr-10"
+                          style={{ background: '#111', border: '1px solid rgba(255,255,255,0.12)' }}
+                          placeholder="1234 5678 9012 3456"
+                          value={cardNum}
+                          onChange={e => setCardNum(fmtCard(e.target.value))}
+                          maxLength={19}
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">💳</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Expiry</label>
+                        <input
+                          className="w-full rounded-lg px-3 py-2.5 text-sm text-white"
+                          style={{ background: '#111', border: '1px solid rgba(255,255,255,0.12)' }}
+                          placeholder="MM/YY"
+                          value={expiry}
+                          onChange={e => setExpiry(fmtExp(e.target.value))}
+                          maxLength={5}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">CVV</label>
+                        <input
+                          className="w-full rounded-lg px-3 py-2.5 text-sm text-white"
+                          style={{ background: '#111', border: '1px solid rgba(255,255,255,0.12)' }}
+                          placeholder="•••"
+                          value={cvv}
+                          onChange={e => setCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                          maxLength={4}
+                          type="password"
+                        />
+                      </div>
+                    </div>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Expiry</label>
-                    <input
-                      className="w-full rounded-lg px-3 py-2.5 text-sm text-white"
-                      style={{ background: '#111', border: '1px solid rgba(255,255,255,0.12)' }}
-                      placeholder="MM/YY"
-                      value={expiry}
-                      onChange={e => setExpiry(fmtExp(e.target.value))}
-                      maxLength={5}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">CVV</label>
-                    <input
-                      className="w-full rounded-lg px-3 py-2.5 text-sm text-white"
-                      style={{ background: '#111', border: '1px solid rgba(255,255,255,0.12)' }}
-                      placeholder="•••"
-                      value={cvv}
-                      onChange={e => setCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                      maxLength={4}
-                      type="password"
-                    />
-                  </div>
-                </div>
-              </div>
+                  <p className="text-xs text-gray-600 mt-3 text-center">🔒 Secured with 256-bit SSL encryption</p>
 
-              <p className="text-xs text-gray-600 mt-3 text-center">🔒 Secured with 256-bit SSL encryption</p>
-
-              <button
-                disabled={paying}
-                onClick={handlePay}
-                className="w-full mt-4 py-3 rounded-xl text-sm font-bold"
-                style={{ background: tierCol.ring, color: '#000', opacity: paying ? 0.7 : 1, cursor: paying ? 'wait' : 'pointer' }}
-              >
-                {paying ? 'Processing…' : `Pay $${tierData.price}/${tierData.interval || 'mo'} → Activate ${tierData.name}`}
-              </button>
+                  <button
+                    disabled={paying}
+                    onClick={handlePay}
+                    className="w-full mt-4 py-3 rounded-xl text-sm font-bold"
+                    style={{ background: tierCol.ring, color: '#000', opacity: paying ? 0.7 : 1, cursor: paying ? 'wait' : 'pointer' }}
+                  >
+                    {paying ? 'Processing…' : `Pay $${tierData.price}/${tierData.interval || 'mo'} → Activate ${tierData.name}`}
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
