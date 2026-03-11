@@ -332,10 +332,10 @@ router.get('/billing/:locationId', async (req, res) => {
 // ─── POST /admin/billing/:locationId — create / update subscription ───────────
 
 router.post('/billing/:locationId', async (req, res) => {
-  const { plan, status, amount, currency, interval, trialEnd, currentPeriodEnd, notes } = req.body;
+  const { plan, tier, status, amount, currency, interval, trialEnd, currentPeriodEnd, notes } = req.body;
   try {
     const rec = await billingStore.updateSubscription(req.params.locationId, {
-      plan, status, amount: amount !== undefined ? Number(amount) : undefined,
+      plan, tier, status, amount: amount !== undefined ? Number(amount) : undefined,
       currency, interval, trialEnd, currentPeriodEnd, notes,
     });
     activityLogger.log({ locationId: req.params.locationId, event: 'billing_update', detail: { plan, status }, success: true, adminId: req.adminId });
