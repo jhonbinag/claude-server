@@ -2040,34 +2040,42 @@ function bezierPath(x1, y1, x2, y2) {
 
 function EditWorkflowModal({ modal, adminKey, onClose, onSaved, onFlash }) {
   const wf = modal.data;
-  const [name,      setName]      = useState(wf.name    || '');
-  const [context,   setContext]   = useState(wf.context || '');
-  const [steps,     setSteps]     = useState(() => {
+  const [name,     setName]     = useState(wf.name    || '');
+  const [context,  setContext]  = useState(wf.context || '');
+  const [steps,    setSteps]    = useState(() => {
     if (!Array.isArray(wf.steps) || wf.steps.length === 0)
       return [{ tool: 'ghl', label: '', instruction: '' }];
     return wf.steps.map(s => ({ tool: s.tool || 'ghl', label: s.label || '', instruction: s.instruction || '' }));
   });
-  const [selected,  setSelected]  = useState(0);
-  const [saving,    setSaving]    = useState(false);
+  const [popupIdx, setPopupIdx] = useState(null); // which node's popup is open
+  const [saving,   setSaving]   = useState(false);
 
-  const inp = { width: '100%', padding: '7px 10px', background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 8, color: '#e5e7eb', fontSize: 13, boxSizing: 'border-box' };
+  const inp = { width: '100%', padding: '8px 10px', background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#e5e7eb', fontSize: 13, boxSizing: 'border-box' };
   const lbl = { display: 'block', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 };
 
   const updateStep = (i, s) => setSteps(p => p.map((x, j) => j === i ? s : x));
-  const deleteStep = (i)    => {
-    setSteps(p => { const n = p.filter((_, j) => j !== i); if (!n.length) return [{ tool: 'ghl', label: '', instruction: '' }]; return n; });
-    setSelected(i => Math.max(0, i - (i >= steps.length - 1 ? 1 : 0)));
+  const deleteStep = (i) => {
+    setSteps(p => { const n = p.filter((_, j) => j !== i); return n.length ? n : [{ tool: 'ghl', label: '', instruction: '' }]; });
+    setPopupIdx(null);
   };
-  const addStep = () => {
-    setSteps(p => [...p, { tool: 'ghl', label: '', instruction: '' }]);
-    setSelected(steps.length);
-  };
+  const addStep = () => { setSteps(p => [...p, { tool: 'ghl', label: '', instruction: '' }]); setPopupIdx(steps.length); };
 
-  // Canvas geometry
-  const CANVAS_W = CN_W + 60;  // node centered in canvas
-  const nodeX    = 30;         // left offset so ports don't clip
-  const canvasH  = steps.length * (CN_H + CN_GAP) - CN_GAP + CN_PAD * 2;
-  const nodeY    = (i) => CN_PAD + i * (CN_H + CN_GAP);
+  // Full-width canvas geometry — node centered horizontally
+  const MODAL_W   = 860;
+  const INNER_W   = MODAL_W - 48;        // canvas inner width with padding
+  const FC_W      = 280;                  // full-canvas node width
+  const FC_H      = 76;                   // node height
+  const FC_GAP    = 80;                   // gap between nodes
+  const FC_PAD    = 28;
+  const FC_X      = (INNER_W - FC_W) / 2; // center node
+  const canvasH   = steps.length * (FC_H + FC_GAP) - FC_GAP + FC_PAD * 2;
+  const nodeTop   = (i) => FC_PAD + i * (FC_H + FC_GAP);
+
+  // Popup appears to the right of the node; if no room, to the left
+  const POPUP_W   = 300;
+  const popupLeft = FC_X + FC_W + 18;
+  const fitsRight = popupLeft + POPUP_W <= INNER_W + 10;
+  const finalPopLeft = fitsRight ? popupLeft : FC_X - POPUP_W - 18;
 
   const save = async () => {
     const validSteps = steps.filter(s => s.instruction.trim());
@@ -2084,178 +2092,193 @@ function EditWorkflowModal({ modal, adminKey, onClose, onSaved, onFlash }) {
     setSaving(false);
   };
 
-  const selStep = steps[selected] || steps[0];
-
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}
+      onClick={e => { if (e.target === e.currentTarget) { setPopupIdx(null); onClose(); } }}
     >
-      <div style={{
-        background: '#111', border: '1px solid #222', borderRadius: 16,
-        width: 'min(900px, 100%)', maxHeight: '94vh',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      }}>
+      <div style={{ background: '#111', border: '1px solid #222', borderRadius: 16, width: `min(${MODAL_W}px, 100%)`, maxHeight: '94vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-        {/* ── Header ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #1e1e1e' }}>
-          <div>
-            <h3 style={{ color: '#fff', margin: 0, fontSize: 16, fontWeight: 700 }}>Edit Workflow</h3>
-            <p style={{ color: '#4b5563', fontSize: 12, margin: '2px 0 0' }}>{steps.length} node{steps.length !== 1 ? 's' : ''} · {modal.locationId}</p>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', borderBottom: '1px solid #1e1e1e', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Workflow name…"
+              style={{ background: 'none', border: 'none', color: '#fff', fontSize: 17, fontWeight: 700, width: '100%', outline: 'none', padding: 0 }}
+            />
+            <p style={{ color: '#4b5563', fontSize: 12, margin: '2px 0 0' }}>
+              {steps.length} node{steps.length !== 1 ? 's' : ''} · {modal.locationId}
+            </p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 22 }}>×</button>
+          {/* Context inline */}
+          <input
+            value={context}
+            onChange={e => setContext(e.target.value)}
+            placeholder="System prompt / context…"
+            style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 8, color: '#9ca3af', fontSize: 12, padding: '6px 12px', width: 240, outline: 'none' }}
+          />
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 22, lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
 
-        {/* ── Body: canvas LEFT + editor RIGHT ── */}
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        {/* Canvas body */}
+        <div
+          style={{ flex: 1, overflowY: 'auto', background: '#0a0a0a', padding: '0 24px', position: 'relative' }}
+          onClick={e => { if (e.target === e.currentTarget) setPopupIdx(null); }}
+        >
+          {/* + Add Node */}
+          <div style={{ padding: '14px 0 6px', display: 'flex', justifyContent: 'center' }}>
+            <button
+              onClick={addStep}
+              style={{ background: 'transparent', border: '1px dashed #2a2a2a', borderRadius: 8, color: '#4b5563', fontSize: 12, padding: '5px 20px', cursor: 'pointer' }}
+              onMouseOver={e => { e.currentTarget.style.borderColor = '#7c3aed'; e.currentTarget.style.color = '#a78bfa'; }}
+              onMouseOut={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.color = '#4b5563'; }}
+            >+ Add Node</button>
+          </div>
 
-          {/* LEFT — visual canvas */}
-          <div style={{
-            width: CANVAS_W + 20, flexShrink: 0,
-            background: '#0a0a0a',
-            borderRight: '1px solid #1e1e1e',
-            overflowY: 'auto',
-            padding: '0 10px',
-          }}>
-            {/* + Add Node button at top */}
-            <div style={{ padding: '12px 0 8px', display: 'flex', justifyContent: 'center' }}>
-              <button
-                onClick={addStep}
-                style={{ background: '#1a1a1a', border: '1px dashed #333', borderRadius: 8, color: '#6b7280', fontSize: 12, padding: '5px 16px', cursor: 'pointer' }}
-                onMouseOver={e => { e.currentTarget.style.borderColor = '#7c3aed'; e.currentTarget.style.color = '#a78bfa'; }}
-                onMouseOut={e => { e.currentTarget.style.borderColor = '#333'; e.currentTarget.style.color = '#6b7280'; }}
-              >
-                + Add Node
-              </button>
-            </div>
+          {/* Canvas */}
+          <div style={{ position: 'relative', width: INNER_W, height: canvasH, margin: '0 auto' }}>
 
-            {/* Canvas */}
-            <div style={{ position: 'relative', width: CANVAS_W, height: canvasH, margin: '0 auto' }}>
+            {/* SVG bezier connectors */}
+            <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }} width={INNER_W} height={canvasH}>
+              {steps.slice(0, -1).map((_, i) => {
+                const tc = (WF_TOOLS.find(x => x.key === steps[i + 1]?.tool) || { color: '#374151' }).color;
+                const cx = FC_X + FC_W / 2;
+                const y1 = nodeTop(i) + FC_H;
+                const y2 = nodeTop(i + 1);
+                const d  = bezierPath(cx, y1, cx, y2);
+                return (
+                  <g key={i}>
+                    <path d={d} fill="none" stroke={tc + '55'} strokeWidth={2.5} strokeDasharray="6 4" />
+                    <circle r={4.5} fill={tc} opacity={0.9}>
+                      <animateMotion dur="1.3s" repeatCount="indefinite" path={d} />
+                    </circle>
+                  </g>
+                );
+              })}
+            </svg>
 
-              {/* SVG connector lines */}
-              <svg
-                style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}
-                width={CANVAS_W} height={canvasH}
-              >
-                {steps.slice(0, -1).map((step, i) => {
-                  const t = WF_TOOLS.find(x => x.key === steps[i + 1]?.tool) || { color: '#4b5563' };
-                  const x1 = nodeX + CN_W / 2;
-                  const y1 = nodeY(i) + CN_H;
-                  const x2 = nodeX + CN_W / 2;
-                  const y2 = nodeY(i + 1);
-                  return (
-                    <g key={i}>
-                      <path
-                        d={bezierPath(x1, y1, x2, y2)}
-                        fill="none"
-                        stroke={t.color + '60'}
-                        strokeWidth={2}
-                        strokeDasharray="5 4"
+            {/* Nodes + popups */}
+            {steps.map((step, i) => {
+              const t    = WF_TOOLS.find(x => x.key === step.tool) || { icon: '🔧', label: step.tool, color: '#9ca3af' };
+              const isOpen = popupIdx === i;
+              const popTop = nodeTop(i);
+
+              return (
+                <div key={i}>
+                  {/* Node card */}
+                  <div
+                    onClick={e => { e.stopPropagation(); setPopupIdx(isOpen ? null : i); }}
+                    style={{
+                      position: 'absolute', top: nodeTop(i), left: FC_X,
+                      width: FC_W, height: FC_H,
+                      background: isOpen ? '#1a1a2a' : '#141414',
+                      border: `2px solid ${isOpen ? t.color : t.color + '55'}`,
+                      borderLeft: `4px solid ${t.color}`,
+                      borderRadius: 12, cursor: 'pointer', userSelect: 'none',
+                      padding: '10px 14px', boxSizing: 'border-box',
+                      boxShadow: isOpen ? `0 0 0 3px ${t.color}25, 0 8px 32px rgba(0,0,0,0.5)` : '0 2px 8px rgba(0,0,0,0.4)',
+                      transition: 'all .15s',
+                      display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 5,
+                    }}
+                  >
+                    {/* Delete */}
+                    <button
+                      onClick={e => { e.stopPropagation(); deleteStep(i); }}
+                      style={{ position: 'absolute', top: 7, right: 9, background: 'none', border: 'none', color: '#374151', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}
+                    >✕</button>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: '50%', background: t.color + '22', color: t.color, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+                      <span style={{ fontSize: 12, color: t.color, fontWeight: 600 }}>{t.icon} {t.label}</span>
+                      <span style={{ fontSize: 10, color: '#6b7280', marginLeft: 'auto', marginRight: 16 }}>
+                        {isOpen ? '▲ close' : '▼ edit'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: FC_W - 32 }}>
+                      {step.label || <span style={{ color: '#374151', fontStyle: 'italic' }}>click to edit</span>}
+                    </div>
+
+                    {/* Ports */}
+                    <span style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)', width: 12, height: 12, borderRadius: '50%', background: t.color, border: '2px solid #141414' }} />
+                    {i > 0 && <span style={{ position: 'absolute', top: -6, left: '50%', transform: 'translateX(-50%)', width: 12, height: 12, borderRadius: '50%', background: '#141414', border: `2px solid ${t.color}` }} />}
+                  </div>
+
+                  {/* Floating popup */}
+                  {isOpen && (
+                    <div
+                      onClick={e => e.stopPropagation()}
+                      style={{
+                        position: 'absolute',
+                        top: popTop,
+                        left: finalPopLeft,
+                        width: POPUP_W,
+                        background: '#161620',
+                        border: `1.5px solid ${t.color}60`,
+                        borderRadius: 12,
+                        padding: 16,
+                        boxShadow: `0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px ${t.color}20`,
+                        zIndex: 10,
+                      }}
+                    >
+                      {/* Popup arrow pointing left toward node */}
+                      {fitsRight && (
+                        <span style={{
+                          position: 'absolute', left: -8, top: 26,
+                          width: 0, height: 0,
+                          borderTop: '8px solid transparent',
+                          borderBottom: '8px solid transparent',
+                          borderRight: `8px solid ${t.color}60`,
+                        }} />
+                      )}
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                        <span style={{ color: t.color, fontSize: 12, fontWeight: 700 }}>{t.icon} Node {i + 1}</span>
+                        <button onClick={() => setPopupIdx(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 16 }}>×</button>
+                      </div>
+
+                      <label style={lbl}>Tool</label>
+                      <select
+                        value={step.tool}
+                        onChange={e => updateStep(i, { ...step, tool: e.target.value })}
+                        style={{ ...inp, marginBottom: 12 }}
+                      >
+                        {WF_TOOLS.map(x => <option key={x.key} value={x.key}>{x.icon} {x.label}</option>)}
+                      </select>
+
+                      <label style={lbl}>Label</label>
+                      <input
+                        value={step.label || ''}
+                        onChange={e => updateStep(i, { ...step, label: e.target.value })}
+                        placeholder="Short display name…"
+                        style={{ ...inp, marginBottom: 12 }}
                       />
-                      {/* Animated flow dot */}
-                      <circle r={4} fill={t.color} opacity={0.8}>
-                        <animateMotion
-                          dur="1.4s"
-                          repeatCount="indefinite"
-                          path={bezierPath(x1, y1, x2, y2)}
-                        />
-                      </circle>
-                    </g>
-                  );
-                })}
-              </svg>
 
-              {/* Nodes */}
-              {steps.map((step, i) => (
-                <div
-                  key={i}
-                  style={{ position: 'absolute', top: nodeY(i), left: nodeX }}
-                >
-                  <WfNode
-                    step={step}
-                    index={i}
-                    selected={selected === i}
-                    onSelect={() => setSelected(i)}
-                    onDelete={() => deleteStep(i)}
-                  />
+                      <label style={lbl}>Instruction</label>
+                      <textarea
+                        value={step.instruction || ''}
+                        onChange={e => updateStep(i, { ...step, instruction: e.target.value })}
+                        rows={5}
+                        placeholder="What should this step do?"
+                        style={{ ...inp, resize: 'vertical', lineHeight: 1.6, fontFamily: 'inherit' }}
+                      />
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
-
-          {/* RIGHT — selected node editor + workflow meta */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* Workflow meta */}
-            <div>
-              <label style={lbl}>Workflow Name</label>
-              <input style={{ ...inp, marginBottom: 12 }} value={name} onChange={e => setName(e.target.value)} placeholder="My Workflow" />
-              <label style={lbl}>Context / System Prompt</label>
-              <textarea
-                value={context}
-                onChange={e => setContext(e.target.value)}
-                rows={2}
-                placeholder="Overall goal or context…"
-                style={{ ...inp, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
-              />
-            </div>
-
-            {/* Selected node editor */}
-            {selStep && (
-              <div style={{ background: '#0d0d0d', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                  {(() => { const t = WF_TOOLS.find(x => x.key === selStep.tool) || { color: '#9ca3af' }; return (
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
-                  ); })()}
-                  <span style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Node {selected + 1}
-                  </span>
-                </div>
-
-                <label style={lbl}>Tool</label>
-                <select
-                  value={selStep.tool}
-                  onChange={e => updateStep(selected, { ...selStep, tool: e.target.value })}
-                  style={{ ...inp, marginBottom: 12 }}
-                >
-                  {WF_TOOLS.map(x => (
-                    <option key={x.key} value={x.key}>{x.icon} {x.label}</option>
-                  ))}
-                </select>
-
-                <label style={lbl}>Label</label>
-                <input
-                  value={selStep.label || ''}
-                  onChange={e => updateStep(selected, { ...selStep, label: e.target.value })}
-                  placeholder="Short node label…"
-                  style={{ ...inp, marginBottom: 12 }}
-                />
-
-                <label style={lbl}>Instruction</label>
-                <textarea
-                  value={selStep.instruction || ''}
-                  onChange={e => updateStep(selected, { ...selStep, instruction: e.target.value })}
-                  rows={6}
-                  placeholder="What should this step do?"
-                  style={{ ...inp, resize: 'vertical', lineHeight: 1.6, fontFamily: 'inherit' }}
-                />
-              </div>
-            )}
-          </div>
+          <div style={{ height: 20 }} /> {/* bottom padding */}
         </div>
 
-        {/* ── Footer ── */}
+        {/* Footer */}
         <div style={{ display: 'flex', gap: 8, padding: '14px 20px', borderTop: '1px solid #1e1e1e' }}>
           <button
-            onClick={save}
-            disabled={saving || !name.trim()}
+            onClick={save} disabled={saving || !name.trim()}
             style={{ flex: 1, padding: '11px', background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: (saving || !name.trim()) ? 0.6 : 1 }}
-          >
-            {saving ? 'Saving…' : 'Save Workflow'}
-          </button>
-          <button onClick={onClose} style={{ padding: '11px 22px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}>
-            Cancel
-          </button>
+          >{saving ? 'Saving…' : 'Save Workflow'}</button>
+          <button onClick={onClose} style={{ padding: '11px 22px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}>Cancel</button>
         </div>
       </div>
     </div>
