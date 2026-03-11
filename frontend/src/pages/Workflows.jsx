@@ -1,12 +1,13 @@
 /**
- * Workflows.jsx — multi-tool AI workflow builder
+ * Workflows.jsx — Visual canvas workflow builder (n8n / ManyChat style)
  *
- * Tool palette → add steps → each step has structured config (GHL steps)
- * or a free-text instruction (external integrations).
- * "Run Workflow" sends everything to Claude as a single ordered prompt.
+ * - Drag nodes from palette onto canvas
+ * - Connect nodes by dragging from output port → input port
+ * - Click an edge to open the field-mapping panel (map output fields to input fields)
+ * - Run Workflow → Claude executes all nodes in topological order
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Link }           from 'react-router-dom';
 import { useApp }         from '../context/AppContext';
 import { useStreamFetch } from '../hooks/useStreamFetch';
@@ -16,7 +17,7 @@ import StreamOutput       from '../components/StreamOutput';
 import Spinner            from '../components/Spinner';
 import { INTEGRATIONS }   from '../lib/integrations';
 
-// ─── Colours ──────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const TOOL_COLOR = {
   ghl: '#22c55e', perplexity: '#6366f1', openai: '#10b981',
@@ -24,219 +25,222 @@ const TOOL_COLOR = {
   apollo: '#f97316', heygen: '#a855f7',
 };
 
+const NODE_W = 240;
+const PORT_R = 7;
+
+// ─── Field schemas ────────────────────────────────────────────────────────────
+
+const TOOL_FIELDS = {
+  ghl: {
+    inputs:  ['contactId', 'email', 'phone', 'firstName', 'lastName', 'tag', 'offer', 'audience'],
+    outputs: ['contactId', 'email', 'phone', 'firstName', 'lastName', 'funnelUrl', 'pageUrl', 'opportunityId'],
+  },
+  openai: {
+    inputs:  ['prompt', 'context', 'topic', 'audience', 'offer'],
+    outputs: ['generatedText', 'headline', 'subject', 'body', 'cta', 'socialPost'],
+  },
+  perplexity: {
+    inputs:  ['query', 'topic', 'niche'],
+    outputs: ['research', 'summary', 'keyPoints', 'competitors', 'trends'],
+  },
+  sendgrid: {
+    inputs:  ['to_email', 'subject', 'body', 'fromEmail', 'fromName'],
+    outputs: ['messageId', 'status'],
+  },
+  apollo: {
+    inputs:  ['jobTitle', 'industry', 'companySize', 'location', 'keywords'],
+    outputs: ['email', 'phone', 'firstName', 'lastName', 'company', 'linkedIn', 'contactId'],
+  },
+  slack: {
+    inputs:  ['channel', 'message', 'content'],
+    outputs: ['messageId', 'timestamp'],
+  },
+  facebook_ads: {
+    inputs:  ['audience', 'budget', 'adCopy', 'image'],
+    outputs: ['campaignId', 'adSetId', 'adId', 'impressions'],
+  },
+  heygen: {
+    inputs:  ['script', 'avatarId', 'voiceId'],
+    outputs: ['videoUrl', 'videoId'],
+  },
+};
+
 // ─── GHL action catalogue ─────────────────────────────────────────────────────
 
 const GHL_ACTIONS = [
-  { key: 'funnel',   label: 'Build Funnel',      icon: '🚀', desc: 'Create funnel pages in GHL' },
-  { key: 'website',  label: 'Build Website',     icon: '🌐', desc: 'Create website pages in GHL' },
-  { key: 'blog',     label: 'Blog Post',         icon: '✍️', desc: 'Write & publish a blog post' },
-  { key: 'email',    label: 'Email Campaign',    icon: '✉️', desc: 'Generate email sequence copy' },
-  { key: 'pipeline', label: 'Pipeline / CRM',   icon: '📊', desc: 'Create or update opportunities' },
-  { key: 'contacts', label: 'Contacts',          icon: '👥', desc: 'Search, create or tag contacts' },
-  { key: 'social',   label: 'Social Posts',      icon: '📱', desc: 'Schedule social media posts' },
-  { key: 'custom',   label: 'Custom Action',     icon: '⚡', desc: 'Write your own GHL instruction' },
+  { key: 'funnel',   label: 'Build Funnel',    icon: '🚀' },
+  { key: 'website',  label: 'Build Website',   icon: '🌐' },
+  { key: 'blog',     label: 'Blog Post',       icon: '✍️' },
+  { key: 'email',    label: 'Email Campaign',  icon: '✉️' },
+  { key: 'pipeline', label: 'Pipeline / CRM',  icon: '📊' },
+  { key: 'contacts', label: 'Contacts',        icon: '👥' },
+  { key: 'social',   label: 'Social Posts',    icon: '📱' },
+  { key: 'custom',   label: 'Custom Action',   icon: '⚡' },
 ];
 
 const FUNNEL_TYPES = [
-  { key: 'sales',          label: 'Sales Funnel',
-    pages: [
-      { key: 'opt-in',    label: 'Opt-in Page',    url: 'opt-in',    req: true },
-      { key: 'sales',     label: 'Sales Page',     url: 'sales',     req: true },
-      { key: 'order',     label: 'Order Page',     url: 'order',     req: true },
-      { key: 'upsell',    label: 'Upsell Page',    url: 'upsell',    req: false },
-      { key: 'thank-you', label: 'Thank You',      url: 'thank-you', req: true },
-    ],
-  },
-  { key: 'webinar',        label: 'Webinar Funnel',
-    pages: [
-      { key: 'registration', label: 'Registration', url: 'register',  req: true },
-      { key: 'confirmation', label: 'Confirmation', url: 'confirm',   req: true },
-      { key: 'webinar-room', label: 'Webinar Room', url: 'webinar',   req: false },
-      { key: 'replay',       label: 'Replay',       url: 'replay',    req: false },
-      { key: 'thank-you',    label: 'Thank You',    url: 'thank-you', req: true },
-    ],
-  },
-  { key: 'tripwire',       label: 'Tripwire Funnel',
-    pages: [
-      { key: 'landing',  label: 'Landing',      url: 'landing',   req: true },
-      { key: 'tripwire', label: 'Tripwire Offer',url: 'offer',     req: true },
-      { key: 'upsell',   label: 'Upsell',       url: 'upsell',    req: true },
-      { key: 'downsell', label: 'Downsell',     url: 'downsell',  req: false },
-      { key: 'thank-you',label: 'Thank You',    url: 'thank-you', req: true },
-    ],
-  },
-  { key: 'lead-gen',       label: 'Lead Gen Funnel',
-    pages: [
-      { key: 'squeeze',   label: 'Squeeze Page', url: 'get-access', req: true },
-      { key: 'thank-you', label: 'Thank You',    url: 'thank-you',  req: true },
-    ],
-  },
-  { key: 'product-launch', label: 'Product Launch',
-    pages: [
-      { key: 'prelaunch', label: 'Pre-launch', url: 'coming-soon', req: true },
-      { key: 'launch',    label: 'Launch',     url: 'launch',      req: true },
-      { key: 'order',     label: 'Order',      url: 'order',       req: true },
-      { key: 'thank-you', label: 'Thank You',  url: 'thank-you',   req: true },
-    ],
-  },
-  { key: 'free-trial', label: 'Free Trial / SaaS',
-    pages: [
-      { key: 'landing', label: 'Landing', url: 'start',   req: true },
-      { key: 'signup',  label: 'Sign Up', url: 'sign-up', req: true },
-      { key: 'welcome', label: 'Welcome', url: 'welcome', req: true },
-    ],
-  },
-  { key: 'squeeze-single', label: 'Squeeze Page',
-    pages: [
-      { key: 'squeeze',   label: 'Squeeze',    url: 'subscribe', req: true },
-      { key: 'thank-you', label: 'Thank You',  url: 'thank-you', req: false },
-    ],
-  },
-  { key: 'membership', label: 'Membership Funnel',
-    pages: [
-      { key: 'sales',        label: 'Sales',        url: 'join',     req: true },
-      { key: 'registration', label: 'Registration', url: 'register', req: true },
-      { key: 'member-area',  label: 'Member Area',  url: 'members',  req: false },
-      { key: 'thank-you',    label: 'Thank You',    url: 'thank-you',req: true },
-    ],
-  },
+  { key: 'sales',          label: 'Sales Funnel',     pages: [{ key:'opt-in',label:'Opt-in',url:'opt-in',req:true},{key:'sales',label:'Sales',url:'sales',req:true},{key:'order',label:'Order',url:'order',req:true},{key:'upsell',label:'Upsell',url:'upsell',req:false},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}] },
+  { key: 'webinar',        label: 'Webinar Funnel',   pages: [{ key:'registration',label:'Registration',url:'register',req:true},{key:'confirmation',label:'Confirmation',url:'confirm',req:true},{key:'replay',label:'Replay',url:'replay',req:false},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}] },
+  { key: 'lead-gen',       label: 'Lead Gen',         pages: [{ key:'squeeze',label:'Squeeze',url:'get-access',req:true},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}] },
+  { key: 'tripwire',       label: 'Tripwire',         pages: [{ key:'landing',label:'Landing',url:'landing',req:true},{key:'tripwire',label:'Offer',url:'offer',req:true},{key:'upsell',label:'Upsell',url:'upsell',req:true},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}] },
+  { key: 'product-launch', label: 'Product Launch',   pages: [{ key:'prelaunch',label:'Pre-launch',url:'coming-soon',req:true},{key:'launch',label:'Launch',url:'launch',req:true},{key:'order',label:'Order',url:'order',req:true},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}] },
+  { key: 'free-trial',     label: 'Free Trial / SaaS',pages: [{ key:'landing',label:'Landing',url:'start',req:true},{key:'signup',label:'Sign Up',url:'sign-up',req:true},{key:'welcome',label:'Welcome',url:'welcome',req:true}] },
+  { key: 'membership',     label: 'Membership',       pages: [{ key:'sales',label:'Sales',url:'join',req:true},{key:'registration',label:'Registration',url:'register',req:true},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}] },
 ];
 
 const WEBSITE_TYPES = [
-  { key: 'business',  label: 'Business Website',
-    pages: [
-      { key: 'home',     label: 'Home',       url: 'home',     req: true },
-      { key: 'about',    label: 'About',      url: 'about',    req: true },
-      { key: 'services', label: 'Services',   url: 'services', req: true },
-      { key: 'contact',  label: 'Contact',    url: 'contact',  req: true },
-      { key: 'blog',     label: 'Blog Index', url: 'blog',     req: false },
-    ],
-  },
-  { key: 'service',   label: 'Service Business',
-    pages: [
-      { key: 'home',         label: 'Home',          url: 'home',    req: true },
-      { key: 'services',     label: 'Services',      url: 'services',req: true },
-      { key: 'testimonials', label: 'Testimonials',  url: 'reviews', req: false },
-      { key: 'faq',          label: 'FAQ',           url: 'faq',     req: false },
-      { key: 'contact',      label: 'Contact',       url: 'contact', req: true },
-    ],
-  },
-  { key: 'portfolio', label: 'Portfolio',
-    pages: [
-      { key: 'home',      label: 'Home',      url: 'home',    req: true },
-      { key: 'portfolio', label: 'Portfolio', url: 'work',    req: true },
-      { key: 'about',     label: 'About',     url: 'about',   req: false },
-      { key: 'contact',   label: 'Contact',   url: 'contact', req: true },
-    ],
-  },
-  { key: 'landing',   label: 'Single Landing Page',
-    pages: [{ key: 'landing', label: 'Landing Page', url: 'home', req: true }],
-  },
+  { key: 'business',  label: 'Business Website', pages: [{key:'home',label:'Home',url:'home',req:true},{key:'about',label:'About',url:'about',req:true},{key:'services',label:'Services',url:'services',req:true},{key:'contact',label:'Contact',url:'contact',req:true}] },
+  { key: 'service',   label: 'Service Business', pages: [{key:'home',label:'Home',url:'home',req:true},{key:'services',label:'Services',url:'services',req:true},{key:'faq',label:'FAQ',url:'faq',req:false},{key:'contact',label:'Contact',url:'contact',req:true}] },
+  { key: 'portfolio', label: 'Portfolio',        pages: [{key:'home',label:'Home',url:'home',req:true},{key:'portfolio',label:'Portfolio',url:'work',req:true},{key:'contact',label:'Contact',url:'contact',req:true}] },
 ];
 
-const BLOG_TYPES = [
-  { key: 'how-to',     label: 'How-To Guide' },
-  { key: 'listicle',   label: 'Listicle' },
-  { key: 'case-study', label: 'Case Study' },
-  { key: 'news',       label: 'News / Announcement' },
-  { key: 'seo',        label: 'SEO Pillar Post' },
-  { key: 'comparison', label: 'Comparison Post' },
-];
+const BLOG_TYPES = ['How-To Guide','Listicle','Case Study','News / Announcement','SEO Pillar Post','Comparison Post'];
+const EMAIL_TYPES = ['Welcome','Value / Nurture','Case Study','Objection Handler','Sales / Offer','Follow-up','Re-engagement'];
+const PIPELINE_ACTIONS = ['Create opportunity','Move to stage','List open opportunities'];
+const CONTACT_ACTIONS  = ['Search contacts','Create contact','Add tags','Add to workflow'];
 
-const EMAIL_TYPES = [
-  { key: 'welcome',      label: 'Welcome' },
-  { key: 'value',        label: 'Value / Nurture' },
-  { key: 'case-study',   label: 'Case Study' },
-  { key: 'objection',    label: 'Objection Handler' },
-  { key: 'offer',        label: 'Sales / Offer' },
-  { key: 'followup',     label: 'Follow-up' },
-  { key: 'reengagement', label: 'Re-engagement' },
-];
-
-const PIPELINE_ACTIONS = [
-  { key: 'create-opp',   label: 'Create opportunity',       desc: 'Add a new deal to the pipeline' },
-  { key: 'update-stage', label: 'Move to stage',            desc: 'Update an existing deal stage' },
-  { key: 'list-opps',    label: 'List open opportunities',  desc: 'Show all open deals' },
-];
-
-const CONTACT_ACTIONS = [
-  { key: 'search',    label: 'Search contacts',   desc: 'Find contacts by name/email/tag' },
-  { key: 'create',    label: 'Create contact',    desc: 'Add a new contact to the CRM' },
-  { key: 'tag',       label: 'Add tags',          desc: 'Apply tags to matching contacts' },
-  { key: 'workflow',  label: 'Add to workflow',   desc: 'Enrol contacts in a GHL workflow' },
-];
-
-// ─── Config → instruction text ────────────────────────────────────────────────
+// ─── Config → instruction ─────────────────────────────────────────────────────
 
 function configToInstruction(config, context) {
-  const ctx = context ? ` Campaign context: ${context}.` : '';
-  switch (config.action) {
+  const ctx = context ? ` Context: ${context}.` : '';
+  switch (config?.action) {
     case 'funnel': {
       const ft    = FUNNEL_TYPES.find(f => f.key === config.funnelType);
       const pages = (config.selectedPages || []).map(p => `  - ${p.label} (/${p.url})`).join('\n');
-      return `Build a complete ${ft?.label || 'funnel'} in GHL.${ctx}
-Pages to create:
-${pages}
-Use list_funnels to find the funnel, then create each page with create_funnel_page using GHL native element sections.`;
+      return `Build a complete ${ft?.label || 'funnel'} in GHL.${ctx}\nPages:\n${pages}\nUse list_funnels then create_funnel_page with GHL native element sections.`;
     }
     case 'website': {
       const wt    = WEBSITE_TYPES.find(w => w.key === config.websiteType);
       const pages = (config.selectedPages || []).map(p => `  - ${p.label} (/${p.url})`).join('\n');
-      return `Build a complete ${wt?.label || 'website'} in GHL.${ctx}
-Pages to create:
-${pages}
-Use list_websites to find the website, then create each page with create_website_page using GHL native element sections.`;
+      return `Build a complete ${wt?.label || 'website'} in GHL.${ctx}\nPages:\n${pages}\nUse list_websites then create_website_page with GHL native element sections.`;
     }
-    case 'blog': {
-      const bt = BLOG_TYPES.find(b => b.key === config.blogType);
-      return `Write and publish a ${bt?.label || 'blog post'} in GHL.${ctx}
-Write a complete SEO-optimised post (800-1200 words), generate and upload a featured image, then create it with create_blog_post.`;
-    }
+    case 'blog':
+      return `Write and publish a ${config.blogType || 'blog post'} in GHL.${ctx}\nWrite complete SEO-optimised post, generate/upload hero image, create with create_blog_post.`;
     case 'email': {
-      const types = (config.emailTypes || []).map((k, i) => `  Email ${i + 1}: ${EMAIL_TYPES.find(e => e.key === k)?.label || k}`).join('\n');
-      return `Generate a ${config.emailTypes?.length || 3}-email follow-up sequence.${ctx}
-${types}
-For each email write: subject line (2 A/B options), preview text, full body, P.S. line. Output as a table ready to paste into GHL.`;
+      const types = (config.emailTypes || []).join(', ');
+      return `Generate email sequence: ${types}.${ctx}\nFor each email: subject (2 A/B options), preview text, full body, P.S. Output as a table ready to paste into GHL.`;
     }
-    case 'pipeline': {
-      const pa = PIPELINE_ACTIONS.find(p => p.key === config.pipelineAction);
-      return `GHL Pipeline: ${pa?.label || 'manage opportunities'}.${ctx} ${config.pipelineDetail || ''}`;
-    }
-    case 'contacts': {
-      const ca = CONTACT_ACTIONS.find(c => c.key === config.contactAction);
-      return `GHL Contacts: ${ca?.label || 'manage contacts'}.${ctx} ${config.contactDetail || ''}`;
-    }
+    case 'pipeline':
+      return `GHL Pipeline: ${config.pipelineAction || 'manage opportunities'}.${ctx} ${config.pipelineDetail || ''}`;
+    case 'contacts':
+      return `GHL Contacts: ${config.contactAction || 'manage contacts'}.${ctx} ${config.contactDetail || ''}`;
     case 'social':
-      return `Create and schedule social media posts in GHL Social Planner.${ctx} ${config.socialDetail || 'Create posts for all connected social accounts.'}`;
+      return `Create and schedule social posts in GHL Social Planner.${ctx} ${config.socialDetail || 'Post for all connected accounts.'}`;
     case 'custom':
     default:
-      return config.customInstruction || '';
+      return config?.customInstruction || '(no instruction set)';
   }
 }
 
-// ─── Workflow prompt builder ───────────────────────────────────────────────────
+// ─── Topological sort ─────────────────────────────────────────────────────────
 
-function buildPrompt(steps, context) {
-  const lines = steps.map((s, i) => {
-    const instr = s.tool === 'ghl' && s.config
-      ? configToInstruction(s.config, context)
-      : s.instruction;
-    return `STEP ${i + 1} [${s.label}]:\n${instr}`;
-  }).join('\n\n');
-  const ctx = context ? `\nContext: ${context}` : '';
-  return `Execute this multi-step workflow in order. Complete every step before moving to the next.\n${ctx}\n\n${lines}\n\nAfter all steps: provide a full summary of everything created/actioned, with GHL IDs and URLs where applicable.`;
+function topoSort(nodes, edges) {
+  const inDeg = new Map(nodes.map(n => [n.id, 0]));
+  const adj   = new Map(nodes.map(n => [n.id, []]));
+  for (const e of edges) {
+    adj.get(e.fromNodeId)?.push(e.toNodeId);
+    inDeg.set(e.toNodeId, (inDeg.get(e.toNodeId) || 0) + 1);
+  }
+  const queue  = nodes.filter(n => inDeg.get(n.id) === 0);
+  const result = [];
+  while (queue.length) {
+    const n = queue.shift();
+    result.push(n);
+    for (const nid of adj.get(n.id) || []) {
+      const d = inDeg.get(nid) - 1;
+      inDeg.set(nid, d);
+      if (d === 0) queue.push(nodes.find(x => x.id === nid));
+    }
+  }
+  const seen = new Set(result.map(n => n.id));
+  return [...result, ...nodes.filter(n => !seen.has(n.id))];
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+function buildGraphPrompt(nodes, edges, context) {
+  const sorted = topoSort(nodes, edges);
+  const lines  = sorted.map((node, idx) => {
+    const inEdges  = edges.filter(e => e.toNodeId === node.id);
+    const mappings = inEdges.flatMap(e => (e.mappings || []).map(m => `"${m.from}" → "${m.to}"`));
+    const mapNote  = mappings.length ? `\n  Field inputs from previous steps: ${mappings.join(', ')}` : '';
+    const instr    = node.tool === 'ghl' && node.config
+      ? configToInstruction(node.config, context)
+      : (node.instruction || `Execute ${node.label}`);
+    return `STEP ${idx + 1} [${node.label}]:\n${instr}${mapNote}`;
+  }).join('\n\n');
+  return `Execute this multi-step workflow in order. Complete every step before the next.\n${context ? `Context: ${context}\n` : ''}\n${lines}\n\nAfter all steps: full summary of everything created, with GHL IDs and URLs.`;
+}
 
-function mkStep(tool, label, icon) {
+// ─── ID helpers ───────────────────────────────────────────────────────────────
+
+function uid() { return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
+
+function mkNode(tool, label, icon, x, y) {
   return {
-    id:          `s_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    tool, label, icon,
+    id: `n_${uid()}`, tool, label, icon, x, y,
     instruction: '',
-    config:      tool === 'ghl' ? { action: null } : null,
+    config: tool === 'ghl' ? { action: null } : null,
   };
 }
+
+// ─── Port position helpers ────────────────────────────────────────────────────
+
+function outPortPos(node) { return { x: node.x + NODE_W, y: node.y + 24 }; }
+function inPortPos(node)  { return { x: node.x,          y: node.y + 24 }; }
+
+function edgePath(x1, y1, x2, y2) {
+  const cx = (x1 + x2) / 2;
+  return `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`;
+}
+
+// ─── Quick templates ──────────────────────────────────────────────────────────
+
+const TEMPLATES = [
+  {
+    name: '🚀 Full Campaign Launch',
+    context: 'Complete go-to-market campaign',
+    nodes: [
+      { tool:'perplexity', label:'Research',      icon:'🔍', x:60,  y:80,  instruction:'Research the niche, competitors, target audience, and key messaging angles.' },
+      { tool:'openai',     label:'Write Copy',    icon:'✨', x:380, y:80,  instruction:'Using the research, write complete campaign copy: headlines, body, CTAs, email subject lines.' },
+      { tool:'ghl',        label:'Build Funnel',  icon:'⚡', x:700, y:80,  config:{ action:'funnel', funnelType:'sales', selectedPages:[{key:'opt-in',label:'Opt-in',url:'opt-in',req:true},{key:'sales',label:'Sales',url:'sales',req:true},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}] } },
+      { tool:'ghl',        label:'Email Sequence',icon:'✉️', x:700, y:280, config:{ action:'email', emailTypes:['welcome','value','offer'] } },
+      { tool:'ghl',        label:'Social Posts',  icon:'📱', x:700, y:460, config:{ action:'social', socialDetail:'Promote the funnel launch across all connected social accounts.' } },
+    ],
+    edges: [
+      { fromIdx:0, toIdx:1, mappings:[{from:'research',to:'context'}] },
+      { fromIdx:1, toIdx:2, mappings:[{from:'headline',to:'offer'},{from:'body',to:'audience'}] },
+      { fromIdx:1, toIdx:3, mappings:[{from:'body',to:'context'}] },
+      { fromIdx:2, toIdx:4, mappings:[{from:'funnelUrl',to:'content'}] },
+    ],
+  },
+  {
+    name: '🔍 Research → Blog',
+    context: 'SEO content workflow',
+    nodes: [
+      { tool:'perplexity', label:'Research',    icon:'🔍', x:60,  y:100, instruction:'Research [topic] and find top-ranking competitor content, key questions, and statistics.' },
+      { tool:'ghl',        label:'Blog Post',   icon:'✍️', x:380, y:100, config:{ action:'blog', blogType:'SEO Pillar Post' } },
+      { tool:'ghl',        label:'Social Posts',icon:'📱', x:700, y:100, config:{ action:'social', socialDetail:'Create 3 promotional posts for the blog article.' } },
+    ],
+    edges: [
+      { fromIdx:0, toIdx:1, mappings:[{from:'keyPoints',to:'context'},{from:'competitors',to:'context'}] },
+      { fromIdx:1, toIdx:2, mappings:[{from:'pageUrl',to:'content'}] },
+    ],
+  },
+  {
+    name: '🚀 Lead Outreach',
+    context: 'B2B outbound',
+    nodes: [
+      { tool:'apollo', label:'Find Leads',     icon:'🚀', x:60,  y:100, instruction:'Find 10 [job title] prospects at [industry] companies.' },
+      { tool:'ghl',    label:'Add Contacts',   icon:'👥', x:380, y:100, config:{ action:'contacts', contactAction:'Create contact', contactDetail:'Add found prospects tagged "apollo-lead".' } },
+      { tool:'sendgrid',label:'Send Emails',   icon:'📧', x:700, y:100, instruction:'Send a personalised outreach email to each new GHL contact.' },
+    ],
+    edges: [
+      { fromIdx:0, toIdx:1, mappings:[{from:'email',to:'email'},{from:'firstName',to:'firstName'},{from:'phone',to:'phone'}] },
+      { fromIdx:1, toIdx:2, mappings:[{from:'email',to:'to_email'},{from:'firstName',to:'context'}] },
+    ],
+  },
+];
+
+// ─── applyEvent ───────────────────────────────────────────────────────────────
 
 function applyEvent(prev, type, data) {
   if (type === 'text') {
@@ -244,39 +248,12 @@ function applyEvent(prev, type, data) {
     if (last?.type === 'text') return [...prev.slice(0, -1), { ...last, text: last.text + data.text }];
     return [...prev, { type: 'text', text: data.text }];
   }
-  if (type === 'tool_call')   return [...prev, { type: 'tool_call',   name: data.name,  input:  data.input }];
-  if (type === 'tool_result') return [...prev, { type: 'tool_result', name: data.name,  result: data.result }];
-  if (type === 'done')        return [...prev, { type: 'done',        turns: data.turns, toolCallCount: data.toolCallCount }];
-  if (type === 'error')       return [...prev, { type: 'error',       error: data.error }];
+  if (type === 'tool_call')   return [...prev, { type:'tool_call',   name:data.name,  input:data.input }];
+  if (type === 'tool_result') return [...prev, { type:'tool_result', name:data.name,  result:data.result }];
+  if (type === 'done')        return [...prev, { type:'done',        turns:data.turns, toolCallCount:data.toolCallCount }];
+  if (type === 'error')       return [...prev, { type:'error',       error:data.error }];
   return prev;
 }
-
-const TEMPLATES = [
-  { name: '🚀 Full Campaign Launch',
-    context: 'Complete go-to-market campaign',
-    steps: [
-      { tool: 'perplexity', label: 'Perplexity AI', icon: '🔍', instruction: 'Research the niche, competitors, target audience, and key messaging angles.', config: null },
-      { tool: 'ghl', label: 'GHL CRM', icon: '⚡', instruction: '', config: { action: 'funnel', funnelType: 'sales', selectedPages: [{ key: 'opt-in', label: 'Opt-in Page', url: 'opt-in', req: true }, { key: 'sales', label: 'Sales Page', url: 'sales', req: true }, { key: 'order', label: 'Order Page', url: 'order', req: true }, { key: 'thank-you', label: 'Thank You', url: 'thank-you', req: true }] } },
-      { tool: 'ghl', label: 'GHL CRM', icon: '⚡', instruction: '', config: { action: 'email', emailTypes: ['welcome', 'value', 'offer'] } },
-      { tool: 'ghl', label: 'GHL CRM', icon: '⚡', instruction: '', config: { action: 'social', socialDetail: 'Create 3 posts promoting the funnel opt-in page.' } },
-    ],
-  },
-  { name: '🔍 Research & Report',
-    context: 'Research assistant workflow',
-    steps: [
-      { tool: 'perplexity', label: 'Perplexity AI', icon: '🔍', instruction: 'Research [topic] using live web data. Extract key stats, trends, and competitor insights.', config: null },
-      { tool: 'openai',     label: 'OpenAI',        icon: '✨', instruction: 'Compile the research into a professional executive summary with key takeaways.', config: null },
-    ],
-  },
-  { name: '🚀 Lead Outreach',
-    context: 'B2B sales outreach',
-    steps: [
-      { tool: 'apollo', label: 'Apollo.io', icon: '🚀', instruction: 'Find 10 [job title] prospects at [industry] companies.', config: null },
-      { tool: 'ghl',    label: 'GHL CRM',   icon: '⚡', instruction: '', config: { action: 'contacts', contactAction: 'create', contactDetail: 'Add found prospects as contacts tagged "apollo-lead".' } },
-      { tool: 'sendgrid', label: 'SendGrid', icon: '📧', instruction: 'Send a personalised intro email to each new contact.', config: null },
-    ],
-  },
-];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -284,7 +261,8 @@ export default function Workflows() {
   const { isAuthenticated, isAuthLoading, locationId, integrations } = useApp();
   const { isRunning, stream, stop } = useStreamFetch();
 
-  const [steps,     setSteps]     = useState([]);
+  const [nodes,     setNodes]     = useState([]);
+  const [edges,     setEdges]     = useState([]);
   const [wfName,    setWfName]    = useState('');
   const [context,   setContext]   = useState('');
   const [messages,  setMessages]  = useState([]);
@@ -294,8 +272,23 @@ export default function Workflows() {
   const [saving,    setSaving]    = useState(false);
   const [showSaved, setShowSaved] = useState(false);
   const [copyDone,  setCopyDone]  = useState(false);
+  const [showOutput,setShowOutput]= useState(false);
+
+  // Connecting state
+  const [connecting, setConnecting] = useState(null); // { fromNodeId, x, y }
+  const [mousePos,   setMousePos]   = useState({ x: 0, y: 0 });
+
+  // Selected edge for field mapping
+  const [selectedEdge, setSelectedEdge] = useState(null);
+
+  // Selected node for config panel
+  const [selectedNode, setSelectedNode] = useState(null);
+
+  const canvasRef = useRef(null);
 
   const enabledKeys = new Set((integrations || []).filter(i => i.enabled).map(i => i.key));
+
+  // ── Saved workflows ────────────────────────────────────────────────────────
 
   const loadSaved = useCallback(async () => {
     if (!locationId) return;
@@ -308,53 +301,139 @@ export default function Workflows() {
 
   useEffect(() => { loadSaved(); }, [loadSaved]);
 
-  const addStep = (tool, label, icon) =>
-    setSteps(prev => [...prev, mkStep(tool, label, icon)]);
+  // ── Canvas mouse ───────────────────────────────────────────────────────────
 
-  const removeStep = id =>
-    setSteps(prev => prev.filter(s => s.id !== id));
+  function canvasXY(e) {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
 
-  const moveStep = (id, dir) => setSteps(prev => {
-    const i = prev.findIndex(s => s.id === id);
-    const next = [...prev];
-    const j = i + dir;
-    if (j < 0 || j >= next.length) return prev;
-    [next[i], next[j]] = [next[j], next[i]];
-    return next;
-  });
+  function onCanvasMouseMove(e) {
+    if (connecting) setMousePos(canvasXY(e));
+  }
 
-  const setInstruction = (id, val) =>
-    setSteps(prev => prev.map(s => s.id === id ? { ...s, instruction: val } : s));
+  function onCanvasClick(e) {
+    if (connecting && e.target === canvasRef.current) {
+      setConnecting(null); // cancel if click on empty canvas
+    }
+    if (e.target === canvasRef.current) {
+      setSelectedEdge(null);
+      setSelectedNode(null);
+    }
+  }
 
-  const setConfig = (id, cfg) =>
-    setSteps(prev => prev.map(s => s.id === id ? { ...s, config: cfg } : s));
+  // ── Drop node from palette ─────────────────────────────────────────────────
 
-  const canRun = steps.length > 0 && steps.every(s => {
-    if (s.tool === 'ghl' && s.config) return s.config.action !== null && s.config.action !== undefined;
-    return s.instruction.trim().length > 0;
-  });
+  function dropNode(tool, label, icon, e) {
+    const { x, y } = canvasXY(e);
+    const nx = Math.max(0, x - NODE_W / 2);
+    const ny = Math.max(0, y - 24);
+    setNodes(prev => [...prev, mkNode(tool, label, icon, nx, ny)]);
+  }
+
+  function addNode(tool, label, icon) {
+    // Place in a cascading position
+    const last = nodes[nodes.length - 1];
+    const x = last ? last.x + NODE_W + 80 : 60;
+    const y = last ? last.y : 120;
+    setNodes(prev => [...prev, mkNode(tool, label, icon, x, y)]);
+  }
+
+  // ── Node drag ─────────────────────────────────────────────────────────────
+
+  function startDrag(nodeId, e) {
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const node   = nodes.find(n => n.id === nodeId);
+    const ox = node.x, oy = node.y;
+
+    function onMove(ev) {
+      setNodes(prev => prev.map(n =>
+        n.id === nodeId ? { ...n, x: ox + ev.clientX - startX, y: oy + ev.clientY - startY } : n
+      ));
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  // ── Ports ─────────────────────────────────────────────────────────────────
+
+  function startConnect(nodeId, e) {
+    e.stopPropagation();
+    const p = outPortPos(nodes.find(n => n.id === nodeId));
+    setConnecting({ fromNodeId: nodeId, x: p.x, y: p.y });
+    setMousePos(canvasXY(e));
+  }
+
+  function finishConnect(toNodeId, e) {
+    e.stopPropagation();
+    if (!connecting || connecting.fromNodeId === toNodeId) { setConnecting(null); return; }
+    const newEdge = { id: `e_${uid()}`, fromNodeId: connecting.fromNodeId, toNodeId, mappings: [] };
+    setEdges(prev => [...prev, newEdge]);
+    setSelectedEdge(newEdge);
+    setConnecting(null);
+  }
+
+  // ── Node config ───────────────────────────────────────────────────────────
+
+  function updateNode(id, patch) {
+    setNodes(prev => prev.map(n => n.id === id ? { ...n, ...patch } : n));
+    if (selectedNode?.id === id) setSelectedNode(prev => ({ ...prev, ...patch }));
+  }
+
+  function updateNodeConfig(id, cfg) {
+    updateNode(id, { config: cfg });
+  }
+
+  function deleteNode(id) {
+    setNodes(prev => prev.filter(n => n.id !== id));
+    setEdges(prev => prev.filter(e => e.fromNodeId !== id && e.toNodeId !== id));
+    if (selectedNode?.id === id) setSelectedNode(null);
+  }
+
+  function deleteEdge(id) {
+    setEdges(prev => prev.filter(e => e.id !== id));
+    if (selectedEdge?.id === id) setSelectedEdge(null);
+  }
+
+  function updateEdgeMappings(edgeId, mappings) {
+    setEdges(prev => prev.map(e => e.id === edgeId ? { ...e, mappings } : e));
+    setSelectedEdge(prev => prev?.id === edgeId ? { ...prev, mappings } : prev);
+  }
+
+  // ── Run ───────────────────────────────────────────────────────────────────
 
   const run = useCallback(async () => {
-    if (!steps.length || isRunning || !canRun) return;
+    if (!nodes.length || isRunning) return;
     setMessages([]);
-    const prompt  = buildPrompt(steps, context);
-    const allowed = [...new Set(steps.map(s => s.tool).filter(t => t !== 'ghl'))];
+    setShowOutput(true);
+    const prompt  = buildGraphPrompt(nodes, edges, context);
+    const allowed = [...new Set(nodes.map(n => n.tool).filter(t => t !== 'ghl'))];
     await stream(
       '/claude/task',
       { task: prompt, allowedIntegrations: allowed.length ? allowed : null },
       (evtType, data) => setMessages(prev => applyEvent(prev, evtType, data)),
       locationId,
     );
-  }, [steps, context, isRunning, canRun, stream, locationId]);
+  }, [nodes, edges, context, isRunning, stream, locationId]);
+
+  // ── Save / load ───────────────────────────────────────────────────────────
 
   const save = async () => {
-    if (!wfName.trim() || !steps.length) return;
+    if (!wfName.trim() || !nodes.length) return;
     setSaving(true);
     try {
+      const steps = nodes.map(n => ({ ...n, instruction: n.instruction || '' }));
       const res  = await fetch('/workflows', {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
-        body:    JSON.stringify({ id: currentId, name: wfName.trim(), steps, context }),
+        body: JSON.stringify({ id: currentId, name: wfName.trim(), steps, context, edges }),
       });
       const data = await res.json();
       if (data.success) {
@@ -369,29 +448,25 @@ export default function Workflows() {
 
   const loadWorkflow = wf => {
     setWfName(wf.name); setContext(wf.context || '');
-    setSteps(wf.steps.map(s => ({ ...s, id: s.id || mkStep(s.tool, s.label, s.icon).id })));
+    setNodes((wf.steps || []).map(s => ({ ...s, id: s.id || `n_${uid()}` })));
+    setEdges(wf.edges || []);
     setCurrentId(wf.id);
     setWebhookUrl(`${window.location.origin}/workflows/trigger/${wf.webhookToken}`);
-    setMessages([]); setShowSaved(false);
-  };
-
-  const deleteWorkflow = async id => {
-    try {
-      await fetch(`/workflows/${id}`, { method: 'DELETE', headers: { 'x-location-id': locationId } });
-      await loadSaved();
-      if (currentId === id) { setCurrentId(null); setWebhookUrl(''); }
-    } catch { /* non-fatal */ }
+    setMessages([]); setShowSaved(false); setSelectedEdge(null); setSelectedNode(null);
   };
 
   const newWorkflow = () => {
-    setWfName(''); setContext(''); setSteps([]);
+    setNodes([]); setEdges([]); setWfName(''); setContext([]);
     setMessages([]); setCurrentId(null); setWebhookUrl('');
+    setSelectedEdge(null); setSelectedNode(null); setShowOutput(false);
   };
 
   const applyTemplate = tpl => {
-    setWfName(tpl.name); setContext(tpl.context);
-    setSteps(tpl.steps.map(s => ({ ...mkStep(s.tool, s.label, s.icon), instruction: s.instruction || '', config: s.config ?? (s.tool === 'ghl' ? { action: null } : null) })));
+    const ns = tpl.nodes.map(n => ({ ...mkNode(n.tool, n.label, n.icon, n.x, n.y), instruction: n.instruction || '', config: n.config || (n.tool === 'ghl' ? { action: null } : null) }));
+    const es = (tpl.edges || []).map(e => ({ id: `e_${uid()}`, fromNodeId: ns[e.fromIdx].id, toNodeId: ns[e.toIdx].id, mappings: e.mappings || [] }));
+    setNodes(ns); setEdges(es); setWfName(tpl.name); setContext(tpl.context);
     setMessages([]); setCurrentId(null); setWebhookUrl('');
+    setSelectedEdge(null); setSelectedNode(null);
   };
 
   const copyWebhook = () => {
@@ -400,6 +475,8 @@ export default function Workflows() {
     setTimeout(() => setCopyDone(false), 2000);
   };
 
+  // ── Guards ────────────────────────────────────────────────────────────────
+
   if (isAuthLoading)    return <Spinner />;
   if (!isAuthenticated) return (
     <AuthGate icon="🔀" title="Workflow Builder" subtitle="Connect your API key to build AI workflows">
@@ -407,480 +484,672 @@ export default function Workflows() {
     </AuthGate>
   );
 
+  // SVG temp edge
+  const tempEdge = connecting
+    ? edgePath(connecting.x, connecting.y, mousePos.x, mousePos.y)
+    : null;
+
   return (
     <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
-      <Header icon="🔀" title="Workflow Builder" subtitle="Chain tools together — Claude executes each step in order" />
+      <Header icon="🔀" title="Workflow Builder" subtitle="Visual canvas — drag, connect, map fields, run" />
 
-      <div className="flex flex-col md:flex-row flex-1 overflow-hidden" style={{ minHeight: 0 }}>
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 px-4 py-2 flex-shrink-0"
+        style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)' }}>
+        <input value={wfName} onChange={e => setWfName(e.target.value)} placeholder="Workflow name…"
+          className="field text-sm" style={{ width: 200 }} />
+        <input value={context} onChange={e => setContext(e.target.value)}
+          placeholder="Campaign context — e.g. FitPro coaching for busy moms, $297/mo"
+          className="field text-xs flex-1" />
+        <button onClick={newWorkflow} className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap">+ New</button>
+        <button onClick={() => setShowSaved(v => !v)} className={`btn-ghost px-3 py-1.5 text-xs whitespace-nowrap${showSaved ? ' text-indigo-400' : ''}`}>
+          📂 {saved.length > 0 ? `Saved (${saved.length})` : 'Saved'}
+        </button>
+        <button onClick={save} disabled={saving || !wfName.trim() || !nodes.length}
+          className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap">
+          {saving ? '…' : '💾 Save'}
+        </button>
+        <button onClick={isRunning ? stop : run} disabled={!isRunning && !nodes.length}
+          className="btn-primary px-4 py-1.5 text-sm whitespace-nowrap">
+          {isRunning ? '⏹ Stop' : '▶ Run Workflow'}
+        </button>
+        <button onClick={() => setShowOutput(v => !v)}
+          className={`btn-ghost px-3 py-1.5 text-xs whitespace-nowrap${showOutput ? ' text-indigo-400' : ''}`}>
+          ⚡ Output
+        </button>
+      </div>
+
+      {/* Saved list */}
+      {showSaved && (
+        <div className="flex-shrink-0 overflow-y-auto" style={{ maxHeight: 180, borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.3)' }}>
+          {saved.length === 0
+            ? <p className="text-xs text-gray-600 px-4 py-3 text-center">No saved workflows.</p>
+            : saved.map(wf => (
+              <div key={wf.id} className="flex items-center gap-2 px-4 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <button onClick={() => loadWorkflow(wf)} className="flex-1 text-left text-xs text-gray-300 hover:text-white truncate">
+                  {wf.name} <span className="text-gray-600 ml-2">{wf.steps?.length} nodes</span>
+                </button>
+                <button onClick={async () => {
+                  await fetch(`/workflows/${wf.id}`, { method: 'DELETE', headers: { 'x-location-id': locationId } });
+                  loadSaved();
+                }} className="text-gray-600 hover:text-red-400 text-sm px-1">×</button>
+              </div>
+            ))
+          }
+        </div>
+      )}
+
+      <div className="flex flex-1 overflow-hidden" style={{ minHeight: 0 }}>
 
         {/* ── Tool Palette ── */}
-        <ToolPalette enabledKeys={enabledKeys} onAdd={addStep} />
+        <aside className="flex-shrink-0 w-44 flex flex-col overflow-y-auto"
+          style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}>
+          <div className="px-3 pt-3 pb-1">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tools</p>
+            <p className="text-xs text-gray-700 mt-0.5">Click to add</p>
+          </div>
+          <div className="flex flex-col gap-1 px-2 py-2">
+            {[{ key:'ghl', label:'GHL CRM', icon:'⚡', alwaysOn:true }, ...INTEGRATIONS.map(i => ({ key:i.key, label:i.label, icon:i.icon }))].map(t => {
+              const enabled = t.alwaysOn || enabledKeys.has(t.key);
+              const color   = TOOL_COLOR[t.key] || '#6366f1';
+              return (
+                <button key={t.key} onClick={() => enabled && addNode(t.key, t.label, t.icon)}
+                  title={enabled ? `Add ${t.label}` : 'Connect in Settings first'}
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-left transition-all"
+                  style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', opacity: enabled ? 1 : 0.35, cursor: enabled ? 'pointer' : 'not-allowed' }}
+                  onMouseOver={e => { if (enabled) e.currentTarget.style.borderColor = `${color}60`; }}
+                  onMouseOut={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
+                >
+                  <span className="text-base flex-shrink-0">{t.icon}</span>
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-white truncate">{t.label}</div>
+                    <div className="text-xs" style={{ color: enabled ? color : '#4b5563' }}>
+                      {enabled ? (t.alwaysOn ? 'Always on' : '✓ Connected') : 'Not connected'}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex-1" />
+          <Link to="/settings" className="text-xs text-center text-indigo-400 hover:text-indigo-300 py-3 block">+ Connect APIs</Link>
+        </aside>
 
         {/* ── Canvas ── */}
-        <div className="flex flex-col flex-1 overflow-hidden" style={{ borderRight: '1px solid rgba(255,255,255,0.06)', minHeight: 0 }}>
+        <div className="flex-1 relative overflow-hidden" style={{ minWidth: 0 }}>
+          {/* Canvas area */}
+          <div
+            ref={canvasRef}
+            className="absolute inset-0 overflow-auto"
+            style={{
+              background: '#09090f',
+              backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px)',
+              backgroundSize: '28px 28px',
+              cursor: connecting ? 'crosshair' : 'default',
+              minWidth: 1200,
+              minHeight: 800,
+            }}
+            onMouseMove={onCanvasMouseMove}
+            onClick={onCanvasClick}
+          >
+            {/* Nodes */}
+            {nodes.map(node => (
+              <CanvasNode
+                key={node.id}
+                node={node}
+                selected={selectedNode?.id === node.id}
+                connecting={connecting}
+                onHeaderMouseDown={e => startDrag(node.id, e)}
+                onOutPort={e => startConnect(node.id, e)}
+                onInPort={e => finishConnect(node.id, e)}
+                onSelect={() => { setSelectedNode(node); setSelectedEdge(null); }}
+                onDelete={() => deleteNode(node.id)}
+              />
+            ))}
 
-          {/* Toolbar */}
-          <div className="flex items-center gap-2 px-4 py-2.5 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}>
-            <input value={wfName} onChange={e => setWfName(e.target.value)} placeholder="Workflow name…" className="field flex-1 text-sm" />
-            <button onClick={newWorkflow} className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap">+ New</button>
-            <button onClick={() => setShowSaved(v => !v)} className={`btn-ghost px-3 py-1.5 text-xs whitespace-nowrap${showSaved ? ' text-indigo-400' : ''}`}>
-              📂 {saved.length > 0 ? `Saved (${saved.length})` : 'Saved'}
-            </button>
-          </div>
+            {/* SVG edge layer */}
+            <svg
+              className="absolute inset-0 pointer-events-none"
+              style={{ width: '100%', height: '100%', overflow: 'visible' }}
+            >
+              <defs>
+                {Object.entries(TOOL_COLOR).map(([k, c]) => (
+                  <marker key={k} id={`arrow-${k}`} markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill={c} />
+                  </marker>
+                ))}
+              </defs>
 
-          {/* Saved list */}
-          {showSaved && (
-            <div className="flex-shrink-0 overflow-y-auto" style={{ maxHeight: 220, borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.3)' }}>
-              {saved.length === 0
-                ? <p className="text-xs text-gray-600 px-4 py-4 text-center">No saved workflows yet.</p>
-                : saved.map(wf => (
-                  <div key={wf.id} className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <button onClick={() => loadWorkflow(wf)} className="flex-1 text-left text-xs text-gray-300 hover:text-white truncate">
-                      {wf.name} <span className="text-gray-600 ml-2">{wf.steps?.length} steps</span>
-                    </button>
-                    <button onClick={() => deleteWorkflow(wf.id)} className="text-gray-600 hover:text-red-400 text-sm px-1 flex-shrink-0">×</button>
-                  </div>
-                ))
-              }
-            </div>
-          )}
+              {edges.map(edge => {
+                const fromNode = nodes.find(n => n.id === edge.fromNodeId);
+                const toNode   = nodes.find(n => n.id === edge.toNodeId);
+                if (!fromNode || !toNode) return null;
+                const p1 = outPortPos(fromNode);
+                const p2 = inPortPos(toNode);
+                const color = TOOL_COLOR[fromNode.tool] || '#6366f1';
+                const isSelected = selectedEdge?.id === edge.id;
+                const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+                return (
+                  <g key={edge.id}>
+                    {/* Invisible wide hit area */}
+                    <path d={edgePath(p1.x, p1.y, p2.x, p2.y)} fill="none" stroke="transparent" strokeWidth={16}
+                      style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
+                      onClick={e => { e.stopPropagation(); setSelectedEdge(edge); setSelectedNode(null); }} />
+                    {/* Visible edge */}
+                    <path d={edgePath(p1.x, p1.y, p2.x, p2.y)} fill="none"
+                      stroke={isSelected ? '#fff' : color}
+                      strokeWidth={isSelected ? 2.5 : 1.5}
+                      strokeDasharray={isSelected ? undefined : undefined}
+                      markerEnd={`url(#arrow-${fromNode.tool})`}
+                      style={{ transition: 'stroke 0.15s' }}
+                    />
+                    {/* Mapping count badge */}
+                    {edge.mappings?.length > 0 && (
+                      <g style={{ cursor: 'pointer', pointerEvents: 'all' }}
+                        onClick={e => { e.stopPropagation(); setSelectedEdge(edge); setSelectedNode(null); }}>
+                        <circle cx={mid.x} cy={mid.y} r={10} fill={color} opacity={0.9} />
+                        <text x={mid.x} y={mid.y + 4} textAnchor="middle" fill="#fff" fontSize={10} fontWeight="bold">{edge.mappings.length}</text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
 
-          {/* Steps */}
-          <div className="flex-1 overflow-y-auto p-4">
+              {/* Temp edge while connecting */}
+              {tempEdge && (
+                <path d={tempEdge} fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth={1.5} strokeDasharray="6 3" />
+              )}
+            </svg>
 
-            {/* Templates — when empty */}
-            {steps.length === 0 && (
-              <div className="mb-6">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Quick Templates</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {/* Empty state */}
+            {nodes.length === 0 && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 pointer-events-none">
+                <p className="text-gray-600 text-sm">Click a tool to add it to the canvas</p>
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Quick templates</p>
+                <div className="flex gap-3 pointer-events-auto">
                   {TEMPLATES.map(tpl => (
                     <button key={tpl.name} onClick={() => applyTemplate(tpl)}
-                      className="text-left text-xs px-3 py-2.5 rounded-xl text-gray-400 hover:text-indigo-300 transition-all"
-                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-                      onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.35)'; }}
-                      onMouseOut={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
+                      className="text-xs px-4 py-2 rounded-xl text-gray-400 hover:text-indigo-300 transition-all"
+                      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                      onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.4)'; }}
+                      onMouseOut={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
                     >{tpl.name}</button>
                   ))}
                 </div>
               </div>
             )}
-
-            {steps.map((step, idx) => (
-              <StepNode
-                key={step.id}
-                step={step}
-                index={idx}
-                total={steps.length}
-                context={context}
-                onDelete={() => removeStep(step.id)}
-                onMoveUp={() => moveStep(step.id, -1)}
-                onMoveDown={() => moveStep(step.id, 1)}
-                onInstruction={val => setInstruction(step.id, val)}
-                onConfig={cfg => setConfig(step.id, cfg)}
-              />
-            ))}
-
-            {steps.length === 0 && (
-              <div className="rounded-2xl flex flex-col items-center justify-center py-14" style={{ border: '1px dashed rgba(255,255,255,0.08)' }}>
-                <p className="text-gray-600 text-sm mb-1">No steps yet</p>
-                <p className="text-gray-700 text-xs">Click a tool in the palette to add your first step</p>
-              </div>
-            )}
-            {steps.length > 0 && <p className="text-center text-xs text-gray-700 pt-3 pb-2">← Click a tool to add another step</p>}
           </div>
 
-          {/* Bottom bar */}
-          <div className="flex-shrink-0 px-4 py-3 space-y-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}>
-            <input value={context} onChange={e => setContext(e.target.value)}
-              placeholder="Campaign context (optional) — e.g. FitPro online coaching for busy moms, $297/mo"
-              className="field w-full text-xs" />
-            <div className="flex gap-2">
-              <button onClick={isRunning ? stop : run} disabled={!isRunning && !canRun} className="btn-primary flex-1 py-2 text-sm">
-                {isRunning
-                  ? <span className="flex items-center justify-center gap-2"><span className="w-3 h-3 rounded-full border-2 inline-block" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff', animation: 'spin 0.8s linear infinite' }} />Stop</span>
-                  : '▶  Run Workflow'}
-              </button>
-              <button onClick={save} disabled={saving || !wfName.trim() || !steps.length} className="btn-ghost px-4 py-2 text-sm">
-                {saving ? '…' : '💾 Save'}
-              </button>
-              {messages.length > 0 && <button onClick={() => setMessages([])} className="btn-ghost px-3 py-2 text-sm">✕</button>}
+          {/* Hint bar */}
+          {nodes.length > 0 && !connecting && (
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-gray-600 pointer-events-none px-3 py-1 rounded-full"
+              style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              Click a node to configure · Drag the green dot to connect · Click an edge to map fields
             </div>
-            {webhookUrl && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}>
-                <span className="text-xs text-indigo-400 flex-shrink-0">🔗 Webhook</span>
-                <input readOnly value={webhookUrl} className="flex-1 bg-transparent text-xs text-gray-400 outline-none min-w-0" onClick={e => e.target.select()} />
-                <button onClick={copyWebhook} className="text-xs flex-shrink-0 px-2 py-0.5 rounded-md" style={{ color: copyDone ? '#4ade80' : '#818cf8' }}>
-                  {copyDone ? 'Copied!' : 'Copy'}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Live Output ── */}
-        <div className="flex flex-col overflow-hidden" style={{ width: '100%', maxWidth: 360, flexShrink: 0 }}>
-          <div className="px-4 py-3 flex items-center gap-2 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <span className="text-sm">⚡</span>
-            <span className="text-sm font-semibold text-white">Live Output</span>
-            {isRunning && (
-              <span className="ml-auto text-xs text-yellow-400 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />Running…
-              </span>
-            )}
-          </div>
-          <StreamOutput messages={messages} isRunning={isRunning} placeholder={{ icon: '🔀', text: 'Build your workflow and click Run\nClaude executes each step in order' }} />
-        </div>
-
-      </div>
-    </div>
-  );
-}
-
-// ─── Tool Palette ─────────────────────────────────────────────────────────────
-
-function ToolPalette({ enabledKeys, onAdd }) {
-  const tools = [
-    { key: 'ghl', label: 'GHL CRM', icon: '⚡', alwaysOn: true },
-    ...INTEGRATIONS.map(i => ({ key: i.key, label: i.label, icon: i.icon })),
-  ];
-  return (
-    <aside className="flex-shrink-0 md:w-48 md:flex-col md:overflow-y-auto flex flex-row overflow-x-auto border-b md:border-b-0 md:border-r"
-      style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)', scrollbarWidth: 'none' }}>
-      <div className="hidden md:block px-3 pt-3 pb-2 flex-shrink-0">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tool Palette</p>
-        <p className="text-xs text-gray-600 mt-0.5">Click to add a step</p>
-      </div>
-      <div className="flex md:flex-col flex-row gap-1 px-2 py-2 md:pb-3">
-        {tools.map(t => {
-          const enabled = t.alwaysOn || enabledKeys.has(t.key);
-          const color   = TOOL_COLOR[t.key] || '#6366f1';
-          return (
-            <button key={t.key} onClick={() => enabled && onAdd(t.key, t.label, t.icon)}
-              title={enabled ? `Add ${t.label} step` : `Connect ${t.label} in Settings first`}
-              className="flex-shrink-0 flex items-center gap-2 md:gap-2.5 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', opacity: enabled ? 1 : 0.35, cursor: enabled ? 'pointer' : 'not-allowed' }}
-              onMouseOver={e => { if (enabled) e.currentTarget.style.borderColor = `${color}60`; }}
-              onMouseOut={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
-            >
-              <span className="text-base flex-shrink-0">{t.icon}</span>
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-white whitespace-nowrap">{t.label}</div>
-                <div className="text-xs hidden md:block" style={{ color: enabled ? color : '#6b7280' }}>
-                  {enabled ? (t.alwaysOn ? 'Always on' : 'Connected ✓') : 'Not connected'}
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      <div className="hidden md:flex flex-1" />
-      <Link to="/settings" className="hidden md:block text-xs text-center text-indigo-400 hover:text-indigo-300 py-3">+ Connect APIs</Link>
-    </aside>
-  );
-}
-
-// ─── Step Node ────────────────────────────────────────────────────────────────
-
-function StepNode({ step, index, total, context, onDelete, onMoveUp, onMoveDown, onInstruction, onConfig }) {
-  const color = TOOL_COLOR[step.tool] || '#6366f1';
-  const isGHL = step.tool === 'ghl';
-
-  return (
-    <div>
-      {index > 0 && (
-        <div className="flex flex-col items-center py-1">
-          <div className="w-px h-4" style={{ background: 'rgba(255,255,255,0.1)' }} />
-          <span style={{ color: 'rgba(255,255,255,0.15)', fontSize: 11, lineHeight: 1 }}>▼</span>
-        </div>
-      )}
-      <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${color}28`, background: 'rgba(255,255,255,0.02)' }}>
-        {/* Header */}
-        <div className="flex items-center gap-2.5 px-3 py-2.5" style={{ background: `${color}10`, borderBottom: `1px solid ${color}20` }}>
-          <div className="w-5 h-5 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0" style={{ background: color, fontSize: 10 }}>{index + 1}</div>
-          <span className="text-base flex-shrink-0">{step.icon}</span>
-          <span className="text-xs font-semibold text-white flex-1 truncate">{step.label}</span>
-          {isGHL && step.config?.action && (
-            <span className="text-xs px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: `${color}20`, color }}>
-              {GHL_ACTIONS.find(a => a.key === step.config.action)?.label}
-            </span>
           )}
-          <div className="flex items-center gap-0.5 flex-shrink-0">
-            <button onClick={onMoveUp}   disabled={index === 0}          className="text-gray-600 hover:text-gray-300 disabled:opacity-20 w-6 h-6 flex items-center justify-center rounded text-xs">↑</button>
-            <button onClick={onMoveDown} disabled={index === total - 1}  className="text-gray-600 hover:text-gray-300 disabled:opacity-20 w-6 h-6 flex items-center justify-center rounded text-xs">↓</button>
-            <button onClick={onDelete}   className="text-gray-600 hover:text-red-400 w-6 h-6 flex items-center justify-center rounded text-sm">×</button>
-          </div>
+          {connecting && (
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-yellow-400 pointer-events-none px-3 py-1 rounded-full"
+              style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(251,191,36,0.3)' }}>
+              Click an input port (left side of a node) to connect · Press Escape to cancel
+            </div>
+          )}
         </div>
 
-        {/* Body */}
-        <div className="px-3 py-3">
-          {isGHL
-            ? <GHLStepConfig config={step.config || { action: null }} onChange={onConfig} />
-            : (
-              <textarea value={step.instruction} onChange={e => onInstruction(e.target.value)}
-                placeholder={`What should ${step.label} do in this step?`}
-                rows={3} className="w-full bg-transparent text-sm text-gray-300 placeholder-gray-600 outline-none resize-none leading-relaxed" />
-            )
-          }
-        </div>
+        {/* ── Right panel: node config OR field mapping OR output ── */}
+        {(selectedNode || selectedEdge || showOutput) && (
+          <div className="flex-shrink-0 flex flex-col overflow-hidden"
+            style={{ width: 360, borderLeft: '1px solid rgba(255,255,255,0.06)', background: '#0f0f15' }}>
+
+            {selectedNode && !selectedEdge && (
+              <NodeConfigPanel
+                node={selectedNode}
+                onClose={() => setSelectedNode(null)}
+                onChange={(patch) => updateNode(selectedNode.id, patch)}
+                onConfigChange={(cfg) => updateNodeConfig(selectedNode.id, cfg)}
+                onDelete={() => deleteNode(selectedNode.id)}
+              />
+            )}
+
+            {selectedEdge && !selectedNode && (
+              <FieldMappingPanel
+                edge={selectedEdge}
+                nodes={nodes}
+                onClose={() => setSelectedEdge(null)}
+                onDelete={() => deleteEdge(selectedEdge.id)}
+                onSave={(mappings) => updateEdgeMappings(selectedEdge.id, mappings)}
+              />
+            )}
+
+            {showOutput && !selectedNode && !selectedEdge && (
+              <div className="flex flex-col flex-1 overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
+                  style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="text-sm font-semibold text-white flex-1">⚡ Live Output</span>
+                  {isRunning && <span className="text-xs text-yellow-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />Running…</span>}
+                  <button onClick={() => setShowOutput(false)} className="text-gray-600 hover:text-gray-300 text-sm">×</button>
+                </div>
+                <StreamOutput messages={messages} isRunning={isRunning}
+                  placeholder={{ icon:'🔀', text:'Run the workflow to see output here' }} />
+                {webhookUrl && (
+                  <div className="px-3 py-2 flex-shrink-0 flex items-center gap-2"
+                    style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(99,102,241,0.06)' }}>
+                    <span className="text-xs text-indigo-400 flex-shrink-0">🔗</span>
+                    <input readOnly value={webhookUrl} className="flex-1 bg-transparent text-xs text-gray-500 outline-none min-w-0" onClick={e => e.target.select()} />
+                    <button onClick={copyWebhook} className="text-xs flex-shrink-0" style={{ color: copyDone ? '#4ade80' : '#818cf8' }}>{copyDone ? 'Copied!' : 'Copy'}</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ─── GHL Step Config ──────────────────────────────────────────────────────────
+// ─── Canvas Node ──────────────────────────────────────────────────────────────
 
-function GHLStepConfig({ config, onChange }) {
-  const set = (patch) => onChange({ ...config, ...patch });
+function CanvasNode({ node, selected, connecting, onHeaderMouseDown, onOutPort, onInPort, onSelect, onDelete }) {
+  const color  = TOOL_COLOR[node.tool] || '#6366f1';
+  const action = node.config?.action ? GHL_ACTIONS.find(a => a.key === node.config.action) : null;
+
+  return (
+    <div
+      style={{ position: 'absolute', left: node.x, top: node.y, width: NODE_W, zIndex: selected ? 10 : 1 }}
+      onClick={e => { e.stopPropagation(); onSelect(); }}
+    >
+      {/* Input port (left) */}
+      <div
+        onMouseDown={e => e.stopPropagation()}
+        onClick={onInPort}
+        style={{
+          position: 'absolute', left: -PORT_R, top: 24 - PORT_R,
+          width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%',
+          background: '#1f2937', border: `2px solid ${color}`,
+          cursor: connecting ? 'crosshair' : 'default',
+          zIndex: 20, transition: 'transform 0.1s',
+        }}
+        onMouseOver={e => { if (connecting) e.currentTarget.style.transform = 'scale(1.5)'; }}
+        onMouseOut={e  => { e.currentTarget.style.transform = 'scale(1)'; }}
+      />
+
+      {/* Card */}
+      <div style={{
+        borderRadius: 14, overflow: 'hidden',
+        border: `1px solid ${selected ? color : `${color}40`}`,
+        background: '#13131a',
+        boxShadow: selected ? `0 0 0 2px ${color}40` : 'none',
+      }}>
+        {/* Header */}
+        <div
+          onMouseDown={onHeaderMouseDown}
+          style={{ background: `${color}18`, borderBottom: `1px solid ${color}30`, padding: '8px 10px', cursor: 'grab', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 8 }}
+        >
+          <span style={{ fontSize: 14, flexShrink: 0 }}>{node.icon}</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.label}</span>
+          {action && (
+            <span style={{ fontSize: 10, color, background: `${color}20`, padding: '1px 6px', borderRadius: 4, flexShrink: 0 }}>{action.icon} {action.label}</span>
+          )}
+          <button onClick={e => { e.stopPropagation(); onDelete(); }}
+            style={{ color: '#4b5563', fontSize: 14, lineHeight: 1, cursor: 'pointer', background: 'none', border: 'none', padding: 0, flexShrink: 0 }}
+            onMouseOver={e => { e.currentTarget.style.color = '#f87171'; }}
+            onMouseOut={e  => { e.currentTarget.style.color = '#4b5563'; }}
+          >×</button>
+        </div>
+
+        {/* Status line */}
+        <div style={{ padding: '6px 10px', fontSize: 11, color: '#6b7280' }}>
+          {node.tool === 'ghl' && !node.config?.action && <span style={{ color: '#f59e0b' }}>⚠ Click to configure action</span>}
+          {node.tool === 'ghl' && node.config?.action && <span style={{ color: '#86efac' }}>✓ Configured</span>}
+          {node.tool !== 'ghl' && !node.instruction && <span style={{ color: '#f59e0b' }}>⚠ Click to add instruction</span>}
+          {node.tool !== 'ghl' && node.instruction && <span style={{ color: '#86efac', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>✓ {node.instruction.slice(0, 40)}{node.instruction.length > 40 ? '…' : ''}</span>}
+        </div>
+      </div>
+
+      {/* Output port (right) */}
+      <div
+        onMouseDown={e => { e.stopPropagation(); onOutPort(e); }}
+        style={{
+          position: 'absolute', right: -PORT_R, top: 24 - PORT_R,
+          width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%',
+          background: color, border: `2px solid #fff`,
+          cursor: 'crosshair', zIndex: 20, transition: 'transform 0.1s',
+        }}
+        onMouseOver={e => { e.currentTarget.style.transform = 'scale(1.4)'; }}
+        onMouseOut={e  => { e.currentTarget.style.transform = 'scale(1)'; }}
+      />
+    </div>
+  );
+}
+
+// ─── Node Config Panel ────────────────────────────────────────────────────────
+
+function NodeConfigPanel({ node, onClose, onChange, onConfigChange, onDelete }) {
+  const color = TOOL_COLOR[node.tool] || '#6366f1';
+  return (
+    <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <span className="text-base">{node.icon}</span>
+        <span className="text-sm font-semibold text-white flex-1">{node.label}</span>
+        <button onClick={onDelete} className="text-gray-600 hover:text-red-400 text-xs mr-2">Delete</button>
+        <button onClick={onClose} className="text-gray-600 hover:text-gray-300 text-sm">×</button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {node.tool === 'ghl' ? (
+          <GHLConfigInPanel config={node.config || { action: null }} onChange={onConfigChange} color={color} />
+        ) : (
+          <div>
+            <label className="block text-xs text-gray-400 mb-2">Instruction for {node.label}</label>
+            <textarea value={node.instruction} onChange={e => onChange({ instruction: e.target.value })}
+              placeholder={`What should ${node.label} do in this step?`}
+              rows={6} className="field w-full text-sm" style={{ resize: 'vertical' }} />
+            <p className="text-xs text-gray-600 mt-1">
+              Available output fields: {(TOOL_FIELDS[node.tool]?.outputs || []).join(', ')}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── GHL Config In Panel ──────────────────────────────────────────────────────
+
+function GHLConfigInPanel({ config, onChange, color }) {
+  const set = patch => onChange({ ...config, ...patch });
+  const FUNNEL_TYPES_ALL = [
+    { key:'sales',label:'Sales Funnel',pages:[{key:'opt-in',label:'Opt-in',url:'opt-in',req:true},{key:'sales',label:'Sales',url:'sales',req:true},{key:'order',label:'Order',url:'order',req:true},{key:'upsell',label:'Upsell',url:'upsell',req:false},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}]},
+    { key:'webinar',label:'Webinar',pages:[{key:'registration',label:'Registration',url:'register',req:true},{key:'confirmation',label:'Confirmation',url:'confirm',req:true},{key:'replay',label:'Replay',url:'replay',req:false},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}]},
+    { key:'lead-gen',label:'Lead Gen',pages:[{key:'squeeze',label:'Squeeze',url:'get-access',req:true},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}]},
+    { key:'tripwire',label:'Tripwire',pages:[{key:'landing',label:'Landing',url:'landing',req:true},{key:'tripwire',label:'Offer',url:'offer',req:true},{key:'upsell',label:'Upsell',url:'upsell',req:true},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}]},
+    { key:'product-launch',label:'Product Launch',pages:[{key:'prelaunch',label:'Pre-launch',url:'coming-soon',req:true},{key:'launch',label:'Launch',url:'launch',req:true},{key:'order',label:'Order',url:'order',req:true},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}]},
+    { key:'free-trial',label:'Free Trial / SaaS',pages:[{key:'landing',label:'Landing',url:'start',req:true},{key:'signup',label:'Sign Up',url:'sign-up',req:true},{key:'welcome',label:'Welcome',url:'welcome',req:true}]},
+    { key:'membership',label:'Membership',pages:[{key:'sales',label:'Sales',url:'join',req:true},{key:'registration',label:'Registration',url:'register',req:true},{key:'thank-you',label:'Thank You',url:'thank-you',req:true}]},
+  ];
+  const WEBSITE_TYPES_ALL = [
+    { key:'business', label:'Business Website',pages:[{key:'home',label:'Home',url:'home',req:true},{key:'about',label:'About',url:'about',req:true},{key:'services',label:'Services',url:'services',req:true},{key:'contact',label:'Contact',url:'contact',req:true}]},
+    { key:'service',  label:'Service Business',pages:[{key:'home',label:'Home',url:'home',req:true},{key:'services',label:'Services',url:'services',req:true},{key:'faq',label:'FAQ',url:'faq',req:false},{key:'contact',label:'Contact',url:'contact',req:true}]},
+    { key:'portfolio',label:'Portfolio',pages:[{key:'home',label:'Home',url:'home',req:true},{key:'portfolio',label:'Portfolio',url:'work',req:true},{key:'contact',label:'Contact',url:'contact',req:true}]},
+  ];
 
   return (
     <div className="space-y-3">
-      {/* Action type picker */}
       <div>
-        <p className="text-xs text-gray-500 mb-2">Select GHL action</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+        <p className="text-xs text-gray-400 mb-2">GHL Action</p>
+        <div className="grid grid-cols-2 gap-1.5">
           {GHL_ACTIONS.map(a => (
             <button key={a.key} onClick={() => set({ action: a.key })}
-              className="flex flex-col items-center gap-1 rounded-lg py-2 px-1 text-center transition-all"
-              style={{
-                background:  config.action === a.key ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)',
-                border:      `1px solid ${config.action === a.key ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.07)'}`,
-              }}
-            >
-              <span className="text-base leading-none">{a.icon}</span>
-              <span className="text-xs text-white leading-tight">{a.label}</span>
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all text-left"
+              style={{ background: config.action===a.key ? `${color}20` : 'rgba(255,255,255,0.03)', border: `1px solid ${config.action===a.key ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: config.action===a.key ? '#fff' : '#9ca3af' }}>
+              <span>{a.icon}</span><span>{a.label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Action-specific config */}
       {config.action === 'funnel' && (
-        <FunnelConfig config={config} set={set} />
+        <SubTypeConfig label="Funnel type" types={FUNNEL_TYPES_ALL} selected={config.funnelType} selectedPages={config.selectedPages}
+          onType={key => { const ft=FUNNEL_TYPES_ALL.find(f=>f.key===key); set({ funnelType:key, selectedPages: ft?.pages.map(p=>({...p})) || [] }); }}
+          onTogglePage={page => { const cur=config.selectedPages||[]; set({ selectedPages: cur.find(p=>p.key===page.key) ? cur.filter(p=>p.key!==page.key) : [...cur,page] }); }}
+        />
       )}
       {config.action === 'website' && (
-        <WebsiteConfig config={config} set={set} />
+        <SubTypeConfig label="Website type" types={WEBSITE_TYPES_ALL} selected={config.websiteType} selectedPages={config.selectedPages}
+          onType={key => { const wt=WEBSITE_TYPES_ALL.find(w=>w.key===key); set({ websiteType:key, selectedPages: wt?.pages.map(p=>({...p})) || [] }); }}
+          onTogglePage={page => { const cur=config.selectedPages||[]; set({ selectedPages: cur.find(p=>p.key===page.key) ? cur.filter(p=>p.key!==page.key) : [...cur,page] }); }}
+        />
       )}
       {config.action === 'blog' && (
-        <BlogConfig config={config} set={set} />
+        <div>
+          <p className="text-xs text-gray-400 mb-1">Blog type</p>
+          <div className="grid grid-cols-2 gap-1">
+            {BLOG_TYPES.map(bt => (
+              <button key={bt} onClick={() => set({ blogType: bt })}
+                className="text-xs px-2 py-1.5 rounded-lg text-left transition-all"
+                style={{ background: config.blogType===bt ? `${color}20` : 'rgba(255,255,255,0.03)', border:`1px solid ${config.blogType===bt ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: config.blogType===bt ? '#fff' : '#9ca3af' }}>
+                {bt}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
       {config.action === 'email' && (
-        <EmailConfig config={config} set={set} />
+        <div>
+          <p className="text-xs text-gray-400 mb-1">Email types ({(config.emailTypes||[]).length} selected)</p>
+          <div className="grid grid-cols-2 gap-1">
+            {EMAIL_TYPES.map(et => {
+              const on = (config.emailTypes||[]).includes(et);
+              return (
+                <div key={et} onClick={() => { const cur=config.emailTypes||[]; set({ emailTypes: on ? cur.filter(k=>k!==et) : [...cur,et] }); }}
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer text-xs transition-all"
+                  style={{ background: on ? `${color}15` : 'rgba(255,255,255,0.03)', border:`1px solid ${on ? color+'50' : 'rgba(255,255,255,0.07)'}`, color: on ? '#fff' : '#9ca3af' }}>
+                  <span style={{ color: on ? color : '#4b5563', fontWeight:700 }}>{on?'✓':'○'}</span>{et}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
       {config.action === 'pipeline' && (
-        <PipelineConfig config={config} set={set} />
+        <div className="space-y-2">
+          <p className="text-xs text-gray-400">Action</p>
+          {PIPELINE_ACTIONS.map(a => (
+            <div key={a} onClick={() => set({ pipelineAction: a })}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+              style={{ background: config.pipelineAction===a ? `${color}15` : 'rgba(255,255,255,0.03)', border:`1px solid ${config.pipelineAction===a ? color+'50' : 'rgba(255,255,255,0.07)'}`, color: config.pipelineAction===a ? '#fff' : '#9ca3af' }}>
+              <span style={{ color: config.pipelineAction===a ? color : '#4b5563', fontWeight:700 }}>{config.pipelineAction===a?'✓':'○'}</span>{a}
+            </div>
+          ))}
+          <textarea value={config.pipelineDetail||''} onChange={e => set({ pipelineDetail: e.target.value })}
+            placeholder='e.g. "Move contacts tagged lead-hot to Proposal Sent stage"'
+            rows={2} className="field w-full text-xs mt-1" style={{ resize:'none' }} />
+        </div>
       )}
       {config.action === 'contacts' && (
-        <ContactsConfig config={config} set={set} />
+        <div className="space-y-2">
+          <p className="text-xs text-gray-400">Action</p>
+          {CONTACT_ACTIONS.map(a => (
+            <div key={a} onClick={() => set({ contactAction: a })}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+              style={{ background: config.contactAction===a ? `${color}15` : 'rgba(255,255,255,0.03)', border:`1px solid ${config.contactAction===a ? color+'50' : 'rgba(255,255,255,0.07)'}`, color: config.contactAction===a ? '#fff' : '#9ca3af' }}>
+              <span style={{ color: config.contactAction===a ? color : '#4b5563', fontWeight:700 }}>{config.contactAction===a?'✓':'○'}</span>{a}
+            </div>
+          ))}
+          <textarea value={config.contactDetail||''} onChange={e => set({ contactDetail: e.target.value })}
+            placeholder='e.g. "Find all contacts tagged cold-lead and add to re-engagement workflow"'
+            rows={2} className="field w-full text-xs mt-1" style={{ resize:'none' }} />
+        </div>
       )}
       {config.action === 'social' && (
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">What to post about</label>
-          <textarea value={config.socialDetail || ''} onChange={e => set({ socialDetail: e.target.value })}
-            placeholder='e.g. "Promote the new sales funnel launch. Create 3 posts with different angles."'
-            rows={2} className="w-full bg-transparent text-sm text-gray-300 placeholder-gray-600 outline-none resize-none leading-relaxed field" />
-        </div>
+        <textarea value={config.socialDetail||''} onChange={e => set({ socialDetail: e.target.value })}
+          placeholder='e.g. "Create 3 posts promoting the funnel launch across all connected accounts"'
+          rows={3} className="field w-full text-xs" style={{ resize:'none' }} />
       )}
       {config.action === 'custom' && (
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">Custom GHL instruction</label>
-          <textarea value={config.customInstruction || ''} onChange={e => set({ customInstruction: e.target.value })}
-            placeholder="Describe what Claude should do with GHL in this step…"
-            rows={3} className="w-full bg-transparent text-sm text-gray-300 placeholder-gray-600 outline-none resize-none leading-relaxed field" />
+        <textarea value={config.customInstruction||''} onChange={e => set({ customInstruction: e.target.value })}
+          placeholder="Describe what Claude should do with GHL in this step…"
+          rows={4} className="field w-full text-sm" style={{ resize:'none' }} />
+      )}
+    </div>
+  );
+}
+
+function SubTypeConfig({ label, types, selected, selectedPages, onType, onTogglePage }) {
+  const tmpl = types.find(t => t.key === selected);
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-gray-400">{label}</p>
+      <div className="grid grid-cols-2 gap-1">
+        {types.map(t => (
+          <button key={t.key} onClick={() => onType(t.key)}
+            className="text-xs px-2 py-1.5 rounded-lg text-left transition-all"
+            style={{ background: selected===t.key ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)', border:`1px solid ${selected===t.key ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.07)'}`, color: selected===t.key ? '#86efac' : '#9ca3af' }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tmpl && (
+        <>
+          <p className="text-xs text-gray-400 mt-1">Pages</p>
+          <div className="grid grid-cols-2 gap-1">
+            {tmpl.pages.map(page => {
+              const checked = !!(selectedPages||[]).find(p=>p.key===page.key);
+              return (
+                <div key={page.key} onClick={() => !page.req && onTogglePage(page)}
+                  className="flex items-center gap-1.5 rounded px-2 py-1.5 text-xs transition-all"
+                  style={{ background: checked ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)', border:`1px solid ${checked ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.06)'}`, color: checked ? '#86efac' : '#9ca3af', cursor: page.req ? 'default' : 'pointer' }}>
+                  <span style={{ color: checked ? '#22c55e' : '#4b5563', fontWeight:700 }}>{checked?'✓':'○'}</span>
+                  <span className="truncate">{page.label}</span>
+                  {page.req && <span className="text-gray-700 ml-auto text-xs flex-shrink-0">req</span>}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Field Mapping Panel ──────────────────────────────────────────────────────
+
+function FieldMappingPanel({ edge, nodes, onClose, onDelete, onSave }) {
+  const fromNode = nodes.find(n => n.id === edge.fromNodeId);
+  const toNode   = nodes.find(n => n.id === edge.toNodeId);
+  const [mappings, setMappings] = useState(edge.mappings || []);
+  const [pending,  setPending]  = useState(null); // field being connected from source
+
+  if (!fromNode || !toNode) return null;
+
+  const fromFields = TOOL_FIELDS[fromNode.tool]?.outputs || [];
+  const toFields   = TOOL_FIELDS[toNode.tool]?.inputs   || [];
+
+  const fromColor = TOOL_COLOR[fromNode.tool] || '#6366f1';
+  const toColor   = TOOL_COLOR[toNode.tool]   || '#6366f1';
+
+  function clickFrom(field) {
+    setPending(field);
+  }
+
+  function clickTo(field) {
+    if (!pending) return;
+    // Replace existing mapping to same target or from same source
+    const next = mappings.filter(m => m.from !== pending && m.to !== field);
+    setMappings([...next, { from: pending, to: field }]);
+    setPending(null);
+  }
+
+  function removeMapping(m) {
+    setMappings(prev => prev.filter(x => !(x.from === m.from && x.to === m.to)));
+  }
+
+  function save() {
+    onSave(mappings);
+  }
+
+  return (
+    <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <span className="text-sm font-semibold text-white flex-1">Field Mapping</span>
+        <button onClick={onDelete} className="text-gray-600 hover:text-red-400 text-xs mr-2">Delete edge</button>
+        <button onClick={onClose} className="text-gray-600 hover:text-gray-300 text-sm">×</button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex items-center gap-2 mb-3 text-xs text-gray-500">
+          <span style={{ color: fromColor }}>{fromNode.icon} {fromNode.label}</span>
+          <span>→</span>
+          <span style={{ color: toColor }}>{toNode.icon} {toNode.label}</span>
         </div>
-      )}
-    </div>
-  );
-}
 
-function PageChecklist({ pages, selectedPages, onToggle }) {
-  return (
-    <div className="grid grid-cols-2 gap-1.5 mt-2">
-      {pages.map(page => {
-        const checked = !!selectedPages?.find(p => p.key === page.key);
-        return (
-          <div key={page.key} onClick={() => !page.req && onToggle(page)}
-            className="flex items-center gap-2 rounded-lg px-2.5 py-2 transition-all"
-            style={{
-              background: checked ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
-              border:     `1px solid ${checked ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.06)'}`,
-              cursor:     page.req ? 'default' : 'pointer',
-              opacity:    page.req ? 1 : 0.9,
-            }}>
-            <div className="w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0"
-              style={{ background: checked ? '#22c55e' : 'rgba(255,255,255,0.08)', border: `1px solid ${checked ? '#22c55e' : 'rgba(255,255,255,0.2)'}` }}>
-              {checked && <span style={{ color: '#fff', fontSize: '0.55rem', fontWeight: 700 }}>✓</span>}
-            </div>
-            <span className="text-xs text-white truncate">{page.label}</span>
-            {page.req && <span className="text-xs text-gray-700 ml-auto flex-shrink-0">req</span>}
+        {pending && (
+          <div className="mb-3 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24' }}>
+            "{pending}" selected — now click a field on the right to map it →
           </div>
-        );
-      })}
-    </div>
-  );
-}
+        )}
 
-function FunnelConfig({ config, set }) {
-  const tmpl = FUNNEL_TYPES.find(f => f.key === config.funnelType);
-  const togglePage = (page) => {
-    const current = config.selectedPages || [];
-    const next = current.find(p => p.key === page.key) ? current.filter(p => p.key !== page.key) : [...current, page];
-    set({ selectedPages: next });
-  };
-  const pickType = (key) => {
-    const ft = FUNNEL_TYPES.find(f => f.key === key);
-    set({ funnelType: key, selectedPages: ft ? ft.pages.map(p => ({ ...p })) : [] });
-  };
-  return (
-    <div className="space-y-2">
-      <label className="block text-xs text-gray-400">Funnel type</label>
-      <div className="grid grid-cols-2 gap-1.5">
-        {FUNNEL_TYPES.map(ft => (
-          <button key={ft.key} onClick={() => pickType(ft.key)}
-            className="text-left text-xs px-2.5 py-2 rounded-lg transition-all"
-            style={{ background: config.funnelType === ft.key ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${config.funnelType === ft.key ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.06)'}`, color: config.funnelType === ft.key ? '#86efac' : '#9ca3af' }}>
-            {ft.label}
-          </button>
-        ))}
-      </div>
-      {tmpl && (
-        <>
-          <label className="block text-xs text-gray-400 mt-1">Pages to create</label>
-          <PageChecklist pages={tmpl.pages} selectedPages={config.selectedPages} onToggle={togglePage} />
-        </>
-      )}
-    </div>
-  );
-}
-
-function WebsiteConfig({ config, set }) {
-  const tmpl = WEBSITE_TYPES.find(w => w.key === config.websiteType);
-  const togglePage = (page) => {
-    const current = config.selectedPages || [];
-    const next = current.find(p => p.key === page.key) ? current.filter(p => p.key !== page.key) : [...current, page];
-    set({ selectedPages: next });
-  };
-  const pickType = (key) => {
-    const wt = WEBSITE_TYPES.find(w => w.key === key);
-    set({ websiteType: key, selectedPages: wt ? wt.pages.map(p => ({ ...p })) : [] });
-  };
-  return (
-    <div className="space-y-2">
-      <label className="block text-xs text-gray-400">Website type</label>
-      <div className="grid grid-cols-2 gap-1.5">
-        {WEBSITE_TYPES.map(wt => (
-          <button key={wt.key} onClick={() => pickType(wt.key)}
-            className="text-left text-xs px-2.5 py-2 rounded-lg transition-all"
-            style={{ background: config.websiteType === wt.key ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${config.websiteType === wt.key ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.06)'}`, color: config.websiteType === wt.key ? '#86efac' : '#9ca3af' }}>
-            {wt.label}
-          </button>
-        ))}
-      </div>
-      {tmpl && (
-        <>
-          <label className="block text-xs text-gray-400 mt-1">Pages to create</label>
-          <PageChecklist pages={tmpl.pages} selectedPages={config.selectedPages} onToggle={togglePage} />
-        </>
-      )}
-    </div>
-  );
-}
-
-function BlogConfig({ config, set }) {
-  return (
-    <div className="space-y-2">
-      <label className="block text-xs text-gray-400">Blog post type</label>
-      <div className="grid grid-cols-2 gap-1.5">
-        {BLOG_TYPES.map(bt => (
-          <button key={bt.key} onClick={() => set({ blogType: bt.key })}
-            className="text-left text-xs px-2.5 py-2 rounded-lg transition-all"
-            style={{ background: config.blogType === bt.key ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${config.blogType === bt.key ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.06)'}`, color: config.blogType === bt.key ? '#86efac' : '#9ca3af' }}>
-            {bt.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EmailConfig({ config, set }) {
-  const toggleType = (key) => {
-    const current = config.emailTypes || [];
-    const next = current.includes(key) ? current.filter(k => k !== key) : [...current, key];
-    set({ emailTypes: next });
-  };
-  return (
-    <div className="space-y-2">
-      <label className="block text-xs text-gray-400">Emails to generate ({(config.emailTypes || []).length} selected)</label>
-      <div className="grid grid-cols-2 gap-1.5">
-        {EMAIL_TYPES.map(et => {
-          const on = (config.emailTypes || []).includes(et.key);
-          return (
-            <div key={et.key} onClick={() => toggleType(et.key)}
-              className="flex items-center gap-2 rounded-lg px-2.5 py-2 cursor-pointer transition-all"
-              style={{ background: on ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)', border: `1px solid ${on ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.06)'}` }}>
-              <div className="w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0"
-                style={{ background: on ? '#22c55e' : 'rgba(255,255,255,0.08)', border: `1px solid ${on ? '#22c55e' : 'rgba(255,255,255,0.2)'}` }}>
-                {on && <span style={{ color: '#fff', fontSize: '0.55rem', fontWeight: 700 }}>✓</span>}
-              </div>
-              <span className="text-xs text-white">{et.label}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function PipelineConfig({ config, set }) {
-  return (
-    <div className="space-y-2">
-      <label className="block text-xs text-gray-400">Pipeline action</label>
-      <div className="space-y-1.5">
-        {PIPELINE_ACTIONS.map(pa => (
-          <div key={pa.key} onClick={() => set({ pipelineAction: pa.key })}
-            className="flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer transition-all"
-            style={{ background: config.pipelineAction === pa.key ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)', border: `1px solid ${config.pipelineAction === pa.key ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.06)'}` }}>
-            <div className="w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0"
-              style={{ background: config.pipelineAction === pa.key ? '#22c55e' : 'rgba(255,255,255,0.08)', border: `1px solid ${config.pipelineAction === pa.key ? '#22c55e' : 'rgba(255,255,255,0.2)'}` }}>
-              {config.pipelineAction === pa.key && <span style={{ color: '#fff', fontSize: '0.55rem', fontWeight: 700 }}>✓</span>}
-            </div>
-            <div>
-              <div className="text-xs text-white">{pa.label}</div>
-              <div className="text-xs text-gray-600">{pa.desc}</div>
+        {/* Two-column mapping */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          {/* From fields */}
+          <div>
+            <p className="text-xs font-semibold mb-2" style={{ color: fromColor }}>
+              {fromNode.icon} From: {fromNode.label}
+            </p>
+            <div className="space-y-1">
+              {fromFields.map(f => {
+                const isMapped  = mappings.some(m => m.from === f);
+                const isPending = pending === f;
+                return (
+                  <button key={f} onClick={() => clickFrom(f)}
+                    className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all"
+                    style={{
+                      background:  isPending ? `${fromColor}30` : isMapped ? `${fromColor}15` : 'rgba(255,255,255,0.03)',
+                      border:      `1px solid ${isPending ? fromColor : isMapped ? fromColor+'50' : 'rgba(255,255,255,0.07)'}`,
+                      color:       isMapped || isPending ? '#fff' : '#9ca3af',
+                    }}>
+                    {isMapped && <span style={{ color: fromColor, marginRight: 4 }}>→</span>}
+                    {f}
+                  </button>
+                );
+              })}
             </div>
           </div>
-        ))}
-      </div>
-      <textarea value={config.pipelineDetail || ''} onChange={e => set({ pipelineDetail: e.target.value })}
-        placeholder='e.g. "Move all contacts tagged lead-hot to Proposal Sent stage"'
-        rows={2} className="w-full bg-transparent text-sm text-gray-300 placeholder-gray-600 outline-none resize-none leading-relaxed field mt-1" />
-    </div>
-  );
-}
 
-function ContactsConfig({ config, set }) {
-  return (
-    <div className="space-y-2">
-      <label className="block text-xs text-gray-400">Contact action</label>
-      <div className="space-y-1.5">
-        {CONTACT_ACTIONS.map(ca => (
-          <div key={ca.key} onClick={() => set({ contactAction: ca.key })}
-            className="flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer transition-all"
-            style={{ background: config.contactAction === ca.key ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)', border: `1px solid ${config.contactAction === ca.key ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.06)'}` }}>
-            <div className="w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0"
-              style={{ background: config.contactAction === ca.key ? '#22c55e' : 'rgba(255,255,255,0.08)', border: `1px solid ${config.contactAction === ca.key ? '#22c55e' : 'rgba(255,255,255,0.2)'}` }}>
-              {config.contactAction === ca.key && <span style={{ color: '#fff', fontSize: '0.55rem', fontWeight: 700 }}>✓</span>}
-            </div>
-            <div>
-              <div className="text-xs text-white">{ca.label}</div>
-              <div className="text-xs text-gray-600">{ca.desc}</div>
+          {/* To fields */}
+          <div>
+            <p className="text-xs font-semibold mb-2" style={{ color: toColor }}>
+              {toNode.icon} To: {toNode.label}
+            </p>
+            <div className="space-y-1">
+              {toFields.map(f => {
+                const mapping   = mappings.find(m => m.to === f);
+                const isMapped  = !!mapping;
+                return (
+                  <button key={f} onClick={() => clickTo(f)}
+                    className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all"
+                    style={{
+                      background:  isMapped ? `${toColor}15` : pending ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.03)',
+                      border:      `1px solid ${isMapped ? toColor+'50' : pending ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.07)'}`,
+                      color:       isMapped ? '#fff' : '#9ca3af',
+                      cursor:      pending ? 'pointer' : 'default',
+                    }}>
+                    {isMapped && <span style={{ color: toColor, marginRight: 4 }}>←</span>}
+                    {f}
+                    {isMapped && <span style={{ color: '#6b7280', marginLeft: 4 }}>({mapping.from})</span>}
+                  </button>
+                );
+              })}
             </div>
           </div>
-        ))}
+        </div>
+
+        {/* Active mappings */}
+        {mappings.length > 0 && (
+          <div>
+            <p className="text-xs text-gray-500 mb-2">Active mappings</p>
+            <div className="space-y-1">
+              {mappings.map((m, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg"
+                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <span style={{ color: fromColor }}>{m.from}</span>
+                  <span className="text-gray-600">→</span>
+                  <span style={{ color: toColor }}>{m.to}</span>
+                  <button onClick={() => removeMapping(m)} className="ml-auto text-gray-600 hover:text-red-400">×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {mappings.length === 0 && !pending && (
+          <p className="text-xs text-gray-600 text-center py-3">Click a field on the left, then click a field on the right to create a mapping.</p>
+        )}
       </div>
-      <textarea value={config.contactDetail || ''} onChange={e => set({ contactDetail: e.target.value })}
-        placeholder='e.g. "Search for contacts tagged lead and add them to the nurture workflow"'
-        rows={2} className="w-full bg-transparent text-sm text-gray-300 placeholder-gray-600 outline-none resize-none leading-relaxed field mt-1" />
+
+      <div className="px-4 pb-4 flex-shrink-0">
+        <button onClick={save} className="btn-primary w-full py-2 text-sm">Save Mappings</button>
+      </div>
     </div>
   );
 }
