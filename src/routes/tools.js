@@ -26,6 +26,8 @@ const toolTokenService = require('../services/toolTokenService');
 const tokenStore       = require('../services/tokenStore');
 const toolRegistry     = require('../tools/toolRegistry');
 const activityLogger   = require('../services/activityLogger');
+const planTierStore    = require('../services/planTierStore');
+const billingStore     = require('../services/billingStore');
 const config           = require('../config');
 
 router.use(authenticate);
@@ -74,13 +76,33 @@ router.get('/', async (req, res) => {
     const configs = await toolRegistry.getToolConfig(req.locationId);
     const enabled = new Set(await toolRegistry.getEnabledIntegrations(req.locationId));
 
-    const list = allMeta.map((meta) => ({
-      ...meta,
-      enabled:       enabled.has(meta.key),
-      configPreview: enabled.has(meta.key) ? maskConfig(configs[meta.key]) : null,
-    }));
+    // Tier info
+    let tierKey = 'bronze';
+    let tierCfg = null;
+    try {
+      const billing = await billingStore.getBilling(req.locationId);
+      tierKey = billing?.tier || 'bronze';
+      tierCfg = await planTierStore.getTier(tierKey);
+    } catch { /* non-fatal */ }
 
-    res.json({ success: true, data: list });
+    const list = allMeta.map((meta) => {
+      const isEnabled    = enabled.has(meta.key);
+      const tierAllowed  = !tierCfg || tierCfg.allowedIntegrations === null || (Array.isArray(tierCfg.allowedIntegrations) && tierCfg.allowedIntegrations.includes(meta.key));
+      const limitReached = !isEnabled && tierCfg && tierCfg.integrationLimit !== -1 && enabled.size >= tierCfg.integrationLimit;
+      return {
+        ...meta,
+        enabled:       isEnabled,
+        configPreview: isEnabled ? maskConfig(configs[meta.key]) : null,
+        tierLocked:    !isEnabled && (!tierAllowed || limitReached),
+        tierReason:    !isEnabled && !tierAllowed
+          ? `Not available on ${tierCfg?.name || 'your'} plan`
+          : !isEnabled && limitReached
+            ? `${tierCfg?.name || 'Your'} plan limit reached (${tierCfg?.integrationLimit} max)`
+            : null,
+      };
+    });
+
+    res.json({ success: true, data: list, tier: tierKey, tierConfig: tierCfg });
   } catch (err) {
     console.error('[Tools] GET / error:', err.message);
     res.status(500).json({ success: false, error: 'Failed to list integrations.' });
@@ -265,6 +287,24 @@ router.post('/:category', async (req, res) => {
 
   if (Object.keys(filtered).length === 0) {
     return res.status(400).json({ success: false, error: 'No valid config fields provided.' });
+  }
+
+  // ── Tier enforcement ──────────────────────────────────────────────────────
+  try {
+    const billing        = await billingStore.getBilling(req.locationId);
+    const tierKey        = billing?.tier || 'bronze';
+    const currentEnabled = await toolRegistry.getEnabledIntegrations(req.locationId);
+    // Only count if this is a new integration (not already enabled)
+    const alreadyEnabled = currentEnabled.includes(category);
+    if (!alreadyEnabled) {
+      const { allowed, reason } = await planTierStore.checkTierAccess(tierKey, category, currentEnabled.length);
+      if (!allowed) {
+        return res.status(403).json({ success: false, error: reason, tierLocked: true });
+      }
+    }
+  } catch (tierErr) {
+    console.warn('[Tools] Tier check failed (non-fatal):', tierErr.message);
+    // Non-fatal — allow the connection if tier check fails
   }
 
   try {

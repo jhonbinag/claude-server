@@ -144,6 +144,22 @@ export default function Admin() {
   const [billingModal,    setBillingModal]    = useState(null); // { type, locationId, data }
   const [billingLoading,  setBillingLoading]  = useState(false);
 
+  // Plan Tiers state
+  const [tiers,        setTiers]        = useState(null);
+  const [tiersLoading, setTiersLoading] = useState(false);
+  const [tierModal,    setTierModal]    = useState(null); // { tier, data }
+
+  // All available integration keys (hardcoded to match backend)
+  const ALL_INTEGRATIONS = [
+    { key: 'perplexity',   label: 'Perplexity AI',  icon: '🔍' },
+    { key: 'openai',       label: 'OpenAI',          icon: '✨' },
+    { key: 'facebook_ads', label: 'Facebook Ads',    icon: '📘' },
+    { key: 'sendgrid',     label: 'SendGrid',         icon: '📧' },
+    { key: 'slack',        label: 'Slack',            icon: '💬' },
+    { key: 'apollo',       label: 'Apollo.io',        icon: '🚀' },
+    { key: 'heygen',       label: 'HeyGen',           icon: '🎬' },
+  ];
+
   // ── Auth ─────────────────────────────────────────────────────────────────
 
   const login = async (key) => {
@@ -211,6 +227,13 @@ export default function Admin() {
     setBillingLoading(false);
   }, [adminKey]);
 
+  const loadTiers = useCallback(async () => {
+    setTiersLoading(true);
+    const data = await adminFetch('/admin/plan-tiers', { adminKey });
+    if (data.success) setTiers(data.data);
+    setTiersLoading(false);
+  }, [adminKey]);
+
   useEffect(() => {
     if (!authed) return;
     if (tab === 'overview')     loadStats();
@@ -218,6 +241,7 @@ export default function Admin() {
     if (tab === 'logs')         loadLogs();
     if (tab === 'app-settings') loadAppSettings();
     if (tab === 'billing')      loadBilling();
+    if (tab === 'plan-tiers')   loadTiers();
   }, [authed, tab]); // eslint-disable-line
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -399,6 +423,7 @@ export default function Admin() {
             { key: 'locations',    label: 'Locations' },
             { key: 'logs',         label: 'Logs' },
             { key: 'billing',      label: '💳 Billing' },
+            { key: 'plan-tiers',   label: '🏅 Plan Tiers' },
             { key: 'app-settings', label: '⚙️ App Settings' },
           ].map((t) => (
             <button key={t.key} onClick={() => setTab(t.key)} style={TAB_STYLE(tab === t.key)}>
@@ -859,6 +884,107 @@ export default function Admin() {
           </div>
         )}
 
+        {/* ── Plan Tiers Tab ────────────────────────────────────────── */}
+        {tab === 'plan-tiers' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <h3 style={{ color: '#fff', margin: '0 0 4px', fontSize: 16 }}>🏅 Plan Tiers</h3>
+                <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
+                  Configure which integrations are available per tier. Assign tiers to locations via the Billing tab.
+                </p>
+              </div>
+              <button onClick={loadTiers} style={{ background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Reload</button>
+            </div>
+
+            {tiersLoading && <p style={{ color: '#6b7280', fontSize: 13 }}>Loading tiers…</p>}
+
+            {tiers && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+                {['bronze', 'silver', 'gold', 'diamond'].map(tierKey => {
+                  const tier = tiers[tierKey];
+                  if (!tier) return null;
+                  const tierColor = { bronze: '#cd7f32', silver: '#9ca3af', gold: '#fbbf24', diamond: '#a78bfa' }[tierKey];
+                  return (
+                    <div key={tierKey} style={{ background: '#1a1a1a', border: `1px solid ${tierColor}44`, borderRadius: 12, padding: 20 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: 22 }}>{tier.icon}</span>
+                            <span style={{ color: tierColor, fontWeight: 700, fontSize: 16 }}>{tier.name}</span>
+                          </div>
+                          <p style={{ color: '#9ca3af', fontSize: 12, margin: 0 }}>{tier.description}</p>
+                        </div>
+                        <button
+                          onClick={() => setTierModal({ tier: tierKey, data: { ...tier } })}
+                          style={{ background: 'none', border: `1px solid ${tierColor}55`, borderRadius: 6, color: tierColor, padding: '4px 12px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+                        >✏️ Edit</button>
+                      </div>
+
+                      <div style={{ marginBottom: 10 }}>
+                        <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>
+                          Integration Limit
+                        </p>
+                        <span style={{ color: tierColor, fontWeight: 700, fontSize: 20 }}>
+                          {tier.integrationLimit === -1 ? '∞' : tier.integrationLimit}
+                        </span>
+                        <span style={{ color: '#6b7280', fontSize: 12, marginLeft: 4 }}>
+                          {tier.integrationLimit === -1 ? 'unlimited' : `max`}
+                        </span>
+                      </div>
+
+                      <div>
+                        <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>
+                          Allowed Integrations
+                        </p>
+                        {tier.allowedIntegrations === null ? (
+                          <span style={{ color: '#4ade80', fontSize: 12 }}>✓ All integrations</span>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {ALL_INTEGRATIONS.map(({ key, label, icon }) => {
+                              const allowed = tier.allowedIntegrations?.includes(key);
+                              return (
+                                <span
+                                  key={key}
+                                  style={{
+                                    padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+                                    background: allowed ? `${tierColor}22` : '#1e1e1e',
+                                    color: allowed ? tierColor : '#4b5563',
+                                    border: `1px solid ${allowed ? tierColor + '44' : '#2a2a2a'}`,
+                                  }}
+                                >
+                                  {icon} {label}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Tier Edit Modal */}
+            {tierModal && (
+              <TierEditModal
+                tierKey={tierModal.tier}
+                data={tierModal.data}
+                allIntegrations={ALL_INTEGRATIONS}
+                adminKey={adminKey}
+                onClose={() => setTierModal(null)}
+                onSaved={(tierKey, saved) => {
+                  setTierModal(null);
+                  flash(`✓ ${saved.name} tier updated`);
+                  setTiers(prev => ({ ...prev, [tierKey]: saved }));
+                }}
+                onFlash={flash}
+              />
+            )}
+          </div>
+        )}
+
       </div>
 
       {/* Admin Edit Modals */}
@@ -904,6 +1030,7 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
   const [form, setForm] = useState({
     locationId:  modal.data?.locationId || modal.locationId || '',
     plan:        modal.data?.plan       || 'trial',
+    tier:        modal.data?.tier       || 'bronze',
     status:      modal.data?.status     || 'trial',
     amount:      modal.data?.amount     ?? '',
     currency:    modal.data?.currency   || 'usd',
@@ -929,7 +1056,7 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
         res = await adminFetch(`/admin/billing/${locId}`, {
           method: 'POST', adminKey,
           body: {
-            plan: form.plan, status: form.status,
+            plan: form.plan, tier: form.tier, status: form.status,
             amount: form.amount !== '' ? Number(form.amount) : undefined,
             currency: form.currency, interval: form.interval, notes: form.notes,
           },
@@ -982,6 +1109,14 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
             <label style={lbl}>Plan</label>
             <select style={sel} value={form.plan} onChange={e => set('plan', e.target.value)}>
               {['trial', 'starter', 'pro', 'agency'].map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+            </select>
+
+            <label style={lbl}>Tier (Integration Access)</label>
+            <select style={sel} value={form.tier} onChange={e => set('tier', e.target.value)}>
+              <option value="bronze">🥉 Bronze — 2 integrations</option>
+              <option value="silver">🥈 Silver — 6 integrations</option>
+              <option value="gold">🥇 Gold — 10 integrations</option>
+              <option value="diamond">💎 Diamond — Unlimited</option>
             </select>
 
             <label style={lbl}>Status</label>
@@ -1408,6 +1543,148 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Tier Edit Modal ────────────────────────────────────────────────────────────
+
+function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSaved, onFlash }) {
+  const tierColor = { bronze: '#cd7f32', silver: '#9ca3af', gold: '#fbbf24', diamond: '#a78bfa' }[tierKey] || '#9ca3af';
+
+  const [name,             setName]             = useState(data.name || '');
+  const [icon,             setIcon]             = useState(data.icon || '');
+  const [description,      setDescription]      = useState(data.description || '');
+  const [integrationLimit, setIntegrationLimit] = useState(data.integrationLimit ?? 2);
+  const [unlimited,        setUnlimited]        = useState(data.integrationLimit === -1);
+  const [allAllowed,       setAllAllowed]        = useState(data.allowedIntegrations === null);
+  const [selected,         setSelected]         = useState(() =>
+    data.allowedIntegrations === null
+      ? new Set(allIntegrations.map(i => i.key))
+      : new Set(data.allowedIntegrations || [])
+  );
+  const [saving, setSaving] = useState(false);
+
+  const toggleIntegration = (key) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const body = {
+        name:                name.trim() || data.name,
+        icon:                icon.trim() || data.icon,
+        description:         description.trim(),
+        integrationLimit:    unlimited ? -1 : Number(integrationLimit),
+        allowedIntegrations: allAllowed ? null : [...selected],
+      };
+      const res = await adminFetch(`/admin/plan-tiers/${tierKey}`, { method: 'POST', adminKey, body });
+      if (res.success) onSaved(tierKey, res.data);
+      else onFlash(`✗ ${res.error || 'Save failed'}`);
+    } catch { onFlash('✗ Request failed'); }
+    setSaving(false);
+  };
+
+  const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 };
+  const box     = { background: '#1a1a1a', border: `1px solid ${tierColor}55`, borderRadius: 12, padding: 24, width: 'min(520px, 100%)', maxHeight: '90vh', overflowY: 'auto' };
+  const inp     = { width: '100%', padding: '8px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, boxSizing: 'border-box', marginBottom: 12 };
+  const lbl     = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 };
+
+  return (
+    <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={box}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ color: tierColor, margin: 0, fontSize: 16 }}>{data.icon} Edit {data.name} Tier</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20 }}>×</button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 8, marginBottom: 12 }}>
+          <div>
+            <label style={lbl}>Tier Name</label>
+            <input style={inp} value={name} onChange={e => setName(e.target.value)} placeholder={data.name} />
+          </div>
+          <div>
+            <label style={lbl}>Icon</label>
+            <input style={inp} value={icon} onChange={e => setIcon(e.target.value)} placeholder={data.icon} />
+          </div>
+        </div>
+
+        <label style={lbl}>Description</label>
+        <input style={inp} value={description} onChange={e => setDescription(e.target.value)} placeholder="Plan description…" />
+
+        {/* Integration limit */}
+        <label style={lbl}>Integration Limit</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: '#e5e7eb' }}>
+            <input type="checkbox" checked={unlimited} onChange={e => setUnlimited(e.target.checked)} />
+            Unlimited (Diamond)
+          </label>
+          {!unlimited && (
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={integrationLimit}
+              onChange={e => setIntegrationLimit(e.target.value)}
+              style={{ ...inp, width: 80, marginBottom: 0 }}
+            />
+          )}
+        </div>
+
+        {/* Allowed integrations */}
+        <label style={lbl}>Allowed Integrations</label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: '#e5e7eb', marginBottom: 12 }}>
+          <input type="checkbox" checked={allAllowed} onChange={e => {
+            setAllAllowed(e.target.checked);
+            if (e.target.checked) setSelected(new Set(allIntegrations.map(i => i.key)));
+          }} />
+          All integrations (unlimited access)
+        </label>
+
+        {!allAllowed && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+            {allIntegrations.map(({ key, label, icon: iIcon }) => {
+              const checked = selected.has(key);
+              return (
+                <label
+                  key={key}
+                  onClick={() => toggleIntegration(key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8,
+                    cursor: 'pointer', fontSize: 13,
+                    background: checked ? `${tierColor}18` : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${checked ? tierColor + '55' : 'rgba(255,255,255,0.08)'}`,
+                    color: checked ? tierColor : '#6b7280',
+                    userSelect: 'none',
+                  }}
+                >
+                  <input type="checkbox" checked={checked} onChange={() => {}} style={{ accentColor: tierColor }} />
+                  <span>{iIcon}</span>
+                  <span>{label}</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={save}
+            disabled={saving}
+            style={{ flex: 1, padding: '10px', background: tierColor, border: 'none', borderRadius: 8, color: '#000', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}
+          >
+            {saving ? 'Saving…' : `Save ${data.name} Tier`}
+          </button>
+          <button onClick={onClose} style={{ padding: '10px 20px', background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}>
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

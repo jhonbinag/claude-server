@@ -33,6 +33,7 @@ export default function Settings() {
   const [editMode,    setEditMode]    = useState({});
   const [tokenStatus, setTokenStatus] = useState(null);
   const [reconnecting, setReconnecting] = useState(false);
+  const [tierInfo,     setTierInfo]     = useState(null); // { tier, tierConfig, data (per key) }
 
   // Anthropic key state
   const [anthropicKey,     setAnthropicKey]     = useState('');
@@ -57,6 +58,17 @@ export default function Settings() {
   useEffect(() => {
     api.getWithKey('/tools/sync', apiKey)
       .then(d => { if (d.success) setTokenStatus(d); })
+      .catch(() => {});
+  }, [apiKey]);
+
+  useEffect(() => {
+    api.getWithKey('/tools', apiKey)
+      .then(d => {
+        if (d.success) {
+          const byKey = Object.fromEntries((d.data || []).map(i => [i.key, i]));
+          setTierInfo({ tier: d.tier, tierConfig: d.tierConfig, byKey });
+        }
+      })
       .catch(() => {});
   }, [apiKey]);
 
@@ -405,8 +417,11 @@ export default function Settings() {
           {INTEGRATIONS.map(cfg => {
             const sv      = serverMap[cfg.key] || {};
             const enabled = sv.enabled || false;
-            const isOpen  = expanded[cfg.key] || false;
-            const tr      = testResults[cfg.key];
+            const isOpen     = expanded[cfg.key] || false;
+            const tr         = testResults[cfg.key];
+            const tierEntry  = tierInfo?.byKey?.[cfg.key];
+            const tierLocked = !enabled && tierEntry?.tierLocked;
+            const tierReason = tierEntry?.tierReason;
 
             // Detect if any field is currently being edited
             const anyEditing = cfg.fields.some(f => isEditing(cfg.key, f.key));
@@ -414,25 +429,37 @@ export default function Settings() {
             const hasChanges = cfg.fields.some(f => getFormVal(cfg.key, f.key).trim());
 
             return (
-              <div key={cfg.key} className={`card p-5${enabled ? ' connected' : ''}`}>
+              <div
+                key={cfg.key}
+                className={`card p-5${enabled ? ' connected' : ''}`}
+                style={tierLocked ? { opacity: 0.65, border: '1px solid rgba(255,255,255,0.06)' } : {}}
+              >
 
                 {/* ── Card header ─────────────────────────────────────── */}
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <div
                       className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
-                      style={{ background: cfg.color }}
+                      style={{ background: tierLocked ? 'rgba(255,255,255,0.04)' : cfg.color }}
                     >
-                      {cfg.icon}
+                      {tierLocked ? '🔒' : cfg.icon}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-white text-sm">{cfg.label}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${enabled ? 'badge-on' : 'badge-off'}`}>
-                          {enabled ? 'Connected' : 'Not connected'}
-                        </span>
+                        {tierLocked ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(251,191,36,0.12)', color: '#fbbf24' }}>
+                            🔒 Locked
+                          </span>
+                        ) : (
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${enabled ? 'badge-on' : 'badge-off'}`}>
+                            {enabled ? 'Connected' : 'Not connected'}
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-gray-500 mt-0.5 leading-snug">{cfg.description}</p>
+                      <p className="text-xs text-gray-500 mt-0.5 leading-snug">
+                        {tierLocked ? tierReason || 'Upgrade your plan to unlock this integration.' : cfg.description}
+                      </p>
                     </div>
                   </div>
                   <a href={cfg.docsUrl} target="_blank" rel="noreferrer" className="text-xs text-gray-600 hover:text-gray-400 flex-shrink-0 mt-1 ml-2">
@@ -440,15 +467,21 @@ export default function Settings() {
                   </a>
                 </div>
 
-                {/* ── Toggle button ────────────────────────────────────── */}
+                {/* ── Toggle / upgrade button ───────────────────────────── */}
+                {tierLocked ? (
+                  <Link to="/billing" className="btn-ghost w-full py-1.5 text-xs text-center block" style={{ color: '#fbbf24' }}>
+                    ⬆ Upgrade plan to unlock
+                  </Link>
+                ) : (
                 <button onClick={() => toggleExpand(cfg.key)} className="btn-ghost w-full py-1.5 text-xs">
                   {isOpen
                     ? '▲ Collapse'
                     : enabled ? '⚙️ Manage credentials' : '+ Connect'}
                 </button>
+                )}
 
                 {/* ── Expanded form ────────────────────────────────────── */}
-                {isOpen && (
+                {!tierLocked && isOpen && (
                   <div className="mt-4 space-y-4 fade-up">
 
                     {cfg.fields.map(f => {

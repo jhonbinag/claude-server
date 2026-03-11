@@ -180,13 +180,14 @@ async function listAllBilling() {
 // ── Subscription ──────────────────────────────────────────────────────────────
 
 async function updateSubscription(locationId, {
-  plan, status, amount, currency, interval,
+  plan, tier, status, amount, currency, interval,
   trialEnd, currentPeriodEnd,
   stripeCustomerId, stripeSubId,
   paymentMethod, notes,
 }) {
   const rec = await getOrCreateBilling(locationId);
   if (plan             !== undefined) rec.plan             = plan;
+  if (tier             !== undefined) rec.tier             = tier;
   if (status           !== undefined) rec.status           = status;
   if (amount           !== undefined) rec.amount           = amount;
   if (currency         !== undefined) rec.currency         = currency;

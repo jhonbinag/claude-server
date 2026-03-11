@@ -26,6 +26,7 @@ router.get('/', async (req, res) => {
     // Mask sensitive fields before sending to client
     const safe = {
       plan:             rec.plan,
+      tier:             rec.tier || 'bronze',
       status:           rec.status,
       amount:           rec.amount,
       currency:         rec.currency,

@@ -598,4 +598,60 @@ router.post('/locations/:id/run-task', async (req, res) => {
   }
 });
 
+// ─── Plan Tier routes ─────────────────────────────────────────────────────────
+
+const planTierStore = require('../services/planTierStore');
+const VALID_TIERS   = ['bronze', 'silver', 'gold', 'diamond'];
+
+// GET /admin/plan-tiers — get all tier configs
+router.get('/plan-tiers', async (req, res) => {
+  try {
+    const tiers = await planTierStore.getTiers();
+    res.json({ success: true, data: tiers });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /admin/plan-tiers/:tier — save one tier config
+router.post('/plan-tiers/:tier', async (req, res) => {
+  const { tier } = req.params;
+  if (!VALID_TIERS.includes(tier)) {
+    return res.status(400).json({ success: false, error: `Invalid tier. Valid: ${VALID_TIERS.join(', ')}` });
+  }
+  const { name, icon, integrationLimit, allowedIntegrations, description } = req.body;
+  const updates = {};
+  if (name               !== undefined) updates.name               = name;
+  if (icon               !== undefined) updates.icon               = icon;
+  if (description        !== undefined) updates.description        = description;
+  if (integrationLimit   !== undefined) updates.integrationLimit   = Number(integrationLimit);
+  if (allowedIntegrations !== undefined) updates.allowedIntegrations = allowedIntegrations; // null or string[]
+  if (!Object.keys(updates).length) {
+    return res.status(400).json({ success: false, error: 'No fields to update.' });
+  }
+  try {
+    const saved = await planTierStore.saveTier(tier, updates);
+    activityLogger.log({ locationId: 'system', event: 'plan_tier_update', detail: { tier, ...updates }, success: true });
+    res.json({ success: true, data: saved });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /admin/billing/:locationId/tier — assign tier to a location's billing record
+router.put('/billing/:locationId/tier', async (req, res) => {
+  const { tier } = req.body;
+  if (!tier || !VALID_TIERS.includes(tier)) {
+    return res.status(400).json({ success: false, error: `Valid tiers: ${VALID_TIERS.join(', ')}` });
+  }
+  try {
+    const rec = await billingStore.getOrCreateBilling(req.params.locationId);
+    await billingStore.updateSubscription(req.params.locationId, { ...rec, tier });
+    activityLogger.log({ locationId: req.params.locationId, event: 'billing_tier_update', detail: { tier }, success: true });
+    res.json({ success: true, message: `Tier updated to ${tier} for ${req.params.locationId}` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
