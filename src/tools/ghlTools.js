@@ -518,7 +518,19 @@ const TOOL_DEFINITIONS = [
 
   {
     name: 'create_funnel_page',
-    description: 'Create a new page inside an existing GHL funnel — opt-in pages, sales pages, thank-you pages, upsell pages. Provide full HTML for the page body. ALWAYS call list_funnels first to get the funnelId.',
+    description: `Create a new page inside an existing GHL funnel using GHL's native page-builder element format (NOT raw HTML). ALWAYS call list_funnels first to get the funnelId. Build the page as an array of "sections", each containing an array of "elements" using the types: headline, subheadline, text, image, button, form, video, divider, spacer, bullets, testimonial, columns. Example element types:
+- headline: { type:"headline", text:"...", level:"h1"|"h2", color:"#fff", align:"center"|"left" }
+- subheadline: { type:"subheadline", text:"...", color:"#ccc", align:"center" }
+- text: { type:"text", text:"...", color:"#333" }
+- image: { type:"image", url:"https://...", alt:"...", width:"100%", align:"center" }
+- button: { type:"button", text:"Get Started", href:"#form", bgColor:"#ff6b35", color:"#fff", size:"large", align:"center" }
+- form: { type:"form", fields:["firstName","lastName","email","phone"], submitText:"Submit", submitBgColor:"#4f46e5" }
+- divider: { type:"divider", color:"#e5e7eb" }
+- spacer: { type:"spacer", height:"40px" }
+- bullets: { type:"bullets", items:["Benefit 1","Benefit 2","Benefit 3"], color:"#333", checkColor:"#4f46e5" }
+- testimonial: { type:"testimonial", quote:"...", author:"Jane D.", role:"CEO", avatar:"https://..." }
+- columns: { type:"columns", count:2|3, elements:[...] } — wraps child elements in equal-width columns
+Section wrapper: { bgColor:"#1a1a2e", padding:"80px 40px", elements:[...] }`,
     input_schema: {
       type: 'object',
       properties: {
@@ -528,17 +540,29 @@ const TOOL_DEFINITIONS = [
         title:       { type: 'string',  description: 'Browser tab title and SEO title' },
         description: { type: 'string',  description: 'Meta description for SEO' },
         keywords:    { type: 'string',  description: 'Meta keywords for SEO' },
-        content:     { type: 'string',  description: 'Full HTML body content. Include hero section with uploaded image URLs, headline, subheadline, body copy, CTA buttons, social proof, and footer.' },
+        sections: {
+          type: 'array',
+          description: 'Array of page sections using GHL native element format. Each section has bgColor, padding, and elements array.',
+          items: {
+            type: 'object',
+            properties: {
+              bgColor:  { type: 'string',  description: 'Section background color (hex or rgba), e.g. "#ffffff"' },
+              padding:  { type: 'string',  description: 'Section padding, e.g. "80px 40px"' },
+              id:       { type: 'string',  description: 'Optional anchor id, e.g. "form" for #form links' },
+              elements: { type: 'array',   description: 'Array of element objects (headline, text, image, button, form, etc.)' },
+            },
+          },
+        },
         stepOrder:   { type: 'number',  description: 'Step number in the funnel (1 = first/entry page)' },
         published:   { type: 'boolean', description: 'Publish immediately (default true)' },
       },
-      required: ['funnelId', 'name', 'url'],
+      required: ['funnelId', 'name', 'url', 'sections'],
     },
   },
 
   {
     name: 'update_funnel_page',
-    description: 'Update an existing GHL funnel page — change copy, images, title, or publish status. Get pageId from list_funnel_pages.',
+    description: 'Update an existing GHL funnel page — replace sections/elements, change title, or publish status. Get pageId from list_funnel_pages. Use the same sections+elements format as create_funnel_page.',
     input_schema: {
       type: 'object',
       properties: {
@@ -546,7 +570,7 @@ const TOOL_DEFINITIONS = [
         name:        { type: 'string',  description: 'Updated page name' },
         title:       { type: 'string',  description: 'Updated SEO title' },
         description: { type: 'string',  description: 'Updated meta description' },
-        content:     { type: 'string',  description: 'Updated full HTML body content' },
+        sections:    { type: 'array',   description: 'Updated sections array (same format as create_funnel_page)' },
         published:   { type: 'boolean', description: 'Publish or unpublish the page' },
       },
       required: ['pageId'],
@@ -554,6 +578,95 @@ const TOOL_DEFINITIONS = [
   },
 
 ];
+
+// ─── GHL Page Builder: elements → HTML ───────────────────────────────────────
+
+function renderElement(el) {
+  if (!el || !el.type) return '';
+  const align = el.align || 'center';
+  const color = el.color || '#333333';
+
+  switch (el.type) {
+    case 'headline': {
+      const tag = el.level || 'h1';
+      const fs  = tag === 'h1' ? '2.5rem' : tag === 'h2' ? '2rem' : '1.5rem';
+      return `<${tag} style="color:${color};text-align:${align};font-size:${fs};font-weight:700;line-height:1.2;margin:0 0 16px">${el.text || ''}</${tag}>`;
+    }
+    case 'subheadline':
+      return `<p style="color:${color};text-align:${align};font-size:1.25rem;margin:0 0 20px;opacity:0.85">${el.text || ''}</p>`;
+    case 'text':
+      return `<p style="color:${color};text-align:${el.align || 'left'};font-size:1rem;line-height:1.7;margin:0 0 16px">${el.text || ''}</p>`;
+    case 'image': {
+      const w = el.width || '100%';
+      const imgAlign = el.align === 'center' ? 'margin:0 auto;display:block' : el.align === 'right' ? 'margin-left:auto;display:block' : '';
+      return `<img src="${el.url || ''}" alt="${el.alt || ''}" style="max-width:${w};height:auto;border-radius:8px;${imgAlign}" />`;
+    }
+    case 'button': {
+      const bg   = el.bgColor || '#4f46e5';
+      const tc   = el.color   || '#ffffff';
+      const fs   = el.size === 'large' ? '1.1rem' : el.size === 'small' ? '0.875rem' : '1rem';
+      const pad  = el.size === 'large' ? '18px 40px' : el.size === 'small' ? '10px 20px' : '14px 32px';
+      const wrap = el.align === 'center' ? 'text-align:center' : el.align === 'right' ? 'text-align:right' : '';
+      return `<div style="${wrap};margin:20px 0"><a href="${el.href || '#'}" style="display:inline-block;background:${bg};color:${tc};font-size:${fs};font-weight:700;padding:${pad};border-radius:8px;text-decoration:none;letter-spacing:0.3px">${el.text || 'Click Here'}</a></div>`;
+    }
+    case 'form': {
+      const fields = (el.fields || ['firstName', 'lastName', 'email', 'phone']);
+      const fieldMap = { firstName: 'First Name', lastName: 'Last Name', email: 'Email Address', phone: 'Phone Number', company: 'Company', message: 'Message' };
+      const inputs = fields.map(f =>
+        `<div style="margin-bottom:12px"><label style="display:block;font-size:0.875rem;font-weight:600;margin-bottom:4px;color:#374151">${fieldMap[f] || f}</label><input type="${f === 'email' ? 'email' : 'text'}" name="${f}" placeholder="${fieldMap[f] || f}" style="width:100%;padding:12px 16px;border:1px solid #d1d5db;border-radius:6px;font-size:1rem;box-sizing:border-box" /></div>`
+      ).join('');
+      const btnBg = el.submitBgColor || '#4f46e5';
+      return `<form style="max-width:480px;margin:0 auto;background:#f9fafb;padding:32px;border-radius:12px">${inputs}<button type="submit" style="width:100%;background:${btnBg};color:#fff;font-size:1.05rem;font-weight:700;padding:14px;border:none;border-radius:8px;cursor:pointer">${el.submitText || 'Submit'}</button></form>`;
+    }
+    case 'video': {
+      const src = el.url || '';
+      const embed = src.includes('youtube') || src.includes('youtu.be')
+        ? `<iframe width="100%" height="480" src="${src.replace('watch?v=', 'embed/')}" frameborder="0" allowfullscreen style="border-radius:8px"></iframe>`
+        : `<video controls style="width:100%;border-radius:8px"><source src="${src}" /></video>`;
+      return `<div style="max-width:800px;margin:0 auto">${embed}</div>`;
+    }
+    case 'divider':
+      return `<hr style="border:none;border-top:2px solid ${el.color || '#e5e7eb'};margin:32px 0" />`;
+    case 'spacer':
+      return `<div style="height:${el.height || '40px'}"></div>`;
+    case 'bullets': {
+      const items = (el.items || []).map(item =>
+        `<li style="padding:6px 0;color:${color};font-size:1rem;display:flex;align-items:flex-start;gap:10px"><span style="color:${el.checkColor || '#4f46e5'};font-weight:700;flex-shrink:0">✓</span><span>${item}</span></li>`
+      ).join('');
+      return `<ul style="list-style:none;padding:0;margin:0 0 24px">${items}</ul>`;
+    }
+    case 'testimonial': {
+      const avatar = el.avatar ? `<img src="${el.avatar}" alt="${el.author || ''}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;margin-right:12px" />` : '';
+      return `<div style="background:#f9fafb;border-left:4px solid #4f46e5;border-radius:8px;padding:28px;max-width:600px;margin:0 auto 24px">
+  <p style="font-size:1.1rem;font-style:italic;color:#1f2937;margin:0 0 16px">"${el.quote || ''}"</p>
+  <div style="display:flex;align-items:center">${avatar}<div><strong style="color:#1f2937">${el.author || ''}</strong>${el.role ? `<div style="font-size:0.875rem;color:#6b7280">${el.role}</div>` : ''}</div></div>
+</div>`;
+    }
+    case 'columns': {
+      const cols    = el.count || 2;
+      const colW    = `${Math.floor(100 / cols)}%`;
+      const children = (el.elements || []).map(c => `<div style="flex:0 0 ${colW};max-width:${colW};padding:0 16px;box-sizing:border-box">${renderElement(c)}</div>`).join('');
+      return `<div style="display:flex;flex-wrap:wrap;margin:0 -16px">${children}</div>`;
+    }
+    default:
+      return '';
+  }
+}
+
+function buildPageHtml(sections) {
+  if (!Array.isArray(sections) || sections.length === 0) return '';
+  return sections.map(sec => {
+    const bg      = sec.bgColor  || '#ffffff';
+    const padding = sec.padding  || '60px 40px';
+    const id      = sec.id       ? ` id="${sec.id}"` : '';
+    const inner   = (sec.elements || []).map(renderElement).join('\n');
+    return `<section${id} style="background:${bg};padding:${padding}">
+  <div style="max-width:960px;margin:0 auto">
+${inner}
+  </div>
+</section>`;
+  }).join('\n');
+}
 
 // ─── Tool Executors ───────────────────────────────────────────────────────────
 
@@ -816,7 +929,7 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
       });
 
     case 'create_funnel_page': {
-      const { funnelId, name, url, title, description, keywords, content, stepOrder, published } = input;
+      const { funnelId, name, url, title, description, keywords, sections, stepOrder, published } = input;
       return call('POST', '/funnels/page', {
         locationId,
         funnelId,
@@ -825,14 +938,16 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
         title:       title       || name,
         description: description || '',
         keywords:    keywords    || '',
-        content:     content     || '',
+        content:     buildPageHtml(sections || []),
         stepOrder:   stepOrder   || 1,
         published:   published   !== false,
       });
     }
 
     case 'update_funnel_page': {
-      const { pageId, ...updates } = input;
+      const { pageId, sections: updSections, ...rest } = input;
+      const updates = { ...rest };
+      if (updSections) updates.content = buildPageHtml(updSections);
       return call('PUT', `/funnels/page/${pageId}`, updates);
     }
 

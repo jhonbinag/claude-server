@@ -98,18 +98,24 @@ ${imageNote.replace('- **Image generation**: ', '')}
 For each page that needs a hero image:
   1. Call \`openai_generate_image\` with a detailed prompt for a professional marketing visual
   2. Immediately call \`upload_media\` with the returned image URL to store it in GHL
-  3. Use the GHL media URL (from upload_media response) in the HTML content
+  3. Use the GHL media URL (from upload_media response) as the 'url' in an 'image' element inside the hero section
 
-### Step 4 — Build Funnel Pages in GHL
+### Step 4 — Build Funnel Pages in GHL using native element format
   a. Call \`list_funnels\` — use an existing funnel if one matches the purpose
   b. For each funnel page (opt-in → sales → upsell → thank-you, or as appropriate):
-     - Call \`create_funnel_page\` with: funnelId, name, url slug, full HTML content (including the GHL-hosted hero image), SEO title, meta description, and correct stepOrder
-     - HTML must be complete and production-ready with proper sections: hero, benefits, CTA, social proof, footer
+     - Call \`create_funnel_page\` with: funnelId, name, url slug, SEO title, meta description, stepOrder, and a **sections** array
+     - Build sections using GHL's native page builder element types — NOT raw HTML:
+       * Hero section: bgColor dark, headline (h1) + subheadline + image (use uploaded GHL URL) + button → "#form"
+       * Benefits section: bgColor white, subheadline "Why Choose Us" + bullets with 5-7 benefits
+       * Social proof section: 2-3 testimonial elements in a columns element (count:3)
+       * CTA/Form section: id "form", headline + form element with fields + submit button
+       * Footer: text with copyright, links
+     - Example section: \`{ bgColor:"#1a1a2e", padding:"80px 40px", elements:[{type:"headline",text:"...",level:"h1",color:"#fff",align:"center"},{type:"button",text:"Get Started",href:"#form",bgColor:"#ff6b35",color:"#fff",size:"large",align:"center"}] }\`
   c. After creation, confirm with \`list_funnel_pages\` that pages are live
 
 ### Step 5 — Website Blog Pages
 Use \`create_blog_post\` for any website content pages (about, services, resources, blog articles).
-Include the uploaded GHL image URL directly in the HTML body of the blog post.
+Include the uploaded GHL image URL in the blog post HTML body content.
 
 ### Step 6 — Social & Email Promotion
 Create social posts on all connected accounts promoting the funnel entry page URL.
