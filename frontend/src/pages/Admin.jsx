@@ -145,9 +145,12 @@ export default function Admin() {
   const [billingLoading,  setBillingLoading]  = useState(false);
 
   // Plan Tiers state
-  const [tiers,        setTiers]        = useState(null);
-  const [tiersLoading, setTiersLoading] = useState(false);
-  const [tierModal,    setTierModal]    = useState(null); // { tier, data }
+  const [tiers,              setTiers]              = useState(null);
+  const [tiersLoading,       setTiersLoading]       = useState(false);
+  const [tierModal,          setTierModal]          = useState(null); // { tier, data }
+  const [ghlProducts,        setGhlProducts]        = useState([]);
+  const [ghlProductsLocId,   setGhlProductsLocId]   = useState('');
+  const [ghlProductsLoading, setGhlProductsLoading] = useState(false);
 
   // All available integration keys (hardcoded to match backend)
   const ALL_INTEGRATIONS = [
@@ -899,6 +902,38 @@ export default function Admin() {
 
             {tiersLoading && <p style={{ color: '#6b7280', fontSize: 13 }}>Loading tiers…</p>}
 
+            {/* ── GHL Product source ── */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
+              <select
+                value={ghlProductsLocId}
+                onChange={e => setGhlProductsLocId(e.target.value)}
+                style={{ flex: 1, minWidth: 200, padding: '8px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: ghlProductsLocId ? '#fff' : '#6b7280', fontSize: 13 }}
+              >
+                <option value="">— Select a location to load GHL products —</option>
+                {locations.map(l => (
+                  <option key={l.locationId} value={l.locationId}>{l.name || l.locationId}</option>
+                ))}
+              </select>
+              <button
+                disabled={!ghlProductsLocId || ghlProductsLoading}
+                onClick={async () => {
+                  setGhlProductsLoading(true);
+                  try {
+                    const data = await adminFetch(`/admin/ghl-products?locationId=${encodeURIComponent(ghlProductsLocId)}`, { adminKey });
+                    if (data.success) { setGhlProducts(data.data); flash(`✓ ${data.data.length} GHL products loaded`); }
+                    else flash(`✗ ${data.error || 'Failed'}`);
+                  } catch { flash('✗ Request failed'); }
+                  setGhlProductsLoading(false);
+                }}
+                style={{ padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', opacity: (!ghlProductsLocId || ghlProductsLoading) ? 0.5 : 1 }}
+              >
+                {ghlProductsLoading ? 'Loading…' : '⬇ Load Products'}
+              </button>
+              {ghlProducts.length > 0 && (
+                <span style={{ fontSize: 12, color: '#4ade80' }}>✓ {ghlProducts.length} products</span>
+              )}
+            </div>
+
             {tiers && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
                 {['bronze', 'silver', 'gold', 'diamond'].map(tierKey => {
@@ -968,6 +1003,75 @@ export default function Admin() {
                               );
                             })}
                           </div>
+                        )}
+                      </div>
+
+                      {/* GHL Product dropdown — shown directly on card when products are loaded */}
+                      <div style={{ marginTop: 12, borderTop: `1px solid ${tierColor}22`, paddingTop: 12 }}>
+                        <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>
+                          GHL Product
+                        </p>
+                        {ghlProducts.length > 0 ? (
+                          <>
+                            <select
+                              value={tier.ghlProductId || ''}
+                              onChange={async e => {
+                                const pid  = e.target.value;
+                                const prod = ghlProducts.find(p => p.id === pid);
+                                const upd  = { ghlProductId: pid || null, ghlProductName: prod?.name || null, ghlPriceId: null };
+                                try {
+                                  const res = await adminFetch(`/admin/plan-tiers/${tierKey}`, { method: 'POST', adminKey, body: upd });
+                                  if (res.success) { setTiers(prev => ({ ...prev, [tierKey]: res.data })); flash(`✓ ${tier.name}: GHL product updated`); }
+                                  else flash(`✗ ${res.error}`);
+                                } catch { flash('✗ Save failed'); }
+                              }}
+                              style={{ width: '100%', padding: '6px 10px', background: '#111', border: `1px solid ${tierColor}33`, borderRadius: 6, color: '#e5e7eb', fontSize: 12 }}
+                            >
+                              <option value="">— No product linked —</option>
+                              {ghlProducts.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+
+                            {/* Price variant dropdown — shown when a product is selected */}
+                            {tier.ghlProductId && (() => {
+                              const prod = ghlProducts.find(p => p.id === tier.ghlProductId);
+                              if (!prod?.prices?.length) return null;
+                              return (
+                                <select
+                                  value={tier.ghlPriceId || ''}
+                                  onChange={async e => {
+                                    const pid = e.target.value;
+                                    const pr  = prod.prices.find(p => p.id === pid);
+                                    const upd = {
+                                      ghlPriceId: pid || null,
+                                      price:      pr ? pr.amount : tier.price,
+                                      interval:   pr?.recurring?.interval === 'year' ? 'yr' : 'mo',
+                                    };
+                                    try {
+                                      const res = await adminFetch(`/admin/plan-tiers/${tierKey}`, { method: 'POST', adminKey, body: upd });
+                                      if (res.success) { setTiers(prev => ({ ...prev, [tierKey]: res.data })); flash(`✓ ${tier.name}: price synced from GHL`); }
+                                      else flash(`✗ ${res.error}`);
+                                    } catch { flash('✗ Save failed'); }
+                                  }}
+                                  style={{ width: '100%', marginTop: 6, padding: '6px 10px', background: '#111', border: `1px solid ${tierColor}33`, borderRadius: 6, color: '#e5e7eb', fontSize: 12 }}
+                                >
+                                  <option value="">— Select price variant —</option>
+                                  {prod.prices.map(pr => (
+                                    <option key={pr.id} value={pr.id}>
+                                      {pr.name} — ${pr.amount}/{pr.recurring?.interval || 'mo'}
+                                    </option>
+                                  ))}
+                                </select>
+                              );
+                            })()}
+                          </>
+                        ) : (
+                          <p style={{ color: '#4b5563', fontSize: 12, margin: 0 }}>
+                            {tier.ghlProductName
+                              ? `🔗 ${tier.ghlProductName}`
+                              : 'Select a location above to load products'}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -1568,27 +1672,11 @@ function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSa
   const [description,      setDescription]      = useState(data.description || '');
   const [price,            setPrice]            = useState(data.price ?? 0);
   const [interval,         setInterval]         = useState(data.interval || 'mo');
-  const [ghlProductId,      setGhlProductId]      = useState(data.ghlProductId   || '');
-  const [ghlPriceId,        setGhlPriceId]        = useState(data.ghlPriceId     || '');
-  const [ghlProductName,    setGhlProductName]    = useState(data.ghlProductName || '');
-  const [ghlLocId,          setGhlLocId]          = useState('');
-  const [ghlProducts,       setGhlProducts]       = useState([]);
-  const [ghlProductsLoading, setGhlProductsLoading] = useState(false);
-  const [integrationLimit,  setIntegrationLimit]  = useState(data.integrationLimit ?? 2);
-  const [unlimited,         setUnlimited]         = useState(data.integrationLimit === -1);
-
-  const selectedGhlProduct = ghlProducts.find(p => p.id === ghlProductId) || null;
-
-  const loadGhlProducts = async () => {
-    if (!ghlLocId.trim()) return;
-    setGhlProductsLoading(true);
-    try {
-      const res = await adminFetch(`/admin/ghl-products?locationId=${encodeURIComponent(ghlLocId.trim())}`, { adminKey });
-      if (res.success) setGhlProducts(res.data);
-      else onFlash(`✗ ${res.error || 'Failed to load GHL products'}`);
-    } catch { onFlash('✗ Failed to load GHL products'); }
-    setGhlProductsLoading(false);
-  };
+  const [ghlProductId,     setGhlProductId]     = useState(data.ghlProductId   || '');
+  const [ghlPriceId,       setGhlPriceId]       = useState(data.ghlPriceId     || '');
+  const [ghlProductName,   setGhlProductName]   = useState(data.ghlProductName || '');
+  const [integrationLimit, setIntegrationLimit] = useState(data.integrationLimit ?? 2);
+  const [unlimited,        setUnlimited]        = useState(data.integrationLimit === -1);
   const [allAllowed,       setAllAllowed]        = useState(data.allowedIntegrations === null);
   const [selected,         setSelected]         = useState(() =>
     data.allowedIntegrations === null
@@ -1682,81 +1770,16 @@ function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSa
           </div>
         </div>
 
-        {/* GHL Product Link */}
-        <div style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-          <label style={{ ...lbl, marginBottom: 8 }}>🔗 GHL Product</label>
-
-          {/* Location ID + Load */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-            <input
-              placeholder="Location ID to fetch products…"
-              value={ghlLocId}
-              onChange={e => setGhlLocId(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && loadGhlProducts()}
-              style={{ ...inp, flex: 1, marginBottom: 0 }}
-            />
-            <button
-              type="button"
-              disabled={!ghlLocId.trim() || ghlProductsLoading}
-              onClick={loadGhlProducts}
-              style={{ padding: '8px 12px', background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', opacity: (!ghlLocId.trim() || ghlProductsLoading) ? 0.5 : 1 }}
-            >
-              {ghlProductsLoading ? '…' : '⬇ Load'}
-            </button>
+        {/* GHL Product — info only; assign from the tier card on the Plan Tiers tab */}
+        {(ghlProductName || data.ghlProductName) && (
+          <div style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, padding: 10, marginBottom: 12 }}>
+            <p style={{ ...lbl, margin: '0 0 2px' }}>🔗 GHL Product</p>
+            <p style={{ color: '#6366f1', fontSize: 13, margin: 0 }}>{ghlProductName || data.ghlProductName}</p>
+            {(ghlPriceId || data.ghlPriceId) && (
+              <p style={{ color: '#4ade80', fontSize: 11, margin: '2px 0 0' }}>✓ Price synced from GHL</p>
+            )}
           </div>
-
-          {/* Product dropdown */}
-          <select
-            style={{ ...inp, marginBottom: ghlProductId ? 8 : 0 }}
-            value={ghlProductId}
-            onChange={e => {
-              const pid = e.target.value;
-              setGhlProductId(pid);
-              setGhlPriceId('');
-              const prod = ghlProducts.find(p => p.id === pid);
-              setGhlProductName(prod ? prod.name : '');
-            }}
-          >
-            <option value="">— {ghlProducts.length ? `Select a product (${ghlProducts.length} loaded)` : 'No product linked'} —</option>
-            {ghlProducts.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-
-          {/* Price / Variant dropdown */}
-          {selectedGhlProduct && selectedGhlProduct.prices?.length > 0 && (
-            <>
-              <label style={{ ...lbl, marginBottom: 4 }}>Price / Variant</label>
-              <select
-                style={{ ...inp, marginBottom: 0 }}
-                value={ghlPriceId}
-                onChange={e => {
-                  const pid = e.target.value;
-                  setGhlPriceId(pid);
-                  const pr = selectedGhlProduct.prices.find(p => p.id === pid);
-                  if (pr) {
-                    setPrice(pr.amount);
-                    setInterval(pr.recurring?.interval === 'year' ? 'yr' : 'mo');
-                  }
-                }}
-              >
-                <option value="">— Select a price variant —</option>
-                {selectedGhlProduct.prices.map(pr => (
-                  <option key={pr.id} value={pr.id}>
-                    {pr.name} — ${pr.amount}/{pr.recurring?.interval || 'mo'}
-                  </option>
-                ))}
-              </select>
-              {ghlPriceId && (
-                <p style={{ fontSize: 11, color: '#4ade80', margin: '6px 0 0' }}>✓ Price synced from GHL — ${price}/{interval}</p>
-              )}
-            </>
-          )}
-
-          {data.ghlProductName && !ghlProductId && (
-            <p style={{ fontSize: 11, color: '#6366f1', margin: '6px 0 0' }}>Currently linked: {data.ghlProductName}</p>
-          )}
-        </div>
+        )}
 
         {/* Integration limit */}
         <label style={lbl}>Integration Limit</label>
