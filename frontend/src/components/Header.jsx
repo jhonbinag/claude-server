@@ -69,7 +69,7 @@ export default function Header({ icon, title, subtitle, onMenuClick }) {
             className="text-xs px-1.5 py-0.5 rounded-full hidden xl:inline"
             style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}
           >
-            {enabledTools.length} tools
+            {enabledTools.length} active tools
           </span>
         )}
         <button onClick={logout} className="nav-link text-gray-500 text-xs" style={{ padding: '5px 7px' }}>Out</button>
