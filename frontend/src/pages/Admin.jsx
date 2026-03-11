@@ -113,7 +113,9 @@ export default function Admin() {
 
   const [adminKey,   setAdminKey]   = useState(() => localStorage.getItem('gtm_admin_key') || '');
   const [keyInput,   setKeyInput]   = useState('');
-  const [authed,     setAuthed]     = useState(false);
+  // Seed authed from localStorage so the dashboard shows immediately on refresh
+  // without waiting for the background verification call to return.
+  const [authed,     setAuthed]     = useState(() => !!localStorage.getItem('gtm_admin_key'));
   const [authError,  setAuthError]  = useState('');
   const [tab,        setTab]        = useState('overview');
 
@@ -176,10 +178,16 @@ export default function Admin() {
         setStats(data.stats);
         setLogs(data.recentActivity || []);
       } else {
+        // Key rejected — clear stored key and revert to login form
+        localStorage.removeItem('gtm_admin_key');
+        setAuthed(false);
+        setAdminKey('');
         setAuthError(data.error || 'Invalid admin key.');
       }
     } catch {
-      setAuthError('Connection failed.');
+      // Network error during background verify — leave authed as-is
+      // so a transient failure doesn't log the admin out unexpectedly.
+      if (!localStorage.getItem('gtm_admin_key')) setAuthError('Connection failed.');
     }
   };
 
