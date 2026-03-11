@@ -413,6 +413,11 @@ export default function Settings() {
         {/* ── External integrations ──────────────────────────────────────── */}
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">External Integrations</h2>
 
+        {/* Payment Hub — unified card for all payment providers */}
+        <div className="mb-4">
+          <PaymentHubCard serverMap={serverMap} showToast={showToast} refreshStatus={refreshStatus} />
+        </div>
+
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(340px, 100%), 1fr))' }}>
           {INTEGRATIONS.map(cfg => {
             const sv      = serverMap[cfg.key] || {};
@@ -664,6 +669,278 @@ export default function Settings() {
             : { background: 'rgba(239,68,68,0.15)',  border: '1px solid rgba(239,68,68,0.3)',  color: '#f87171' }}
         >
           {toast.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Payment Hub Card ──────────────────────────────────────────────────────────
+
+const PAYMENT_PROVIDERS = [
+  {
+    key: 'stripe', label: 'Stripe', icon: '💳',
+    color: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)',
+    docsUrl: 'https://dashboard.stripe.com/apikeys',
+    fields: [
+      { key: 'secretKey', label: 'Secret Key', type: 'password', placeholder: 'sk_live_...' },
+    ],
+  },
+  {
+    key: 'paypal', label: 'PayPal', icon: '🅿️',
+    color: 'rgba(0,112,240,0.12)', borderColor: 'rgba(0,112,240,0.4)',
+    docsUrl: 'https://developer.paypal.com/dashboard',
+    fields: [
+      { key: 'clientId',     label: 'Client ID',     type: 'text',     placeholder: 'AaBbCc...' },
+      { key: 'clientSecret', label: 'Client Secret', type: 'password', placeholder: 'Your client secret' },
+      { key: 'mode',         label: 'Mode',          type: 'text',     placeholder: 'live' },
+    ],
+  },
+  {
+    key: 'square', label: 'Square', icon: '⬛',
+    color: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.25)',
+    docsUrl: 'https://developer.squareup.com/apps',
+    fields: [
+      { key: 'accessToken',  label: 'Access Token',  type: 'password', placeholder: 'EAAAl...' },
+      { key: 'locationId',   label: 'Location ID',   type: 'text',     placeholder: 'Your Square location ID' },
+      { key: 'environment',  label: 'Environment',   type: 'text',     placeholder: 'production' },
+    ],
+  },
+  {
+    key: 'authorizenet', label: 'Authorize.net', icon: '🔐',
+    color: 'rgba(34,197,94,0.1)', borderColor: 'rgba(34,197,94,0.35)',
+    docsUrl: 'https://developer.authorize.net/hello_world/',
+    fields: [
+      { key: 'apiLoginId',     label: 'API Login ID',    type: 'text',     placeholder: 'Your API Login ID' },
+      { key: 'transactionKey', label: 'Transaction Key', type: 'password', placeholder: 'Your Transaction Key' },
+      { key: 'mode',           label: 'Mode',            type: 'text',     placeholder: 'live' },
+    ],
+  },
+];
+
+function PaymentHubCard({ serverMap, showToast, refreshStatus }) {
+  const [selected,    setSelected]    = useState(null);      // active provider key
+  const [formVals,    setFormVals]    = useState({});         // { fieldKey: value }
+  const [saving,      setSaving]      = useState(false);
+  const [testing,     setTesting]     = useState(false);
+  const [testResult,  setTestResult]  = useState(null);
+  const [isOpen,      setIsOpen]      = useState(false);
+
+  const provider = PAYMENT_PROVIDERS.find(p => p.key === selected);
+  const connectedProviders = PAYMENT_PROVIDERS.filter(p => serverMap[p.key]?.enabled);
+  const anyConnected = connectedProviders.length > 0;
+
+  const selectProvider = (key) => {
+    setSelected(key);
+    setFormVals({});
+    setTestResult(null);
+  };
+
+  const save = async () => {
+    if (!provider) return;
+    const body = {};
+    for (const f of provider.fields) {
+      if (formVals[f.key]?.trim()) body[f.key] = formVals[f.key].trim();
+    }
+    if (!Object.keys(body).length) { showToast('Enter at least one field.', false); return; }
+    setSaving(true);
+    const data = await api.post(`/tools/${provider.key}`, body);
+    setSaving(false);
+    if (!data.success) { showToast(data.error, false); return; }
+    showToast(`${provider.label} connected. Testing…`, true);
+    setFormVals({});
+    await testConn();
+    await refreshStatus();
+  };
+
+  const testConn = async () => {
+    if (!provider) return;
+    setTesting(true);
+    setTestResult(null);
+    const data = await api.post(`/tools/test/${provider.key}`, {});
+    setTesting(false);
+    setTestResult(data.success ? { ok: true, msg: data.info } : { ok: false, msg: data.error });
+    if (data.success) refreshStatus();
+  };
+
+  const disconnect = async (providerKey) => {
+    const p = PAYMENT_PROVIDERS.find(x => x.key === providerKey);
+    if (!confirm(`Disconnect ${p?.label}? Credentials will be removed.`)) return;
+    const data = await api.del(`/tools/${providerKey}`);
+    if (data.success) {
+      showToast(`${p?.label} disconnected.`, true);
+      if (selected === providerKey) { setSelected(null); setFormVals({}); setTestResult(null); }
+      await refreshStatus();
+    } else {
+      showToast(data.error, false);
+    }
+  };
+
+  return (
+    <div className={`card p-5${anyConnected ? ' connected' : ''}`}>
+      {/* Header */}
+      <div className="flex items-center justify-between gap-4 mb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
+            style={{ background: 'rgba(99,102,241,0.12)' }}>💰</div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-white text-sm">Payment Hub</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${anyConnected ? 'badge-on' : 'badge-off'}`}>
+                {anyConnected ? `${connectedProviders.length} connected` : 'Not connected'}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5">Stripe · PayPal · Square · Authorize.net</p>
+          </div>
+        </div>
+        <button onClick={() => setIsOpen(o => !o)} className="btn-ghost px-4 py-1.5 text-xs">
+          {isOpen ? '▲ Collapse' : anyConnected ? '⚙️ Manage' : '+ Connect'}
+        </button>
+      </div>
+
+      {/* Connected provider pills */}
+      {anyConnected && !isOpen && (
+        <div className="flex flex-wrap gap-2 mt-1">
+          {connectedProviders.map(p => (
+            <span key={p.key} style={{
+              background: p.color, border: `1px solid ${p.borderColor}`,
+              borderRadius: 10, padding: '2px 10px', fontSize: 12, color: '#e2e8f0',
+            }}>
+              {p.icon} {p.label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Expanded panel */}
+      {isOpen && (
+        <div className="mt-4 fade-up">
+          {/* Provider selector tabs */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {PAYMENT_PROVIDERS.map(p => {
+              const isConn = serverMap[p.key]?.enabled;
+              const isActive = selected === p.key;
+              return (
+                <button
+                  key={p.key}
+                  onClick={() => selectProvider(p.key)}
+                  style={{
+                    padding: '6px 14px', borderRadius: 10, fontSize: 12, fontWeight: 500,
+                    cursor: 'pointer', transition: 'all .15s',
+                    background: isActive ? p.color : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${isActive ? p.borderColor : 'rgba(255,255,255,0.1)'}`,
+                    color: isActive ? '#e2e8f0' : '#9ca3af',
+                  }}
+                >
+                  {p.icon} {p.label}
+                  {isConn && <span style={{ marginLeft: 6, color: '#4ade80', fontSize: 10 }}>●</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Provider detail panel */}
+          {!selected && (
+            <p className="text-xs text-gray-500 text-center py-4">
+              Select a payment provider above to connect or manage it.
+            </p>
+          )}
+
+          {selected && provider && (() => {
+            const isConn = serverMap[provider.key]?.enabled;
+            const preview = serverMap[provider.key]?.configPreview || {};
+            return (
+              <div style={{
+                background: 'rgba(255,255,255,0.03)', border: `1px solid ${provider.borderColor}`,
+                borderRadius: 14, padding: 16,
+              }}>
+                {/* Provider header */}
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <span style={{ fontSize: 22 }}>{provider.icon}</span>
+                    <div>
+                      <span className="font-semibold text-white text-sm">{provider.label}</span>
+                      <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${isConn ? 'badge-on' : 'badge-off'}`}>
+                        {isConn ? 'Connected' : 'Not connected'}
+                      </span>
+                    </div>
+                  </div>
+                  <a href={provider.docsUrl} target="_blank" rel="noreferrer"
+                    className="text-xs text-gray-600 hover:text-gray-400">Docs ↗</a>
+                </div>
+
+                {/* Fields */}
+                <div className="space-y-3 mb-4">
+                  {provider.fields.map(f => {
+                    const savedVal = preview[f.key];
+                    const hasDb = !!savedVal;
+                    return (
+                      <div key={f.key}>
+                        <label className="block text-xs text-gray-400 mb-1 font-medium">
+                          {f.label}
+                          {hasDb && !formVals[f.key] && (
+                            <span className="ml-2 text-xs text-green-400 font-normal">✓ saved</span>
+                          )}
+                        </label>
+                        <input
+                          type={f.type}
+                          value={formVals[f.key] ?? ''}
+                          onChange={e => setFormVals(v => ({ ...v, [f.key]: e.target.value }))}
+                          placeholder={hasDb && !formVals[f.key] ? savedVal : f.placeholder}
+                          className="field w-full"
+                          autoComplete="new-password"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Test result */}
+                {testResult && (
+                  <div className={`text-xs font-medium mb-3 ${testResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {testResult.ok ? `✓ ${testResult.msg}` : `✗ ${testResult.msg}`}
+                  </div>
+                )}
+                {testing && <div className="text-xs text-yellow-400 mb-3">⏳ Testing connection…</div>}
+
+                {/* Action row */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={save}
+                    disabled={saving || !provider.fields.some(f => formVals[f.key]?.trim())}
+                    className="btn-primary flex-1 py-2 text-xs"
+                  >
+                    {saving ? 'Saving…' : isConn ? 'Update & Test' : 'Save & Connect'}
+                  </button>
+                  {isConn && (
+                    <>
+                      <button
+                        onClick={testConn}
+                        disabled={testing}
+                        style={{
+                          background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)',
+                          borderRadius: 12, padding: '8px 14px', color: '#a5b4fc',
+                          cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                        }}
+                      >
+                        ↻ Test
+                      </button>
+                      <button
+                        onClick={() => disconnect(provider.key)}
+                        style={{
+                          background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)',
+                          borderRadius: 12, padding: '8px 12px', color: '#f87171',
+                          cursor: 'pointer', fontSize: 12,
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
