@@ -48,13 +48,11 @@ function maskConfig(cfg) {
 }
 
 // ─── Helper: persist config through the correct tier ─────────────────────────
+// Delegates entirely to toolRegistry.saveToolConfig which handles Firebase/Redis
+// correctly and always repopulates the cache — avoids stale-empty-cache bugs.
 
 async function persistToolConfig(locationId, category, configObj) {
-  if (config.isFirebaseEnabled) {
-    await firebaseStore.saveToolConfig(locationId, category, configObj);
-  } else {
-    await toolRegistry.saveToolConfig(locationId, category, configObj);
-  }
+  await toolRegistry.saveToolConfig(locationId, category, configObj);
 }
 
 async function deletePersistedToolConfig(locationId, category) {
@@ -309,7 +307,7 @@ router.post('/:category', async (req, res) => {
 
   try {
     await persistToolConfig(req.locationId, category, filtered);
-    await toolTokenService.invalidateToolConfigCache(req.locationId);
+    // Cache already updated by toolRegistry.saveToolConfig — no separate invalidation needed
 
     const enabledCategories = await toolRegistry.getEnabledIntegrations(req.locationId);
     const token = await toolTokenService.generateToolSessionToken(req.locationId, enabledCategories);
@@ -360,6 +358,7 @@ router.delete('/:category', async (req, res) => {
     }
 
     await deletePersistedToolConfig(req.locationId, category);
+    // Explicitly invalidate cache after delete so next read hits Firebase fresh
     await toolTokenService.invalidateToolConfigCache(req.locationId);
 
     const enabledCategories = await toolRegistry.getEnabledIntegrations(req.locationId);
