@@ -2,16 +2,27 @@
  * frontend/src/pages/Billing.jsx
  *
  * Billing & Subscription page.
+ * Shows current tier + Upgrade Tier modal (fetched from admin plan-tier config).
  * Tabs: All Invoices | Active / Recurring | Payment History
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp }  from '../context/AppContext';
 import AuthGate    from '../components/AuthGate';
 import Header      from '../components/Header';
 import Spinner     from '../components/Spinner';
 import { api }     from '../lib/api';
+
+// ── Tier color palette ─────────────────────────────────────────────────────────
+const TIER_COLORS = {
+  bronze:  { ring: '#cd7f32', bg: 'rgba(205,127,50,0.12)',  text: '#e8a96b' },
+  silver:  { ring: '#9ca3af', bg: 'rgba(156,163,175,0.12)', text: '#d1d5db' },
+  gold:    { ring: '#fbbf24', bg: 'rgba(251,191,36,0.12)',  text: '#fde68a' },
+  diamond: { ring: '#a78bfa', bg: 'rgba(167,139,250,0.12)', text: '#c4b5fd' },
+};
+
+const TIER_ORDER = ['bronze', 'silver', 'gold', 'diamond'];
 
 const STATUS_COLOR = {
   active:    { bg: '#14532d', text: '#4ade80' },
@@ -34,6 +45,155 @@ function relDate(val) {
   return new Date(val).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+// ── Upgrade Tier Modal ─────────────────────────────────────────────────────────
+
+function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
+  const [tiers,   setTiers]   = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(null); // tierKey being saved
+  const [error,   setError]   = useState(null);
+
+  useEffect(() => {
+    api.get('/billing/tiers').then(data => {
+      if (data.success) setTiers(data.data);
+      else setError('Failed to load tiers.');
+      setLoading(false);
+    }).catch(() => { setError('Failed to load tiers.'); setLoading(false); });
+  }, []);
+
+  async function handleSelect(tierKey) {
+    if (tierKey === currentTier) { onClose(); return; }
+    setSaving(tierKey);
+    setError(null);
+    try {
+      const data = await api.post('/billing/upgrade-tier', { tier: tierKey });
+      if (data.success) {
+        onUpgraded(tierKey);
+        onClose();
+      } else {
+        setError(data.error || 'Upgrade failed.');
+      }
+    } catch {
+      setError('Upgrade failed. Please try again.');
+    }
+    setSaving(null);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="w-full rounded-2xl p-6"
+        style={{ maxWidth: '680px', background: '#16161c', border: '1px solid rgba(255,255,255,0.1)' }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-lg font-bold text-white">Choose Your Plan Tier</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Select a tier to unlock more integrations</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
+        </div>
+
+        {loading && <div className="py-8 flex justify-center"><Spinner /></div>}
+        {error   && <p className="text-red-400 text-sm text-center py-4">{error}</p>}
+
+        {tiers && !loading && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {TIER_ORDER.map(key => {
+              const t = tiers[key];
+              if (!t) return null;
+              const col       = TIER_COLORS[key] || TIER_COLORS.bronze;
+              const isCurrent = key === currentTier;
+              const isSaving  = saving === key;
+
+              return (
+                <div
+                  key={key}
+                  className="rounded-xl p-4 flex flex-col gap-3"
+                  style={{
+                    background: col.bg,
+                    border: `1px solid ${isCurrent ? col.ring : 'rgba(255,255,255,0.07)'}`,
+                    opacity: saving && !isSaving ? 0.5 : 1,
+                  }}
+                >
+                  {/* Tier header */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{t.icon}</span>
+                      <div>
+                        <p className="font-bold text-white text-sm">{t.name}</p>
+                        <p className="text-xs" style={{ color: col.text }}>
+                          {t.integrationLimit === -1
+                            ? 'Unlimited integrations'
+                            : `Up to ${t.integrationLimit} integration${t.integrationLimit !== 1 ? 's' : ''}`}
+                        </p>
+                      </div>
+                    </div>
+                    {isCurrent && (
+                      <span
+                        className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                        style={{ background: col.ring + '30', color: col.text, border: `1px solid ${col.ring}` }}
+                      >
+                        Current
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Description */}
+                  {t.description && (
+                    <p className="text-xs text-gray-400">{t.description}</p>
+                  )}
+
+                  {/* Allowed integrations chips */}
+                  {Array.isArray(t.allowedIntegrations) && (
+                    <div className="flex flex-wrap gap-1">
+                      {t.allowedIntegrations.map(i => (
+                        <span
+                          key={i}
+                          className="text-xs px-1.5 py-0.5 rounded"
+                          style={{ background: 'rgba(255,255,255,0.06)', color: '#9ca3af' }}
+                        >
+                          {i}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {t.allowedIntegrations === null && (
+                    <p className="text-xs" style={{ color: col.text }}>✓ All integrations included</p>
+                  )}
+
+                  {/* Select button */}
+                  <button
+                    disabled={!!saving || isCurrent}
+                    onClick={() => handleSelect(key)}
+                    className="w-full py-2 rounded-lg text-xs font-semibold transition-colors mt-auto"
+                    style={isCurrent
+                      ? { background: 'rgba(255,255,255,0.04)', color: '#6b7280', cursor: 'default' }
+                      : { background: col.ring, color: '#000', cursor: 'pointer' }
+                    }
+                  >
+                    {isSaving ? 'Activating…' : isCurrent ? '✓ Active Plan' : `Select ${t.name}`}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {error && (
+          <p className="text-red-400 text-xs text-center mt-3">{error}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Billing Page ──────────────────────────────────────────────────────────
+
 export default function Billing() {
   const { isAuthenticated, isAuthLoading, locationId } = useApp();
 
@@ -42,10 +202,11 @@ export default function Billing() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [tab,             setTab]             = useState('all');
   const [toast,           setToast]           = useState(null);
+  const [showTierModal,   setShowTierModal]   = useState(false);
 
   const showToast = (msg, ok) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3500); };
 
-  useEffect(() => {
+  const loadBilling = useCallback(() => {
     if (!locationId) return;
     setLoading(true);
     api.get('/billing').then(data => {
@@ -53,6 +214,8 @@ export default function Billing() {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [locationId]);
+
+  useEffect(() => { loadBilling(); }, [loadBilling]);
 
   if (isAuthLoading) return <Spinner />;
   if (!isAuthenticated) return (
@@ -73,8 +236,9 @@ export default function Billing() {
   ];
 
   const displayedInv = tab === 'all' ? allInv : tab === 'active' ? activeInv : historyInv;
-
   const planStatus   = STATUS_COLOR[billing?.status] || { bg: '#1e1e1e', text: '#9ca3af' };
+  const currentTier  = billing?.tier || 'bronze';
+  const tierCol      = TIER_COLORS[currentTier] || TIER_COLORS.bronze;
 
   return (
     <div className="flex flex-col min-h-screen" style={{ background: '#0f0f13' }}>
@@ -94,8 +258,8 @@ export default function Billing() {
 
         {billing && (
           <>
-            {/* ── Plan summary cards ───────────────────────────────────── */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            {/* ── Plan + Tier summary cards ─────────────────────────────── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
 
               {/* Plan */}
               <div className="card p-5">
@@ -118,6 +282,29 @@ export default function Billing() {
                 {billing.status === 'active' && billing.currentPeriodEnd && (
                   <p className="text-xs text-gray-500 mt-1">Renews {relDate(billing.currentPeriodEnd)}</p>
                 )}
+              </div>
+
+              {/* Tier */}
+              <div
+                className="card p-5"
+                style={{ border: `1px solid ${tierCol.ring}40`, background: tierCol.bg }}
+              >
+                <p className="text-xs text-gray-500 mb-1 uppercase tracking-wider font-semibold">Integration Tier</p>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">
+                    {{ bronze: '🥉', silver: '🥈', gold: '🥇', diamond: '💎' }[currentTier] || '🥉'}
+                  </span>
+                  <p className="text-lg font-bold capitalize" style={{ color: tierCol.text }}>
+                    {currentTier}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowTierModal(true)}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg w-full transition-colors"
+                  style={{ background: tierCol.ring, color: '#000' }}
+                >
+                  ⬆ Upgrade Tier
+                </button>
               </div>
 
               {/* Payment method */}
@@ -212,7 +399,6 @@ export default function Billing() {
                 className="rounded-2xl overflow-hidden"
                 style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}
               >
-                {/* Table header */}
                 <div
                   className="grid text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3"
                   style={{ gridTemplateColumns: '1fr 80px 90px 100px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
@@ -223,7 +409,6 @@ export default function Billing() {
                   <span className="text-right">Date</span>
                 </div>
 
-                {/* Rows */}
                 {displayedInv.map((inv, i) => {
                   const color = INV_COLOR[inv.status] || '#9ca3af';
                   return (
@@ -251,7 +436,6 @@ export default function Billing() {
                   );
                 })}
 
-                {/* Footer total */}
                 <div
                   className="grid items-center px-5 py-3 text-xs font-semibold text-gray-400"
                   style={{ gridTemplateColumns: '1fr 80px 90px 100px', borderTop: '1px solid rgba(255,255,255,0.07)' }}
@@ -260,13 +444,11 @@ export default function Billing() {
                   <span className="text-right text-white">
                     ${displayedInv.reduce((s, i) => s + (i.amount || 0), 0).toFixed(2)}
                   </span>
-                  <span />
-                  <span />
+                  <span /><span />
                 </div>
               </div>
             )}
 
-            {/* ── Notes ───────────────────────────────────────────────── */}
             {billing.notes && (
               <p className="text-xs text-gray-600 mt-4 italic">📝 {billing.notes}</p>
             )}
@@ -274,6 +456,18 @@ export default function Billing() {
         )}
 
       </main>
+
+      {/* ── Upgrade Tier Modal ───────────────────────────────────────────── */}
+      {showTierModal && (
+        <UpgradeTierModal
+          currentTier={currentTier}
+          onClose={() => setShowTierModal(false)}
+          onUpgraded={(newTier) => {
+            setBilling(prev => prev ? { ...prev, tier: newTier } : prev);
+            showToast(`Tier upgraded to ${newTier}! Your integrations have been updated.`, true);
+          }}
+        />
+      )}
 
       {toast && (
         <div

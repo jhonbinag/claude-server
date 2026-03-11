@@ -10,10 +10,11 @@
  *   GET  /billing/checkout/ok  → Stripe redirect after successful checkout
  */
 
-const express      = require('express');
-const router       = express.Router();
-const authenticate = require('../middleware/authenticate');
-const billing      = require('../services/billingStore');
+const express        = require('express');
+const router         = express.Router();
+const authenticate   = require('../middleware/authenticate');
+const billing        = require('../services/billingStore');
+const planTierStore  = require('../services/planTierStore');
 
 router.use(authenticate);
 
@@ -137,6 +138,35 @@ router.get('/checkout/ok', async (req, res) => {
   } catch { /* non-fatal — redirect anyway */ }
 
   res.redirect('/ui/settings?billing=ok');
+});
+
+// ── GET /billing/tiers — all tier configs (for user upgrade modal) ────────────
+
+router.get('/tiers', async (req, res) => {
+  try {
+    const tiers = await planTierStore.getTiers();
+    res.json({ success: true, data: tiers });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /billing/upgrade-tier — self-service tier selection ──────────────────
+
+const VALID_TIERS = ['bronze', 'silver', 'gold', 'diamond'];
+
+router.post('/upgrade-tier', async (req, res) => {
+  const { tier } = req.body;
+  if (!tier || !VALID_TIERS.includes(tier)) {
+    return res.status(400).json({ success: false, error: `Invalid tier. Valid: ${VALID_TIERS.join(', ')}` });
+  }
+  try {
+    const rec = await billing.getOrCreateBilling(req.locationId);
+    await billing.updateSubscription(req.locationId, { ...rec, tier });
+    res.json({ success: true, tier });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 module.exports = router;
