@@ -149,27 +149,40 @@ const WORKFLOW_DELAYS = ['immediately', '1 hour', '4 hours', '1 day', '2 days', 
 
 function buildPrompt({ contentType, template, selectedPages, campaignName, offer, audience, tone, keywords, extra, emailSeq, workflow }) {
 
-  const workflowSection = workflow.enabled ? `
-
-## ALSO: Build a GHL Workflow Automation
-After creating the content above, set up a GHL workflow automation:
-- Trigger: ${WORKFLOW_TRIGGERS.find(t => t.key === workflow.trigger)?.label || workflow.trigger}
-- Total sequence steps: ${workflow.numSteps}
-- Delay between steps: ${workflow.delay}
-- List existing workflows first, then document the full workflow design with:
-  - Step 1 (${workflow.delay === 'immediately' ? 'immediate' : `wait ${workflow.delay}`}): action + message copy
-  - Repeat for all ${workflow.numSteps} steps, alternating email and SMS where appropriate
-  - Include all subject lines, email bodies, and SMS text
-  - Note: GHL doesn't allow direct workflow creation via API, so provide the complete setup instructions the user can follow in GHL's workflow builder` : '';
-
+  // Email sequence section — Claude generates copy; GHL API can't bulk-create email templates
   const emailSection = emailSeq.enabled ? `
 
-## ALSO: Generate Email Sequence Copy
-Write a complete ${emailSeq.numEmails}-email sequence for this campaign:
-${emailSeq.types.map((t, i) => `Email ${i + 1}: ${EMAIL_TYPES.find(e => e.key === t)?.label || t}`).join('\n')}
-From name: ${emailSeq.fromName || campaignName || 'the sender'}
-Primary CTA in each email: ${emailSeq.cta || offer || 'visit the page'}
-For each email write: Subject line, Preview text, Full body (opening hook, value/story, CTA paragraph), P.S. line` : '';
+## STEP: Generate & Document Email Sequence
+Write a complete ${emailSeq.numEmails}-email follow-up sequence (one email per type selected):
+${emailSeq.types.map((t, i) => `  Email ${i + 1}: ${EMAIL_TYPES.find(e => e.key === t)?.label || t}`).join('\n')}
+From name: ${emailSeq.fromName || campaignName || 'the brand'}
+Primary CTA in every email: ${emailSeq.cta || offer || 'visit the page / book a call'}
+
+For EACH email write ALL of the following:
+- Subject line (A/B test with 2 options)
+- Preview text (1 sentence)
+- Full body: opening hook, value/story paragraph, CTA paragraph
+- P.S. line
+
+After writing the sequence, output a ready-to-use summary table:
+| # | Type | Subject line | Send timing |
+the user will copy these directly into GHL's email builder or workflow steps.` : '';
+
+  // Workflow section — GHL API does NOT allow creating workflows; Claude designs + gives manual setup steps
+  const workflowSection = workflow.enabled ? `
+
+## STEP: Design GHL Workflow Automation (Manual Setup Guide)
+Design the complete automation sequence the user will build in GHL → Automations → Workflows.
+Trigger: ${WORKFLOW_TRIGGERS.find(t => t.key === workflow.trigger)?.label || workflow.trigger}
+Total steps: ${workflow.numSteps} | Delay between steps: ${workflow.delay}
+
+Output the workflow as a numbered setup checklist:
+Step 1 — Trigger: [exact trigger config in GHL UI]
+${Array.from({ length: workflow.numSteps }, (_, i) => `Step ${i + 2} — Wait ${workflow.delay} → [Action: Email/SMS/Tag] — [Message or tag name]`).join('\n')}
+
+For each action step include the FULL message copy (subject line + body for email, full text for SMS).
+${emailSeq.enabled ? 'Use the email copy from the Email Sequence section above for the email action steps.' : ''}
+End with: "✅ What Claude created automatically" vs "📋 What you need to set up manually in GHL" — a clear 2-column summary so the user knows exactly what is live and what still needs their attention.` : '';
 
   if (contentType === 'funnel') {
     const pages = selectedPages.map(p => `  - ${p.label} (url slug: "${p.url}")`).join('\n');
@@ -185,15 +198,15 @@ ${extra ? `Additional notes: ${extra}` : ''}
 Pages to create:
 ${pages}
 
-Follow this build sequence:
+Execute this full build sequence — do NOT stop until all steps are done:
 1. Research the niche and define the messaging angle
 2. Generate complete copy for every page (headline, subheadline, bullets, CTA, social proof)
 3. Generate and upload a hero image for each page
 4. Use list_funnels to find an existing funnel, then create each page with create_funnel_page using GHL native element sections
-5. After funnel pages, create a blog post promoting this funnel
+5. Create a blog post promoting this funnel
 6. Create social media posts for all connected accounts
-7. Report all created assets with GHL IDs and URLs
-${emailSection}${workflowSection}`;
+${emailSection}${workflowSection}
+7. End with a full summary: every asset created (name, type, GHL ID, URL) — then a clear "✅ Auto-created in GHL" vs "📋 Set up manually in GHL" checklist`;
   }
 
   if (contentType === 'website') {
@@ -210,13 +223,14 @@ ${extra ? `Additional notes: ${extra}` : ''}
 Pages to create:
 ${pages}
 
-Follow this build sequence:
+Execute this full build sequence — do NOT stop until all steps are done:
 1. Research the niche and define the brand messaging
 2. Generate complete copy for every page
 3. Generate and upload images (hero, service images)
 4. Use list_websites to find an existing website, then create each page with create_website_page using GHL native element sections
-5. Report all created pages with GHL IDs and live URLs
-${emailSection}${workflowSection}`;
+5. Create social media posts promoting the website
+${emailSection}${workflowSection}
+6. End with: every page created (name, GHL ID, URL) — then "✅ Auto-created in GHL" vs "📋 Set up manually in GHL" checklist`;
   }
 
   if (contentType === 'blog') {
@@ -229,14 +243,14 @@ Tone: ${tone}
 ${keywords ? `Target keywords: ${keywords}` : ''}
 ${extra ? `Additional notes: ${extra}` : ''}
 
-Steps:
+Execute this full build sequence — do NOT stop until all steps are done:
 1. Research the topic and competitors
 2. Write a complete, SEO-optimised ${template.label} post (800–1200 words)
 3. Generate and upload a featured image
 4. Create the post with create_blog_post using GHL native element sections
 5. Create 2–3 social media posts promoting the article
-6. Report the blog post URL and GHL ID
-${emailSection}${workflowSection}`;
+${emailSection}${workflowSection}
+6. End with: blog post URL + GHL ID — then "✅ Auto-created in GHL" vs "📋 Set up manually in GHL" checklist`;
   }
 
   return '';
@@ -568,7 +582,7 @@ export default function CampaignBuilder() {
                 <AddonToggle
                   icon="✉️"
                   title="Email Sequence"
-                  desc="Generate a complete follow-up email series for this campaign"
+                  desc="Claude writes complete email copy — subject lines, body, P.S. — ready to paste into GHL"
                   enabled={emailSeq.enabled}
                   onToggle={() => setEmailSeq(p => ({ ...p, enabled: !p.enabled }))}
                 >
@@ -617,7 +631,7 @@ export default function CampaignBuilder() {
                 <AddonToggle
                   icon="⚡"
                   title="Workflow Automation"
-                  desc="Design a GHL automation sequence with triggers, delays, and actions"
+                  desc="Claude designs the full automation sequence + step-by-step GHL setup guide (GHL API doesn't support auto-creating workflows)"
                   enabled={workflow.enabled}
                   onToggle={() => setWorkflow(p => ({ ...p, enabled: !p.enabled }))}
                 >
