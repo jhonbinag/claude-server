@@ -8,6 +8,7 @@ import CampaignBuilder from './pages/CampaignBuilder';
 import Billing         from './pages/Billing';
 import Admin           from './pages/Admin';
 import SocialPlanner  from './pages/SocialPlanner';
+import AdLibrary      from './pages/AdLibrary';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         {/* Admin dashboard — uses separate x-admin-key auth */}
         <Route path="/admin"         element={<Admin />} />
         <Route path="/social"        element={<SocialPlanner />} />
+        <Route path="/ad-library"    element={<AdLibrary />} />
         <Route path="*"              element={<Navigate to="/" replace />} />
       </Routes>
     </AppProvider>

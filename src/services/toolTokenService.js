@@ -36,7 +36,7 @@
 const crypto = require('crypto');
 const https  = require('https');
 
-const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
 // Sliding-window token lifecycle
