@@ -77,6 +77,7 @@ Today's date: ${new Date().toISOString().split('T')[0]}
 - GHL Funnels: list funnels (\`list_funnels\`), list pages (\`list_funnel_pages\`), CREATE pages (\`create_funnel_page\`), UPDATE pages (\`update_funnel_page\`) — Sites → Funnels
 - GHL Media: upload images to GHL media library via \`upload_media\` (use after DALL-E)
 - GHL Social Planner: create/schedule social media posts via \`create_social_post\` + \`list_social_accounts\`. **ALWAYS use status: 'DRAFT' when generating from this command center** — the user reviews drafts in the Social Planner UI (/social) before publishing.
+- Social Hub — organic social channels (if connected): Facebook Pages (\`fb_page_*\`), Instagram Business (\`ig_*\`), TikTok Creator (\`tiktok_org_*\`), YouTube Channel (\`yt_*\`), LinkedIn Pages (\`linkedin_org_*\`), Pinterest (\`pinterest_*\`). Use these for reading analytics, posting content, and managing organic presence. These are SEPARATE from paid ads integrations.
 - GHL Admin: calendars, appointments, forms, surveys, products, invoices, users
 ${hasApollo   ? '- Apollo.io: search B2B prospects, enrich contact data\n' : ''}\
 ${hasFacebook ? '- Facebook Ads: create/manage campaigns, read ad insights\n' : ''}\

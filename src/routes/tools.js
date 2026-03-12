@@ -396,6 +396,43 @@ router.post('/test/:category', async (req, res) => {
         throw new Error(r.data?.messages?.message?.[0]?.text || 'Authentication failed');
       }
       info = `Authorize.net connected (${cfg.mode || 'sandbox'})`;
+
+    } else if (category === 'social_facebook') {
+      const { pageAccessToken, pageId } = cfg;
+      if (!pageAccessToken) throw new Error('Page Access Token required');
+      const r = await axios.get(`https://graph.facebook.com/v19.0/${pageId || 'me'}`, { params: { access_token: pageAccessToken, fields: 'id,name,fan_count' } });
+      info = `Facebook Page: ${r.data.name} (${r.data.fan_count?.toLocaleString() || 0} followers)`;
+
+    } else if (category === 'social_instagram') {
+      const { pageAccessToken, igUserId } = cfg;
+      if (!pageAccessToken || !igUserId) throw new Error('Facebook Page Access Token and Instagram User ID required');
+      const r = await axios.get(`https://graph.facebook.com/v19.0/${igUserId}`, { params: { access_token: pageAccessToken, fields: 'id,name,followers_count' } });
+      info = `Instagram: @${r.data.name} (${r.data.followers_count?.toLocaleString() || 0} followers)`;
+
+    } else if (category === 'social_tiktok_organic') {
+      const { accessToken } = cfg;
+      if (!accessToken) throw new Error('TikTok Access Token required');
+      const r = await axios.get('https://open.tiktokapis.com/v2/user/info/', { headers: { Authorization: `Bearer ${accessToken}` }, params: { fields: 'display_name,follower_count' } });
+      info = `TikTok: @${r.data.data?.user?.display_name} (${r.data.data?.user?.follower_count?.toLocaleString() || 0} followers)`;
+
+    } else if (category === 'social_youtube') {
+      const { accessToken, channelId } = cfg;
+      if (!accessToken || !channelId) throw new Error('OAuth Access Token and Channel ID required');
+      const r = await axios.get('https://www.googleapis.com/youtube/v3/channels', { headers: { Authorization: `Bearer ${accessToken}` }, params: { part: 'snippet,statistics', id: channelId } });
+      const ch = r.data.items?.[0];
+      info = `YouTube: ${ch?.snippet?.title} (${parseInt(ch?.statistics?.subscriberCount || 0).toLocaleString()} subscribers)`;
+
+    } else if (category === 'social_linkedin_organic') {
+      const { accessToken, organizationId } = cfg;
+      if (!accessToken || !organizationId) throw new Error('OAuth Access Token and Organization ID required');
+      const r = await axios.get(`https://api.linkedin.com/v2/organizations/${organizationId}`, { headers: { Authorization: `Bearer ${accessToken}`, 'LinkedIn-Version': '202401' } });
+      info = `LinkedIn: ${r.data.localizedName} — connected`;
+
+    } else if (category === 'social_pinterest') {
+      const { accessToken } = cfg;
+      if (!accessToken) throw new Error('Pinterest Access Token required');
+      const r = await axios.get('https://api.pinterest.com/v5/user_account', { headers: { Authorization: `Bearer ${accessToken}` } });
+      info = `Pinterest: @${r.data.username} (${r.data.follower_count?.toLocaleString() || 0} followers)`;
     }
 
     res.json({ success: true, info });

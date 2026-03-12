@@ -1350,6 +1350,102 @@ const EXTERNAL_TOOL_DEFINITIONS = {
   ],
 };
 
+// ── Social Hub (organic social platforms — separate from ads) ────────────────
+Object.assign(EXTERNAL_TOOL_DEFINITIONS, {
+  social_facebook: [
+    {
+      name: 'fb_page_get_posts',
+      description: 'List recent organic posts from a Facebook Page.',
+      input_schema: { type: 'object', properties: { limit: { type: 'number', description: 'Max posts (default 10)' } }, required: [] },
+    },
+    {
+      name: 'fb_page_create_post',
+      description: 'Create an organic post on a connected Facebook Page.',
+      input_schema: { type: 'object', properties: { message: { type: 'string', description: 'Post text / caption' }, link: { type: 'string', description: 'Optional URL to attach' } }, required: ['message'] },
+    },
+    {
+      name: 'fb_page_get_insights',
+      description: 'Get Facebook Page insights: reach, impressions, engagement for the past 30 days.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+  ],
+  social_instagram: [
+    {
+      name: 'ig_get_recent_media',
+      description: 'List recent Instagram Business posts, reels and stories.',
+      input_schema: { type: 'object', properties: { limit: { type: 'number', description: 'Max posts (default 12)' } }, required: [] },
+    },
+    {
+      name: 'ig_get_account_insights',
+      description: 'Get Instagram Business account insights: follower count, reach, profile views.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+  ],
+  social_tiktok_organic: [
+    {
+      name: 'tiktok_org_get_creator_info',
+      description: 'Get TikTok creator info: username, follower count, posting permissions.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'tiktok_org_list_videos',
+      description: 'List recent TikTok videos from the connected creator account.',
+      input_schema: { type: 'object', properties: { maxCount: { type: 'number', description: 'Max videos (default 20)' } }, required: [] },
+    },
+  ],
+  social_youtube: [
+    {
+      name: 'yt_get_channel_info',
+      description: 'Get YouTube channel info: title, subscriber count, total views, video count.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'yt_list_videos',
+      description: 'List recent YouTube videos from the connected channel.',
+      input_schema: { type: 'object', properties: { maxResults: { type: 'number', description: 'Max videos (default 10)' } }, required: [] },
+    },
+    {
+      name: 'yt_search_channel_videos',
+      description: 'Search within a YouTube channel for videos matching a query.',
+      input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Search term' }, maxResults: { type: 'number', description: 'Max results (default 10)' } }, required: ['query'] },
+    },
+  ],
+  social_linkedin_organic: [
+    {
+      name: 'linkedin_org_create_post',
+      description: 'Create an organic text post as a LinkedIn Organization (company page).',
+      input_schema: { type: 'object', properties: { text: { type: 'string', description: 'Post content' } }, required: ['text'] },
+    },
+    {
+      name: 'linkedin_org_get_posts',
+      description: 'List recent posts from a LinkedIn Organization page.',
+      input_schema: { type: 'object', properties: { count: { type: 'number', description: 'Max posts (default 10)' } }, required: [] },
+    },
+    {
+      name: 'linkedin_org_get_follower_stats',
+      description: 'Get follower count and demographics for a LinkedIn Organization page.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+  ],
+  social_pinterest: [
+    {
+      name: 'pinterest_list_boards',
+      description: 'List all Pinterest boards for the connected account.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'pinterest_create_pin',
+      description: 'Create a new Pinterest pin on a board.',
+      input_schema: { type: 'object', properties: { boardId: { type: 'string', description: 'Board ID to pin to' }, title: { type: 'string', description: 'Pin title' }, description: { type: 'string', description: 'Pin description' }, link: { type: 'string', description: 'Destination URL' }, mediaUrl: { type: 'string', description: 'Image URL for the pin' } }, required: ['boardId', 'title', 'mediaUrl'] },
+    },
+    {
+      name: 'pinterest_list_pins',
+      description: 'List recent pins from a Pinterest board.',
+      input_schema: { type: 'object', properties: { boardId: { type: 'string', description: 'Board ID' }, pageSize: { type: 'number', description: 'Max pins (default 25)' } }, required: ['boardId'] },
+    },
+  ],
+});
+
 // ─── Executors ────────────────────────────────────────────────────────────────
 
 async function executeExternalTool(toolName, input, toolConfigs) {
@@ -2781,6 +2877,168 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     return { tags: resp.data.tags, count: resp.data.count };
   }
 
+  // ── Social Hub executors ───────────────────────────────────────────────────
+
+  if (toolName === 'fb_page_get_posts') {
+    const cfg = toolConfigs.social_facebook || {};
+    if (!cfg.pageAccessToken) throw new Error('Facebook Page access token not configured.');
+    const resp = await axios.get(`https://graph.facebook.com/v19.0/${cfg.pageId || 'me'}/feed`, {
+      params: { access_token: cfg.pageAccessToken, fields: 'id,message,created_time,permalink_url,likes.summary(true),comments.summary(true)', limit: input.limit || 10 },
+    });
+    return { posts: resp.data.data };
+  }
+
+  if (toolName === 'fb_page_create_post') {
+    const cfg = toolConfigs.social_facebook || {};
+    if (!cfg.pageAccessToken) throw new Error('Facebook Page access token not configured.');
+    const body = { message: input.message, access_token: cfg.pageAccessToken };
+    if (input.link) body.link = input.link;
+    const resp = await axios.post(`https://graph.facebook.com/v19.0/${cfg.pageId || 'me'}/feed`, body);
+    return { postId: resp.data.id };
+  }
+
+  if (toolName === 'fb_page_get_insights') {
+    const cfg = toolConfigs.social_facebook || {};
+    if (!cfg.pageAccessToken) throw new Error('Facebook Page access token not configured.');
+    const resp = await axios.get(`https://graph.facebook.com/v19.0/${cfg.pageId || 'me'}/insights`, {
+      params: { access_token: cfg.pageAccessToken, metric: 'page_impressions,page_reach,page_engaged_users', period: 'day', since: Math.floor((Date.now() - 30*86400000)/1000) },
+    });
+    return { insights: resp.data.data };
+  }
+
+  if (toolName === 'ig_get_recent_media') {
+    const cfg = toolConfigs.social_instagram || {};
+    if (!cfg.pageAccessToken || !cfg.igUserId) throw new Error('Instagram credentials not configured.');
+    const resp = await axios.get(`https://graph.facebook.com/v19.0/${cfg.igUserId}/media`, {
+      params: { access_token: cfg.pageAccessToken, fields: 'id,caption,media_type,timestamp,permalink,like_count,comments_count', limit: input.limit || 12 },
+    });
+    return { media: resp.data.data };
+  }
+
+  if (toolName === 'ig_get_account_insights') {
+    const cfg = toolConfigs.social_instagram || {};
+    if (!cfg.pageAccessToken || !cfg.igUserId) throw new Error('Instagram credentials not configured.');
+    const resp = await axios.get(`https://graph.facebook.com/v19.0/${cfg.igUserId}`, {
+      params: { access_token: cfg.pageAccessToken, fields: 'followers_count,media_count,name,biography,website' },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'tiktok_org_get_creator_info') {
+    const cfg = toolConfigs.social_tiktok_organic || {};
+    if (!cfg.accessToken) throw new Error('TikTok access token not configured.');
+    const resp = await axios.get('https://open.tiktokapis.com/v2/user/info/', {
+      headers: { Authorization: `Bearer ${cfg.accessToken}` },
+      params: { fields: 'open_id,union_id,avatar_url,display_name,bio_description,follower_count,following_count,video_count' },
+    });
+    return resp.data.data;
+  }
+
+  if (toolName === 'tiktok_org_list_videos') {
+    const cfg = toolConfigs.social_tiktok_organic || {};
+    if (!cfg.accessToken) throw new Error('TikTok access token not configured.');
+    const resp = await axios.post('https://open.tiktokapis.com/v2/video/list/', { max_count: input.maxCount || 20 }, {
+      headers: { Authorization: `Bearer ${cfg.accessToken}`, 'Content-Type': 'application/json' },
+      params: { fields: 'id,title,video_description,create_time,duration,view_count,like_count,comment_count,share_count' },
+    });
+    return { videos: resp.data.data?.videos || [] };
+  }
+
+  if (toolName === 'yt_get_channel_info') {
+    const cfg = toolConfigs.social_youtube || {};
+    if (!cfg.accessToken || !cfg.channelId) throw new Error('YouTube credentials not configured.');
+    const resp = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
+      headers: { Authorization: `Bearer ${cfg.accessToken}` },
+      params: { part: 'snippet,statistics', id: cfg.channelId },
+    });
+    const ch = resp.data.items?.[0];
+    return { title: ch?.snippet?.title, subscribers: ch?.statistics?.subscriberCount, views: ch?.statistics?.viewCount, videos: ch?.statistics?.videoCount };
+  }
+
+  if (toolName === 'yt_list_videos') {
+    const cfg = toolConfigs.social_youtube || {};
+    if (!cfg.accessToken || !cfg.channelId) throw new Error('YouTube credentials not configured.');
+    const resp = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+      headers: { Authorization: `Bearer ${cfg.accessToken}` },
+      params: { part: 'snippet', channelId: cfg.channelId, type: 'video', order: 'date', maxResults: input.maxResults || 10 },
+    });
+    return { videos: resp.data.items };
+  }
+
+  if (toolName === 'yt_search_channel_videos') {
+    const cfg = toolConfigs.social_youtube || {};
+    if (!cfg.accessToken || !cfg.channelId) throw new Error('YouTube credentials not configured.');
+    const resp = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+      headers: { Authorization: `Bearer ${cfg.accessToken}` },
+      params: { part: 'snippet', channelId: cfg.channelId, type: 'video', q: input.query, maxResults: input.maxResults || 10 },
+    });
+    return { videos: resp.data.items };
+  }
+
+  if (toolName === 'linkedin_org_create_post') {
+    const cfg = toolConfigs.social_linkedin_organic || {};
+    if (!cfg.accessToken || !cfg.organizationId) throw new Error('LinkedIn organic credentials not configured.');
+    const resp = await axios.post('https://api.linkedin.com/v2/ugcPosts', {
+      author: `urn:li:organization:${cfg.organizationId}`,
+      lifecycleState: 'PUBLISHED',
+      specificContent: { 'com.linkedin.ugc.ShareContent': { shareCommentary: { text: input.text }, shareMediaCategory: 'NONE' } },
+      visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+    }, { headers: { Authorization: `Bearer ${cfg.accessToken}`, 'LinkedIn-Version': '202401', 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' } });
+    return { postId: resp.headers['x-restli-id'] || resp.data };
+  }
+
+  if (toolName === 'linkedin_org_get_posts') {
+    const cfg = toolConfigs.social_linkedin_organic || {};
+    if (!cfg.accessToken || !cfg.organizationId) throw new Error('LinkedIn organic credentials not configured.');
+    const resp = await axios.get('https://api.linkedin.com/v2/ugcPosts', {
+      headers: { Authorization: `Bearer ${cfg.accessToken}`, 'LinkedIn-Version': '202401', 'X-Restli-Protocol-Version': '2.0.0' },
+      params: { q: 'authors', authors: `List(urn:li:organization:${cfg.organizationId})`, count: input.count || 10 },
+    });
+    return { posts: resp.data.elements };
+  }
+
+  if (toolName === 'linkedin_org_get_follower_stats') {
+    const cfg = toolConfigs.social_linkedin_organic || {};
+    if (!cfg.accessToken || !cfg.organizationId) throw new Error('LinkedIn organic credentials not configured.');
+    const resp = await axios.get(`https://api.linkedin.com/v2/organizationalEntityFollowerStatistics`, {
+      headers: { Authorization: `Bearer ${cfg.accessToken}`, 'LinkedIn-Version': '202401' },
+      params: { q: 'organizationalEntity', organizationalEntity: `urn:li:organization:${cfg.organizationId}` },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'pinterest_list_boards') {
+    const cfg = toolConfigs.social_pinterest || {};
+    if (!cfg.accessToken) throw new Error('Pinterest access token not configured.');
+    const resp = await axios.get('https://api.pinterest.com/v5/boards', {
+      headers: { Authorization: `Bearer ${cfg.accessToken}` },
+    });
+    return { boards: resp.data.items };
+  }
+
+  if (toolName === 'pinterest_create_pin') {
+    const cfg = toolConfigs.social_pinterest || {};
+    if (!cfg.accessToken) throw new Error('Pinterest access token not configured.');
+    const resp = await axios.post('https://api.pinterest.com/v5/pins', {
+      board_id: input.boardId,
+      title: input.title,
+      description: input.description,
+      link: input.link,
+      media_source: { source_type: 'image_url', url: input.mediaUrl },
+    }, { headers: { Authorization: `Bearer ${cfg.accessToken}`, 'Content-Type': 'application/json' } });
+    return { pinId: resp.data.id, pin: resp.data };
+  }
+
+  if (toolName === 'pinterest_list_pins') {
+    const cfg = toolConfigs.social_pinterest || {};
+    if (!cfg.accessToken) throw new Error('Pinterest access token not configured.');
+    const resp = await axios.get(`https://api.pinterest.com/v5/boards/${input.boardId}/pins`, {
+      headers: { Authorization: `Bearer ${cfg.accessToken}` },
+      params: { page_size: input.pageSize || 25 },
+    });
+    return { pins: resp.data.items };
+  }
+
   throw new Error(`Unknown external tool: ${toolName}`);
 }
 
@@ -3063,6 +3321,59 @@ const TOOL_METADATA = {
     description: 'CRM contacts, tags and automations via Keap',
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'Your Keap service account key' },
+    ],
+  },
+  social_facebook: {
+    label:       'Facebook Pages',
+    icon:        '📘',
+    description: 'Organic Facebook Page management — posts, insights, engagement',
+    configFields: [
+      { key: 'pageAccessToken', label: 'Page Access Token', type: 'password', placeholder: 'EAABs...' },
+      { key: 'pageId',          label: 'Page ID',           type: 'text',     placeholder: '123456789012345' },
+    ],
+  },
+  social_instagram: {
+    label:       'Instagram Business',
+    icon:        '📸',
+    description: 'Organic Instagram Business posting and insights via Graph API',
+    configFields: [
+      { key: 'pageAccessToken', label: 'Facebook Page Access Token', type: 'password', placeholder: 'EAABs... (instagram_basic + instagram_content_publish scope)' },
+      { key: 'igUserId',        label: 'Instagram User ID',          type: 'text',     placeholder: '17841400000000000' },
+    ],
+  },
+  social_tiktok_organic: {
+    label:       'TikTok Creator',
+    icon:        '🎵',
+    description: 'TikTok organic content posting and video analytics',
+    configFields: [
+      { key: 'accessToken', label: 'Access Token', type: 'password', placeholder: 'act.xxxx...' },
+      { key: 'openId',      label: 'Open ID',      type: 'text',     placeholder: 'Your TikTok user open_id' },
+    ],
+  },
+  social_youtube: {
+    label:       'YouTube Channel',
+    icon:        '📺',
+    description: 'YouTube channel stats, video list and search',
+    configFields: [
+      { key: 'accessToken', label: 'OAuth Access Token', type: 'password', placeholder: 'ya29...' },
+      { key: 'channelId',   label: 'Channel ID',         type: 'text',     placeholder: 'UCxxxxxxxxxxxxxx' },
+    ],
+  },
+  social_linkedin_organic: {
+    label:       'LinkedIn Pages',
+    icon:        '💼',
+    description: 'LinkedIn organic company page posts and follower analytics',
+    configFields: [
+      { key: 'accessToken',    label: 'OAuth Access Token', type: 'password', placeholder: 'AQV...' },
+      { key: 'organizationId', label: 'Organization ID',    type: 'text',     placeholder: '123456789 (numbers only)' },
+    ],
+  },
+  social_pinterest: {
+    label:       'Pinterest',
+    icon:        '📌',
+    description: 'Pinterest boards and pin creation',
+    configFields: [
+      { key: 'accessToken', label: 'Access Token', type: 'password', placeholder: 'Your Pinterest OAuth token' },
     ],
   },
 };

@@ -410,6 +410,12 @@ export default function Settings() {
           />
         </div>
 
+        {/* ── Social Hub ─────────────────────────────────────────────────── */}
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Social Hub</h2>
+        <div className="mb-8">
+          <SocialHubCard serverMap={serverMap} showToast={showToast} refreshStatus={refreshStatus} />
+        </div>
+
         {/* ── External integrations ──────────────────────────────────────── */}
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">External Integrations</h2>
 
@@ -969,6 +975,254 @@ function BuiltInCard({ icon, label, badge, color, description, rightLabel, right
         <div className="text-green-400 font-medium">{rightLabel}</div>
         {rightSub && <div className="mt-0.5">{rightSub}</div>}
       </div>
+    </div>
+  );
+}
+
+// ── Social Hub Card ───────────────────────────────────────────────────────────
+
+const SOCIAL_PLATFORMS = [
+  {
+    key: 'social_facebook', label: 'Facebook Pages', icon: '📘',
+    color: 'rgba(24,119,242,0.12)', borderColor: 'rgba(24,119,242,0.4)',
+    docsUrl: 'https://developers.facebook.com/docs/pages/access-tokens',
+    note: 'Organic page management — separate from Facebook Ads',
+    fields: [
+      { key: 'pageAccessToken', label: 'Page Access Token', type: 'password', placeholder: 'EAABs...' },
+      { key: 'pageId',          label: 'Page ID',           type: 'text',     placeholder: '123456789012345' },
+    ],
+  },
+  {
+    key: 'social_instagram', label: 'Instagram Business', icon: '📸',
+    color: 'rgba(225,48,108,0.12)', borderColor: 'rgba(225,48,108,0.4)',
+    docsUrl: 'https://developers.facebook.com/docs/instagram-api',
+    note: 'Requires Facebook Page token with instagram_basic + instagram_content_publish scope',
+    fields: [
+      { key: 'pageAccessToken', label: 'Facebook Page Access Token', type: 'password', placeholder: 'EAABs...' },
+      { key: 'igUserId',        label: 'Instagram User ID',          type: 'text',     placeholder: '17841400000000000' },
+    ],
+  },
+  {
+    key: 'social_tiktok_organic', label: 'TikTok Creator', icon: '🎵',
+    color: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.25)',
+    docsUrl: 'https://developers.tiktok.com/doc/content-posting-api-get-started',
+    note: 'Organic TikTok content posting API — separate from TikTok Ads',
+    fields: [
+      { key: 'accessToken', label: 'Access Token', type: 'password', placeholder: 'act.xxxx...' },
+      { key: 'openId',      label: 'Open ID',      type: 'text',     placeholder: 'Your TikTok user open_id' },
+    ],
+  },
+  {
+    key: 'social_youtube', label: 'YouTube Channel', icon: '📺',
+    color: 'rgba(255,0,0,0.1)', borderColor: 'rgba(255,0,0,0.35)',
+    docsUrl: 'https://developers.google.com/youtube/v3',
+    note: 'YouTube Data API — requires OAuth with youtube.readonly scope',
+    fields: [
+      { key: 'accessToken', label: 'OAuth Access Token', type: 'password', placeholder: 'ya29...' },
+      { key: 'channelId',   label: 'Channel ID',         type: 'text',     placeholder: 'UCxxxxxxxxxxxxxx' },
+    ],
+  },
+  {
+    key: 'social_linkedin_organic', label: 'LinkedIn Pages', icon: '💼',
+    color: 'rgba(0,119,181,0.12)', borderColor: 'rgba(0,119,181,0.4)',
+    docsUrl: 'https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api',
+    note: 'LinkedIn Company Pages — organic posts & analytics (separate from LinkedIn Ads)',
+    fields: [
+      { key: 'accessToken',    label: 'OAuth Access Token', type: 'password', placeholder: 'AQV...' },
+      { key: 'organizationId', label: 'Organization ID',    type: 'text',     placeholder: '123456789 (numbers only, not vanity URL)' },
+    ],
+  },
+  {
+    key: 'social_pinterest', label: 'Pinterest', icon: '📌',
+    color: 'rgba(230,0,35,0.1)', borderColor: 'rgba(230,0,35,0.35)',
+    docsUrl: 'https://developers.pinterest.com/docs/getting-started/introduction/',
+    note: 'Pinterest API v5 — boards, pins and analytics',
+    fields: [
+      { key: 'accessToken', label: 'Access Token', type: 'password', placeholder: 'Your Pinterest OAuth token' },
+    ],
+  },
+];
+
+function SocialHubCard({ serverMap, showToast, refreshStatus }) {
+  const [selected,   setSelected]   = useState(null);
+  const [formVals,   setFormVals]   = useState({});
+  const [saving,     setSaving]     = useState(false);
+  const [testing,    setTesting]    = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [isOpen,     setIsOpen]     = useState(false);
+
+  const platform = SOCIAL_PLATFORMS.find(p => p.key === selected);
+  const connectedPlatforms = SOCIAL_PLATFORMS.filter(p => serverMap[p.key]?.enabled);
+  const anyConnected = connectedPlatforms.length > 0;
+
+  const selectPlatform = (key) => { setSelected(key); setFormVals({}); setTestResult(null); };
+
+  const save = async () => {
+    if (!platform) return;
+    const body = {};
+    for (const f of platform.fields) {
+      if (formVals[f.key]?.trim()) body[f.key] = formVals[f.key].trim();
+    }
+    if (!Object.keys(body).length) { showToast('Enter at least one field.', false); return; }
+    setSaving(true);
+    const data = await api.post(`/tools/${platform.key}`, body);
+    setSaving(false);
+    if (!data.success) { showToast(data.error, false); return; }
+    showToast(`${platform.label} connected. Testing…`, true);
+    setFormVals({});
+    await testConn();
+    await refreshStatus();
+  };
+
+  const testConn = async () => {
+    if (!platform) return;
+    setTesting(true); setTestResult(null);
+    const data = await api.post(`/tools/test/${platform.key}`, {});
+    setTesting(false);
+    setTestResult(data.success ? { ok: true, msg: data.info } : { ok: false, msg: data.error });
+    if (data.success) refreshStatus();
+  };
+
+  const disconnect = async (platformKey) => {
+    const p = SOCIAL_PLATFORMS.find(x => x.key === platformKey);
+    if (!confirm(`Disconnect ${p?.label}? Credentials will be removed.`)) return;
+    const data = await api.del(`/tools/${platformKey}`);
+    if (data.success) {
+      showToast(`${p?.label} disconnected.`, true);
+      if (selected === platformKey) { setSelected(null); setFormVals({}); setTestResult(null); }
+      await refreshStatus();
+    } else {
+      showToast(data.error, false);
+    }
+  };
+
+  return (
+    <div className={`card p-5${anyConnected ? ' connected' : ''}`}>
+      {/* Header */}
+      <div className="flex items-center justify-between gap-4 mb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style={{ background: 'rgba(99,102,241,0.12)' }}>📱</div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-white text-sm">Social Hub</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${anyConnected ? 'badge-on' : 'badge-off'}`}>
+                {anyConnected ? `${connectedPlatforms.length} connected` : 'Not connected'}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5">Facebook · Instagram · TikTok · YouTube · LinkedIn · Pinterest</p>
+          </div>
+        </div>
+        <button onClick={() => setIsOpen(o => !o)} className="btn-ghost px-4 py-1.5 text-xs">
+          {isOpen ? '▲ Collapse' : anyConnected ? '⚙️ Manage' : '+ Connect'}
+        </button>
+      </div>
+
+      {/* Connected platform pills */}
+      {anyConnected && !isOpen && (
+        <div className="flex flex-wrap gap-2 mt-1">
+          {connectedPlatforms.map(p => (
+            <span key={p.key} style={{ background: p.color, border: `1px solid ${p.borderColor}`, borderRadius: 10, padding: '2px 10px', fontSize: 12, color: '#e2e8f0' }}>
+              {p.icon} {p.label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Expanded panel */}
+      {isOpen && (
+        <div className="mt-4 fade-up">
+          {/* Platform selector tabs */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {SOCIAL_PLATFORMS.map(p => {
+              const isConn   = serverMap[p.key]?.enabled;
+              const isActive = selected === p.key;
+              return (
+                <button key={p.key} onClick={() => selectPlatform(p.key)} style={{
+                  padding: '6px 14px', borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                  background: isActive ? p.color : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${isActive ? p.borderColor : 'rgba(255,255,255,0.1)'}`,
+                  color: isActive ? '#e2e8f0' : '#9ca3af',
+                }}>
+                  {p.icon} {p.label}
+                  {isConn && <span style={{ marginLeft: 6, color: '#4ade80', fontSize: 10 }}>●</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          {!selected && (
+            <p className="text-xs text-gray-500 text-center py-4">Select a platform above to connect or manage.</p>
+          )}
+
+          {selected && platform && (() => {
+            const isConn  = serverMap[platform.key]?.enabled;
+            const preview = serverMap[platform.key]?.configPreview || {};
+            return (
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${platform.borderColor}`, borderRadius: 14, padding: 16 }}>
+                {/* Platform header */}
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span style={{ fontSize: 22 }}>{platform.icon}</span>
+                    <div>
+                      <span className="font-semibold text-white text-sm">{platform.label}</span>
+                      <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${isConn ? 'badge-on' : 'badge-off'}`}>
+                        {isConn ? 'Connected' : 'Not connected'}
+                      </span>
+                    </div>
+                  </div>
+                  <a href={platform.docsUrl} target="_blank" rel="noreferrer" className="text-xs text-gray-600 hover:text-gray-400">Docs ↗</a>
+                </div>
+                {platform.note && <p className="text-xs text-gray-500 mb-3 mt-1">{platform.note}</p>}
+
+                {/* Fields */}
+                <div className="space-y-3 mb-4">
+                  {platform.fields.map(f => {
+                    const savedVal = preview[f.key];
+                    const hasDb    = !!savedVal;
+                    return (
+                      <div key={f.key}>
+                        <label className="block text-xs text-gray-400 mb-1 font-medium">
+                          {f.label}
+                          {hasDb && !formVals[f.key] && <span className="ml-2 text-xs text-green-400 font-normal">✓ saved</span>}
+                        </label>
+                        <input
+                          type={f.type}
+                          value={formVals[f.key] ?? ''}
+                          onChange={e => setFormVals(v => ({ ...v, [f.key]: e.target.value }))}
+                          placeholder={hasDb && !formVals[f.key] ? savedVal : f.placeholder}
+                          className="field w-full"
+                          autoComplete="new-password"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Test result */}
+                {testResult && (
+                  <div className={`text-xs font-medium mb-3 ${testResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {testResult.ok ? `✓ ${testResult.msg}` : `✗ ${testResult.msg}`}
+                  </div>
+                )}
+                {testing && <div className="text-xs text-yellow-400 mb-3">⏳ Testing connection…</div>}
+
+                {/* Actions */}
+                <div className="flex gap-2">
+                  <button onClick={save} disabled={saving || !platform.fields.some(f => formVals[f.key]?.trim())} className="btn-primary flex-1 py-2 text-xs">
+                    {saving ? 'Saving…' : isConn ? 'Update & Test' : 'Save & Connect'}
+                  </button>
+                  {isConn && (
+                    <>
+                      <button onClick={testConn} disabled={testing} style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 12, padding: '8px 14px', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>↻ Test</button>
+                      <button onClick={() => disconnect(platform.key)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 12, padding: '8px 12px', color: '#f87171', cursor: 'pointer', fontSize: 12 }}>✕</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }
