@@ -6,7 +6,10 @@
 
 const express      = require('express');
 const router       = express.Router();
+const axios        = require('axios');
 const authenticate = require('../middleware/authenticate');
+const ghlClient    = require('../services/ghlClient');
+const config       = require('../config');
 
 router.use(authenticate);
 
@@ -100,29 +103,35 @@ router.get('/connect/:platform', async (req, res) => {
 
     const params = { locationId: req.locationId, reconnect };
     if (userId) params.userId = userId;
-    const data = await req.ghl(
-      'GET',
-      `/social-media-posting/oauth/${platform}/start`,
-      null,
-      params
-    );
-    console.log('[Social] connect raw response:', JSON.stringify(data));
 
-    // GHL may return the URL in various shapes — dig for it
-    const url =
-      (typeof data === 'string' && data.startsWith('http') ? data : null) ||
-      data?.url || data?.authUrl || data?.oauthUrl ||
-      data?.data?.url || data?.data?.authUrl ||
-      data?.result?.url || data?.result?.authUrl ||
-      null;
+    // GHL redirects (302) to the platform OAuth URL — we need to capture
+    // the Location header instead of following the redirect
+    const accessToken = await ghlClient.getValidAccessToken(req.locationId);
+    const apiUrl = `${config.ghl.apiBaseUrl}/social-media-posting/oauth/${platform}/start`;
 
-    if (!url) {
-      // Return the raw response so the frontend can show a useful error
-      return res.status(502).json({
-        error: 'GHL did not return an OAuth URL.',
-        raw: data,
+    let url = null;
+    try {
+      const resp = await axios.get(apiUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Version: config.ghl.apiVersion,
+        },
+        params,
+        maxRedirects: 0,
+        validateStatus: s => s < 400,
       });
+      // 200 response — URL may be in body
+      url = resp.data?.url || resp.data?.authUrl ||
+            (typeof resp.data === 'string' && resp.data.startsWith('http') ? resp.data : null) ||
+            resp.headers?.location;
+    } catch (redirectErr) {
+      // 302 redirect — Location header has the OAuth URL
+      url = redirectErr.response?.headers?.location;
+      if (!url) throw redirectErr;
     }
+
+    console.log('[Social] connect OAuth URL:', url?.substring(0, 80));
+    if (!url) return res.status(502).json({ error: 'GHL did not return an OAuth URL.' });
     res.json({ url });
   } catch (err) {
     console.error('[Social] connect error:', err.message);
