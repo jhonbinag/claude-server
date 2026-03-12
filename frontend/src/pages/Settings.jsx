@@ -40,28 +40,17 @@ export default function Settings() {
   const [anthropicEditing, setAnthropicEditing] = useState(false);
   const [anthropicSaving,  setAnthropicSaving]  = useState(false);
 
-  if (isAuthLoading)    return <Spinner />;
-  if (!isAuthenticated) return (
-    <AuthGate icon="⚙️" title="GTM Integration Hub" subtitle="Connect your API keys to sync all tools">
-      <Link to="/" className="block text-center text-xs text-gray-500 mt-4 hover:text-gray-300">
-        ← Back to Dashboard
-      </Link>
-    </AuthGate>
-  );
-
-  const sidebarUrl = `${window.location.origin}/ui`;
-  // Build lookup: key → server integration record (has .enabled, .configPreview)
-  const serverMap = Object.fromEntries((integrations || []).map(i => [i.key, i]));
-
-  // ── Load token status ─────────────────────────────────────────────────────
+  // ── Load token status (hooks must be before any conditional returns) ───────
 
   useEffect(() => {
+    if (!apiKey) return;
     api.getWithKey('/tools/sync', apiKey)
       .then(d => { if (d.success) setTokenStatus(d); })
       .catch(() => {});
   }, [apiKey]);
 
   useEffect(() => {
+    if (!apiKey) return;
     api.getWithKey('/tools', apiKey)
       .then(d => {
         if (d.success) {
@@ -81,6 +70,13 @@ export default function Settings() {
     }
     setExpanded(prev => ({ ...initial, ...prev }));
   }, [integrations]);
+
+  if (isAuthLoading)    return <Spinner />;
+  if (!isAuthenticated) return <AuthGate icon="⚙️" title="GTM Integration Hub" subtitle="Connect your API keys to sync all tools" />;
+
+  const sidebarUrl = `${window.location.origin}/ui`;
+  // Build lookup: key → server integration record (has .enabled, .configPreview)
+  const serverMap = Object.fromEntries((integrations || []).map(i => [i.key, i]));
 
   // ── Toast helper ──────────────────────────────────────────────────────────
 
