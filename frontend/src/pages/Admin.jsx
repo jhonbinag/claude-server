@@ -1343,6 +1343,47 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
   const [runResult,   setRunResult]   = useState(null);
   const [runLoading,  setRunLoading]  = useState(false);
 
+  // Billing edit state
+  const [billingRec,     setBillingRec]     = useState(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingEdits,   setBillingEdits]   = useState({});
+  const [billingSaving,  setBillingSaving]  = useState(false);
+  const [billingMsg,     setBillingMsg]     = useState(null); // { ok, text }
+
+  const loadBillingRec = async () => {
+    if (billingRec) return;
+    setBillingLoading(true);
+    const d = await adminFetch(`/admin/billing/${locationId}`, { adminKey });
+    if (d.success) {
+      setBillingRec(d.data);
+      setBillingEdits({
+        tier:   d.data.tier   || 'bronze',
+        plan:   d.data.plan   || 'trial',
+        status: d.data.status || 'trial',
+        amount: d.data.amount ?? 0,
+        notes:  d.data.notes  || '',
+      });
+    }
+    setBillingLoading(false);
+  };
+
+  const saveBilling = async () => {
+    setBillingSaving(true);
+    setBillingMsg(null);
+    const d = await adminFetch(`/admin/billing/${locationId}`, {
+      method: 'POST', adminKey,
+      body: { tier: billingEdits.tier, plan: billingEdits.plan, status: billingEdits.status, amount: Number(billingEdits.amount), notes: billingEdits.notes },
+    });
+    setBillingSaving(false);
+    if (d.success) {
+      setBillingRec(d.data);
+      setBillingMsg({ ok: true, text: '✓ Billing record saved' });
+    } else {
+      setBillingMsg({ ok: false, text: d.error || 'Save failed' });
+    }
+    setTimeout(() => setBillingMsg(null), 3000);
+  };
+
   const execRunTask = async () => {
     if (!runTask.trim() || runLoading) return;
     setRunLoading(true);
@@ -1404,11 +1445,12 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
             { key: 'run',         label: `🚀 Run Task` },
             { key: 'workflows',   label: `🔀 Workflows (${troubleshoot?.workflows?.length ?? 0})` },
             { key: 'connections', label: `🔌 Connections (${Object.keys(troubleshoot?.connections || {}).length})` },
+            { key: 'billing',     label: `💳 Billing / Tier` },
             { key: 'logs',        label: `📋 All Logs` },
           ].map(({ key, label }) => (
             <button
               key={key}
-              onClick={() => setTsTab(key)}
+              onClick={() => { setTsTab(key); if (key === 'billing') loadBillingRec(); }}
               style={{
                 padding: '4px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500, border: 'none',
                 background: tsTab === key ? '#7c3aed' : '#2a2a2a',
@@ -1655,6 +1697,131 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
                     <span style={{ color: '#6b7280', marginLeft: 'auto' }}>{relTime(r.timestamp)}</span>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Billing / Tier sub-tab */}
+        {tsTab === 'billing' && (
+          <div>
+            {billingLoading && <p style={{ color: '#6b7280', fontSize: 13 }}>Loading billing record…</p>}
+            {!billingLoading && !billingRec && <p style={{ color: '#6b7280', fontSize: 13 }}>No billing record found.</p>}
+            {billingRec && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+                {/* Current values row */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {[
+                    { label: 'Current Tier',   value: billingRec.tier   || 'bronze', color: { bronze: '#cd7f32', silver: '#9ca3af', gold: '#fbbf24', diamond: '#a78bfa' }[billingRec.tier] || '#9ca3af' },
+                    { label: 'Current Plan',   value: billingRec.plan   || 'trial',  color: '#60a5fa' },
+                    { label: 'Status',         value: billingRec.status || 'trial',  color: '#4ade80' },
+                    { label: 'Amount',         value: `$${billingRec.amount || 0}`,  color: '#34d399' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '6px 12px' }}>
+                      <p style={{ color: '#6b7280', fontSize: 10, margin: '0 0 2px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
+                      <p style={{ color, fontSize: 13, fontWeight: 700, margin: 0, textTransform: 'capitalize' }}>{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Edit form */}
+                <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: 14 }}>
+                  <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Edit Billing Record</p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
+
+                    <div>
+                      <label style={{ color: '#6b7280', fontSize: 11, display: 'block', marginBottom: 4 }}>Integration Tier</label>
+                      <select
+                        value={billingEdits.tier}
+                        onChange={e => setBillingEdits(p => ({ ...p, tier: e.target.value }))}
+                        style={{ width: '100%', padding: '5px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#e5e7eb', fontSize: 12 }}
+                      >
+                        {['bronze', 'silver', 'gold', 'diamond'].map(t => (
+                          <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ color: '#6b7280', fontSize: 11, display: 'block', marginBottom: 4 }}>Billing Plan</label>
+                      <select
+                        value={billingEdits.plan}
+                        onChange={e => setBillingEdits(p => ({ ...p, plan: e.target.value }))}
+                        style={{ width: '100%', padding: '5px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#e5e7eb', fontSize: 12 }}
+                      >
+                        {['trial', 'starter', 'pro', 'agency'].map(t => (
+                          <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ color: '#6b7280', fontSize: 11, display: 'block', marginBottom: 4 }}>Status</label>
+                      <select
+                        value={billingEdits.status}
+                        onChange={e => setBillingEdits(p => ({ ...p, status: e.target.value }))}
+                        style={{ width: '100%', padding: '5px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#e5e7eb', fontSize: 12 }}
+                      >
+                        {['trial', 'active', 'past_due', 'cancelled', 'suspended'].map(t => (
+                          <option key={t} value={t}>{t.replace('_', ' ')}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ color: '#6b7280', fontSize: 11, display: 'block', marginBottom: 4 }}>Amount ($/mo)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={billingEdits.amount}
+                        onChange={e => setBillingEdits(p => ({ ...p, amount: e.target.value }))}
+                        style={{ width: '100%', padding: '5px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#e5e7eb', fontSize: 12, boxSizing: 'border-box' }}
+                      />
+                    </div>
+
+                  </div>
+
+                  <div style={{ marginTop: 10 }}>
+                    <label style={{ color: '#6b7280', fontSize: 11, display: 'block', marginBottom: 4 }}>Notes</label>
+                    <input
+                      type="text"
+                      placeholder="Internal admin note…"
+                      value={billingEdits.notes}
+                      onChange={e => setBillingEdits(p => ({ ...p, notes: e.target.value }))}
+                      style={{ width: '100%', padding: '5px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#e5e7eb', fontSize: 12, boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
+                    <button
+                      disabled={billingSaving}
+                      onClick={saveBilling}
+                      style={{ padding: '6px 18px', borderRadius: 6, background: '#7c3aed', color: '#fff', border: 'none', cursor: billingSaving ? 'wait' : 'pointer', fontSize: 12, fontWeight: 600, opacity: billingSaving ? 0.7 : 1 }}
+                    >
+                      {billingSaving ? 'Saving…' : '💾 Save Billing'}
+                    </button>
+                    {billingMsg && (
+                      <span style={{ fontSize: 12, color: billingMsg.ok ? '#4ade80' : '#f87171' }}>{billingMsg.text}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Payment Hub connections */}
+                {billingRec.connectedPaymentProviders?.length > 0 && (
+                  <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12 }}>
+                    <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>Payment Hub</p>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {billingRec.connectedPaymentProviders.map(p => (
+                        <span key={p} style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', color: '#4ade80', padding: '2px 10px', borderRadius: 10, fontSize: 12, fontWeight: 600 }}>
+                          ✓ {p.charAt(0).toUpperCase() + p.slice(1)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
               </div>
             )}
           </div>

@@ -32,6 +32,20 @@ const config           = require('../config');
 
 router.use(adminAuth);
 
+const PAYMENT_HUB_KEYS = ['stripe', 'paypal', 'square', 'authorizenet'];
+async function getConnectedPaymentProviders(locationId) {
+  try {
+    let cfg = await toolTokenService.getCachedToolConfig(locationId) || {};
+    if (!Object.keys(cfg).length && firebaseStore.isEnabled()) {
+      cfg = await firebaseStore.getToolConfig(locationId) || {};
+    }
+    return PAYMENT_HUB_KEYS.filter(key => {
+      const c = cfg[key];
+      return c && Object.values(c).some(v => v && String(v).trim());
+    });
+  } catch { return []; }
+}
+
 // ─── GET /admin/app-settings — get GHL app credentials (masked) ──────────────
 
 router.get('/app-settings', async (req, res) => {
@@ -323,7 +337,8 @@ router.get('/billing', async (req, res) => {
 router.get('/billing/:locationId', async (req, res) => {
   try {
     const rec = await billingStore.getOrCreateBilling(req.params.locationId);
-    res.json({ success: true, data: rec });
+    const connectedPaymentProviders = await getConnectedPaymentProviders(req.params.locationId);
+    res.json({ success: true, data: { ...rec, connectedPaymentProviders } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
