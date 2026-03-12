@@ -999,7 +999,7 @@ function SocialHubCard({ showToast }) {
   const [accounts,     setAccounts]     = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState(null);
-  const [isOpen,       setIsOpen]       = useState(false);
+  const [isOpen,       setIsOpen]       = useState(true);
   const [connecting,   setConnecting]   = useState(null);
   const [disconnecting,setDisconnecting]= useState(null);
 
