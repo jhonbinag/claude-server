@@ -413,7 +413,7 @@ export default function Settings() {
         {/* ── Social Hub ─────────────────────────────────────────────────── */}
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Social Hub</h2>
         <div className="mb-8">
-          <SocialHubCard serverMap={serverMap} showToast={showToast} refreshStatus={refreshStatus} />
+          <SocialHubCard serverMap={serverMap} showToast={showToast} refreshStatus={refreshStatus} locationId={locationId} />
         </div>
 
         {/* ── External integrations ──────────────────────────────────────── */}
@@ -979,126 +979,135 @@ function BuiltInCard({ icon, label, badge, color, description, rightLabel, right
   );
 }
 
-// ── Social Hub Card ───────────────────────────────────────────────────────────
+// ── Social Hub Card (OAuth-based — no manual token entry) ────────────────────
 
 const SOCIAL_PLATFORMS = [
-  {
-    key: 'social_facebook', label: 'Facebook Pages', icon: '📘',
-    color: 'rgba(24,119,242,0.12)', borderColor: 'rgba(24,119,242,0.4)',
-    docsUrl: 'https://developers.facebook.com/docs/pages/access-tokens',
-    note: 'Organic page management — separate from Facebook Ads',
-    fields: [
-      { key: 'pageAccessToken', label: 'Page Access Token', type: 'password', placeholder: 'EAABs...' },
-      { key: 'pageId',          label: 'Page ID',           type: 'text',     placeholder: '123456789012345' },
-    ],
-  },
-  {
-    key: 'social_instagram', label: 'Instagram Business', icon: '📸',
-    color: 'rgba(225,48,108,0.12)', borderColor: 'rgba(225,48,108,0.4)',
-    docsUrl: 'https://developers.facebook.com/docs/instagram-api',
-    note: 'Requires Facebook Page token with instagram_basic + instagram_content_publish scope',
-    fields: [
-      { key: 'pageAccessToken', label: 'Facebook Page Access Token', type: 'password', placeholder: 'EAABs...' },
-      { key: 'igUserId',        label: 'Instagram User ID',          type: 'text',     placeholder: '17841400000000000' },
-    ],
-  },
-  {
-    key: 'social_tiktok_organic', label: 'TikTok Creator', icon: '🎵',
-    color: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.25)',
-    docsUrl: 'https://developers.tiktok.com/doc/content-posting-api-get-started',
-    note: 'Organic TikTok content posting API — separate from TikTok Ads',
-    fields: [
-      { key: 'accessToken', label: 'Access Token', type: 'password', placeholder: 'act.xxxx...' },
-      { key: 'openId',      label: 'Open ID',      type: 'text',     placeholder: 'Your TikTok user open_id' },
-    ],
-  },
-  {
-    key: 'social_youtube', label: 'YouTube Channel', icon: '📺',
-    color: 'rgba(255,0,0,0.1)', borderColor: 'rgba(255,0,0,0.35)',
-    docsUrl: 'https://developers.google.com/youtube/v3',
-    note: 'YouTube Data API — requires OAuth with youtube.readonly scope',
-    fields: [
-      { key: 'accessToken', label: 'OAuth Access Token', type: 'password', placeholder: 'ya29...' },
-      { key: 'channelId',   label: 'Channel ID',         type: 'text',     placeholder: 'UCxxxxxxxxxxxxxx' },
-    ],
-  },
-  {
-    key: 'social_linkedin_organic', label: 'LinkedIn Pages', icon: '💼',
-    color: 'rgba(0,119,181,0.12)', borderColor: 'rgba(0,119,181,0.4)',
-    docsUrl: 'https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api',
-    note: 'LinkedIn Company Pages — organic posts & analytics (separate from LinkedIn Ads)',
-    fields: [
-      { key: 'accessToken',    label: 'OAuth Access Token', type: 'password', placeholder: 'AQV...' },
-      { key: 'organizationId', label: 'Organization ID',    type: 'text',     placeholder: '123456789 (numbers only, not vanity URL)' },
-    ],
-  },
-  {
-    key: 'social_pinterest', label: 'Pinterest', icon: '📌',
-    color: 'rgba(230,0,35,0.1)', borderColor: 'rgba(230,0,35,0.35)',
-    docsUrl: 'https://developers.pinterest.com/docs/getting-started/introduction/',
-    note: 'Pinterest API v5 — boards, pins and analytics',
-    fields: [
-      { key: 'accessToken', label: 'Access Token', type: 'password', placeholder: 'Your Pinterest OAuth token' },
-    ],
-  },
+  { key: 'social_facebook',        oauthKey: 'facebook',  label: 'Facebook',   icon: '📘', bg: '#1877f2', color: 'rgba(24,119,242,0.12)',  border: 'rgba(24,119,242,0.4)' },
+  { key: 'social_instagram',       oauthKey: 'facebook',  label: 'Instagram',  icon: '📸', bg: '#e1306c', color: 'rgba(225,48,108,0.12)',  border: 'rgba(225,48,108,0.4)', viaFacebook: true },
+  { key: 'social_tiktok_organic',  oauthKey: 'tiktok',    label: 'TikTok',     icon: '🎵', bg: '#010101', color: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.2)' },
+  { key: 'social_youtube',         oauthKey: 'google',    label: 'YouTube',    icon: '📺', bg: '#ff0000', color: 'rgba(255,0,0,0.1)',      border: 'rgba(255,0,0,0.35)' },
+  { key: 'social_linkedin_organic',oauthKey: 'linkedin',  label: 'LinkedIn',   icon: '💼', bg: '#0077b5', color: 'rgba(0,119,181,0.12)',   border: 'rgba(0,119,181,0.4)' },
+  { key: 'social_pinterest',       oauthKey: 'pinterest', label: 'Pinterest',  icon: '📌', bg: '#e60023', color: 'rgba(230,0,35,0.1)',     border: 'rgba(230,0,35,0.35)' },
 ];
 
-function SocialHubCard({ serverMap, showToast, refreshStatus }) {
-  const [selected,   setSelected]   = useState(null);
-  const [formVals,   setFormVals]   = useState({});
-  const [saving,     setSaving]     = useState(false);
-  const [testing,    setTesting]    = useState(false);
-  const [testResult, setTestResult] = useState(null);
-  const [isOpen,     setIsOpen]     = useState(false);
+function SocialHubCard({ serverMap, showToast, refreshStatus, locationId }) {
+  const [pageModal,   setPageModal]   = useState(null);  // { platform, pages[] }
+  const [connecting,  setConnecting]  = useState(null);  // platform key being connected
+  const [isOpen,      setIsOpen]      = useState(false);
 
-  const platform = SOCIAL_PLATFORMS.find(p => p.key === selected);
   const connectedPlatforms = SOCIAL_PLATFORMS.filter(p => serverMap[p.key]?.enabled);
   const anyConnected = connectedPlatforms.length > 0;
 
-  const selectPlatform = (key) => { setSelected(key); setFormVals({}); setTestResult(null); };
+  // ── Listen for postMessage from OAuth popup ──────────────────────────────
+  useEffect(() => {
+    function onMessage(e) {
+      if (!e.data || e.data.type !== 'social_oauth') return;
+      const { platform, error, saved, accounts, account } = e.data;
+      setConnecting(null);
 
-  const save = async () => {
-    if (!platform) return;
-    const body = {};
-    for (const f of platform.fields) {
-      if (formVals[f.key]?.trim()) body[f.key] = formVals[f.key].trim();
+      if (error) {
+        showToast(`${platform}: ${error}`, false);
+        return;
+      }
+      if (saved) {
+        showToast(`${platform} connected: ${account?.name}`, true);
+        refreshStatus();
+        return;
+      }
+      if (accounts?.length > 0) {
+        setPageModal({ platform, pages: accounts });
+      }
     }
-    if (!Object.keys(body).length) { showToast('Enter at least one field.', false); return; }
-    setSaving(true);
-    const data = await api.post(`/tools/${platform.key}`, body);
-    setSaving(false);
-    if (!data.success) { showToast(data.error, false); return; }
-    showToast(`${platform.label} connected. Testing…`, true);
-    setFormVals({});
-    await testConn();
-    await refreshStatus();
-  };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [showToast, refreshStatus]);
 
-  const testConn = async () => {
-    if (!platform) return;
-    setTesting(true); setTestResult(null);
-    const data = await api.post(`/tools/test/${platform.key}`, {});
-    setTesting(false);
-    setTestResult(data.success ? { ok: true, msg: data.info } : { ok: false, msg: data.error });
-    if (data.success) refreshStatus();
-  };
-
-  const disconnect = async (platformKey) => {
-    const p = SOCIAL_PLATFORMS.find(x => x.key === platformKey);
-    if (!confirm(`Disconnect ${p?.label}? Credentials will be removed.`)) return;
-    const data = await api.del(`/tools/${platformKey}`);
-    if (data.success) {
-      showToast(`${p?.label} disconnected.`, true);
-      if (selected === platformKey) { setSelected(null); setFormVals({}); setTestResult(null); }
-      await refreshStatus();
-    } else {
-      showToast(data.error, false);
+  // ── Open OAuth popup ─────────────────────────────────────────────────────
+  function connectPlatform(p) {
+    if (p.viaFacebook) {
+      // Instagram connects via same Facebook OAuth — result handled in postMessage
     }
-  };
+    const locId = locationId || localStorage.getItem('gtm_location_id') || '';
+    const url   = `/social-auth/${p.oauthKey}?locationId=${encodeURIComponent(locId)}`;
+    const popup = window.open(url, 'social_oauth', 'width=620,height=700,scrollbars=yes');
+    if (!popup) {
+      showToast('Popup blocked — please allow popups for this site.', false);
+      return;
+    }
+    setConnecting(p.key);
+    // Detect popup closed without completing
+    const timer = setInterval(() => {
+      if (popup.closed) { clearInterval(timer); setConnecting(null); }
+    }, 800);
+  }
+
+  // ── Save selected page from modal ────────────────────────────────────────
+  async function selectPage(page) {
+    const { platform } = pageModal;
+    setPageModal(null);
+    try {
+      const r = await fetch(`/social-auth/${platform}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locationId: locationId || localStorage.getItem('gtm_location_id'), account: page }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        showToast(`Connected: ${page.name}`, true);
+        refreshStatus();
+      } else {
+        showToast(d.error || 'Save failed', false);
+      }
+    } catch (e) {
+      showToast(e.message, false);
+    }
+  }
+
+  // ── Disconnect ────────────────────────────────────────────────────────────
+  async function disconnect(p) {
+    if (!confirm(`Disconnect ${p.label}?`)) return;
+    const d = await api.del(`/tools/${p.key}`);
+    if (d.success) { showToast(`${p.label} disconnected.`, true); refreshStatus(); }
+    else showToast(d.error, false);
+  }
 
   return (
     <div className={`card p-5${anyConnected ? ' connected' : ''}`}>
-      {/* Header */}
+
+      {/* ── Page selector modal ── */}
+      {pageModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: '1.5rem', width: '100%', maxWidth: 480, maxHeight: '80vh', overflow: 'auto' }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0', margin: '0 0 4px' }}>Select a Page</h3>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 1rem' }}>Choose which page to connect to this location.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {pageModal.pages.map(page => (
+                <button key={page.id} onClick={() => selectPage(page)} style={{
+                  display: 'flex', alignItems: 'center', gap: '0.75rem',
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 10, padding: '10px 14px', cursor: 'pointer', textAlign: 'left',
+                  transition: 'border-color .15s',
+                }}
+                onMouseOver={e => e.currentTarget.style.borderColor='rgba(99,102,241,0.5)'}
+                onMouseOut={e => e.currentTarget.style.borderColor='rgba(255,255,255,0.1)'}
+                >
+                  {page.picture
+                    ? <img src={page.picture} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                    : <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{(page.name||'?')[0]}</div>
+                  }
+                  <div>
+                    <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{page.name}</p>
+                    {page.followers && <p style={{ margin: 0, fontSize: 11, color: '#6b7280' }}>{Number(page.followers).toLocaleString()} followers</p>}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setPageModal(null)} style={{ marginTop: '1rem', width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px', color: '#6b7280', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Card header ── */}
       <div className="flex items-center justify-between gap-4 mb-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style={{ background: 'rgba(99,102,241,0.12)' }}>📱</div>
@@ -1117,110 +1126,84 @@ function SocialHubCard({ serverMap, showToast, refreshStatus }) {
         </button>
       </div>
 
-      {/* Connected platform pills */}
+      {/* Connected pills (collapsed view) */}
       {anyConnected && !isOpen && (
         <div className="flex flex-wrap gap-2 mt-1">
-          {connectedPlatforms.map(p => (
-            <span key={p.key} style={{ background: p.color, border: `1px solid ${p.borderColor}`, borderRadius: 10, padding: '2px 10px', fontSize: 12, color: '#e2e8f0' }}>
-              {p.icon} {p.label}
-            </span>
-          ))}
+          {connectedPlatforms.map(p => {
+            const preview = serverMap[p.key]?.configPreview || {};
+            return (
+              <span key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 5, background: p.color, border: `1px solid ${p.border}`, borderRadius: 20, padding: '3px 10px 3px 6px', fontSize: 12, color: '#e2e8f0' }}>
+                {preview.picture
+                  ? <img src={preview.picture} alt="" style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }} />
+                  : <span>{p.icon}</span>
+                }
+                {preview.pageName || p.label}
+              </span>
+            );
+          })}
         </div>
       )}
 
-      {/* Expanded panel */}
+      {/* ── Expanded platform grid ── */}
       {isOpen && (
-        <div className="mt-4 fade-up">
-          {/* Platform selector tabs */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {SOCIAL_PLATFORMS.map(p => {
-              const isConn   = serverMap[p.key]?.enabled;
-              const isActive = selected === p.key;
-              return (
-                <button key={p.key} onClick={() => selectPlatform(p.key)} style={{
-                  padding: '6px 14px', borderRadius: 10, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                  background: isActive ? p.color : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${isActive ? p.borderColor : 'rgba(255,255,255,0.1)'}`,
-                  color: isActive ? '#e2e8f0' : '#9ca3af',
-                }}>
-                  {p.icon} {p.label}
-                  {isConn && <span style={{ marginLeft: 6, color: '#4ade80', fontSize: 10 }}>●</span>}
-                </button>
-              );
-            })}
-          </div>
+        <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+          {SOCIAL_PLATFORMS.map(p => {
+            const isConn  = serverMap[p.key]?.enabled;
+            const preview = serverMap[p.key]?.configPreview || {};
+            const isBusy  = connecting === p.key;
 
-          {!selected && (
-            <p className="text-xs text-gray-500 text-center py-4">Select a platform above to connect or manage.</p>
-          )}
-
-          {selected && platform && (() => {
-            const isConn  = serverMap[platform.key]?.enabled;
-            const preview = serverMap[platform.key]?.configPreview || {};
             return (
-              <div style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${platform.borderColor}`, borderRadius: 14, padding: 16 }}>
-                {/* Platform header */}
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <span style={{ fontSize: 22 }}>{platform.icon}</span>
+              <div key={p.key} style={{
+                background: isConn ? p.color : 'rgba(255,255,255,0.03)',
+                border: `1px solid ${isConn ? p.border : 'rgba(255,255,255,0.08)'}`,
+                borderRadius: 14, padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem',
+              }}>
+                {/* Platform name + status */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ fontSize: 20 }}>{p.icon}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{p.label}</span>
+                  </div>
+                  {isConn && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399', flexShrink: 0 }} />}
+                </div>
+
+                {/* Connected account info */}
+                {isConn && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {preview.picture
+                      ? <img src={preview.picture} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                      : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{(preview.pageName || p.label)[0]}</div>
+                    }
                     <div>
-                      <span className="font-semibold text-white text-sm">{platform.label}</span>
-                      <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${isConn ? 'badge-on' : 'badge-off'}`}>
-                        {isConn ? 'Connected' : 'Not connected'}
-                      </span>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#e2e8f0', lineHeight: 1.2 }}>{preview.pageName || 'Connected'}</p>
+                      {preview.followers && <p style={{ margin: 0, fontSize: 11, color: '#9ca3af' }}>{Number(preview.followers).toLocaleString()} followers</p>}
                     </div>
                   </div>
-                  <a href={platform.docsUrl} target="_blank" rel="noreferrer" className="text-xs text-gray-600 hover:text-gray-400">Docs ↗</a>
-                </div>
-                {platform.note && <p className="text-xs text-gray-500 mb-3 mt-1">{platform.note}</p>}
-
-                {/* Fields */}
-                <div className="space-y-3 mb-4">
-                  {platform.fields.map(f => {
-                    const savedVal = preview[f.key];
-                    const hasDb    = !!savedVal;
-                    return (
-                      <div key={f.key}>
-                        <label className="block text-xs text-gray-400 mb-1 font-medium">
-                          {f.label}
-                          {hasDb && !formVals[f.key] && <span className="ml-2 text-xs text-green-400 font-normal">✓ saved</span>}
-                        </label>
-                        <input
-                          type={f.type}
-                          value={formVals[f.key] ?? ''}
-                          onChange={e => setFormVals(v => ({ ...v, [f.key]: e.target.value }))}
-                          placeholder={hasDb && !formVals[f.key] ? savedVal : f.placeholder}
-                          className="field w-full"
-                          autoComplete="new-password"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Test result */}
-                {testResult && (
-                  <div className={`text-xs font-medium mb-3 ${testResult.ok ? 'text-green-400' : 'text-red-400'}`}>
-                    {testResult.ok ? `✓ ${testResult.msg}` : `✗ ${testResult.msg}`}
-                  </div>
                 )}
-                {testing && <div className="text-xs text-yellow-400 mb-3">⏳ Testing connection…</div>}
 
                 {/* Actions */}
-                <div className="flex gap-2">
-                  <button onClick={save} disabled={saving || !platform.fields.some(f => formVals[f.key]?.trim())} className="btn-primary flex-1 py-2 text-xs">
-                    {saving ? 'Saving…' : isConn ? 'Update & Test' : 'Save & Connect'}
-                  </button>
-                  {isConn && (
+                <div style={{ display: 'flex', gap: '0.4rem', marginTop: 'auto' }}>
+                  {isConn ? (
                     <>
-                      <button onClick={testConn} disabled={testing} style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 12, padding: '8px 14px', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>↻ Test</button>
-                      <button onClick={() => disconnect(platform.key)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 12, padding: '8px 12px', color: '#f87171', cursor: 'pointer', fontSize: 12 }}>✕</button>
+                      <button onClick={() => connectPlatform(p)} disabled={isBusy} style={{ flex: 1, background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 8, padding: '6px 8px', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                        {isBusy ? '⟳' : '↻ Reconnect'}
+                      </button>
+                      <button onClick={() => disconnect(p)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, padding: '6px 10px', color: '#f87171', cursor: 'pointer', fontSize: 11 }}>✕</button>
                     </>
+                  ) : (
+                    <button onClick={() => connectPlatform(p)} disabled={isBusy} style={{
+                      flex: 1, background: p.bg, color: '#fff', border: 'none',
+                      borderRadius: 8, padding: '7px 10px', fontSize: 12, fontWeight: 700,
+                      cursor: isBusy ? 'wait' : 'pointer', opacity: isBusy ? 0.7 : 1,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                    }}>
+                      {isBusy ? '⟳ Connecting…' : `Connect ${p.label}`}
+                    </button>
                   )}
                 </div>
               </div>
             );
-          })()}
+          })}
         </div>
       )}
     </div>

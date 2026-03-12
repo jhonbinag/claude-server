@@ -19,6 +19,7 @@ let workflowRoutes; try { workflowRoutes = require('./src/routes/savedWorkflows'
 let billingRoutes;  try { billingRoutes  = require('./src/routes/billing');       } catch (e) { _errors.billing  = e.message; }
 let socialRoutes;   try { socialRoutes   = require('./src/routes/social');        } catch (e) { _errors.social      = e.message; }
 let adLibRoutes;    try { adLibRoutes    = require('./src/routes/adLibrary');     } catch (e) { _errors.adLibrary   = e.message; }
+let socialAuthRoutes; try { socialAuthRoutes = require('./src/routes/socialAuth'); } catch (e) { _errors.socialAuth = e.message; }
 let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui          = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
@@ -72,7 +73,8 @@ if (adminRoutes)     app.use('/admin',     adminRoutes);
 if (workflowRoutes)  app.use('/workflows', workflowRoutes);
 if (billingRoutes)   app.use('/billing',   billingRoutes);
 if (socialRoutes)    app.use('/social',      socialRoutes);
-if (adLibRoutes)     app.use('/ad-library', adLibRoutes);
+if (adLibRoutes)       app.use('/ad-library',  adLibRoutes);
+if (socialAuthRoutes)  app.use('/social-auth', socialAuthRoutes);
 if (uiRoute)         app.use('/',           uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────
