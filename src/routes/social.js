@@ -135,6 +135,40 @@ router.get('/accounts', async (req, res) => {
   });
 });
 
+// Maps GHL social planner accounts → individual social_* toolRegistry keys
+// so they appear as "Connected via GHL" in External Integrations.
+async function mapGhlAccountsToIntegrationKeys(locationId, accounts) {
+  const platformKeyMap = {
+    facebook:  'social_facebook',
+    instagram: 'social_instagram',
+    youtube:   'social_youtube',
+    linkedin:  'social_linkedin_organic',
+    tiktok:    'social_tiktok_organic',
+    pinterest: 'social_pinterest',
+    twitter:   'social_twitter',
+    gmb:       'social_gmb',
+  };
+  for (const acc of accounts) {
+    const platform = normalizePlatformType(acc.type || acc.platform || acc.accountType || '');
+    const toolKey  = platformKeyMap[platform];
+    if (!toolKey) continue;
+    // Read existing config so we don't overwrite manually-entered tokens
+    const existing = (await toolRegistry.getToolConfig(locationId))[toolKey] || {};
+    // Only write if not already manually configured (no pageAccessToken or accessToken)
+    if (existing.pageAccessToken || existing.accessToken) continue;
+    await toolRegistry.saveToolConfig(locationId, toolKey, {
+      ...existing,
+      pageName:     acc.name || acc.displayName || platform,
+      pageId:       acc.id   || acc.accountId   || '',
+      picture:      acc.avatar || acc.profilePicture || '',
+      followers:    acc.followers || acc.followerCount || 0,
+      ghlConnected: true,   // flag: came from GHL, no direct token
+      connectedAt:  new Date().toISOString(),
+    });
+    console.log(`[Social] Mapped GHL ${platform} → ${toolKey} for location ${locationId}`);
+  }
+}
+
 // POST /social/sync — explicit sync: pull GHL accounts → toolRegistry
 router.post('/sync', async (req, res) => {
   if (!req.ghl) {
@@ -148,12 +182,42 @@ router.post('/sync', async (req, res) => {
     });
   }
   try {
-    const data = await req.ghl('GET', `/social-media-posting/${req.locationId}/accounts`);
-    const accounts = Array.isArray(data) ? data
-      : data?.results?.accounts || data?.accounts || data?.data || data?.socialAccounts || data?.result || [];
+    // Fetch social planner accounts + location data in parallel
+    const [socialData, locationData] = await Promise.allSettled([
+      req.ghl('GET', `/social-media-posting/${req.locationId}/accounts`),
+      req.ghl('GET', `/locations/${req.locationId}`),
+    ]);
+
+    const raw      = socialData.status === 'fulfilled' ? socialData.value : {};
+    const accounts = Array.isArray(raw) ? raw
+      : raw?.results?.accounts || raw?.accounts || raw?.data || raw?.socialAccounts || raw?.result || [];
+
+    const locInfo  = locationData.status === 'fulfilled' ? locationData.value?.location || locationData.value : {};
+
+    // Sync social planner → ghl_social_planner aggregate key
     await syncGhlAccountsToRegistry(req.locationId, accounts);
+
+    // Map each platform account → individual social_* key (without token)
+    await mapGhlAccountsToIntegrationKeys(req.locationId, accounts);
+
+    // Extract any location-level social/integration info
+    const locationSocial = locInfo.social || {};
+    const detected = {
+      facebookUrl:  locationSocial.facebookUrl  || null,
+      instagramUrl: locationSocial.instagramUrl  || null,
+      linkedInUrl:  locationSocial.linkedIn      || null,
+      twitterUrl:   locationSocial.twitter       || null,
+      youtubeUrl:   locationSocial.youtube       || null,
+      pinterestUrl: locationSocial.pinterest     || null,
+    };
+
     const platforms = [...new Set(accounts.map(a => normalizePlatformType(a.type || a.platform || a.accountType || '')))];
-    res.json({ success: true, synced: accounts.length, platforms });
+    res.json({
+      success:  true,
+      synced:   accounts.length,
+      platforms,
+      detected, // location-level social URL hints
+    });
   } catch (err) {
     console.error('[Social] sync error:', err.message);
     res.status(500).json({ success: false, error: err.message });

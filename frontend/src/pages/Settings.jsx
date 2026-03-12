@@ -413,7 +413,10 @@ export default function Settings() {
         </div>
 
         {/* ── External integrations ──────────────────────────────────────── */}
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">External Integrations</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">External Integrations</h2>
+          <GhlSyncButton apiKey={apiKey} onSynced={refreshStatus} showToast={showToast} />
+        </div>
 
         {/* Payment Hub — unified card for all payment providers */}
         <div className="mb-4">
@@ -461,6 +464,11 @@ export default function Settings() {
                         ) : (
                           <span className={`text-xs px-2 py-0.5 rounded-full ${enabled ? 'badge-on' : 'badge-off'}`}>
                             {enabled ? 'Connected' : 'Not connected'}
+                          </span>
+                        )}
+                        {enabled && sv.configPreview?.ghlConnected && (
+                          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>
+                            via GHL
                           </span>
                         )}
                       </div>
@@ -987,6 +995,44 @@ const PLATFORM_META = {
   twitter:   { label: 'Twitter',   icon: '🐦', bg: '#1da1f2', color: 'rgba(29,161,242,0.1)',   border: 'rgba(29,161,242,0.35)' },
   gmb:       { label: 'Google My Business', icon: '🔵', bg: '#4285f4', color: 'rgba(66,133,244,0.1)', border: 'rgba(66,133,244,0.35)' },
 };
+
+// ── GHL Sync Button — syncs GHL social accounts into External Integrations ────
+function GhlSyncButton({ apiKey, onSynced, showToast }) {
+  const [syncing, setSyncing] = useState(false);
+
+  async function handleSync() {
+    if (!apiKey) return;
+    setSyncing(true);
+    try {
+      const d = await api.postWithKey('/social/sync', {}, apiKey);
+      if (d.code === 'GHL_OAUTH_REQUIRED') {
+        showToast('GHL OAuth not connected — reinstall the app to enable sync.', false);
+      } else if (d.success) {
+        const count = d.synced || 0;
+        showToast(count > 0 ? `Synced ${count} account${count !== 1 ? 's' : ''} from GHL.` : 'Sync complete — no GHL social accounts found yet.', count > 0);
+        if (onSynced) onSynced();
+      } else {
+        showToast(d.error || 'Sync failed.', false);
+      }
+    } catch (e) {
+      showToast('Sync error: ' + e.message, false);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleSync}
+      disabled={syncing || !apiKey}
+      className="btn-ghost px-3 py-1.5 text-xs flex items-center gap-1.5"
+      title="Sync connected accounts from GoHighLevel"
+    >
+      <span style={{ display: 'inline-block', transition: 'transform 0.6s', transform: syncing ? 'rotate(360deg)' : 'none' }}>↻</span>
+      {syncing ? 'Syncing…' : 'Sync from GHL'}
+    </button>
+  );
+}
 
 // Normalize GHL type strings to our platform keys
 // GHL returns values like: facebookPage, instagramBusiness, linkedinPage, twitterProfile, etc.
