@@ -32,9 +32,11 @@ async function authenticate(req, res, next) {
         req.companyId = record.companyId;
         req.ghl = (method, endpoint, data, params) =>
           ghlClient.ghlRequest(locationId, method, endpoint, data, params);
+      } else {
+        console.warn(`[Auth] req.ghl not set for ${locationId} — record: ${record ? 'exists (no accessToken)' : 'null'}`);
       }
-    } catch (_) {
-      // GHL tokens not available — that's fine, GHL tools just won't work
+    } catch (err) {
+      console.error(`[Auth] Failed to load token record for ${locationId}:`, err.message);
     }
 
     next();

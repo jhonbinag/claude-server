@@ -16,6 +16,7 @@ function requireGhl(req, res, next) {
     return res.status(503).json({
       error: 'GHL OAuth not connected for this location. Complete the OAuth install flow first.',
       code:  'GHL_OAUTH_REQUIRED',
+      locationId: req.locationId,
     });
   }
   next();
