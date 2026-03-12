@@ -257,10 +257,10 @@ router.post('/test/:category', async (req, res) => {
       info = `Square connected${merchant ? ` (${merchant.business_name || merchant.id})` : ''}`;
     } else if (category === 'manychat') {
       if (!cfg.apiKey) throw new Error('API Key not configured.');
-      const r = await axios.get('https://api.manychat.com/fb/page/getPage', {
+      const r = await axios.get('https://api.manychat.com/fb/page/getInfo', {
         headers: { Authorization: `Bearer ${cfg.apiKey}` }, timeout: 10000,
       });
-      info = `ManyChat connected (${r.data?.data?.name || 'page ok'})`;
+      info = `ManyChat connected (${r.data?.data?.name || r.data?.data?.id || 'page ok'})`;
     } else if (category === 'google_my_business') {
       if (!cfg.accessToken) throw new Error('Access token not configured.');
       const r = await axios.get('https://mybusinessaccountmanagement.googleapis.com/v1/accounts', {
