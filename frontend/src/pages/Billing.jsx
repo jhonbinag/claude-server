@@ -41,16 +41,20 @@ function relDate(val) {
   return new Date(val).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-// ── Upgrade Tier Modal (2-step: pick tier → checkout) ─────────────────────────
+const PROVIDER_LABELS = { stripe: 'Stripe', paypal: 'PayPal', square: 'Square', authorizenet: 'Authorize.net' };
+const PROVIDER_ICONS  = { stripe: '💳', paypal: '🅿', square: '🟦', authorizenet: '🔒' };
 
-function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
+// ── Change Plan Modal (2-step: pick tier → checkout or downgrade confirm) ──────
+
+function UpgradeTierModal({ currentTier, connectedPaymentProviders = [], onClose, onUpgraded }) {
   const [tiers,     setTiers]     = useState(null);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
 
-  // Step 1 = tier picker, Step 2 = checkout
-  const [step,      setStep]      = useState(1);
-  const [selected,  setSelected]  = useState(null); // tier key chosen in step 1
+  // Step 1 = tier picker, Step 2 = checkout / downgrade confirm
+  const [step,       setStep]       = useState(1);
+  const [selected,   setSelected]   = useState(null);
+  const [isDowngrade, setIsDowngrade] = useState(false);
 
   // GHL payment flow
   const [ghlLoading,  setGhlLoading]  = useState(false);
@@ -78,9 +82,18 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
     return d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
   };
 
-  // Step 2 entry — try GHL payment first
+  // Step 2 entry — downgrade (no payment, just confirmation)
+  function enterDowngrade(tierKey) {
+    setSelected(tierKey);
+    setIsDowngrade(true);
+    setError(null);
+    setStep(2);
+  }
+
+  // Step 2 entry — upgrade: try GHL payment first
   async function enterCheckout(tierKey) {
     setSelected(tierKey);
+    setIsDowngrade(false);
     setError(null);
     setUseCardForm(false);
     setGhlLoading(true);
@@ -88,16 +101,32 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
     try {
       const data = await api.post('/billing/create-upgrade-invoice', { tier: tierKey });
       if (data.success && data.paymentUrl) {
-        // Redirect to GHL hosted payment page
         window.location.href = data.paymentUrl;
         return;
       }
-      // No GHL product linked or API error — show card form
       setUseCardForm(true);
     } catch {
       setUseCardForm(true);
     }
     setGhlLoading(false);
+  }
+
+  // Confirm downgrade — no payment required
+  async function handleDowngrade() {
+    setPaying(true);
+    setError(null);
+    try {
+      const data = await api.post('/billing/downgrade-tier', { tier: selected });
+      if (data.success) {
+        onUpgraded(selected, tiers[selected], true);
+        onClose();
+      } else {
+        setError(data.error || 'Downgrade failed.');
+      }
+    } catch {
+      setError('Downgrade failed. Please try again.');
+    }
+    setPaying(false);
   }
 
   async function handlePay() {
@@ -139,17 +168,21 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
           <div>
             {step === 2 && (
               <button
-                onClick={() => { setStep(1); setError(null); }}
+                onClick={() => { setStep(1); setError(null); setIsDowngrade(false); }}
                 className="text-xs text-indigo-400 hover:text-indigo-300 mb-1 flex items-center gap-1"
               >
                 ← Back
               </button>
             )}
             <h2 className="text-lg font-bold text-white">
-              {step === 1 ? 'Choose Your Plan Tier' : `Upgrade to ${tierData?.name}`}
+              {step === 1 ? 'Change Plan Tier'
+                : isDowngrade ? `Downgrade to ${tierData?.name}`
+                : `Upgrade to ${tierData?.name}`}
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              {step === 1 ? 'Select a tier to unlock more integrations' : 'Complete your payment to activate this tier'}
+              {step === 1 ? 'Upgrade or downgrade your integration tier'
+                : isDowngrade ? 'Confirm your plan downgrade'
+                : 'Complete your payment to activate this tier'}
             </p>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white text-2xl leading-none ml-4">&times;</button>
@@ -163,11 +196,14 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
           {!loading && tiers && step === 1 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {TIER_ORDER.map(key => {
-                const t        = tiers[key];
+                const t          = tiers[key];
                 if (!t) return null;
-                const col       = TIER_COLORS[key] || TIER_COLORS.bronze;
-                const isCurrent = key === currentTier;
-                const isFree    = !t.price || t.price === 0;
+                const col        = TIER_COLORS[key] || TIER_COLORS.bronze;
+                const isCurrent  = key === currentTier;
+                const isFree     = !t.price || t.price === 0;
+                const tierIdx    = TIER_ORDER.indexOf(key);
+                const currentIdx = TIER_ORDER.indexOf(currentTier);
+                const isDown     = tierIdx < currentIdx;
 
                 return (
                   <div
@@ -188,11 +224,18 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
                           </p>
                         </div>
                       </div>
-                      {isCurrent && (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: col.ring + '30', color: col.text, border: `1px solid ${col.ring}` }}>
-                          Current
-                        </span>
-                      )}
+                      <div className="flex gap-1.5 items-center flex-wrap justify-end">
+                        {isCurrent && (
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: col.ring + '30', color: col.text, border: `1px solid ${col.ring}` }}>
+                            Current
+                          </span>
+                        )}
+                        {isDown && !isCurrent && (
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: 'rgba(251,146,60,0.15)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)' }}>
+                            Downgrade
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <p className="text-xs text-gray-400">{t.description}</p>
@@ -217,11 +260,13 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
                     <button
                       disabled={isCurrent}
                       onClick={() => {
-                        if (isFree) {
-                          // Free tier — skip payment step
+                        if (isCurrent) return;
+                        if (isDown) {
+                          enterDowngrade(key);
+                        } else if (isFree) {
                           setSelected(key);
                           api.post('/billing/upgrade-tier', { tier: key }).then(d => {
-                            if (d.success) { onUpgraded(key, t); onClose(); }
+                            if (d.success) { onUpgraded(key, t, false); onClose(); }
                             else setError(d.error || 'Upgrade failed.');
                           }).catch(() => setError('Upgrade failed.'));
                         } else {
@@ -231,10 +276,15 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
                       className="w-full py-2 rounded-lg text-xs font-semibold mt-auto"
                       style={isCurrent
                         ? { background: 'rgba(255,255,255,0.04)', color: '#6b7280', cursor: 'default' }
-                        : { background: col.ring, color: '#000', cursor: 'pointer' }
+                        : isDown
+                          ? { background: 'rgba(251,146,60,0.15)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)', cursor: 'pointer' }
+                          : { background: col.ring, color: '#000', cursor: 'pointer' }
                       }
                     >
-                      {isCurrent ? '✓ Active Plan' : isFree ? `Select ${t.name}` : `Upgrade — $${t.price}/${t.interval || 'mo'}`}
+                      {isCurrent ? '✓ Active Plan'
+                        : isDown  ? `Downgrade to ${t.name}`
+                        : isFree  ? `Select ${t.name}`
+                        : `Upgrade — $${t.price}/${t.interval || 'mo'}`}
                     </button>
                   </div>
                 );
@@ -242,8 +292,53 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
             </div>
           )}
 
-          {/* ── Step 2: Checkout ── */}
-          {!loading && tiers && step === 2 && tierData && (
+          {/* ── Step 2: Downgrade confirmation ── */}
+          {!loading && tiers && step === 2 && tierData && isDowngrade && (
+            <div>
+              <div className="rounded-xl p-4 mb-4 flex items-center gap-4" style={{ background: tierCol.bg, border: `1px solid ${tierCol.ring}40` }}>
+                <span className="text-3xl">{tierData.icon || TIER_ICONS[selected]}</span>
+                <div className="flex-1">
+                  <p className="font-bold text-white">{tierData.name} Plan</p>
+                  <p className="text-xs text-gray-400">{tierData.description}</p>
+                  <p className="text-xs mt-1" style={{ color: tierCol.text }}>
+                    {tierData.integrationLimit === -1 ? 'Unlimited integrations' : `Up to ${tierData.integrationLimit} integrations`}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold text-white">{tierData.price === 0 ? 'Free' : `$${tierData.price}`}</p>
+                  {tierData.price > 0 && <p className="text-xs text-gray-500">/{tierData.interval || 'mo'}</p>}
+                </div>
+              </div>
+
+              <div className="rounded-xl p-4 mb-5" style={{ background: 'rgba(251,146,60,0.07)', border: '1px solid rgba(251,146,60,0.25)' }}>
+                <p className="text-orange-400 font-semibold text-sm mb-1">⚠️ Heads up</p>
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  Downgrading removes access to integrations not included in the <span className="text-white font-semibold">{tierData.name}</span> tier.
+                  Any currently connected integrations beyond the new limit will stop working until you upgrade again.
+                </p>
+                {Array.isArray(tierData.allowedIntegrations) && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <span className="text-xs text-gray-500 mr-1">Included:</span>
+                    {tierData.allowedIntegrations.map(i => (
+                      <span key={i} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.06)', color: '#9ca3af' }}>{i}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <button
+                disabled={paying}
+                onClick={handleDowngrade}
+                className="w-full py-3 rounded-xl text-sm font-bold"
+                style={{ background: 'rgba(251,146,60,0.2)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.4)', opacity: paying ? 0.7 : 1, cursor: paying ? 'wait' : 'pointer' }}
+              >
+                {paying ? 'Processing…' : `Confirm Downgrade to ${tierData.name}`}
+              </button>
+            </div>
+          )}
+
+          {/* ── Step 2: Upgrade checkout ── */}
+          {!loading && tiers && step === 2 && tierData && !isDowngrade && (
             <div>
               {/* Order summary */}
               <div
@@ -263,6 +358,19 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
                   <p className="text-xs text-gray-500">/{tierData.interval || 'mo'}</p>
                 </div>
               </div>
+
+              {/* Connected Payment Hub providers */}
+              {connectedPaymentProviders.length > 0 && (
+                <div className="rounded-lg px-4 py-3 mb-4 flex items-center gap-3" style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                  <span className="text-green-400 text-sm">✓</span>
+                  <div>
+                    <p className="text-xs text-green-400 font-semibold">Payment Hub Connected</p>
+                    <p className="text-xs text-gray-500">
+                      {connectedPaymentProviders.map(p => `${PROVIDER_ICONS[p] || '💳'} ${PROVIDER_LABELS[p] || p}`).join(' · ')}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* GHL payment loading */}
               {ghlLoading && (
@@ -354,12 +462,13 @@ function UpgradeTierModal({ currentTier, onClose, onUpgraded }) {
 export default function Billing() {
   const { isAuthenticated, isAuthLoading, locationId } = useApp();
 
-  const [billing,         setBilling]         = useState(null);
-  const [loading,         setLoading]         = useState(false);
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const [tab,             setTab]             = useState('all');
-  const [toast,           setToast]           = useState(null);
-  const [showTierModal,   setShowTierModal]   = useState(false);
+  const [billing,                   setBilling]                   = useState(null);
+  const [connectedPaymentProviders, setConnectedPaymentProviders] = useState([]);
+  const [loading,                   setLoading]                   = useState(false);
+  const [checkoutLoading,           setCheckoutLoading]           = useState(false);
+  const [tab,                       setTab]                       = useState('all');
+  const [toast,                     setToast]                     = useState(null);
+  const [showTierModal,             setShowTierModal]             = useState(false);
 
   const showToast = (msg, ok) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3500); };
 
@@ -367,7 +476,10 @@ export default function Billing() {
     if (!locationId) return;
     setLoading(true);
     api.get('/billing').then(data => {
-      if (data.success) setBilling(data.data);
+      if (data.success) {
+        setBilling(data.data);
+        setConnectedPaymentProviders(data.data.connectedPaymentProviders || []);
+      }
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [locationId]);
@@ -451,13 +563,13 @@ export default function Billing() {
                   className="text-xs font-semibold px-3 py-1.5 rounded-lg w-full mt-1"
                   style={{ background: tierCol.ring, color: '#000' }}
                 >
-                  ⬆ Upgrade Tier
+                  ⬆ Change Plan
                 </button>
               </div>
 
               {/* Payment method */}
               <div className="card p-5">
-                <p className="text-xs text-gray-500 mb-1 uppercase tracking-wider font-semibold">Payment Method</p>
+                <p className="text-xs text-gray-500 mb-2 uppercase tracking-wider font-semibold">Payment Method</p>
                 {billing.paymentMethod ? (
                   <>
                     <p className="text-sm font-semibold text-white capitalize">
@@ -466,7 +578,20 @@ export default function Billing() {
                     <p className="text-xs text-gray-500 mt-1">Expires {billing.paymentMethod.expiry}</p>
                   </>
                 ) : (
-                  <p className="text-sm text-gray-500 mt-1">No payment method on file</p>
+                  <p className="text-sm text-gray-500 mb-2">No payment method on file</p>
+                )}
+                {connectedPaymentProviders.length > 0 && (
+                  <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <p className="text-xs text-gray-600 mb-1.5">Payment Hub</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {connectedPaymentProviders.map(p => (
+                        <span key={p} className="text-xs px-2 py-0.5 rounded-full flex items-center gap-1"
+                          style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', color: '#4ade80' }}>
+                          {PROVIDER_ICONS[p] || '💳'} {PROVIDER_LABELS[p] || p}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -590,10 +715,16 @@ export default function Billing() {
       {showTierModal && (
         <UpgradeTierModal
           currentTier={currentTier}
+          connectedPaymentProviders={connectedPaymentProviders}
           onClose={() => setShowTierModal(false)}
-          onUpgraded={(newTier, tierInfo) => {
+          onUpgraded={(newTier, tierInfo, isDowngrade) => {
             setBilling(prev => prev ? { ...prev, tier: newTier } : prev);
-            showToast(`${tierInfo?.icon || ''} Upgraded to ${tierInfo?.name || newTier}! Integrations updated.`, true);
+            showToast(
+              isDowngrade
+                ? `${tierInfo?.icon || ''} Downgraded to ${tierInfo?.name || newTier}. Changes are active.`
+                : `${tierInfo?.icon || ''} Upgraded to ${tierInfo?.name || newTier}! Integrations updated.`,
+              true
+            );
           }}
         />
       )}

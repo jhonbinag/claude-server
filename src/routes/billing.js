@@ -10,13 +10,32 @@
  *   GET  /billing/checkout/ok  → Stripe redirect after successful checkout
  */
 
-const express        = require('express');
-const router         = express.Router();
-const authenticate   = require('../middleware/authenticate');
-const billing        = require('../services/billingStore');
-const planTierStore  = require('../services/planTierStore');
+const express           = require('express');
+const router            = express.Router();
+const authenticate      = require('../middleware/authenticate');
+const billing           = require('../services/billingStore');
+const planTierStore     = require('../services/planTierStore');
+const toolTokenService  = require('../services/toolTokenService');
+const firebaseSvc       = require('../services/firebaseStore');
 
 router.use(authenticate);
+
+const PAYMENT_HUB_KEYS = ['stripe', 'paypal', 'square', 'authorizenet'];
+
+async function getConnectedPaymentProviders(locationId) {
+  try {
+    let cfg = await toolTokenService.getCachedToolConfig(locationId) || {};
+    if (!Object.keys(cfg).length && firebaseSvc.isEnabled()) {
+      cfg = await firebaseSvc.getToolConfig(locationId) || {};
+    }
+    return PAYMENT_HUB_KEYS.filter(key => {
+      const c = cfg[key];
+      return c && Object.values(c).some(v => v && String(v).trim());
+    });
+  } catch {
+    return [];
+  }
+}
 
 // ── GET /billing — subscription + invoice summary ─────────────────────────────
 
@@ -25,6 +44,8 @@ router.get('/', async (req, res) => {
     const rec = await billing.getOrCreateBilling(req.locationId);
 
     // Mask sensitive fields before sending to client
+    const connectedPaymentProviders = await getConnectedPaymentProviders(req.locationId);
+
     const safe = {
       plan:             rec.plan,
       tier:             rec.tier || 'bronze',
@@ -39,6 +60,7 @@ router.get('/', async (req, res) => {
         : null,
       invoices:    (rec.invoices || []).slice(0, 50),
       stripeEnabled: !!process.env.STRIPE_SECRET_KEY,
+      connectedPaymentProviders,
     };
 
     res.json({ success: true, data: safe });
@@ -163,6 +185,33 @@ router.post('/upgrade-tier', async (req, res) => {
   try {
     const rec = await billing.getOrCreateBilling(req.locationId);
     await billing.updateSubscription(req.locationId, { ...rec, tier });
+    res.json({ success: true, tier });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /billing/downgrade-tier — self-service tier downgrade ───────────────
+
+router.post('/downgrade-tier', async (req, res) => {
+  const { tier } = req.body;
+  if (!tier || !VALID_TIERS.includes(tier)) {
+    return res.status(400).json({ success: false, error: `Invalid tier. Valid: ${VALID_TIERS.join(', ')}` });
+  }
+  try {
+    const rec = await billing.getOrCreateBilling(req.locationId);
+    const currentIdx  = VALID_TIERS.indexOf(rec.tier || 'bronze');
+    const requestedIdx = VALID_TIERS.indexOf(tier);
+    if (requestedIdx >= currentIdx) {
+      return res.status(400).json({ success: false, error: 'Use /billing/upgrade-tier for upgrades.' });
+    }
+    await billing.updateSubscription(req.locationId, { ...rec, tier });
+    // Create a note invoice for the downgrade record
+    await billing.createInvoice(req.locationId, {
+      amount:      0,
+      description: `Downgraded to ${tier} tier`,
+      status:      'void',
+    });
     res.json({ success: true, tier });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
