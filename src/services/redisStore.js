@@ -70,7 +70,7 @@ const redis = {
 
 // ─── Store API (same interface as tokenStore.js) ──────────────────────────────
 
-async function saveTokens(locationId, { accessToken, refreshToken, expiresIn, companyId, scope }) {
+async function saveTokens(locationId, { accessToken, refreshToken, expiresIn, companyId, scope, userId }) {
   const existing = await getRecord(locationId) || {};
   const record   = {
     ...existing,
@@ -79,6 +79,7 @@ async function saveTokens(locationId, { accessToken, refreshToken, expiresIn, co
     expiresAt: Date.now() + (expiresIn - 300) * 1000,
     companyId: companyId || existing.companyId,
     scope:     scope     || existing.scope,
+    userId:    userId    || existing.userId,
   };
   await redis.set(KEY_PREFIX + locationId, JSON.stringify(record));
   console.log(`[Redis] Tokens saved for location: ${locationId}`);

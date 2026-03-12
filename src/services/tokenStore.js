@@ -69,7 +69,7 @@ function writeStore(data) {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-function saveTokens(locationId, { accessToken, refreshToken, expiresIn, companyId, scope }) {
+function saveTokens(locationId, { accessToken, refreshToken, expiresIn, companyId, scope, userId }) {
   const store    = readStore();
   const existing = store.locations[locationId] || {};
   store.locations[locationId] = {
@@ -79,6 +79,7 @@ function saveTokens(locationId, { accessToken, refreshToken, expiresIn, companyI
     expiresAt: Date.now() + (expiresIn - 300) * 1000,
     companyId: companyId || existing.companyId,
     scope:     scope     || existing.scope,
+    userId:    userId    || existing.userId,
   };
   writeStore(store);
   console.log(`[TokenStore] Tokens saved for location: ${locationId}`);

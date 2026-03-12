@@ -84,11 +84,13 @@ router.get('/connect/:platform', async (req, res) => {
   try {
     const { platform } = req.params;
     const { reconnect = 'false' } = req.query;
+    const params = { locationId: req.locationId, reconnect };
+    if (req.userId) params.userId = req.userId;
     const data = await req.ghl(
       'GET',
       `/social-media-posting/oauth/${platform}/start`,
       null,
-      { locationId: req.locationId, reconnect }
+      params
     );
     console.log('[Social] connect raw response:', JSON.stringify(data));
 

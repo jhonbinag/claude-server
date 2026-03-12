@@ -81,6 +81,7 @@ async function exchangeCodeForTokens(code) {
     expiresIn:    data.expires_in,
     companyId:    data.companyId,
     scope:        data.scope,
+    userId:       data.userId,
   });
 
   console.log(`[GHLClient] Tokens exchanged for location: ${locationId}`);

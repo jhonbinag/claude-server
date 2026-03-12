@@ -30,6 +30,7 @@ async function authenticate(req, res, next) {
       const record = await tokenStore.getTokenRecord(locationId);
       if (record && record.accessToken) {
         req.companyId = record.companyId;
+        req.userId    = record.userId;
         req.ghl = (method, endpoint, data, params) =>
           ghlClient.ghlRequest(locationId, method, endpoint, data, params);
       } else {
