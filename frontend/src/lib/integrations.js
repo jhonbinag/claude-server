@@ -80,6 +80,28 @@ export const INTEGRATIONS = [
       { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'Your HeyGen API key' },
     ],
   },
+  {
+    key:         'hubspot',
+    label:       'HubSpot',
+    icon:        '🟠',
+    color:       'rgba(255,122,0,0.1)',
+    description: 'CRM contacts, deals and pipeline management via HubSpot.',
+    docsUrl:     'https://app.hubspot.com/private-apps',
+    fields: [
+      { key: 'accessToken', label: 'Private App Token', type: 'password', placeholder: 'pat-na1-...' },
+    ],
+  },
+  {
+    key:         'keap',
+    label:       'Keap (Infusionsoft)',
+    icon:        '🌀',
+    color:       'rgba(0,163,224,0.1)',
+    description: 'CRM contacts, tags and automations via Keap.',
+    docsUrl:     'https://keys.developer.keap.com/accounts',
+    fields: [
+      { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'Your Keap service account key' },
+    ],
+  },
 ];
 
 export const INTEGRATION_MAP = Object.fromEntries(INTEGRATIONS.map(i => [i.key, i]));

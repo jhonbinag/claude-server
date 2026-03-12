@@ -13,6 +13,8 @@
  *   slack        — Team notifications via Slack Incoming Webhooks
  *   apollo       — Contact enrichment via Apollo.io
  *   heygen       — AI video generation via HeyGen
+ *   hubspot      — CRM contacts and deals via HubSpot
+ *   keap         — CRM contacts, tags and automations via Keap
  */
 
 const axios = require('axios');
@@ -446,6 +448,122 @@ const EXTERNAL_TOOL_DEFINITIONS = {
           dueDate:     { type: 'string', description: 'Due date YYYY-MM-DD' },
         },
         required: ['customerId', 'amountCents', 'title'],
+      },
+    },
+  ],
+
+  // ── HubSpot ──────────────────────────────────────────────────────────────────
+  hubspot: [
+    {
+      name: 'hubspot_search_contacts',
+      description: 'Search HubSpot CRM contacts by email, name, or phone number. Returns contact details including company, job title, and lifecycle stage.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query:  { type: 'string', description: 'Search term: email, name, phone, or company' },
+          limit:  { type: 'number', description: 'Max contacts to return (default 20, max 100)' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'hubspot_create_contact',
+      description: 'Create a new contact in HubSpot CRM with their details.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          email:       { type: 'string', description: 'Contact email address' },
+          firstName:   { type: 'string', description: 'First name' },
+          lastName:    { type: 'string', description: 'Last name' },
+          phone:       { type: 'string', description: 'Phone number (optional)' },
+          company:     { type: 'string', description: 'Company name (optional)' },
+          jobTitle:    { type: 'string', description: 'Job title (optional)' },
+          lifecycleStage: { type: 'string', enum: ['lead', 'marketingqualifiedlead', 'salesqualifiedlead', 'opportunity', 'customer'], description: 'CRM lifecycle stage (optional)' },
+        },
+        required: ['email'],
+      },
+    },
+    {
+      name: 'hubspot_get_deals',
+      description: 'List HubSpot deals from a pipeline with their stage, amount, and close date.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pipelineId: { type: 'string', description: 'Pipeline ID to filter (optional — omit for all pipelines)' },
+          limit:      { type: 'number', description: 'Max deals to return (default 20, max 100)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'hubspot_create_deal',
+      description: 'Create a new deal in HubSpot CRM pipeline.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          dealName:   { type: 'string', description: 'Name of the deal' },
+          amount:     { type: 'number', description: 'Deal value in dollars (optional)' },
+          closeDate:  { type: 'string', description: 'Expected close date YYYY-MM-DD (optional)' },
+          dealStage:  { type: 'string', description: 'Pipeline stage ID (optional — uses default stage if omitted)' },
+          pipelineId: { type: 'string', description: 'Pipeline ID (optional — uses default pipeline if omitted)' },
+          contactId:  { type: 'string', description: 'HubSpot contact ID to associate with this deal (optional)' },
+        },
+        required: ['dealName'],
+      },
+    },
+  ],
+
+  // ── Keap (Infusionsoft) ───────────────────────────────────────────────────────
+  keap: [
+    {
+      name: 'keap_search_contacts',
+      description: 'Search Keap CRM contacts by email, name, or phone. Returns contact details and tags.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          email:  { type: 'string', description: 'Filter by email address (optional)' },
+          name:   { type: 'string', description: 'Filter by name (optional)' },
+          limit:  { type: 'number', description: 'Max results (default 20, max 200)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'keap_create_contact',
+      description: 'Create a new contact in Keap CRM.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          email:     { type: 'string', description: 'Email address' },
+          firstName: { type: 'string', description: 'First name' },
+          lastName:  { type: 'string', description: 'Last name (optional)' },
+          phone:     { type: 'string', description: 'Phone number (optional)' },
+          company:   { type: 'string', description: 'Company name (optional)' },
+        },
+        required: ['email'],
+      },
+    },
+    {
+      name: 'keap_add_tag',
+      description: 'Apply a tag to a Keap contact to trigger automations or segment your list.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          contactId: { type: 'string', description: 'Keap contact ID' },
+          tagId:     { type: 'number', description: 'Tag ID to apply' },
+        },
+        required: ['contactId', 'tagId'],
+      },
+    },
+    {
+      name: 'keap_list_tags',
+      description: 'List all available tags in your Keap account. Use to find tag IDs for keap_add_tag.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max tags to return (default 100)' },
+        },
+        required: [],
       },
     },
   ],
@@ -1054,6 +1172,139 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     return resp.data;
   }
 
+  // ── HubSpot ───────────────────────────────────────────────────────────────────
+
+  if (toolName === 'hubspot_search_contacts') {
+    const { accessToken } = toolConfigs.hubspot || {};
+    if (!accessToken) throw new Error('HubSpot access token not configured.');
+
+    const resp = await axios.post('https://api.hubapi.com/crm/v3/objects/contacts/search', {
+      query:      input.query,
+      limit:      Math.min(input.limit || 20, 100),
+      properties: ['email', 'firstname', 'lastname', 'phone', 'company', 'jobtitle', 'lifecyclestage'],
+    }, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    });
+    return { contacts: resp.data.results, total: resp.data.total };
+  }
+
+  if (toolName === 'hubspot_create_contact') {
+    const { accessToken } = toolConfigs.hubspot || {};
+    if (!accessToken) throw new Error('HubSpot access token not configured.');
+
+    const properties = { email: input.email };
+    if (input.firstName)      properties.firstname       = input.firstName;
+    if (input.lastName)       properties.lastname        = input.lastName;
+    if (input.phone)          properties.phone           = input.phone;
+    if (input.company)        properties.company         = input.company;
+    if (input.jobTitle)       properties.jobtitle        = input.jobTitle;
+    if (input.lifecycleStage) properties.lifecyclestage  = input.lifecycleStage;
+
+    const resp = await axios.post('https://api.hubapi.com/crm/v3/objects/contacts', { properties }, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'hubspot_get_deals') {
+    const { accessToken } = toolConfigs.hubspot || {};
+    if (!accessToken) throw new Error('HubSpot access token not configured.');
+
+    const params = {
+      limit: Math.min(input.limit || 20, 100),
+      properties: 'dealname,amount,closedate,dealstage,pipeline',
+    };
+    if (input.pipelineId) params.filterGroups = JSON.stringify([{ filters: [{ propertyName: 'pipeline', operator: 'EQ', value: input.pipelineId }] }]);
+
+    const resp = await axios.get('https://api.hubapi.com/crm/v3/objects/deals', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params,
+    });
+    return { deals: resp.data.results, total: resp.data.total };
+  }
+
+  if (toolName === 'hubspot_create_deal') {
+    const { accessToken } = toolConfigs.hubspot || {};
+    if (!accessToken) throw new Error('HubSpot access token not configured.');
+
+    const properties = { dealname: input.dealName };
+    if (input.amount)     properties.amount    = String(input.amount);
+    if (input.closeDate)  properties.closedate = new Date(input.closeDate).getTime();
+    if (input.dealStage)  properties.dealstage = input.dealStage;
+    if (input.pipelineId) properties.pipeline  = input.pipelineId;
+
+    const body = { properties };
+    if (input.contactId) {
+      body.associations = [{
+        to: { id: input.contactId },
+        types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 3 }],
+      }];
+    }
+
+    const resp = await axios.post('https://api.hubapi.com/crm/v3/objects/deals', body, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    });
+    return resp.data;
+  }
+
+  // ── Keap ─────────────────────────────────────────────────────────────────────
+
+  if (toolName === 'keap_search_contacts') {
+    const { apiKey } = toolConfigs.keap || {};
+    if (!apiKey) throw new Error('Keap API key not configured.');
+
+    const params = { limit: Math.min(input.limit || 20, 200) };
+    if (input.email) params.email = input.email;
+    if (input.name)  params.given_name = input.name;
+
+    const resp = await axios.get('https://api.infusionsoft.com/crm/rest/v1/contacts', {
+      headers: { 'X-Keap-API-Key': apiKey },
+      params,
+    });
+    return { contacts: resp.data.contacts, count: resp.data.count };
+  }
+
+  if (toolName === 'keap_create_contact') {
+    const { apiKey } = toolConfigs.keap || {};
+    if (!apiKey) throw new Error('Keap API key not configured.');
+
+    const body = {
+      email_addresses: [{ email: input.email, field: 'EMAIL1' }],
+    };
+    if (input.firstName) body.given_name  = input.firstName;
+    if (input.lastName)  body.family_name = input.lastName;
+    if (input.phone)     body.phone_numbers = [{ number: input.phone, field: 'PHONE1' }];
+    if (input.company)   body.company = { company_name: input.company };
+
+    const resp = await axios.post('https://api.infusionsoft.com/crm/rest/v1/contacts', body, {
+      headers: { 'X-Keap-API-Key': apiKey, 'Content-Type': 'application/json' },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'keap_add_tag') {
+    const { apiKey } = toolConfigs.keap || {};
+    if (!apiKey) throw new Error('Keap API key not configured.');
+
+    const resp = await axios.post(
+      `https://api.infusionsoft.com/crm/rest/v1/contacts/${input.contactId}/tags`,
+      { tagIds: [input.tagId] },
+      { headers: { 'X-Keap-API-Key': apiKey, 'Content-Type': 'application/json' } }
+    );
+    return { success: true, status: resp.status };
+  }
+
+  if (toolName === 'keap_list_tags') {
+    const { apiKey } = toolConfigs.keap || {};
+    if (!apiKey) throw new Error('Keap API key not configured.');
+
+    const resp = await axios.get('https://api.infusionsoft.com/crm/rest/v1/tags', {
+      headers: { 'X-Keap-API-Key': apiKey },
+      params: { limit: Math.min(input.limit || 100, 1000) },
+    });
+    return { tags: resp.data.tags, count: resp.data.count };
+  }
+
   throw new Error(`Unknown external tool: ${toolName}`);
 }
 
@@ -1164,6 +1415,22 @@ const TOOL_METADATA = {
       { key: 'apiLoginId',     label: 'API Login ID',     type: 'text',     placeholder: 'Your API Login ID' },
       { key: 'transactionKey', label: 'Transaction Key',  type: 'password', placeholder: 'Your Transaction Key' },
       { key: 'mode',           label: 'Mode',             type: 'text',     placeholder: 'live or sandbox' },
+    ],
+  },
+  hubspot: {
+    label:       'HubSpot',
+    icon:        '🟠',
+    description: 'CRM contacts, deals and pipeline management via HubSpot',
+    configFields: [
+      { key: 'accessToken', label: 'Private App Token', type: 'password', placeholder: 'pat-na1-...' },
+    ],
+  },
+  keap: {
+    label:       'Keap (Infusionsoft)',
+    icon:        '🌀',
+    description: 'CRM contacts, tags and automations via Keap',
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'Your Keap service account key' },
     ],
   },
 };

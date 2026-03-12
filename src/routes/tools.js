@@ -255,6 +255,21 @@ router.post('/test/:category', async (req, res) => {
       });
       const merchant = r.data?.merchant?.[0];
       info = `Square connected${merchant ? ` (${merchant.business_name || merchant.id})` : ''}`;
+    } else if (category === 'hubspot') {
+      if (!cfg.accessToken) throw new Error('Private App Token not configured.');
+      const r = await axios.get('https://api.hubapi.com/crm/v3/objects/contacts', {
+        headers: { Authorization: `Bearer ${cfg.accessToken}` },
+        params: { limit: 1 },
+        timeout: 10000,
+      });
+      info = `HubSpot connected (${r.data.total ?? 0} contacts)`;
+    } else if (category === 'keap') {
+      if (!cfg.apiKey) throw new Error('API Key not configured.');
+      const r = await axios.get('https://api.infusionsoft.com/crm/rest/v1/account/profile', {
+        headers: { 'X-Keap-API-Key': cfg.apiKey },
+        timeout: 10000,
+      });
+      info = `Keap connected (${r.data.name || r.data.account_name || 'account ok'})`;
     } else if (category === 'authorizenet') {
       if (!cfg.apiLoginId || !cfg.transactionKey) throw new Error('API Login ID and Transaction Key required.');
       const host = cfg.mode === 'live' ? 'https://api.authorize.net' : 'https://apitest.authorize.net';
