@@ -2,103 +2,359 @@ import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 
+/* ── Constants ────────────────────────────────────────────────────────────── */
 const COUNTRIES = [
-  { code: 'US', label: 'United States' },
-  { code: 'GB', label: 'United Kingdom' },
-  { code: 'CA', label: 'Canada' },
-  { code: 'AU', label: 'Australia' },
-  { code: 'PH', label: 'Philippines' },
-  { code: 'IN', label: 'India' },
-  { code: 'DE', label: 'Germany' },
-  { code: 'FR', label: 'France' },
-  { code: 'SG', label: 'Singapore' },
-  { code: 'NZ', label: 'New Zealand' },
+  { code: 'ALL', label: 'All' },
+  { code: 'US',  label: 'United States' },
+  { code: 'GB',  label: 'United Kingdom' },
+  { code: 'CA',  label: 'Canada' },
+  { code: 'AU',  label: 'Australia' },
+  { code: 'PH',  label: 'Philippines' },
+  { code: 'IN',  label: 'India' },
+  { code: 'DE',  label: 'Germany' },
+  { code: 'FR',  label: 'France' },
+  { code: 'SG',  label: 'Singapore' },
+  { code: 'NZ',  label: 'New Zealand' },
+];
+
+const AD_TYPES = [
+  { value: 'ALL',                    label: 'All ads' },
+  { value: 'POLITICAL_AND_ISSUE_ADS',label: 'Political & issue ads' },
 ];
 
 const STATUS_OPTS = [
-  { value: 'ALL',      label: 'All Ads' },
-  { value: 'ACTIVE',   label: 'Active Only' },
-  { value: 'INACTIVE', label: 'Inactive Only' },
+  { value: 'ALL',      label: 'All' },
+  { value: 'ACTIVE',   label: 'Active' },
+  { value: 'INACTIVE', label: 'Inactive' },
 ];
 
 const FOCUS_OPTS = [
-  { value: 'all',       label: 'Full Analysis' },
-  { value: 'messaging', label: 'Messaging & Hooks' },
-  { value: 'targeting', label: 'Targeting Signals' },
-  { value: 'creative',  label: 'Creative Patterns' },
+  { value: 'all',       label: 'Full analysis' },
+  { value: 'messaging', label: 'Messaging & hooks' },
+  { value: 'targeting', label: 'Targeting signals' },
+  { value: 'creative',  label: 'Creative patterns' },
 ];
 
-const sx = {
-  page:      { minHeight: '100vh', background: '#0f0f1a', color: '#e2e8f0', fontFamily: 'sans-serif' },
-  header:    { borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 40 },
-  hInner:    { maxWidth: 1200, margin: '0 auto', padding: '0 1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', height: 56 },
-  body:      { maxWidth: 1200, margin: '0 auto', padding: '1.5rem' },
-  card:      { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '1rem 1.25rem' },
-  label:     { fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'block' },
-  input:     { width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 12px', color: '#e2e8f0', fontSize: 14, outline: 'none', boxSizing: 'border-box' },
-  select:    { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', cursor: 'pointer' },
-  btn:       { background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontWeight: 700, fontSize: 14, cursor: 'pointer', transition: 'opacity .15s' },
-  btnSm:     { background: 'rgba(99,102,241,0.2)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.35)', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' },
-  btnGhost:  { background: 'transparent', color: '#9ca3af', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer' },
-  chip:      { display: 'inline-block', background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '2px 8px', fontSize: 11, color: '#9ca3af', marginRight: 4 },
-  adCard:    { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '1rem', cursor: 'pointer', transition: 'border-color .15s' },
-  adCardSel: { background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.5)', borderRadius: 10, padding: '1rem', cursor: 'pointer' },
-  err:       { background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '0.75rem 1rem', fontSize: 13, color: '#fca5a5' },
-  prose:     { fontSize: 14, lineHeight: 1.7, color: '#cbd5e1', whiteSpace: 'pre-wrap' },
+/* ── Platform icons (SVG paths as tiny components) ───────────────────────── */
+const PlatformIcons = {
+  facebook: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="#1877f2">
+      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+    </svg>
+  ),
+  instagram: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="url(#ig)">
+      <defs>
+        <linearGradient id="ig" x1="0%" y1="100%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#f09433"/>
+          <stop offset="25%" stopColor="#e6683c"/>
+          <stop offset="50%" stopColor="#dc2743"/>
+          <stop offset="75%" stopColor="#cc2366"/>
+          <stop offset="100%" stopColor="#bc1888"/>
+        </linearGradient>
+      </defs>
+      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/>
+    </svg>
+  ),
+  messenger: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="#0084ff">
+      <path d="M12 0C5.373 0 0 4.974 0 11.111c0 3.498 1.744 6.614 4.469 8.652V24l4.088-2.242c1.092.3 2.246.464 3.443.464 6.627 0 12-4.975 12-11.111S18.627 0 12 0zm1.191 14.963l-3.055-3.26-5.963 3.26L10.732 8l3.131 3.26L19.752 8l-6.561 6.963z"/>
+    </svg>
+  ),
+  whatsapp: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="#25d366">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+    </svg>
+  ),
+  audience_network: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="#898f9c">
+      <circle cx="12" cy="12" r="10" strokeWidth="2" stroke="#898f9c" fill="none"/>
+      <path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20" stroke="#898f9c" strokeWidth="1.5" fill="none"/>
+    </svg>
+  ),
 };
 
-function impressionLabel(imp) {
-  if (!imp) return null;
-  return `${Number(imp.lower_bound).toLocaleString()}–${Number(imp.upper_bound).toLocaleString()} impressions`;
+const PLATFORM_MAP = {
+  facebook:         PlatformIcons.facebook,
+  instagram:        PlatformIcons.instagram,
+  messenger:        PlatformIcons.messenger,
+  whatsapp:         PlatformIcons.whatsapp,
+  audience_network: PlatformIcons.audience_network,
+};
+
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
+function formatDate(s) {
+  if (!s) return null;
+  return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function pageInitial(name) {
+  return (name || '?').charAt(0).toUpperCase();
+}
+function pageColor(name) {
+  const colors = ['#1877f2','#e1306c','#ff6b35','#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6'];
+  let h = 0; for (const c of (name || '')) h = (h * 31 + c.charCodeAt(0)) % colors.length;
+  return colors[h];
 }
 
-function spendLabel(sp) {
-  if (!sp) return null;
-  return `$${Number(sp.lower_bound).toLocaleString()}–$${Number(sp.upper_bound).toLocaleString()} spend`;
+/* ── Meta-style Ad Card ───────────────────────────────────────────────────── */
+function AdCard({ ad, selected, onToggle }) {
+  const [showPreview, setShowPreview] = useState(false);
+  const isActive   = !ad.ad_delivery_stop_time;
+  const bodies     = ad.ad_creative_bodies || [];
+  const titles     = ad.ad_creative_link_titles || [];
+  const captions   = ad.ad_creative_link_captions || [];
+  const platforms  = ad.publisher_platforms || [];
+  const startDate  = formatDate(ad.ad_delivery_start_time);
+
+  return (
+    <div style={{
+      background: selected ? 'rgba(24,119,242,0.06)' : '#1a1a2e',
+      border: selected ? '1.5px solid #1877f2' : '1px solid rgba(255,255,255,0.1)',
+      borderRadius: 8,
+      overflow: 'hidden',
+      cursor: 'pointer',
+      transition: 'border-color .15s, box-shadow .15s',
+      boxShadow: selected ? '0 0 0 2px rgba(24,119,242,0.2)' : '0 1px 4px rgba(0,0,0,0.3)',
+    }} onClick={() => onToggle(ad.id)}>
+
+      {/* ── Top metadata section ── */}
+      <div style={{ padding: '12px 14px 10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              background: isActive ? 'rgba(52,211,153,0.12)' : 'rgba(107,114,128,0.15)',
+              color: isActive ? '#34d399' : '#9ca3af',
+              fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 20,
+              border: `1px solid ${isActive ? 'rgba(52,211,153,0.3)' : 'rgba(107,114,128,0.3)'}`,
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />
+              {isActive ? 'Active' : 'Inactive'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {selected && <span style={{ fontSize: 14, color: '#1877f2', fontWeight: 700 }}>✓</span>}
+            <span style={{ fontSize: 18, color: '#4b5563', cursor: 'default' }}>···</span>
+          </div>
+        </div>
+
+        <p style={{ fontSize: 11, color: '#6b7280', margin: '0 0 3px' }}>Library ID: {ad.id}</p>
+        {startDate && <p style={{ fontSize: 11, color: '#6b7280', margin: '0 0 8px' }}>Started running on {startDate}</p>}
+
+        {/* Platform icons */}
+        {platforms.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>Platforms</span>
+            {platforms.map(p => (
+              <span key={p} title={p} style={{ lineHeight: 0 }}>
+                {PLATFORM_MAP[p] || <span style={{ fontSize: 10, color: '#6b7280' }}>{p}</span>}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <p style={{ fontSize: 11, color: '#6b7280', margin: '0 0 10px' }}>EU transparency ℹ</p>
+
+        {/* See ad details button */}
+        <a
+          href={ad.ad_snapshot_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()}
+          style={{
+            display: 'block', textAlign: 'center', textDecoration: 'none',
+            border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6,
+            padding: '6px 0', fontSize: 12, fontWeight: 600, color: '#e2e8f0',
+            background: 'rgba(255,255,255,0.04)',
+            transition: 'background .15s',
+          }}
+          onMouseOver={e => e.currentTarget.style.background='rgba(255,255,255,0.08)'}
+          onMouseOut={e => e.currentTarget.style.background='rgba(255,255,255,0.04)'}
+        >
+          See ad details
+        </a>
+      </div>
+
+      {/* Divider */}
+      <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} />
+
+      {/* ── Creative section ── */}
+      <div style={{ padding: '12px 14px' }}>
+        {/* Page avatar + name */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: '50%',
+            background: pageColor(ad.page_name),
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 14, fontWeight: 700, color: '#fff', flexShrink: 0,
+          }}>
+            {pageInitial(ad.page_name)}
+          </div>
+          <div>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{ad.page_name || 'Unknown Page'}</p>
+            <p style={{ margin: 0, fontSize: 11, color: '#6b7280' }}>Sponsored</p>
+          </div>
+        </div>
+
+        {/* Ad copy */}
+        {bodies[0] && (
+          <p style={{ fontSize: 13, color: '#cbd5e1', margin: '0 0 10px', lineHeight: 1.5 }}>
+            {bodies[0].length > 200 ? bodies[0].slice(0, 200) + '…' : bodies[0]}
+          </p>
+        )}
+
+        {/* Ad preview iframe */}
+        {ad.ad_snapshot_url && (
+          <div style={{ marginBottom: 10 }}>
+            {showPreview ? (
+              <iframe
+                src={ad.ad_snapshot_url}
+                style={{ width: '100%', height: 220, border: 'none', borderRadius: 6, background: '#fff' }}
+                title={`Ad preview ${ad.id}`}
+                sandbox="allow-scripts allow-same-origin"
+              />
+            ) : (
+              <div
+                style={{
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 6, height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', gap: 8,
+                }}
+                onClick={e => { e.stopPropagation(); setShowPreview(true); }}
+              >
+                <span style={{ fontSize: 18 }}>🖼</span>
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>Click to load ad preview</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Headline */}
+        {titles[0] && (
+          <p style={{ fontSize: 12, fontWeight: 700, color: '#93c5fd', margin: '0 0 4px' }}>
+            {titles[0].length > 80 ? titles[0].slice(0, 80) + '…' : titles[0]}
+          </p>
+        )}
+
+        {/* Caption / domain */}
+        {captions[0] && (
+          <p style={{ fontSize: 11, color: '#4b5563', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+            {captions[0]}
+          </p>
+        )}
+
+        {/* Stats row */}
+        {(ad.impressions || ad.spend) && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            {ad.impressions && (
+              <span style={{ fontSize: 11, color: '#6b7280', background: 'rgba(255,255,255,0.05)', borderRadius: 4, padding: '2px 7px' }}>
+                👁 {Number(ad.impressions.lower_bound).toLocaleString()}–{Number(ad.impressions.upper_bound).toLocaleString()}
+              </span>
+            )}
+            {ad.spend && (
+              <span style={{ fontSize: 11, color: '#6b7280', background: 'rgba(255,255,255,0.05)', borderRadius: 4, padding: '2px 7px' }}>
+                💰 ${Number(ad.spend.lower_bound).toLocaleString()}–${Number(ad.spend.upper_bound).toLocaleString()}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
+/* ── Google Ads Panel ────────────────────────────────────────────────────── */
+function GoogleAdsPanel({ query }) {
+  const googleUrl = query
+    ? `https://adstransparency.google.com/?region=anywhere&q=${encodeURIComponent(query)}`
+    : 'https://adstransparency.google.com/';
+
+  return (
+    <div style={{ maxWidth: 700, margin: '3rem auto', textAlign: 'center' }}>
+      <div style={{ fontSize: 48, marginBottom: '1rem' }}>
+        <svg width="52" height="52" viewBox="0 0 24 24">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+        </svg>
+      </div>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0', margin: '0 0 0.5rem' }}>Google Ads Transparency</h2>
+      <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 1.5rem', lineHeight: 1.6 }}>
+        Search competitor Google Ads in the Google Ads Transparency Center.
+        {query && <><br/>Results for <strong style={{ color: '#e2e8f0' }}>"{query}"</strong> will open in a new tab.</>}
+      </p>
+
+      <a
+        href={googleUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          background: '#4285F4', color: '#fff', textDecoration: 'none',
+          borderRadius: 8, padding: '10px 24px', fontSize: 14, fontWeight: 700,
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+          <polyline points="15 3 21 3 21 9"/>
+          <line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+        Open Google Ads Transparency{query ? ` — "${query}"` : ''}
+      </a>
+
+      <div style={{ marginTop: '2rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '1.25rem', textAlign: 'left' }}>
+        <p style={{ fontSize: 12, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 0.75rem' }}>What you can find</p>
+        <ul style={{ fontSize: 13, color: '#6b7280', margin: 0, padding: '0 0 0 1.25rem', lineHeight: 2 }}>
+          <li>All active & recent Google Search, Display, YouTube ads</li>
+          <li>Ad creative previews (images, videos, headlines)</li>
+          <li>Impression ranges by region & demographics</li>
+          <li>Advertiser spending data</li>
+          <li>Date ranges ads have been running</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main component ───────────────────────────────────────────────────────── */
 export default function AdLibrary() {
-  const [query,    setQuery]    = useState('');
-  const [country,  setCountry]  = useState('US');
-  const [status,   setStatus]   = useState('ALL');
-  const [focus,    setFocus]    = useState('all');
-  const [ads,      setAds]      = useState([]);
-  const [selected, setSelected] = useState(new Set());
-  const [loading,  setLoading]  = useState(false);
-  const [analyzing,setAnalyzing]= useState(false);
-  const [error,    setError]    = useState('');
-  const [analysis, setAnalysis] = useState('');
-  const [searched, setSearched] = useState(false);
+  const [platform,  setPlatform]  = useState('facebook');
+  const [query,     setQuery]     = useState('');
+  const [country,   setCountry]   = useState('ALL');
+  const [adType,    setAdType]    = useState('ALL');
+  const [status,    setStatus]    = useState('ACTIVE');
+  const [focus,     setFocus]     = useState('all');
+  const [ads,       setAds]       = useState([]);
+  const [selected,  setSelected]  = useState(new Set());
+  const [loading,   setLoading]   = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error,     setError]     = useState('');
+  const [analysis,  setAnalysis]  = useState('');
+  const [searched,  setSearched]  = useState(false);
   const analysisRef = useRef(null);
 
   async function handleSearch(e) {
-    e.preventDefault();
+    e?.preventDefault();
     if (!query.trim()) return;
     setLoading(true); setError(''); setAds([]); setSelected(new Set()); setAnalysis(''); setSearched(true);
     try {
-      const d = await api.get(`/ad-library/search?q=${encodeURIComponent(query)}&country=${country}&status=${status}&limit=25`);
+      const country_ = country === 'ALL' ? 'US' : country;
+      const d = await api.get(
+        `/ad-library/search?q=${encodeURIComponent(query)}&country=${country_}&status=${status}&type=${adType}&limit=25`
+      );
       if (d.error) { setError(d.error + (d.hint ? ' ' + d.hint : '')); return; }
       setAds(Array.isArray(d.data) ? d.data : []);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
   }
 
   function toggleAd(id) {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
 
-  function selectAll() { setSelected(new Set(ads.map(a => a.id))); }
-  function clearSel()  { setSelected(new Set()); }
-
   async function handleAnalyze() {
-    const toAnalyze = selected.size > 0 ? ads.filter(a => selected.has(a.id)) : ads;
+    const toAnalyze = selected.size ? ads.filter(a => selected.has(a.id)) : ads;
     if (!toAnalyze.length) return;
     setAnalyzing(true); setAnalysis(''); setError('');
     try {
@@ -106,245 +362,234 @@ export default function AdLibrary() {
       if (d.error) { setError(d.error); return; }
       setAnalysis(d.analysis || '');
       setTimeout(() => analysisRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setAnalyzing(false);
-    }
+    } catch (e) { setError(e.message); }
+    finally { setAnalyzing(false); }
   }
 
-  const analyzeCount = selected.size > 0 ? selected.size : ads.length;
+  const analyzeCount = selected.size || ads.length;
 
   return (
-    <div style={sx.page}>
+    <div style={{ minHeight: '100vh', background: '#0f0f1a', color: '#e2e8f0', fontFamily: 'sans-serif' }}>
 
-      {/* Header */}
-      <div style={sx.header}>
-        <div style={sx.hInner}>
-          <Link to="/" style={{ color: '#6366f1', textDecoration: 'none', fontSize: 13 }}>← Back</Link>
-          <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
-          <span style={{ fontWeight: 700, fontSize: 15 }}>📊 Facebook Ad Library</span>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#6b7280' }}>Competitive Intelligence</span>
-        </div>
-      </div>
+      {/* ── Header ── */}
+      <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ maxWidth: 1300, margin: '0 auto', padding: '0 1.5rem' }}>
 
-      <div style={sx.body}>
+          {/* Top bar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', height: 52 }}>
+            <Link to="/" style={{ color: '#6366f1', textDecoration: 'none', fontSize: 13, whiteSpace: 'nowrap' }}>← Back</Link>
+            <span style={{ color: 'rgba(255,255,255,0.15)' }}>|</span>
 
-        {/* Search bar */}
-        <div style={{ ...sx.card, marginBottom: '1.25rem' }}>
-          <form onSubmit={handleSearch}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto', gap: '0.75rem', alignItems: 'flex-end' }}>
-              <div>
-                <label style={sx.label}>Competitor / Brand Name</label>
+            {/* Platform tabs */}
+            <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 3 }}>
+              {[
+                { key: 'facebook', label: 'Ad Library',        icon: PlatformIcons.facebook },
+                { key: 'google',   label: 'Google Transparency',icon: <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg> },
+              ].map(t => (
+                <button key={t.key} onClick={() => setPlatform(t.key)} style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: platform === t.key ? 'rgba(255,255,255,0.1)' : 'transparent',
+                  border: 'none', color: platform === t.key ? '#e2e8f0' : '#6b7280',
+                  fontSize: 13, fontWeight: platform === t.key ? 700 : 500,
+                  borderRadius: 6, padding: '5px 12px', cursor: 'pointer', transition: 'all .15s',
+                }}>
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Search bar row */}
+          <div style={{ paddingBottom: 10 }}>
+            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Country */}
+              <select value={country} onChange={e => setCountry(e.target.value)} style={{
+                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 20, padding: '6px 14px', color: '#e2e8f0', fontSize: 13, outline: 'none', cursor: 'pointer',
+              }}>
+                {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+              </select>
+
+              {/* Ad type */}
+              <select value={adType} onChange={e => setAdType(e.target.value)} style={{
+                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 20, padding: '6px 14px', color: '#e2e8f0', fontSize: 13, outline: 'none', cursor: 'pointer',
+              }}>
+                {AD_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+
+              {/* Search input */}
+              <div style={{ flex: 1, minWidth: 240, position: 'relative' }}>
+                <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}
+                  width="14" height="14" fill="none" stroke="#e2e8f0" strokeWidth="2" viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+                </svg>
                 <input
-                  style={sx.input}
-                  placeholder="e.g. Nike, Shopify, competitor.com"
+                  style={{
+                    width: '100%', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: 20, padding: '7px 14px 7px 34px', color: '#e2e8f0', fontSize: 14,
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                  placeholder="Search by keyword or advertiser…"
                   value={query}
                   onChange={e => setQuery(e.target.value)}
                 />
               </div>
-              <div>
-                <label style={sx.label}>Country</label>
-                <select style={sx.select} value={country} onChange={e => setCountry(e.target.value)}>
-                  {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={sx.label}>Ad Status</label>
-                <select style={sx.select} value={status} onChange={e => setStatus(e.target.value)}>
-                  {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={sx.label}>Analysis Focus</label>
-                <select style={sx.select} value={focus} onChange={e => setFocus(e.target.value)}>
-                  {FOCUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-              <div style={{ paddingBottom: 1 }}>
-                <button type="submit" style={sx.btn} disabled={loading || !query.trim()}>
-                  {loading ? 'Searching…' : '🔍 Search'}
-                </button>
-              </div>
-            </div>
-          </form>
+
+              {/* Status */}
+              <select value={status} onChange={e => setStatus(e.target.value)} style={{
+                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 20, padding: '6px 14px', color: '#e2e8f0', fontSize: 13, outline: 'none', cursor: 'pointer',
+              }}>
+                {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label} ads</option>)}
+              </select>
+
+              <button type="submit" disabled={loading || !query.trim()} style={{
+                background: '#1877f2', color: '#fff', border: 'none', borderRadius: 20,
+                padding: '7px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+              }}>
+                {loading ? 'Searching…' : 'Search'}
+              </button>
+            </form>
+          </div>
         </div>
+      </div>
+
+      {/* ── Body ── */}
+      <div style={{ maxWidth: 1300, margin: '0 auto', padding: '1.25rem 1.5rem' }}>
 
         {/* Error */}
         {error && (
-          <div style={{ ...sx.err, marginBottom: '1rem' }}>
+          <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '0.75rem 1rem', fontSize: 13, color: '#fca5a5', marginBottom: '1rem' }}>
             {error.includes('Facebook access token') || error.includes('FB_TOKEN') ? (
               <>{error} <Link to="/settings" style={{ color: '#818cf8' }}>Go to Settings →</Link></>
             ) : error}
           </div>
         )}
 
-        {/* Results + controls */}
-        {ads.length > 0 && (
+        {/* Google tab */}
+        {platform === 'google' && <GoogleAdsPanel query={query} />}
+
+        {/* Facebook results */}
+        {platform === 'facebook' && (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-              <div style={{ fontSize: 13, color: '#9ca3af' }}>
-                {ads.length} ads found for <strong style={{ color: '#e2e8f0' }}>"{query}"</strong>
-                {selected.size > 0 && <span style={{ color: '#818cf8' }}> · {selected.size} selected</span>}
+            {/* Results header */}
+            {ads.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>
+                    ~{ads.length.toLocaleString()} results
+                  </p>
+                  <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>
+                    These results include ads that match your keyword search.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  {/* Analysis focus */}
+                  <select value={focus} onChange={e => setFocus(e.target.value)} style={{
+                    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: 6, padding: '6px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', cursor: 'pointer',
+                  }}>
+                    {FOCUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  {ads.length > 0 && (
+                    <>
+                      <button onClick={() => setSelected(new Set(ads.map(a => a.id)))} style={{
+                        background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6,
+                        padding: '5px 12px', fontSize: 12, color: '#9ca3af', cursor: 'pointer',
+                      }}>Select All</button>
+                      {selected.size > 0 && (
+                        <button onClick={() => setSelected(new Set())} style={{
+                          background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6,
+                          padding: '5px 12px', fontSize: 12, color: '#9ca3af', cursor: 'pointer',
+                        }}>Clear</button>
+                      )}
+                    </>
+                  )}
+                  <button onClick={handleAnalyze} disabled={analyzing || ads.length === 0} style={{
+                    background: analyzing ? '#374151' : '#6366f1', color: '#fff', border: 'none',
+                    borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    {analyzing ? '⟳ Analyzing…' : `🤖 Analyze ${analyzeCount} Ads`}
+                  </button>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <button style={sx.btnGhost} onClick={selectAll}>Select All</button>
-                {selected.size > 0 && <button style={sx.btnGhost} onClick={clearSel}>Clear</button>}
-                <button
-                  style={{ ...sx.btn, background: analyzing ? '#4f46e5' : '#6366f1', opacity: analyzing ? 0.7 : 1 }}
-                  onClick={handleAnalyze}
-                  disabled={analyzing}
-                >
-                  {analyzing ? 'Analyzing…' : `🤖 Analyze ${analyzeCount} Ads`}
-                </button>
+            )}
+
+            {/* Ad grid */}
+            {ads.length > 0 && (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                gap: '0.75rem',
+                marginBottom: '1.5rem',
+              }}>
+                {ads.map(ad => (
+                  <AdCard key={ad.id} ad={ad} selected={selected.has(ad.id)} onToggle={toggleAd} />
+                ))}
               </div>
-            </div>
+            )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
-              {ads.map(ad => {
-                const isSel = selected.has(ad.id);
-                const bodies = ad.ad_creative_bodies || [];
-                const titles = ad.ad_creative_link_titles || [];
-                const descrs = ad.ad_creative_link_descriptions || [];
-                const impStr  = impressionLabel(ad.impressions);
-                const spStr   = spendLabel(ad.spend);
-                const platforms = ad.publisher_platforms || [];
-                const isActive = !ad.ad_delivery_stop_time;
+            {/* Empty state */}
+            {searched && !loading && ads.length === 0 && !error && (
+              <div style={{ textAlign: 'center', padding: '3rem', background: 'rgba(255,255,255,0.03)', borderRadius: 10 }}>
+                <p style={{ color: '#6b7280', fontSize: 14 }}>No ads found for "{query}".</p>
+                <p style={{ color: '#4b5563', fontSize: 12 }}>Try a different keyword, check your Facebook token in Settings, or change the country.</p>
+              </div>
+            )}
 
-                return (
-                  <div
-                    key={ad.id}
-                    style={isSel ? sx.adCardSel : sx.adCard}
-                    onClick={() => toggleAd(ad.id)}
-                  >
-                    {/* Ad header */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: isActive ? '#34d399' : '#6b7280', flexShrink: 0 }} />
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{ad.page_name || 'Unknown Page'}</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        {isSel && <span style={{ fontSize: 16 }}>✓</span>}
-                        {ad.ad_snapshot_url && (
-                          <a
-                            href={ad.ad_snapshot_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={e => e.stopPropagation()}
-                            style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none' }}
-                          >
-                            View →
-                          </a>
-                        )}
-                      </div>
-                    </div>
+            {/* Intro */}
+            {!searched && !loading && (
+              <div style={{ textAlign: 'center', padding: '3rem 2rem', maxWidth: 580, margin: '2rem auto' }}>
+                <div style={{ marginBottom: '1rem' }}>{PlatformIcons.facebook}</div>
+                <h2 style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0', margin: '0 0 0.5rem' }}>Facebook Ad Library</h2>
+                <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 1.5rem', lineHeight: 1.6 }}>
+                  Search any competitor or brand to see all their active Facebook and Instagram ads.
+                  Analyze messaging, targeting, spend, and creative strategies with AI.
+                </p>
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+                  {['competitor brand', 'industry keyword', 'product category', 'local business'].map(ex => (
+                    <button key={ex} onClick={() => setQuery(ex)} style={{
+                      background: 'rgba(24,119,242,0.12)', color: '#60a5fa', border: '1px solid rgba(24,119,242,0.3)',
+                      borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    }}>{ex}</button>
+                  ))}
+                </div>
+                <p style={{ color: '#4b5563', fontSize: 12 }}>
+                  Requires Facebook connected in{' '}
+                  <Link to="/settings" style={{ color: '#818cf8' }}>Settings → Social Hub</Link>
+                </p>
+              </div>
+            )}
 
-                    {/* Headline */}
-                    {titles[0] && (
-                      <p style={{ fontSize: 13, fontWeight: 600, color: '#c7d2fe', margin: '0 0 4px' }}>
-                        {titles[0].length > 80 ? titles[0].slice(0, 80) + '…' : titles[0]}
-                      </p>
-                    )}
-
-                    {/* Body */}
-                    {bodies[0] && (
-                      <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 8px', lineHeight: 1.5 }}>
-                        {bodies[0].length > 160 ? bodies[0].slice(0, 160) + '…' : bodies[0]}
-                      </p>
-                    )}
-
-                    {/* Description */}
-                    {descrs[0] && !titles[0] && (
-                      <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 8px', fontStyle: 'italic' }}>
-                        {descrs[0].length > 100 ? descrs[0].slice(0, 100) + '…' : descrs[0]}
-                      </p>
-                    )}
-
-                    {/* Stats */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
-                      {impStr && <span style={sx.chip}>👁 {impStr}</span>}
-                      {spStr  && <span style={sx.chip}>💰 {spStr}</span>}
-                      {platforms.map(p => <span key={p} style={sx.chip}>{p}</span>)}
-                      {isActive && <span style={{ ...sx.chip, background: 'rgba(52,211,153,0.1)', color: '#34d399' }}>Active</span>}
-                    </div>
-
-                    {/* Delivery dates */}
-                    {ad.ad_delivery_start_time && (
-                      <p style={{ fontSize: 11, color: '#4b5563', marginTop: 8, marginBottom: 0 }}>
-                        Running since {new Date(ad.ad_delivery_start_time).toLocaleDateString()}
-                        {ad.ad_delivery_stop_time ? ` → ${new Date(ad.ad_delivery_stop_time).toLocaleDateString()}` : ''}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            {/* AI Analysis panel */}
+            {(analysis || analyzing) && (
+              <div ref={analysisRef} style={{
+                background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.3)',
+                borderRadius: 10, padding: '1.25rem', marginTop: '0.5rem',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                  <span style={{ fontSize: 18 }}>🤖</span>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: '#c7d2fe' }}>
+                    Competitive Analysis — {query}
+                    {selected.size > 0 && <span style={{ color: '#818cf8', fontWeight: 400 }}> ({selected.size} selected ads)</span>}
+                  </span>
+                  {analysis && (
+                    <button onClick={() => navigator.clipboard.writeText(analysis)} style={{
+                      marginLeft: 'auto', background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: 6, padding: '4px 10px', fontSize: 11, color: '#9ca3af', cursor: 'pointer',
+                    }}>Copy</button>
+                  )}
+                </div>
+                {analyzing
+                  ? <p style={{ color: '#6b7280', fontSize: 13 }}>Analyzing {analyzeCount} ads…</p>
+                  : <div style={{ fontSize: 14, lineHeight: 1.75, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>{analysis}</div>
+                }
+              </div>
+            )}
           </>
         )}
-
-        {/* Empty state after search */}
-        {searched && !loading && ads.length === 0 && !error && (
-          <div style={{ ...sx.card, textAlign: 'center', padding: '2rem' }}>
-            <p style={{ color: '#6b7280', fontSize: 14 }}>No ads found for "{query}" in {country}.</p>
-            <p style={{ color: '#4b5563', fontSize: 12 }}>Try a broader search term or different country.</p>
-          </div>
-        )}
-
-        {/* Analysis panel */}
-        {(analysis || analyzing) && (
-          <div ref={analysisRef} style={{ ...sx.card, borderColor: 'rgba(99,102,241,0.3)', marginTop: '0.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-              <span style={{ fontSize: 18 }}>🤖</span>
-              <span style={{ fontWeight: 700, fontSize: 14, color: '#c7d2fe' }}>
-                Competitive Analysis — {query}
-              </span>
-              {analysis && (
-                <button
-                  style={{ ...sx.btnGhost, marginLeft: 'auto', fontSize: 11 }}
-                  onClick={() => navigator.clipboard.writeText(analysis)}
-                >
-                  Copy
-                </button>
-              )}
-            </div>
-            {analyzing ? (
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', color: '#6b7280', fontSize: 13 }}>
-                <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span>
-                Analyzing {analyzeCount} ads…
-              </div>
-            ) : (
-              <div style={sx.prose}>{analysis}</div>
-            )}
-          </div>
-        )}
-
-        {/* Intro state */}
-        {!searched && (
-          <div style={{ ...sx.card, textAlign: 'center', padding: '3rem 2rem' }}>
-            <div style={{ fontSize: 40, marginBottom: '1rem' }}>📊</div>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#e2e8f0', margin: '0 0 0.5rem' }}>Facebook Ad Library Intelligence</h2>
-            <p style={{ color: '#6b7280', fontSize: 14, maxWidth: 480, margin: '0 auto 1.5rem' }}>
-              Search any competitor or brand to see their active Facebook and Instagram ads.
-              Select ads and let Claude analyze their messaging, targeting, and creative strategies.
-            </p>
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-              {['Your main competitor', 'Industry leader', 'Local business', 'SaaS product'].map(ex => (
-                <button
-                  key={ex}
-                  style={sx.btnSm}
-                  onClick={() => setQuery(ex)}
-                >
-                  {ex}
-                </button>
-              ))}
-            </div>
-            <p style={{ color: '#4b5563', fontSize: 12, marginTop: '1.5rem' }}>
-              Requires Facebook connected in{' '}
-              <Link to="/settings" style={{ color: '#818cf8' }}>Settings → Social Hub</Link>
-            </p>
-          </div>
-        )}
-
       </div>
     </div>
   );
