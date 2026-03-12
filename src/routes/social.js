@@ -77,4 +77,39 @@ router.delete('/posts/:postId', async (req, res) => {
   }
 });
 
+// GET /social/connect/:platform — get GHL OAuth start URL for a social platform
+// platform: facebook | instagram | linkedin | tiktok | twitter | gmb | youtube
+router.get('/connect/:platform', async (req, res) => {
+  try {
+    const { platform } = req.params;
+    const { reconnect = 'false' } = req.query;
+    const data = await req.ghl(
+      'GET',
+      `/social-media-posting/oauth/${platform}/start`,
+      null,
+      { locationId: req.locationId, reconnect }
+    );
+    // GHL returns { url } or the URL string directly
+    const url = data?.url || data?.authUrl || data;
+    res.json({ url });
+  } catch (err) {
+    console.error('[Social] connect error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /social/accounts/:accountId — disconnect a social account
+router.delete('/accounts/:accountId', async (req, res) => {
+  try {
+    const data = await req.ghl(
+      'DELETE',
+      `/social-media-posting/${req.locationId}/accounts/${req.params.accountId}`
+    );
+    res.json(data);
+  } catch (err) {
+    console.error('[Social] disconnect error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
