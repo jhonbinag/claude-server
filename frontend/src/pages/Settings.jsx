@@ -1025,7 +1025,7 @@ function SocialHubCard({ showToast }) {
     try {
       const d = await api.get(`/social/connect/${platformKey}${reconnect ? '?reconnect=true' : ''}`);
       const url = d?.url || d?.authUrl;
-      if (!url) throw new Error('No OAuth URL returned from GHL');
+      if (!url) throw new Error(d?.error || `GHL response: ${JSON.stringify(d)}`);
       const popup = window.open(url, 'ghl_social_oauth', 'width=640,height=720,scrollbars=yes');
       if (!popup) { showToast('Popup blocked — please allow popups.', false); setConnecting(null); return; }
       // Poll for popup close then refresh

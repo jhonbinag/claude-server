@@ -89,8 +89,23 @@ router.get('/connect/:platform', async (req, res) => {
       null,
       { locationId: req.locationId, reconnect }
     );
-    // GHL returns { url } or the URL string directly
-    const url = data?.url || data?.authUrl || data;
+    console.log('[Social] connect raw response:', JSON.stringify(data));
+
+    // GHL may return the URL in various shapes — dig for it
+    const url =
+      (typeof data === 'string' && data.startsWith('http') ? data : null) ||
+      data?.url || data?.authUrl || data?.oauthUrl ||
+      data?.data?.url || data?.data?.authUrl ||
+      data?.result?.url || data?.result?.authUrl ||
+      null;
+
+    if (!url) {
+      // Return the raw response so the frontend can show a useful error
+      return res.status(502).json({
+        error: 'GHL did not return an OAuth URL.',
+        raw: data,
+      });
+    }
     res.json({ url });
   } catch (err) {
     console.error('[Social] connect error:', err.message);
