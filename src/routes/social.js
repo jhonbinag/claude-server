@@ -52,6 +52,31 @@ async function syncGhlAccountsToRegistry(locationId, accounts) {
   }
 }
 
+// GET /social/debug — diagnose token + GHL social API for this location
+router.get('/debug', async (req, res) => {
+  const tokenStore = require('../services/tokenStore');
+  const record = await tokenStore.getTokenRecord(req.locationId).catch(() => null);
+  let ghlRaw = null;
+  let ghlError = null;
+  if (req.ghl) {
+    try {
+      ghlRaw = await req.ghl('GET', `/social-media-posting/${req.locationId}/accounts`);
+    } catch (e) {
+      ghlError = e.message;
+    }
+  }
+  res.json({
+    locationId:    req.locationId,
+    hasRecord:     !!record,
+    hasAccessToken: !!(record && record.accessToken),
+    tokenExpired:  record ? (Date.now() >= record.expiresAt) : null,
+    companyId:     record?.companyId || null,
+    ghlAttached:   !!req.ghl,
+    ghlRaw,
+    ghlError,
+  });
+});
+
 // GET /social/accounts — list connected social accounts (GHL + toolRegistry)
 router.get('/accounts', async (req, res) => {
   let ghlAccounts = [];
