@@ -11,7 +11,7 @@
 
 // ─── 1. Upstash Redis ─────────────────────────────────────────────────────────
 
-if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+if (process.env.UPSTASH_REDIS_REST_URL && (process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN)) {
   console.log('[Store] Using Upstash Redis backend');
   module.exports = require('./redisStore');
   return;

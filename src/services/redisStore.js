@@ -18,7 +18,7 @@
 const https = require('https');
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 const KEY_PREFIX  = 'hltools:location:';
 const APIKEY_PREFIX = 'hltools:apikey:';
 

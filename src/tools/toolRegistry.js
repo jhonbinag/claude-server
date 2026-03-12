@@ -170,15 +170,14 @@ async function saveToolConfig(locationId, category, configData) {
 
   if (config.isFirebaseEnabled) {
     await firebaseStore.saveToolConfig(locationId, category, configData);
+    // Firebase is primary; also populate 1h read cache for fast lookups
+    try { await toolTokenService.setCachedToolConfig(locationId, merged); } catch { /* non-fatal */ }
   } else {
-    // No Firebase — persist directly to Redis with 90-day TTL (acts as primary store)
-    try { await toolTokenService.setCachedToolConfig(locationId, merged, 90 * 24 * 3600); } catch { /* non-fatal */ }
-    // Also write to tokenStore for local dev
+    // No Firebase — Redis IS the primary store; use 365-day TTL so keys survive restarts
+    try { await toolTokenService.setCachedToolConfig(locationId, merged, 365 * 24 * 3600); } catch { /* non-fatal */ }
+    // Also write to tokenStore for local dev / in-memory fallback
     try { await Promise.resolve(tokenStore.saveToolConfig(locationId, merged)); } catch { /* non-fatal */ }
   }
-
-  // Always update Redis cache with merged config so next read is instant and correct
-  try { await toolTokenService.setCachedToolConfig(locationId, merged); } catch { /* non-fatal */ }
 }
 
 module.exports = {

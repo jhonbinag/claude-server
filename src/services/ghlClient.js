@@ -144,7 +144,7 @@ async function getInstalledLocations(agencyAccessToken, companyId, queryParams =
  * @returns {string} New access token
  */
 async function refreshAccessToken(locationId) {
-  const record = store.getTokenRecord(locationId);
+  const record = await store.getTokenRecord(locationId);
   if (!record || !record.refreshToken) {
     throw new Error(`[GHLClient] No refresh token found for location: ${locationId}`);
   }
@@ -188,11 +188,12 @@ async function refreshAccessToken(locationId) {
  * @returns {string} Valid access token
  */
 async function getValidAccessToken(locationId) {
-  if (store.isTokenExpired(locationId)) {
+  if (await store.isTokenExpired(locationId)) {
     console.log(`[GHLClient] Token expired, refreshing for location: ${locationId}`);
     return await refreshAccessToken(locationId);
   }
-  return store.getTokenRecord(locationId).accessToken;
+  const record = await store.getTokenRecord(locationId);
+  return record.accessToken;
 }
 
 // ─── GHL API Request ──────────────────────────────────────────────────────────
