@@ -87,8 +87,9 @@ router.get('/accounts', async (req, res) => {
     try {
       const data = await req.ghl('GET', `/social-media-posting/${req.locationId}/accounts`);
       console.log('[Social] accounts raw:', JSON.stringify(data)?.substring(0, 300));
+      // GHL returns { results: { accounts: [...], groups: [...] } }
       ghlAccounts = Array.isArray(data) ? data
-        : data?.accounts || data?.data || data?.socialAccounts || data?.result || [];
+        : data?.results?.accounts || data?.accounts || data?.data || data?.socialAccounts || data?.result || [];
       // Auto-sync to toolRegistry in background
       syncGhlAccountsToRegistry(req.locationId, ghlAccounts);
     } catch (err) {
@@ -149,7 +150,7 @@ router.post('/sync', async (req, res) => {
   try {
     const data = await req.ghl('GET', `/social-media-posting/${req.locationId}/accounts`);
     const accounts = Array.isArray(data) ? data
-      : data?.accounts || data?.data || data?.socialAccounts || data?.result || [];
+      : data?.results?.accounts || data?.accounts || data?.data || data?.socialAccounts || data?.result || [];
     await syncGhlAccountsToRegistry(req.locationId, accounts);
     const platforms = [...new Set(accounts.map(a => normalizePlatformType(a.type || a.platform || a.accountType || '')))];
     res.json({ success: true, synced: accounts.length, platforms });
