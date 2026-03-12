@@ -59,9 +59,12 @@ export default function SocialPlanner() {
     setLoadingAcc(true); setAccError('');
     try {
       const d = await api.get('/social/accounts');
-      setAccounts(d.accounts || d || []);
+      if (d && d.error) { setAccError(d.error); setAccounts([]); return; }
+      const list = Array.isArray(d) ? d : (Array.isArray(d?.accounts) ? d.accounts : []);
+      setAccounts(list);
     } catch (e) {
       setAccError(e.message);
+      setAccounts([]);
     } finally {
       setLoadingAcc(false);
     }
@@ -72,9 +75,12 @@ export default function SocialPlanner() {
     setLoadingPosts(true); setPostError('');
     try {
       const d = await api.get(`/social/posts?status=${status}&limit=50`);
-      setPosts(d.posts || d || []);
+      if (d && d.error) { setPostError(d.error); setPosts([]); return; }
+      const list = Array.isArray(d) ? d : (Array.isArray(d?.posts) ? d.posts : []);
+      setPosts(list);
     } catch (e) {
       setPostError(e.message);
+      setPosts([]);
     } finally {
       setLoadingPosts(false);
     }
@@ -106,7 +112,8 @@ export default function SocialPlanner() {
       };
       if (scheduleMode === 'SCHEDULED') payload.scheduledDate = new Date(scheduledDate).toISOString();
 
-      await api.post('/social/posts', payload);
+      const r = await api.post('/social/posts', payload);
+      if (r && r.error) { setSubmitMsg('❌ ' + r.error); return; }
       setSubmitMsg('✅ Post created!');
       setPostText(''); setSelectedAccs([]); setScheduledDate('');
       setTimeout(() => { setComposerOpen(false); setSubmitMsg(''); loadPosts(tab); }, 1500);
