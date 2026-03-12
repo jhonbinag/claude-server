@@ -992,6 +992,21 @@ const PLATFORM_META = {
   gmb:       { label: 'Google My Business', icon: '🔵', bg: '#4285f4', color: 'rgba(66,133,244,0.1)', border: 'rgba(66,133,244,0.35)' },
 };
 
+// Normalize GHL type strings to our platform keys
+// GHL returns values like: facebookPage, instagramBusiness, linkedinPage, twitterProfile, etc.
+function normalizePlatform(raw = '') {
+  const t = raw.toLowerCase();
+  if (t.includes('facebook'))  return 'facebook';
+  if (t.includes('instagram')) return 'instagram';
+  if (t.includes('tiktok'))    return 'tiktok';
+  if (t.includes('youtube'))   return 'youtube';
+  if (t.includes('linkedin'))  return 'linkedin';
+  if (t.includes('pinterest')) return 'pinterest';
+  if (t.includes('twitter') || t.includes('x.com')) return 'twitter';
+  if (t.includes('gmb') || t.includes('google')) return 'gmb';
+  return t;
+}
+
 // Platforms that can be connected (shown as tiles even when not connected)
 const CONNECTABLE = ['facebook', 'instagram', 'tiktok', 'youtube', 'linkedin', 'pinterest', 'twitter', 'gmb'];
 
@@ -1075,7 +1090,7 @@ function SocialHubCard({ showToast }) {
   // Build a map of connected accounts by platform type
   const connectedByType = {};
   accounts.forEach(acc => {
-    const type = (acc.type || acc.platform || '').toLowerCase();
+    const type = normalizePlatform(acc.type || acc.platform || acc.accountType || '');
     if (!connectedByType[type]) connectedByType[type] = [];
     connectedByType[type].push(acc);
   });
@@ -1106,7 +1121,7 @@ function SocialHubCard({ showToast }) {
       {anyConnected && !isOpen && (
         <div className="flex flex-wrap gap-2 mt-1">
           {accounts.map(acc => {
-            const type = (acc.type || acc.platform || '').toLowerCase();
+            const type = normalizePlatform(acc.type || acc.platform || acc.accountType || '');
             const meta = PLATFORM_META[type] || { icon: '🔗', bg: '#6366f1', color: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.4)' };
             return (
               <span key={acc.id || acc.accountId} style={{ display: 'flex', alignItems: 'center', gap: 5, background: meta.color, border: `1px solid ${meta.border}`, borderRadius: 20, padding: '3px 10px 3px 6px', fontSize: 12, color: '#e2e8f0' }}>
