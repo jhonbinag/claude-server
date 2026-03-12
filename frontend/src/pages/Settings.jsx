@@ -1025,12 +1025,13 @@ function SocialHubCard({ showToast }) {
       const d = await api.get('/social/accounts');
       // api.get never throws — check for error fields explicitly
       if (d?.code === 'GHL_OAUTH_REQUIRED') {
-        setError('GHL OAuth not connected. Reinstall the app to sync social accounts.');
+        setError('ghl_oauth');
         setAccounts([]);
         return;
       }
       if (d?.error && !d?.accounts && !Array.isArray(d)) {
-        setError(d.error);
+        // 401 = scope missing — show connect buttons anyway, just note the issue
+        setError(d.error.includes('401') ? 'scope_missing' : d.error);
         setAccounts([]);
         return;
       }
@@ -1140,11 +1141,19 @@ function SocialHubCard({ showToast }) {
         <div style={{ marginTop: '1rem' }}>
           {loading && <p style={{ color: '#6b7280', fontSize: 13, textAlign: 'center', padding: '1rem 0' }}>Loading social accounts…</p>}
 
-          {error && (
+          {error === 'ghl_oauth' && (
             <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '0.75rem 1rem', fontSize: 13, color: '#f87171', marginBottom: '1rem' }}>
-              {error.includes('GHL_OAUTH_REQUIRED')
-                ? 'GHL is not connected. Complete the OAuth install flow first.'
-                : error}
+              GHL is not connected. Reinstall the app to sync social accounts.
+            </div>
+          )}
+          {error === 'scope_missing' && (
+            <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 10, padding: '0.75rem 1rem', fontSize: 13, color: '#fbbf24', marginBottom: '1rem' }}>
+              ⚠️ Social Planner scope missing — <strong>reinstall the app</strong> once to sync existing GHL social accounts. Connect buttons still work below.
+            </div>
+          )}
+          {error && error !== 'ghl_oauth' && error !== 'scope_missing' && (
+            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '0.75rem 1rem', fontSize: 13, color: '#f87171', marginBottom: '1rem' }}>
+              {error}
             </div>
           )}
 
