@@ -1358,7 +1358,6 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
       setBillingRec(d.data);
       setBillingEdits({
         tier:   d.data.tier   || 'bronze',
-        plan:   d.data.plan   || 'trial',
         status: d.data.status || 'trial',
         amount: d.data.amount ?? 0,
         notes:  d.data.notes  || '',
@@ -1372,7 +1371,7 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
     setBillingMsg(null);
     const d = await adminFetch(`/admin/billing/${locationId}`, {
       method: 'POST', adminKey,
-      body: { tier: billingEdits.tier, plan: billingEdits.plan, status: billingEdits.status, amount: Number(billingEdits.amount), notes: billingEdits.notes },
+      body: { tier: billingEdits.tier, status: billingEdits.status, amount: Number(billingEdits.amount), notes: billingEdits.notes },
     });
     setBillingSaving(false);
     if (d.success) {
@@ -1714,7 +1713,6 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {[
                     { label: 'Current Tier',   value: billingRec.tier   || 'bronze', color: { bronze: '#cd7f32', silver: '#9ca3af', gold: '#fbbf24', diamond: '#a78bfa' }[billingRec.tier] || '#9ca3af' },
-                    { label: 'Current Plan',   value: billingRec.plan   || 'trial',  color: '#60a5fa' },
                     { label: 'Status',         value: billingRec.status || 'trial',  color: '#4ade80' },
                     { label: 'Amount',         value: `$${billingRec.amount || 0}`,  color: '#34d399' },
                   ].map(({ label, value, color }) => (
@@ -1739,19 +1737,6 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
                         style={{ width: '100%', padding: '5px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#e5e7eb', fontSize: 12 }}
                       >
                         {['bronze', 'silver', 'gold', 'diamond'].map(t => (
-                          <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ color: '#6b7280', fontSize: 11, display: 'block', marginBottom: 4 }}>Billing Plan</label>
-                      <select
-                        value={billingEdits.plan}
-                        onChange={e => setBillingEdits(p => ({ ...p, plan: e.target.value }))}
-                        style={{ width: '100%', padding: '5px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#e5e7eb', fontSize: 12 }}
-                      >
-                        {['trial', 'starter', 'pro', 'agency'].map(t => (
                           <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
                         ))}
                       </select>
