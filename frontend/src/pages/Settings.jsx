@@ -1103,9 +1103,19 @@ function SocialHubCard({ showToast }) {
             <p className="text-xs text-gray-500 mt-0.5">Facebook · Instagram · TikTok · YouTube · LinkedIn · Pinterest</p>
           </div>
         </div>
-        <button onClick={() => setIsOpen(o => !o)} className="btn-ghost px-4 py-1.5 text-xs">
-          {isOpen ? '▲ Collapse' : anyConnected ? '⚙️ Manage' : '+ Connect'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={loadAccounts}
+            disabled={loading}
+            className="btn-ghost px-3 py-1.5 text-xs"
+            title="Sync from GHL"
+          >
+            {loading ? '↻' : '↻ Sync'}
+          </button>
+          <button onClick={() => setIsOpen(o => !o)} className="btn-ghost px-4 py-1.5 text-xs">
+            {isOpen ? '▲ Collapse' : anyConnected ? '⚙️ Manage' : '+ Connect'}
+          </button>
+        </div>
       </div>
 
       {/* Collapsed pill preview */}

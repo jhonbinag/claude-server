@@ -89,6 +89,12 @@ export function AppProvider({ children }) {
     // Fetch claude status + integrations in background — doesn't block render
     fetchStatus(locId);
     loadIntegrations(locId);
+    // Fire-and-forget: sync GHL social accounts → toolRegistry so the
+    // command center counts social connections even before Settings is visited.
+    fetch('/social/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-location-id': locId },
+    }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Activate with Anthropic key ───────────────────────────────────────────

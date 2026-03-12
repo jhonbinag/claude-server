@@ -44,6 +44,7 @@ export default function SocialPlanner() {
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [accError, setAccError]     = useState('');
   const [postError, setPostError]   = useState('');
+  const [ghlConnected, setGhlConnected] = useState(true);
 
   // Composer state
   const [composerOpen, setComposerOpen] = useState(false);
@@ -54,14 +55,15 @@ export default function SocialPlanner() {
   const [submitting, setSubmitting]     = useState(false);
   const [submitMsg, setSubmitMsg]       = useState('');
 
-  /* fetch accounts */
+  /* fetch accounts — response: { accounts, ghlConnected, ghlError? } */
   const loadAccounts = useCallback(async () => {
     setLoadingAcc(true); setAccError('');
     try {
       const d = await api.get('/social/accounts');
-      if (d && d.error) { setAccError(d.error); setAccounts([]); return; }
       const list = Array.isArray(d) ? d : (Array.isArray(d?.accounts) ? d.accounts : []);
       setAccounts(list);
+      setGhlConnected(d?.ghlConnected !== false);
+      if (d?.ghlError && list.length === 0) setAccError(d.ghlError);
     } catch (e) {
       setAccError(e.message);
       setAccounts([]);
@@ -160,22 +162,36 @@ export default function SocialPlanner() {
 
         {/* ── Connected Accounts ──────────────────────────────────────── */}
         <section style={{ marginBottom: '2rem' }}>
-          <h2 style={{ fontSize: 13, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.75rem' }}>
-            Connected Accounts
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+            <h2 style={{ fontSize: 13, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>
+              Connected Accounts
+              {accounts.length > 0 && <span style={{ marginLeft: 8, color: '#34d399', fontWeight: 600 }}>{accounts.length}</span>}
+            </h2>
+            <button
+              onClick={loadAccounts}
+              disabled={loadingAcc}
+              style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: '#a5b4fc', cursor: 'pointer', opacity: loadingAcc ? 0.5 : 1 }}
+            >
+              {loadingAcc ? '↻ Syncing…' : '↻ Sync from GHL'}
+            </button>
+          </div>
+
+          {!ghlConnected && (
+            <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 8, padding: '0.6rem 1rem', fontSize: 12, color: '#fbbf24', marginBottom: '0.75rem' }}>
+              ⚠️ GHL OAuth not connected — showing cached accounts only. <Link to="/settings" style={{ color: '#818cf8' }}>Reconnect in Settings →</Link>
+            </div>
+          )}
 
           {loadingAcc ? (
-            <p style={{ color: '#6b7280', fontSize: 13 }}>Loading accounts…</p>
+            <p style={{ color: '#6b7280', fontSize: 13 }}>Syncing from GoHighLevel…</p>
           ) : accError ? (
             <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '0.75rem 1rem', fontSize: 13, color: '#fca5a5' }}>
-              {accError.includes('OAuth') ? (
-                <>GHL OAuth not connected for this location. <Link to="/settings" style={{ color: '#818cf8' }}>Go to Settings →</Link></>
-              ) : accError}
+              {accError}
             </div>
           ) : accounts.length === 0 ? (
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '1.5rem', textAlign: 'center' }}>
               <p style={{ color: '#6b7280', fontSize: 13, marginBottom: '0.5rem' }}>No social accounts connected in GoHighLevel.</p>
-              <p style={{ color: '#4b5563', fontSize: 12 }}>Connect accounts via <strong style={{ color: '#9ca3af' }}>GHL → Marketing → Social Planner → Settings</strong>.</p>
+              <p style={{ color: '#4b5563', fontSize: 12 }}>Connect accounts via <strong style={{ color: '#9ca3af' }}>GHL → Marketing → Social Planner → Settings</strong>, then click Sync.</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
