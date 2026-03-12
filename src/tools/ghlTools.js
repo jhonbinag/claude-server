@@ -775,7 +775,7 @@ ${inner}
  */
 async function executeGhlTool(toolName, input, locationId, companyId) {
   const call = (method, path, body = null, params = {}) =>
-    ghlClient.request(locationId, method, path, body, params);
+    ghlClient.ghlRequest(locationId, method, path, body, params);
 
   switch (toolName) {
 

@@ -25,10 +25,10 @@ async function authenticate(req, res, next) {
 
     req.locationId = locationId;
 
-    // Attach GHL helper if OAuth tokens exist (optional, non-blocking)
+    // Attach GHL helper if any GHL token record exists (optional, non-blocking)
     try {
       const record = await tokenStore.getTokenRecord(locationId);
-      if (record && record.refreshToken) {
+      if (record && record.accessToken) {
         req.companyId = record.companyId;
         req.ghl = (method, endpoint, data, params) =>
           ghlClient.ghlRequest(locationId, method, endpoint, data, params);
