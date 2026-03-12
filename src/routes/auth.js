@@ -33,82 +33,62 @@ const ALL_SCOPES = [
   'businesses.readonly', 'businesses.write',
   // Calendars
   'calendars.readonly', 'calendars.write',
-  'calendars/groups.readonly', 'calendars/groups.write',
-  'calendars/resources.readonly', 'calendars/resources.write',
-  'calendars/events.readonly', 'calendars/events.write',
-  // Campaigns
-  'campaigns.readonly',
-  // Companies (Agency — requires $497 plan)
-  'companies.readonly',
+  'calendars/events.readonly',
+  // Charges
+  'charges.readonly', 'charges.write',
   // Contacts
   'contacts.readonly', 'contacts.write',
-  // Custom Objects
-  'objects/schema.readonly', 'objects/schema.write',
-  'objects/record.readonly', 'objects/record.write',
-  // Associations
-  'associations.readonly', 'associations.write',
-  'associations/relation.readonly', 'associations/relation.write',
+  // Conversation AI
+  'conversation-ai.readonly', 'conversation-ai.write',
   // Conversations
   'conversations.readonly', 'conversations.write',
-  'conversations/message.readonly', 'conversations/message.write',
-  'conversations/livechat.write',
   // Courses
-  'courses.write',
-  // Custom Menu Links
-  'custom-menu-link.readonly', 'custom-menu-link.write',
-  // Emails
-  'emails/builder.readonly', 'emails/builder.write', 'emails/schedule.readonly',
+  'courses.readonly', 'courses.write',
   // Blogs
   'blogs/post.write', 'blogs/post-update.write', 'blogs/check-slug.readonly',
   'blogs/category.readonly', 'blogs/author.readonly',
   'blogs/posts.readonly', 'blogs/list.readonly',
   // Forms & Surveys
-  'forms.readonly', 'surveys.readonly',
+  'forms.readonly', 'forms.write', 'surveys.readonly',
   // Funnels
   'funnels/funnel.readonly', 'funnels/page.readonly',
   'funnels/pagecount.readonly',
   'funnels/redirect.readonly', 'funnels/redirect.write',
-  // Invoices
-  'invoices.readonly', 'invoices.write',
-  'invoices/schedule.readonly', 'invoices/schedule.write',
-  'invoices/template.readonly', 'invoices/template.write',
-  // LC Email
-  'lc-email.readonly',
-  // Links
-  'links.readonly', 'links.write',
-  // Locations / Sub-Accounts
-  'locations.readonly', 'locations.write',
+  // Knowledge Bases
+  'knowledge-bases.readonly', 'knowledge-bases.write',
+  // Locations
+  'locations.readonly',
   'locations/customValues.readonly', 'locations/customValues.write',
-  'locations/customFields.readonly', 'locations/customFields.write',
   'locations/tags.readonly', 'locations/tags.write',
-  'locations/templates.readonly', 'locations/tasks.readonly',
   // Media
   'medias.readonly', 'medias.write',
   // Opportunities
   'opportunities.readonly', 'opportunities.write',
-  // OAuth (Agency)
+  // OAuth
   'oauth.readonly', 'oauth.write',
   // Payments
   'payments/integration.readonly', 'payments/integration.write',
   'payments/orders.readonly', 'payments/orders.write',
   'payments/transactions.readonly', 'payments/subscriptions.readonly',
+  'payments/coupons.readonly', 'payments/coupons.write',
+  'payments/custom-provider.readonly', 'payments/custom-provider.write',
   // Products
   'products.readonly', 'products.write',
   'products/prices.readonly', 'products/prices.write',
-  // SaaS (Agency — requires $497 plan)
-  'saas/location.read', 'saas/location.write', 'saas/company.write',
-  // Snapshots (Agency)
-  'snapshots.readonly',
-  // Store
-  'store/shipping.readonly', 'store/shipping.write',
-  'store/setting.readonly', 'store/setting.write',
+  'products/collection.readonly', 'products/collection.write',
   // Social Planner
   'socialplanner/account.readonly', 'socialplanner/account.write',
   'socialplanner/post.readonly', 'socialplanner/post.write',
   'socialplanner/csv.readonly', 'socialplanner/csv.write',
-  'socialplanner/category.readonly',
+  'socialplanner/category.readonly', 'socialplanner/category.write',
+  'socialplanner/tag.readonly', 'socialplanner/tag.write',
+  'socialplanner/statistics.readonly',
   'socialplanner/oauth.readonly', 'socialplanner/oauth.write',
-  'socialplanner/tag.readonly',
+  // Voice AI
+  'voice-ai-dashboard.readonly',
+  'voice-ai-agents.readonly', 'voice-ai-agents.write',
+  'voice-ai-agent-goals.readonly', 'voice-ai-agent-goals.write',
+  // Users & Workflows
   'users.readonly', 'users.write',
   'workflows.readonly',
 ].join(' ');

@@ -20,6 +20,7 @@ let billingRoutes;  try { billingRoutes  = require('./src/routes/billing');     
 let socialRoutes;   try { socialRoutes   = require('./src/routes/social');        } catch (e) { _errors.social      = e.message; }
 let adLibRoutes;    try { adLibRoutes    = require('./src/routes/adLibrary');     } catch (e) { _errors.adLibrary   = e.message; }
 let socialAuthRoutes; try { socialAuthRoutes = require('./src/routes/socialAuth'); } catch (e) { _errors.socialAuth = e.message; }
+let manychatRoutes;   try { manychatRoutes   = require('./src/routes/manychat');   } catch (e) { _errors.manychat   = e.message; }
 let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui          = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
@@ -75,6 +76,7 @@ if (billingRoutes)   app.use('/billing',   billingRoutes);
 if (socialRoutes)    app.use('/social',      socialRoutes);
 if (adLibRoutes)       app.use('/ad-library',  adLibRoutes);
 if (socialAuthRoutes)  app.use('/social-auth', socialAuthRoutes);
+if (manychatRoutes)    app.use('/manychat',    manychatRoutes);
 if (uiRoute)         app.use('/',           uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ import { INTEGRATIONS }   from '../lib/integrations';
 const TOOL_COLOR = {
   ghl: '#22c55e', perplexity: '#6366f1', openai: '#10b981',
   facebook_ads: '#1877f2', sendgrid: '#00a8a8', slack: '#9333ea',
-  apollo: '#f97316', heygen: '#a855f7',
+  apollo: '#f97316', heygen: '#a855f7', manychat: '#0084ff',
 };
 
 const NODE_W = 240;
@@ -62,6 +62,10 @@ const TOOL_FIELDS = {
   heygen: {
     inputs:  ['script', 'avatarId', 'voiceId'],
     outputs: ['videoUrl', 'videoId'],
+  },
+  manychat: {
+    inputs:  ['topic', 'context', 'audience', 'offer', 'channels'],
+    outputs: ['sequence', 'day0Message', 'day1Message', 'day7Message', 'day30Message'],
   },
 };
 
@@ -126,6 +130,25 @@ function configToInstruction(config, context) {
       return `GHL Contacts: ${config.contactAction || 'manage contacts'}.${ctx} ${config.contactDetail || ''}`;
     case 'social':
       return `Create and schedule social posts in GHL Social Planner.${ctx} ${config.socialDetail || 'Post for all connected accounts.'}`;
+    case 'manychat_sequence': {
+      const ch    = config.channels?.join(', ') || 'Messenger';
+      const n     = config.steps   || 7;
+      const end   = config.endDay  || 30;
+      const extra = config.extraContext ? `\nExtra context: ${config.extraContext}` : '';
+      return `Generate a ManyChat "0 to Hero" subscriber nurture sequence.${ctx}${extra}
+Topic/Business: ${config.topic || '[fill in topic]'}
+Channels: ${ch}
+Messages: ${n} (Day 0 → Day ${end})
+
+For each message output:
+- day (number), delay_hours (cumulative from Day 0), label (e.g. "Day 0 — Welcome")
+- channel (${ch.split(',')[0].trim().toLowerCase()})
+- message (conversational, 2–4 sentences, includes {{first name}} personalization)
+- cta (clear call-to-action)
+
+Arc: Day 0 = Welcome, Day 1 = Quick win, Day 3 = Education, Day 7 = Social proof, Day 14 = Objections, Day 21 = Soft offer, Day 30 = Strong CTA.
+Output the full sequence as a JSON array and then a human-readable summary of each message.`;
+    }
     case 'custom':
     default:
       return config?.customInstruction || '(no instruction set)';
@@ -162,7 +185,7 @@ function buildGraphPrompt(nodes, edges, context) {
     const inEdges  = edges.filter(e => e.toNodeId === node.id);
     const mappings = inEdges.flatMap(e => (e.mappings || []).map(m => `"${m.from}" → "${m.to}"`));
     const mapNote  = mappings.length ? `\n  Field inputs from previous steps: ${mappings.join(', ')}` : '';
-    const instr    = node.tool === 'ghl' && node.config
+    const instr    = (node.tool === 'ghl' || node.tool === 'manychat') && node.config
       ? configToInstruction(node.config, context)
       : (node.instruction || `Execute ${node.label}`);
     return `STEP ${idx + 1} [${node.label}]:\n${instr}${mapNote}`;
@@ -236,6 +259,19 @@ const TEMPLATES = [
     edges: [
       { fromIdx:0, toIdx:1, mappings:[{from:'email',to:'email'},{from:'firstName',to:'firstName'},{from:'phone',to:'phone'}] },
       { fromIdx:1, toIdx:2, mappings:[{from:'email',to:'to_email'},{from:'firstName',to:'context'}] },
+    ],
+  },
+  {
+    name: '💙 0 to Hero (ManyChat)',
+    context: 'Complete subscriber nurture sequence',
+    nodes: [
+      { tool:'perplexity', label:'Research Audience', icon:'🔍', x:60,  y:100, instruction:'Research the target audience, their pain points, objections, and what motivates them to buy. Include competitor messaging and proven hooks.' },
+      { tool:'manychat',   label:'ManyChat Sequence', icon:'💙', x:380, y:100, config:{ action:'manychat_sequence', topic:'[your product/service]', channels:['messenger','instagram'], steps:7, endDay:30 } },
+      { tool:'ghl',        label:'Add to Workflow',   icon:'⚡', x:700, y:100, config:{ action:'contacts', contactAction:'Add to workflow', contactDetail:'Add new subscribers to the ManyChat nurture GHL workflow and tag them "mc-sequence-active".' } },
+    ],
+    edges: [
+      { fromIdx:0, toIdx:1, mappings:[{from:'summary',to:'context'},{from:'keyPoints',to:'topic'}] },
+      { fromIdx:1, toIdx:2, mappings:[{from:'day0Message',to:'context'}] },
     ],
   },
 ];
@@ -801,8 +837,10 @@ function CanvasNode({ node, selected, connecting, onHeaderMouseDown, onOutPort, 
         <div style={{ padding: '6px 10px', fontSize: 11, color: '#6b7280' }}>
           {node.tool === 'ghl' && !node.config?.action && <span style={{ color: '#f59e0b' }}>⚠ Click to configure action</span>}
           {node.tool === 'ghl' && node.config?.action && <span style={{ color: '#86efac' }}>✓ Configured</span>}
-          {node.tool !== 'ghl' && !node.instruction && <span style={{ color: '#f59e0b' }}>⚠ Click to add instruction</span>}
-          {node.tool !== 'ghl' && node.instruction && <span style={{ color: '#86efac', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>✓ {node.instruction.slice(0, 40)}{node.instruction.length > 40 ? '…' : ''}</span>}
+          {node.tool === 'manychat' && !node.config?.topic && <span style={{ color: '#f59e0b' }}>⚠ Click to set topic</span>}
+          {node.tool === 'manychat' && node.config?.topic && <span style={{ color: '#60a5fa' }}>💙 {node.config.steps || 7}-msg sequence · {(node.config.channels || ['messenger']).join(', ')}</span>}
+          {node.tool !== 'ghl' && node.tool !== 'manychat' && !node.instruction && <span style={{ color: '#f59e0b' }}>⚠ Click to add instruction</span>}
+          {node.tool !== 'ghl' && node.tool !== 'manychat' && node.instruction && <span style={{ color: '#86efac', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>✓ {node.instruction.slice(0, 40)}{node.instruction.length > 40 ? '…' : ''}</span>}
         </div>
       </div>
 
@@ -838,6 +876,8 @@ function NodeConfigPanel({ node, onClose, onChange, onConfigChange, onDelete }) 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {node.tool === 'ghl' ? (
           <GHLConfigInPanel config={node.config || { action: null }} onChange={onConfigChange} color={color} />
+        ) : node.tool === 'manychat' ? (
+          <ManyChatConfigInPanel config={node.config || { action: 'manychat_sequence', channels: ['messenger'], steps: 7, endDay: 30 }} onChange={onConfigChange} color={color} />
         ) : (
           <div>
             <label className="block text-xs text-gray-400 mb-2">Instruction for {node.label}</label>
@@ -849,6 +889,109 @@ function NodeConfigPanel({ node, onClose, onChange, onConfigChange, onDelete }) 
             </p>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── ManyChat Config In Panel ─────────────────────────────────────────────────
+
+const MC_CHANNELS  = ['messenger', 'instagram', 'sms', 'email'];
+const MC_STEP_OPTS = [5, 7, 10, 14];
+const MC_END_DAYS  = [14, 21, 30, 45, 60, 90];
+
+function ManyChatConfigInPanel({ config, onChange, color }) {
+  const set = patch => onChange({ ...config, ...patch });
+  const channels = config.channels || ['messenger'];
+
+  function toggleChannel(ch) {
+    if (channels.includes(ch)) {
+      if (channels.length === 1) return; // keep at least one
+      set({ channels: channels.filter(c => c !== ch) });
+    } else {
+      set({ channels: [...channels, ch] });
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Topic */}
+      <div>
+        <p className="text-xs text-gray-400 mb-1">Topic / Business</p>
+        <input
+          value={config.topic || ''}
+          onChange={e => set({ topic: e.target.value })}
+          placeholder="e.g. Online fitness coaching, SaaS tool for agencies…"
+          className="field w-full text-sm"
+        />
+        <p className="text-xs text-gray-600 mt-1">Claude will tailor every message to this topic.</p>
+      </div>
+
+      {/* Channels */}
+      <div>
+        <p className="text-xs text-gray-400 mb-1">Channels</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {MC_CHANNELS.map(ch => {
+            const on = channels.includes(ch);
+            const icons = { messenger:'💬', instagram:'📸', sms:'📱', email:'✉️' };
+            return (
+              <div key={ch} onClick={() => toggleChannel(ch)}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+                style={{ background: on ? `${color}20` : 'rgba(255,255,255,0.03)', border:`1px solid ${on ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: on ? '#fff' : '#9ca3af' }}>
+                <span>{icons[ch]}</span>
+                <span style={{ textTransform: 'capitalize' }}>{ch}</span>
+                {on && <span style={{ color, fontWeight:700, marginLeft:'auto' }}>✓</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Steps */}
+      <div>
+        <p className="text-xs text-gray-400 mb-1">Number of messages</p>
+        <div className="flex gap-1.5">
+          {MC_STEP_OPTS.map(n => (
+            <button key={n} onClick={() => set({ steps: n })}
+              className="flex-1 py-1.5 rounded-lg text-xs transition-all"
+              style={{ background: config.steps===n ? `${color}20` : 'rgba(255,255,255,0.03)', border:`1px solid ${config.steps===n ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: config.steps===n ? '#fff' : '#9ca3af' }}>
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* End day */}
+      <div>
+        <p className="text-xs text-gray-400 mb-1">Sequence length (days)</p>
+        <div className="grid grid-cols-3 gap-1">
+          {MC_END_DAYS.map(d => (
+            <button key={d} onClick={() => set({ endDay: d })}
+              className="py-1.5 rounded-lg text-xs transition-all"
+              style={{ background: config.endDay===d ? `${color}20` : 'rgba(255,255,255,0.03)', border:`1px solid ${config.endDay===d ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: config.endDay===d ? '#fff' : '#9ca3af' }}>
+              Day {d}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Context note */}
+      <div>
+        <p className="text-xs text-gray-400 mb-1">Extra context (optional)</p>
+        <textarea value={config.extraContext || ''} onChange={e => set({ extraContext: e.target.value })}
+          placeholder="Target audience, offer details, brand voice, key objections…"
+          rows={3} className="field w-full text-xs" style={{ resize:'none' }} />
+      </div>
+
+      {/* Summary */}
+      <div className="rounded-xl p-3 text-xs" style={{ background: `${color}10`, border: `1px solid ${color}30` }}>
+        <p className="font-semibold" style={{ color }}>💙 Sequence Plan</p>
+        <p className="text-gray-400 mt-1">
+          {config.steps || 7} messages · {channels.join(' + ')} · Day 0 → Day {config.endDay || 30}
+        </p>
+        <p className="text-gray-500 mt-1">
+          Arc: Welcome → Quick Win → Education → Social Proof → Objections → Soft Offer → CTA
+        </p>
       </div>
     </div>
   );
