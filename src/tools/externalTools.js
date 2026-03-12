@@ -148,6 +148,41 @@ const EXTERNAL_TOOL_DEFINITIONS = {
         required: ['campaignId', 'status'],
       },
     },
+    {
+      name: 'facebook_get_lead_forms',
+      description: 'List all Facebook Lead Ads forms for connected pages to identify which forms are collecting leads.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pageId: { type: 'string', description: 'Facebook Page ID to list lead forms for (optional, uses default page if omitted)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'facebook_get_leads',
+      description: 'Fetch lead submissions from a Facebook Lead Ads form. Returns name, email, phone, and all custom field answers.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          formId: { type: 'string', description: 'Lead form ID to fetch submissions from' },
+          limit:  { type: 'number', description: 'Max leads to return (default 25)' },
+        },
+        required: ['formId'],
+      },
+    },
+    {
+      name: 'facebook_sync_leads_to_ghl',
+      description: 'Fetch recent leads from a Facebook Lead Ads form and create them as contacts in GoHighLevel. Returns how many were synced.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          formId: { type: 'string', description: 'Lead form ID to sync from' },
+          limit:  { type: 'number', description: 'Max leads to sync (default 25)' },
+        },
+        required: ['formId'],
+      },
+    },
   ],
 
   // ── SendGrid ─────────────────────────────────────────────────────────────────
@@ -1368,6 +1403,88 @@ Object.assign(EXTERNAL_TOOL_DEFINITIONS, {
       description: 'Get Facebook Page insights: reach, impressions, engagement for the past 30 days.',
       input_schema: { type: 'object', properties: {}, required: [] },
     },
+    {
+      name: 'fb_get_post_comments',
+      description: 'Get comments on a Facebook Page post. Returns commenter name, message, and timestamp.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          postId: { type: 'string', description: 'Facebook post ID to fetch comments for' },
+          limit:  { type: 'number', description: 'Max comments (default 25)' },
+        },
+        required: ['postId'],
+      },
+    },
+    {
+      name: 'fb_reply_comment',
+      description: 'Reply to a comment on a Facebook Page post.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          commentId: { type: 'string', description: 'Comment ID to reply to' },
+          message:   { type: 'string', description: 'Reply text' },
+        },
+        required: ['commentId', 'message'],
+      },
+    },
+    {
+      name: 'fb_hide_comment',
+      description: 'Hide or unhide a comment on a Facebook Page post.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          commentId: { type: 'string', description: 'Comment ID to hide/unhide' },
+          hidden:    { type: 'boolean', description: 'true to hide, false to unhide' },
+        },
+        required: ['commentId', 'hidden'],
+      },
+    },
+    {
+      name: 'fb_get_reviews',
+      description: 'Get recent reviews left on a Facebook Page (star rating, reviewer name, text).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max reviews (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'fb_reply_review',
+      description: 'Reply to a Facebook Page review.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          reviewId: { type: 'string', description: 'Review ID to reply to' },
+          message:  { type: 'string', description: 'Reply text' },
+        },
+        required: ['reviewId', 'message'],
+      },
+    },
+    {
+      name: 'fb_get_conversations',
+      description: 'List recent Facebook Messenger conversations (DMs) for the connected Page.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max conversations (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'fb_reply_dm',
+      description: 'Send a reply to a Facebook Messenger conversation (DM).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          recipientId: { type: 'string', description: 'Facebook user PSID or conversation ID to reply to' },
+          message:     { type: 'string', description: 'Message text to send' },
+        },
+        required: ['recipientId', 'message'],
+      },
+    },
   ],
   social_instagram: [
     {
@@ -1379,6 +1496,65 @@ Object.assign(EXTERNAL_TOOL_DEFINITIONS, {
       name: 'ig_get_account_insights',
       description: 'Get Instagram Business account insights: follower count, reach, profile views.',
       input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'ig_get_media_comments',
+      description: 'Get comments on an Instagram Business post.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mediaId: { type: 'string', description: 'Instagram media ID to fetch comments for' },
+          limit:   { type: 'number', description: 'Max comments (default 25)' },
+        },
+        required: ['mediaId'],
+      },
+    },
+    {
+      name: 'ig_reply_comment',
+      description: 'Reply to a comment on an Instagram Business post.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          commentId: { type: 'string', description: 'Instagram comment ID to reply to' },
+          message:   { type: 'string', description: 'Reply text' },
+        },
+        required: ['commentId', 'message'],
+      },
+    },
+    {
+      name: 'ig_hide_comment',
+      description: 'Hide or unhide a comment on an Instagram Business post.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          commentId: { type: 'string', description: 'Instagram comment ID' },
+          hidden:    { type: 'boolean', description: 'true to hide, false to show' },
+        },
+        required: ['commentId', 'hidden'],
+      },
+    },
+    {
+      name: 'ig_get_conversations',
+      description: 'List recent Instagram Direct Message conversations for the connected Business account.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max conversations (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'ig_reply_dm',
+      description: 'Send a reply to an Instagram Direct Message conversation.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          recipientId: { type: 'string', description: 'Instagram scoped user ID (IGSID) to reply to' },
+          message:     { type: 'string', description: 'Message text to send' },
+        },
+        required: ['recipientId', 'message'],
+      },
     },
   ],
   social_tiktok_organic: [
@@ -1578,12 +1754,77 @@ async function executeExternalTool(toolName, input, toolConfigs) {
   if (toolName === 'facebook_pause_campaign') {
     const { accessToken } = toolConfigs.facebook_ads || {};
     if (!accessToken) throw new Error('Facebook Ads not configured.');
-
     const resp = await axios.post(`https://graph.facebook.com/v20.0/${input.campaignId}`, {
       access_token: accessToken,
       status:       input.status,
     });
     return resp.data;
+  }
+
+  if (toolName === 'facebook_get_lead_forms') {
+    const { accessToken } = toolConfigs.facebook_ads || {};
+    const pageId = input.pageId || (toolConfigs.social_facebook || {}).pageId;
+    if (!accessToken) throw new Error('Facebook Ads not configured. Need accessToken.');
+    if (!pageId) throw new Error('No Facebook Page ID available. Provide pageId or connect Facebook Pages.');
+    const resp = await axios.get(`https://graph.facebook.com/v20.0/${pageId}/leadgen_forms`, {
+      params: { access_token: accessToken, fields: 'id,name,status,leads_count,created_time', limit: 25 },
+    });
+    return { forms: resp.data.data };
+  }
+
+  if (toolName === 'facebook_get_leads') {
+    const { accessToken } = toolConfigs.facebook_ads || {};
+    if (!accessToken) throw new Error('Facebook Ads not configured.');
+    const resp = await axios.get(`https://graph.facebook.com/v20.0/${input.formId}/leads`, {
+      params: {
+        access_token: accessToken,
+        fields:       'id,created_time,field_data',
+        limit:        input.limit || 25,
+      },
+    });
+    const leads = (resp.data.data || []).map(lead => {
+      const fields = {};
+      (lead.field_data || []).forEach(f => { fields[f.name] = f.values?.[0] || ''; });
+      return { id: lead.id, createdTime: lead.created_time, ...fields };
+    });
+    return { leads, total: leads.length };
+  }
+
+  if (toolName === 'facebook_sync_leads_to_ghl') {
+    const { accessToken } = toolConfigs.facebook_ads || {};
+    if (!accessToken) throw new Error('Facebook Ads not configured.');
+    if (!locationId) throw new Error('No locationId — cannot sync to GHL.');
+
+    const resp = await axios.get(`https://graph.facebook.com/v20.0/${input.formId}/leads`, {
+      params: { access_token: accessToken, fields: 'id,created_time,field_data', limit: input.limit || 25 },
+    });
+    const leads = resp.data.data || [];
+    const ghlToken = await require('./toolRegistry').getGhlAccessToken?.(locationId);
+    const config   = require('../config');
+    const created  = [];
+    for (const lead of leads) {
+      const fields = {};
+      (lead.field_data || []).forEach(f => { fields[f.name] = f.values?.[0] || ''; });
+      const contact = {
+        locationId,
+        firstName: fields.first_name || fields.full_name?.split(' ')[0] || '',
+        lastName:  fields.last_name  || fields.full_name?.split(' ').slice(1).join(' ') || '',
+        email:     fields.email || '',
+        phone:     fields.phone_number || fields.phone || '',
+        source:    'Facebook Lead Ads',
+        tags:      ['fb-lead'],
+      };
+      if (!contact.email && !contact.phone) continue;
+      try {
+        if (ghlToken) {
+          await axios.post(`${config.ghl.apiBaseUrl}/contacts/`, contact, {
+            headers: { Authorization: `Bearer ${ghlToken}`, Version: config.ghl.apiVersion },
+          });
+          created.push(contact.email || contact.phone);
+        }
+      } catch { /* skip duplicate */ }
+    }
+    return { synced: created.length, total: leads.length, contacts: created };
   }
 
   // ── SendGrid ─────────────────────────────────────────────────────────────────
@@ -2907,6 +3148,74 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     return { insights: resp.data.data };
   }
 
+  if (toolName === 'fb_get_post_comments') {
+    const cfg = toolConfigs.social_facebook || {};
+    if (!cfg.pageAccessToken) throw new Error('Facebook Page access token not configured.');
+    const resp = await axios.get(`https://graph.facebook.com/v19.0/${input.postId}/comments`, {
+      params: { access_token: cfg.pageAccessToken, fields: 'id,from,message,created_time,like_count,comment_count', limit: input.limit || 25 },
+    });
+    return { comments: resp.data.data, total: resp.data.data?.length || 0 };
+  }
+
+  if (toolName === 'fb_reply_comment') {
+    const cfg = toolConfigs.social_facebook || {};
+    if (!cfg.pageAccessToken) throw new Error('Facebook Page access token not configured.');
+    const resp = await axios.post(`https://graph.facebook.com/v19.0/${input.commentId}/comments`, {
+      access_token: cfg.pageAccessToken,
+      message:      input.message,
+    });
+    return { success: true, commentId: resp.data.id };
+  }
+
+  if (toolName === 'fb_hide_comment') {
+    const cfg = toolConfigs.social_facebook || {};
+    if (!cfg.pageAccessToken) throw new Error('Facebook Page access token not configured.');
+    await axios.post(`https://graph.facebook.com/v19.0/${input.commentId}`, {
+      access_token: cfg.pageAccessToken,
+      is_hidden:    input.hidden,
+    });
+    return { success: true, hidden: input.hidden };
+  }
+
+  if (toolName === 'fb_get_reviews') {
+    const cfg = toolConfigs.social_facebook || {};
+    if (!cfg.pageAccessToken) throw new Error('Facebook Page access token not configured.');
+    const resp = await axios.get(`https://graph.facebook.com/v19.0/${cfg.pageId || 'me'}/ratings`, {
+      params: { access_token: cfg.pageAccessToken, fields: 'reviewer,rating,review_text,created_time,has_rating,has_review', limit: input.limit || 20 },
+    });
+    return { reviews: resp.data.data, total: resp.data.data?.length || 0 };
+  }
+
+  if (toolName === 'fb_reply_review') {
+    const cfg = toolConfigs.social_facebook || {};
+    if (!cfg.pageAccessToken) throw new Error('Facebook Page access token not configured.');
+    const resp = await axios.post(`https://graph.facebook.com/v19.0/${input.reviewId}/comments`, {
+      access_token: cfg.pageAccessToken,
+      message:      input.message,
+    });
+    return { success: true, commentId: resp.data.id };
+  }
+
+  if (toolName === 'fb_get_conversations') {
+    const cfg = toolConfigs.social_facebook || {};
+    if (!cfg.pageAccessToken) throw new Error('Facebook Page access token not configured.');
+    const resp = await axios.get(`https://graph.facebook.com/v19.0/${cfg.pageId || 'me'}/conversations`, {
+      params: { access_token: cfg.pageAccessToken, fields: 'id,participants,updated_time,message_count,unread_count,snippet', limit: input.limit || 20 },
+    });
+    return { conversations: resp.data.data, total: resp.data.data?.length || 0 };
+  }
+
+  if (toolName === 'fb_reply_dm') {
+    const cfg = toolConfigs.social_facebook || {};
+    if (!cfg.pageAccessToken) throw new Error('Facebook Page access token not configured.');
+    const resp = await axios.post('https://graph.facebook.com/v19.0/me/messages', {
+      access_token: cfg.pageAccessToken,
+      recipient:    { id: input.recipientId },
+      message:      { text: input.message },
+    });
+    return { success: true, messageId: resp.data.message_id };
+  }
+
   if (toolName === 'ig_get_recent_media') {
     const cfg = toolConfigs.social_instagram || {};
     if (!cfg.pageAccessToken || !cfg.igUserId) throw new Error('Instagram credentials not configured.');
@@ -2923,6 +3232,56 @@ async function executeExternalTool(toolName, input, toolConfigs) {
       params: { access_token: cfg.pageAccessToken, fields: 'followers_count,media_count,name,biography,website' },
     });
     return resp.data;
+  }
+
+  if (toolName === 'ig_get_media_comments') {
+    const cfg = toolConfigs.social_instagram || {};
+    if (!cfg.pageAccessToken || !cfg.igUserId) throw new Error('Instagram credentials not configured.');
+    const resp = await axios.get(`https://graph.facebook.com/v19.0/${input.mediaId}/comments`, {
+      params: { access_token: cfg.pageAccessToken, fields: 'id,username,text,timestamp,like_count,replies{id,username,text,timestamp}', limit: input.limit || 25 },
+    });
+    return { comments: resp.data.data, total: resp.data.data?.length || 0 };
+  }
+
+  if (toolName === 'ig_reply_comment') {
+    const cfg = toolConfigs.social_instagram || {};
+    if (!cfg.pageAccessToken || !cfg.igUserId) throw new Error('Instagram credentials not configured.');
+    const resp = await axios.post(`https://graph.facebook.com/v19.0/${input.commentId}/replies`, {
+      access_token: cfg.pageAccessToken,
+      message:      input.message,
+    });
+    return { success: true, replyId: resp.data.id };
+  }
+
+  if (toolName === 'ig_hide_comment') {
+    const cfg = toolConfigs.social_instagram || {};
+    if (!cfg.pageAccessToken || !cfg.igUserId) throw new Error('Instagram credentials not configured.');
+    await axios.post(`https://graph.facebook.com/v19.0/${input.commentId}`, {
+      access_token: cfg.pageAccessToken,
+      hide:         input.hidden,
+    });
+    return { success: true, hidden: input.hidden };
+  }
+
+  if (toolName === 'ig_get_conversations') {
+    const cfg = toolConfigs.social_instagram || {};
+    if (!cfg.pageAccessToken || !cfg.igUserId) throw new Error('Instagram credentials not configured.');
+    // Instagram DMs use the Page's Messenger API with platform=instagram
+    const resp = await axios.get(`https://graph.facebook.com/v19.0/${cfg.igUserId}/conversations`, {
+      params: { access_token: cfg.pageAccessToken, platform: 'instagram', fields: 'id,participants,updated_time,message_count,snippet', limit: input.limit || 20 },
+    });
+    return { conversations: resp.data.data, total: resp.data.data?.length || 0 };
+  }
+
+  if (toolName === 'ig_reply_dm') {
+    const cfg = toolConfigs.social_instagram || {};
+    if (!cfg.pageAccessToken || !cfg.igUserId) throw new Error('Instagram credentials not configured.');
+    const resp = await axios.post('https://graph.facebook.com/v19.0/me/messages', {
+      access_token: cfg.pageAccessToken,
+      recipient:    { id: input.recipientId },
+      message:      { text: input.message },
+    });
+    return { success: true, messageId: resp.data.message_id };
   }
 
   if (toolName === 'tiktok_org_get_creator_info') {
