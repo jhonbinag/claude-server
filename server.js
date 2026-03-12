@@ -17,6 +17,7 @@ let adsRoutes;      try { adsRoutes      = require('./src/routes/adsGenerator');
 let adminRoutes;    try { adminRoutes    = require('./src/routes/admin');         } catch (e) { _errors.admin     = e.message; }
 let workflowRoutes; try { workflowRoutes = require('./src/routes/savedWorkflows'); } catch (e) { _errors.workflows = e.message; }
 let billingRoutes;  try { billingRoutes  = require('./src/routes/billing');       } catch (e) { _errors.billing  = e.message; }
+let socialRoutes;   try { socialRoutes   = require('./src/routes/social');        } catch (e) { _errors.social   = e.message; }
 let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui       = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
@@ -69,6 +70,7 @@ if (adsRoutes)       app.use('/ads',       adsRoutes);
 if (adminRoutes)     app.use('/admin',     adminRoutes);
 if (workflowRoutes)  app.use('/workflows', workflowRoutes);
 if (billingRoutes)   app.use('/billing',   billingRoutes);
+if (socialRoutes)    app.use('/social',    socialRoutes);
 if (uiRoute)         app.use('/',          uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────
