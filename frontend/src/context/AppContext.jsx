@@ -54,19 +54,22 @@ export function AppProvider({ children }) {
       const data = await apiFetch('/claude/status', locId);
       if (data.success) {
         const ready = data.claudeReady || false;
-        setClaudeReady(ready);
-        setEnabledTools(data.enabledTools || []);
-        // Persist readiness so the UI never flickers to "not ready" on reload
-        // when the key already exists in the DB. Only clear it when explicitly
-        // told the key is gone (ready === false from a successful status call).
+        // Only update React state when the server confirms ready.
+        // If ready===false (e.g. transient cache miss), keep whatever state was
+        // initialised from localStorage — avoids flickering to "Key required".
         if (ready) {
+          setClaudeReady(true);
+          setEnabledTools(data.enabledTools || []);
           localStorage.setItem(`claude_ready_${locId}`, '1');
         } else {
-          localStorage.removeItem(`claude_ready_${locId}`);
+          // Still update tools list even if ready is false; just don't wipe claudeReady.
+          setEnabledTools(data.enabledTools || []);
         }
       }
-      // If the request fails entirely, leave the last-known state intact
-      // so a transient network error doesn't show the user as disconnected.
+      // If the request fails entirely, or claudeReady is false, leave the last-known
+      // localStorage state intact. A transient cache miss / network blip should NOT
+      // wipe a previously-confirmed ready state — only an explicit logout() does that.
+      // We intentionally never call localStorage.removeItem here.
     } catch {}
   }, []);
 

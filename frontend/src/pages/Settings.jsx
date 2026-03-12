@@ -1007,26 +1007,23 @@ function normalizePlatform(raw = '') {
 const CONNECTABLE = ['facebook', 'instagram', 'tiktok', 'youtube', 'linkedin', 'pinterest', 'twitter', 'gmb'];
 
 function SocialHubCard({ showToast }) {
-  const [accounts,     setAccounts]     = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState(null);
-  const [isOpen,       setIsOpen]       = useState(true);
-  const [connecting,   setConnecting]   = useState(null);
-  const [disconnecting,setDisconnecting]= useState(null);
+  const [accounts,      setAccounts]      = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState(null);
+  const [isOpen,        setIsOpen]        = useState(true);
+  const [connecting,    setConnecting]    = useState(null);
+  const [disconnecting, setDisconnecting] = useState(null);
+  const [ghlConnected,  setGhlConnected]  = useState(true); // assume connected until we know otherwise
 
   async function loadAccounts() {
     setLoading(true);
     setError(null);
     try {
       const d = await api.get('/social/accounts');
-      // New response format: { accounts: [...], ghlConnected: bool, ghlError: string|undefined }
-      // Fall back to old format for compatibility
+      // Response format: { accounts: [...], ghlConnected: bool, ghlError?: string }
       const list = Array.isArray(d) ? d : (d.accounts || d.data || []);
       setAccounts(list);
-      // Show a non-blocking warning if GHL oauth is missing but still show registry accounts
-      if (!d?.ghlConnected && d?.ghlError) {
-        setError('scope_missing'); // shows a soft warning, not a blocker
-      }
+      setGhlConnected(d?.ghlConnected !== false); // default true if old format
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1141,17 +1138,21 @@ function SocialHubCard({ showToast }) {
         <div style={{ marginTop: '1rem' }}>
           {loading && <p style={{ color: '#6b7280', fontSize: 13, textAlign: 'center', padding: '1rem 0' }}>Loading social accounts…</p>}
 
-          {error === 'ghl_oauth' && (
-            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '0.75rem 1rem', fontSize: 13, color: '#f87171', marginBottom: '1rem' }}>
-              GHL is not connected. Reinstall the app to sync social accounts.
+          {!ghlConnected && (
+            <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 10, padding: '0.75rem 1rem', fontSize: 13, color: '#fbbf24', marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
+              <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+              <div>
+                <strong style={{ display: 'block', marginBottom: 3 }}>GHL OAuth not connected</strong>
+                Social accounts cannot be synced because this location's GHL app token is missing.
+                This usually happens when the app was installed before credentials were configured.{' '}
+                <a href="/oauth/install" style={{ color: '#93c5fd', textDecoration: 'underline', fontWeight: 600 }}>
+                  Click here to reinstall the app
+                </a>{' '}
+                to fix this. You can still connect platforms directly below.
+              </div>
             </div>
           )}
-          {error === 'scope_missing' && (
-            <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 10, padding: '0.75rem 1rem', fontSize: 13, color: '#fbbf24', marginBottom: '1rem' }}>
-              Some social platforms may not be visible — GHL OAuth connection is needed for full sync.
-            </div>
-          )}
-          {error && error !== 'ghl_oauth' && error !== 'scope_missing' && (
+          {error && typeof error === 'string' && (
             <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '0.75rem 1rem', fontSize: 13, color: '#f87171', marginBottom: '1rem' }}>
               {error}
             </div>

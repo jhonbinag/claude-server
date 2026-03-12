@@ -112,10 +112,13 @@ router.get('/accounts', async (req, res) => {
 // POST /social/sync — explicit sync: pull GHL accounts → toolRegistry
 router.post('/sync', async (req, res) => {
   if (!req.ghl) {
-    return res.status(503).json({
-      success: false,
-      error:   'GHL OAuth not connected. Reinstall the app to enable social sync.',
-      code:    'GHL_OAUTH_REQUIRED',
+    return res.status(200).json({
+      success:     false,
+      synced:      0,
+      platforms:   [],
+      code:        'GHL_OAUTH_REQUIRED',
+      error:       'GHL OAuth not connected for this location.',
+      reinstallUrl: '/oauth/install',
     });
   }
   try {
