@@ -255,6 +255,120 @@ router.post('/test/:category', async (req, res) => {
       });
       const merchant = r.data?.merchant?.[0];
       info = `Square connected${merchant ? ` (${merchant.business_name || merchant.id})` : ''}`;
+    } else if (category === 'manychat') {
+      if (!cfg.apiKey) throw new Error('API Key not configured.');
+      const r = await axios.get('https://api.manychat.com/fb/page/getPage', {
+        headers: { Authorization: `Bearer ${cfg.apiKey}` }, timeout: 10000,
+      });
+      info = `ManyChat connected (${r.data?.data?.name || 'page ok'})`;
+    } else if (category === 'google_my_business') {
+      if (!cfg.accessToken) throw new Error('Access token not configured.');
+      const r = await axios.get('https://mybusinessaccountmanagement.googleapis.com/v1/accounts', {
+        headers: { Authorization: `Bearer ${cfg.accessToken}` }, timeout: 10000,
+      });
+      const acct = r.data?.accounts?.[0];
+      info = `Google Business Profile connected (${acct?.accountName || acct?.name || 'ok'})`;
+    } else if (category === 'shopify') {
+      if (!cfg.shopDomain || !cfg.accessToken) throw new Error('Shop domain and access token required.');
+      const r = await axios.get(`https://${cfg.shopDomain}/admin/api/2024-01/shop.json`, {
+        headers: { 'X-Shopify-Access-Token': cfg.accessToken }, timeout: 10000,
+      });
+      info = `Shopify connected (${r.data?.shop?.name || cfg.shopDomain})`;
+    } else if (category === 'woocommerce') {
+      if (!cfg.siteUrl || !cfg.consumerKey || !cfg.consumerSecret) throw new Error('Site URL, consumer key and secret required.');
+      await axios.get(`${cfg.siteUrl}/wp-json/wc/v3/system_status`, {
+        auth: { username: cfg.consumerKey, password: cfg.consumerSecret }, timeout: 10000,
+      });
+      info = `WooCommerce connected (${cfg.siteUrl})`;
+    } else if (category === 'google_calendar') {
+      if (!cfg.accessToken) throw new Error('Access token not configured.');
+      const r = await axios.get('https://www.googleapis.com/calendar/v3/calendars/primary', {
+        headers: { Authorization: `Bearer ${cfg.accessToken}` }, timeout: 10000,
+      });
+      info = `Google Calendar connected (${r.data?.summary || r.data?.id || 'ok'})`;
+    } else if (category === 'linkedin') {
+      if (!cfg.accessToken) throw new Error('Access token not configured.');
+      const r = await axios.get('https://api.linkedin.com/v2/userinfo', {
+        headers: { Authorization: `Bearer ${cfg.accessToken}` }, timeout: 10000,
+      });
+      info = `LinkedIn connected (${r.data?.name || r.data?.email || 'ok'})`;
+    } else if (category === 'google_contacts') {
+      if (!cfg.accessToken) throw new Error('Access token not configured.');
+      const r = await axios.get('https://people.googleapis.com/v1/people/me', {
+        headers: { Authorization: `Bearer ${cfg.accessToken}` },
+        params: { personFields: 'names,emailAddresses' }, timeout: 10000,
+      });
+      info = `Google Contacts connected (${r.data?.names?.[0]?.displayName || 'ok'})`;
+    } else if (category === 'google_forms') {
+      if (!cfg.accessToken) throw new Error('Access token not configured.');
+      const r = await axios.get('https://www.googleapis.com/drive/v3/files', {
+        headers: { Authorization: `Bearer ${cfg.accessToken}` },
+        params: { q: "mimeType='application/vnd.google-apps.form'", pageSize: 1 }, timeout: 10000,
+      });
+      info = `Google Forms connected (${r.data?.files?.length ?? 0}+ forms found)`;
+    } else if (category === 'airtable') {
+      if (!cfg.apiKey || !cfg.baseId) throw new Error('API key and Base ID required.');
+      const r = await axios.get(`https://api.airtable.com/v0/meta/bases/${cfg.baseId}/tables`, {
+        headers: { Authorization: `Bearer ${cfg.apiKey}` }, timeout: 10000,
+      });
+      info = `Airtable connected (${r.data?.tables?.length || 0} tables in base)`;
+    } else if (category === 'monday') {
+      if (!cfg.apiToken) throw new Error('API token not configured.');
+      const r = await axios.post('https://api.monday.com/v2',
+        { query: '{ me { id name } }' },
+        { headers: { Authorization: cfg.apiToken, 'Content-Type': 'application/json' }, timeout: 10000 }
+      );
+      info = `Monday.com connected (${r.data?.data?.me?.name || 'ok'})`;
+    } else if (category === 'typeform') {
+      if (!cfg.accessToken) throw new Error('Access token not configured.');
+      const r = await axios.get('https://api.typeform.com/me', {
+        headers: { Authorization: `Bearer ${cfg.accessToken}` }, timeout: 10000,
+      });
+      info = `Typeform connected (${r.data?.alias || r.data?.email || 'ok'})`;
+    } else if (category === 'asana') {
+      if (!cfg.accessToken) throw new Error('Access token not configured.');
+      const r = await axios.get('https://app.asana.com/api/1.0/users/me', {
+        headers: { Authorization: `Bearer ${cfg.accessToken}` }, timeout: 10000,
+      });
+      info = `Asana connected (${r.data?.data?.name || r.data?.data?.email || 'ok'})`;
+    } else if (category === 'canva') {
+      if (!cfg.accessToken) throw new Error('Access token not configured.');
+      const r = await axios.get('https://api.canva.com/rest/v1/users/me', {
+        headers: { Authorization: `Bearer ${cfg.accessToken}` }, timeout: 10000,
+      });
+      info = `Canva connected (${r.data?.display_name || r.data?.email || 'ok'})`;
+    } else if (category === 'tiktok_ads') {
+      if (!cfg.accessToken) throw new Error('Access token not configured.');
+      const r = await axios.get('https://business-api.tiktok.com/open_api/v1.3/user/info/', {
+        headers: { 'Access-Token': cfg.accessToken }, timeout: 10000,
+      });
+      info = `TikTok Ads connected (${r.data?.data?.display_name || 'ok'})`;
+    } else if (category === 'google_ads') {
+      if (!cfg.accessToken || !cfg.customerId || !cfg.developerToken) throw new Error('Access token, customer ID and developer token required.');
+      await axios.get(`https://googleads.googleapis.com/v17/customers/${cfg.customerId}`, {
+        headers: { Authorization: `Bearer ${cfg.accessToken}`, 'developer-token': cfg.developerToken },
+        timeout: 10000,
+      });
+      info = `Google Ads connected (customer ${cfg.customerId})`;
+    } else if (category === 'openrouter') {
+      if (!cfg.apiKey) throw new Error('API key not configured.');
+      await axios.get('https://openrouter.ai/api/v1/models', {
+        headers: { Authorization: `Bearer ${cfg.apiKey}` }, params: { limit: 1 }, timeout: 10000,
+      });
+      info = 'OpenRouter connected';
+    } else if (category === 'gravity_forms') {
+      if (!cfg.siteUrl || !cfg.consumerKey || !cfg.consumerSecret) throw new Error('Site URL, consumer key and secret required.');
+      const r = await axios.get(`${cfg.siteUrl}/wp-json/gf/v2/forms`, {
+        auth: { username: cfg.consumerKey, password: cfg.consumerSecret }, timeout: 10000,
+      });
+      const count = Array.isArray(r.data) ? r.data.length : Object.keys(r.data || {}).length;
+      info = `Gravity Forms connected (${count} forms)`;
+    } else if (category === 'http_client') {
+      const targetUrl = cfg.baseUrl || 'https://httpbin.org/get';
+      let parsedHeaders = {};
+      try { if (cfg.defaultHeaders) parsedHeaders = JSON.parse(cfg.defaultHeaders); } catch { /* ignore */ }
+      await axios.get(targetUrl, { headers: parsedHeaders, timeout: 10000 });
+      info = `HTTP Client connected (${targetUrl} reachable)`;
     } else if (category === 'hubspot') {
       if (!cfg.accessToken) throw new Error('Private App Token not configured.');
       const r = await axios.get('https://api.hubapi.com/crm/v3/objects/contacts', {

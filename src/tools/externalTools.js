@@ -13,8 +13,26 @@
  *   slack        — Team notifications via Slack Incoming Webhooks
  *   apollo       — Contact enrichment via Apollo.io
  *   heygen       — AI video generation via HeyGen
- *   hubspot      — CRM contacts and deals via HubSpot
- *   keap         — CRM contacts, tags and automations via Keap
+ *   hubspot           — CRM contacts and deals via HubSpot
+ *   keap              — CRM contacts, tags and automations via Keap
+ *   manychat          — Messenger/SMS automation via ManyChat
+ *   google_my_business — Business Profile listings and reviews
+ *   shopify           — Orders, products, customers and discounts
+ *   woocommerce       — WooCommerce orders, products and coupons
+ *   google_calendar   — Calendar events via Google Calendar API
+ *   linkedin          — Ads analytics and organic posts via LinkedIn
+ *   google_contacts   — Contacts via Google People API
+ *   google_forms      — Form responses via Google Forms API
+ *   airtable          — Records via Airtable API
+ *   monday            — Boards and items via Monday.com
+ *   typeform          — Forms and responses via Typeform
+ *   asana             — Tasks and projects via Asana
+ *   canva             — Designs via Canva Connect API
+ *   tiktok_ads        — Campaigns and analytics via TikTok Ads
+ *   google_ads        — Campaigns and lead forms via Google Ads
+ *   openrouter        — Multi-model AI chat via OpenRouter
+ *   gravity_forms     — Form entries via Gravity Forms REST API
+ *   http_client       — Generic HTTP request / webhook tester
  */
 
 const axios = require('axios');
@@ -448,6 +466,730 @@ const EXTERNAL_TOOL_DEFINITIONS = {
           dueDate:     { type: 'string', description: 'Due date YYYY-MM-DD' },
         },
         required: ['customerId', 'amountCents', 'title'],
+      },
+    },
+  ],
+
+  // ── ManyChat ─────────────────────────────────────────────────────────────────
+  manychat: [
+    {
+      name: 'manychat_find_subscriber',
+      description: 'Find a ManyChat subscriber by email or phone number.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          email: { type: 'string', description: 'Subscriber email (optional)' },
+          phone: { type: 'string', description: 'Subscriber phone in E.164 format (optional)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'manychat_send_flow',
+      description: 'Trigger a ManyChat automation flow for a subscriber.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          subscriberId: { type: 'string', description: 'ManyChat subscriber ID' },
+          flowNs:       { type: 'string', description: 'Flow namespace (content_xxxxxxxx from flow URL)' },
+        },
+        required: ['subscriberId', 'flowNs'],
+      },
+    },
+    {
+      name: 'manychat_add_tag',
+      description: 'Add a tag to a ManyChat subscriber to segment them or trigger automations.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          subscriberId: { type: 'string', description: 'ManyChat subscriber ID' },
+          tagId:        { type: 'number', description: 'ManyChat tag ID to apply' },
+        },
+        required: ['subscriberId', 'tagId'],
+      },
+    },
+    {
+      name: 'manychat_list_tags',
+      description: 'List all tags in the ManyChat account.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+  ],
+
+  // ── Google Business Profile ───────────────────────────────────────────────────
+  google_my_business: [
+    {
+      name: 'gmb_list_accounts',
+      description: 'List Google Business Profile accounts the authenticated user manages.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'gmb_list_locations',
+      description: 'List business locations under a Google Business Profile account.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          accountId: { type: 'string', description: 'Account resource name e.g. accounts/123456789' },
+        },
+        required: ['accountId'],
+      },
+    },
+    {
+      name: 'gmb_list_reviews',
+      description: 'Get customer reviews for a Google Business Profile location.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          locationName: { type: 'string', description: 'Location resource name e.g. accounts/123/locations/456' },
+          pageSize:     { type: 'number', description: 'Max reviews (default 20)' },
+        },
+        required: ['locationName'],
+      },
+    },
+    {
+      name: 'gmb_reply_to_review',
+      description: 'Post or update a reply to a Google Business Profile review.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          reviewName: { type: 'string', description: 'Full review resource name e.g. accounts/123/locations/456/reviews/abc' },
+          replyText:  { type: 'string', description: 'Reply text to post' },
+        },
+        required: ['reviewName', 'replyText'],
+      },
+    },
+  ],
+
+  // ── Shopify ───────────────────────────────────────────────────────────────────
+  shopify: [
+    {
+      name: 'shopify_list_orders',
+      description: 'List recent Shopify orders with customer, items and fulfillment status.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['open', 'closed', 'cancelled', 'any'], description: 'Order status (default: any)' },
+          limit:  { type: 'number', description: 'Max orders (default 20, max 250)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'shopify_list_products',
+      description: 'List Shopify products with title, variants, price and inventory.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit:  { type: 'number', description: 'Max products (default 20, max 250)' },
+          status: { type: 'string', enum: ['active', 'archived', 'draft', 'any'], description: 'Product status (default: active)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'shopify_list_customers',
+      description: 'List or search Shopify customers.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search by name or email (optional)' },
+          limit: { type: 'number', description: 'Max results (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'shopify_create_discount',
+      description: 'Create a Shopify discount code with percentage or fixed amount off.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          code:         { type: 'string', description: 'Discount code (e.g. SAVE20)' },
+          discountType: { type: 'string', enum: ['percentage', 'fixed_amount', 'free_shipping'], description: 'Type of discount' },
+          value:        { type: 'number', description: 'Discount value (e.g. 20 for 20% or $20)' },
+          usageLimit:   { type: 'number', description: 'Max uses (optional)' },
+          endsAt:       { type: 'string', description: 'Expiry date ISO 8601 (optional)' },
+        },
+        required: ['code', 'discountType', 'value'],
+      },
+    },
+  ],
+
+  // ── WooCommerce ───────────────────────────────────────────────────────────────
+  woocommerce: [
+    {
+      name: 'woo_list_orders',
+      description: 'List WooCommerce orders with customer, total and status.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', description: 'Order status: pending, processing, completed, cancelled, any (default: any)' },
+          limit:  { type: 'number', description: 'Max orders (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'woo_list_products',
+      description: 'List WooCommerce products with price, stock and status.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', description: 'publish, draft, any (default: publish)' },
+          limit:  { type: 'number', description: 'Max products (default 20)' },
+          search: { type: 'string', description: 'Search by name (optional)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'woo_list_customers',
+      description: 'List or search WooCommerce customers.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          email: { type: 'string', description: 'Filter by email (optional)' },
+          limit: { type: 'number', description: 'Max results (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'woo_create_coupon',
+      description: 'Create a WooCommerce coupon code.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          code:         { type: 'string', description: 'Coupon code' },
+          discountType: { type: 'string', enum: ['percent', 'fixed_cart', 'fixed_product'], description: 'Discount type' },
+          amount:       { type: 'string', description: 'Discount value as string (e.g. "20")' },
+          usageLimit:   { type: 'number', description: 'Max uses (optional)' },
+          expiryDate:   { type: 'string', description: 'Expiry YYYY-MM-DD (optional)' },
+        },
+        required: ['code', 'discountType', 'amount'],
+      },
+    },
+  ],
+
+  // ── Google Calendar ───────────────────────────────────────────────────────────
+  google_calendar: [
+    {
+      name: 'gcal_list_events',
+      description: 'List upcoming Google Calendar events in a date range.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          timeMin:    { type: 'string', description: 'Start time ISO 8601 (default: now)' },
+          timeMax:    { type: 'string', description: 'End time ISO 8601 (optional)' },
+          maxResults: { type: 'number', description: 'Max events (default 20)' },
+          query:      { type: 'string', description: 'Search text in event title/body (optional)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'gcal_create_event',
+      description: 'Create a new Google Calendar event with optional attendees.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          summary:       { type: 'string', description: 'Event title' },
+          startDateTime: { type: 'string', description: 'Start ISO 8601 (e.g. 2024-06-15T10:00:00-05:00)' },
+          endDateTime:   { type: 'string', description: 'End ISO 8601' },
+          description:   { type: 'string', description: 'Event description (optional)' },
+          location:      { type: 'string', description: 'Location (optional)' },
+          attendees:     { type: 'array', items: { type: 'string' }, description: 'Attendee email addresses (optional)' },
+        },
+        required: ['summary', 'startDateTime', 'endDateTime'],
+      },
+    },
+    {
+      name: 'gcal_delete_event',
+      description: 'Delete a Google Calendar event by its ID.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          eventId: { type: 'string', description: 'Google Calendar event ID' },
+        },
+        required: ['eventId'],
+      },
+    },
+  ],
+
+  // ── LinkedIn ──────────────────────────────────────────────────────────────────
+  linkedin: [
+    {
+      name: 'linkedin_get_ad_campaigns',
+      description: 'List LinkedIn Ads campaign groups with status, budget and dates.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['ACTIVE', 'PAUSED', 'ARCHIVED', 'ALL'], description: 'Status filter (default: ALL)' },
+          limit:  { type: 'number', description: 'Max campaigns (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'linkedin_get_ad_analytics',
+      description: 'Get LinkedIn Ads performance metrics: impressions, clicks, spend.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          dateRangeStart: { type: 'string', description: 'Start date YYYY-MM-DD' },
+          dateRangeEnd:   { type: 'string', description: 'End date YYYY-MM-DD' },
+          pivot:          { type: 'string', enum: ['CAMPAIGN', 'CAMPAIGN_GROUP', 'CREATIVE'], description: 'Breakdown pivot (default: CAMPAIGN)' },
+        },
+        required: ['dateRangeStart', 'dateRangeEnd'],
+      },
+    },
+    {
+      name: 'linkedin_create_post',
+      description: 'Publish an organic LinkedIn post on behalf of the authenticated user.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          text:       { type: 'string', description: 'Post text content' },
+          visibility: { type: 'string', enum: ['PUBLIC', 'CONNECTIONS'], description: 'Post visibility (default: PUBLIC)' },
+        },
+        required: ['text'],
+      },
+    },
+  ],
+
+  // ── Google Contacts ───────────────────────────────────────────────────────────
+  google_contacts: [
+    {
+      name: 'gcontacts_list_contacts',
+      description: 'List Google Contacts for the authenticated user.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pageSize: { type: 'number', description: 'Max contacts (default 50, max 1000)' },
+          query:    { type: 'string', description: 'Search query to filter contacts (optional)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'gcontacts_create_contact',
+      description: 'Create a new Google Contact.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          firstName: { type: 'string', description: 'First name' },
+          lastName:  { type: 'string', description: 'Last name (optional)' },
+          email:     { type: 'string', description: 'Email address (optional)' },
+          phone:     { type: 'string', description: 'Phone number (optional)' },
+          company:   { type: 'string', description: 'Company/organization (optional)' },
+        },
+        required: ['firstName'],
+      },
+    },
+  ],
+
+  // ── Google Forms ──────────────────────────────────────────────────────────────
+  google_forms: [
+    {
+      name: 'gforms_list_forms',
+      description: "List Google Forms in the user's Drive.",
+      input_schema: {
+        type: 'object',
+        properties: {
+          pageSize: { type: 'number', description: 'Max forms (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'gforms_get_responses',
+      description: 'Get responses submitted to a Google Form.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          formId:   { type: 'string', description: 'Google Form ID (from form URL)' },
+          pageSize: { type: 'number', description: 'Max responses (default 50)' },
+        },
+        required: ['formId'],
+      },
+    },
+  ],
+
+  // ── Airtable ──────────────────────────────────────────────────────────────────
+  airtable: [
+    {
+      name: 'airtable_list_records',
+      description: 'List records from an Airtable table with optional filter formula.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          tableId:       { type: 'string', description: 'Table ID or name' },
+          filterFormula: { type: 'string', description: 'Airtable filter formula (optional, e.g. {Status}="Active")' },
+          maxRecords:    { type: 'number', description: 'Max records (default 50)' },
+          fields:        { type: 'array', items: { type: 'string' }, description: 'Specific field names to return (optional)' },
+        },
+        required: ['tableId'],
+      },
+    },
+    {
+      name: 'airtable_create_record',
+      description: 'Create a new record in an Airtable table.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          tableId: { type: 'string', description: 'Table ID or name' },
+          fields:  { type: 'object', description: 'Field values as key/value pairs matching column names' },
+        },
+        required: ['tableId', 'fields'],
+      },
+    },
+    {
+      name: 'airtable_update_record',
+      description: 'Update an existing Airtable record by its record ID.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          tableId:  { type: 'string', description: 'Table ID or name' },
+          recordId: { type: 'string', description: 'Airtable record ID (recXXXXXXXXXXXXXX)' },
+          fields:   { type: 'object', description: 'Fields to update as key/value pairs' },
+        },
+        required: ['tableId', 'recordId', 'fields'],
+      },
+    },
+    {
+      name: 'airtable_search_records',
+      description: 'Search Airtable records using a filter formula.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          tableId:       { type: 'string', description: 'Table ID or name' },
+          filterFormula: { type: 'string', description: 'Airtable formula (e.g. SEARCH("john",{Email}))' },
+          maxRecords:    { type: 'number', description: 'Max results (default 25)' },
+        },
+        required: ['tableId', 'filterFormula'],
+      },
+    },
+  ],
+
+  // ── Monday.com ────────────────────────────────────────────────────────────────
+  monday: [
+    {
+      name: 'monday_list_boards',
+      description: 'List Monday.com boards with their name and column structure.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max boards (default 10)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'monday_list_items',
+      description: 'List items (rows) in a Monday.com board.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          boardId: { type: 'string', description: 'Monday.com board ID' },
+          limit:   { type: 'number', description: 'Max items (default 25)' },
+        },
+        required: ['boardId'],
+      },
+    },
+    {
+      name: 'monday_create_item',
+      description: 'Create a new item (row) in a Monday.com board.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          boardId:      { type: 'string', description: 'Monday.com board ID' },
+          itemName:     { type: 'string', description: 'Name of the new item' },
+          columnValues: { type: 'object', description: 'Column values as {columnId: value} pairs (optional)' },
+          groupId:      { type: 'string', description: 'Group ID (optional — uses default group)' },
+        },
+        required: ['boardId', 'itemName'],
+      },
+    },
+    {
+      name: 'monday_update_item_column',
+      description: 'Update a column value on a Monday.com item.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          boardId:  { type: 'string', description: 'Monday.com board ID' },
+          itemId:   { type: 'string', description: 'Item ID to update' },
+          columnId: { type: 'string', description: 'Column ID to update (e.g. "status")' },
+          value:    { type: 'object', description: 'New value as JSON (e.g. {"label":"Done"} for status)' },
+        },
+        required: ['boardId', 'itemId', 'columnId', 'value'],
+      },
+    },
+  ],
+
+  // ── Typeform ──────────────────────────────────────────────────────────────────
+  typeform: [
+    {
+      name: 'typeform_list_forms',
+      description: 'List Typeform forms with title and response count.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pageSize: { type: 'number', description: 'Max forms (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'typeform_get_responses',
+      description: 'Retrieve responses submitted to a Typeform form.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          formId:   { type: 'string', description: 'Typeform form ID' },
+          pageSize: { type: 'number', description: 'Max responses (default 25)' },
+          since:    { type: 'string', description: 'Only responses after this ISO date (optional)' },
+        },
+        required: ['formId'],
+      },
+    },
+    {
+      name: 'typeform_get_form',
+      description: 'Get the structure and questions of a Typeform form.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          formId: { type: 'string', description: 'Typeform form ID' },
+        },
+        required: ['formId'],
+      },
+    },
+  ],
+
+  // ── Asana ─────────────────────────────────────────────────────────────────────
+  asana: [
+    {
+      name: 'asana_list_projects',
+      description: 'List Asana projects in a workspace.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          workspaceId: { type: 'string', description: 'Workspace GID (optional — uses first workspace)' },
+          limit:       { type: 'number', description: 'Max projects (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'asana_list_tasks',
+      description: 'List tasks in an Asana project.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Asana project GID' },
+          completed: { type: 'boolean', description: 'Include completed tasks? (default false)' },
+          limit:     { type: 'number', description: 'Max tasks (default 25)' },
+        },
+        required: ['projectId'],
+      },
+    },
+    {
+      name: 'asana_create_task',
+      description: 'Create a new task in an Asana project.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Asana project GID' },
+          name:      { type: 'string', description: 'Task name' },
+          notes:     { type: 'string', description: 'Task description (optional)' },
+          dueOn:     { type: 'string', description: 'Due date YYYY-MM-DD (optional)' },
+          assignee:  { type: 'string', description: 'Assignee email or GID (optional)' },
+        },
+        required: ['projectId', 'name'],
+      },
+    },
+    {
+      name: 'asana_complete_task',
+      description: 'Mark an Asana task as complete or incomplete.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          taskId:    { type: 'string', description: 'Asana task GID' },
+          completed: { type: 'boolean', description: 'true to complete, false to reopen (default true)' },
+        },
+        required: ['taskId'],
+      },
+    },
+  ],
+
+  // ── Canva ─────────────────────────────────────────────────────────────────────
+  canva: [
+    {
+      name: 'canva_list_designs',
+      description: 'List Canva designs in the connected account.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max designs (default 20)' },
+          query: { type: 'string', description: 'Search by title (optional)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'canva_get_design',
+      description: 'Get details and export URLs for a specific Canva design.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          designId: { type: 'string', description: 'Canva design ID' },
+        },
+        required: ['designId'],
+      },
+    },
+  ],
+
+  // ── TikTok Ads ────────────────────────────────────────────────────────────────
+  tiktok_ads: [
+    {
+      name: 'tiktok_list_campaigns',
+      description: 'List TikTok Ads campaigns for the configured advertiser.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', description: 'CAMPAIGN_STATUS_ENABLE, CAMPAIGN_STATUS_DISABLE, or CAMPAIGN_STATUS_ALL (default)' },
+          limit:  { type: 'number', description: 'Max campaigns (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'tiktok_get_ad_insights',
+      description: 'Get TikTok Ads performance metrics: spend, impressions, clicks, CTR, conversions.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          startDate:  { type: 'string', description: 'Start date YYYY-MM-DD' },
+          endDate:    { type: 'string', description: 'End date YYYY-MM-DD' },
+          dimensions: { type: 'array', items: { type: 'string' }, description: 'Breakdown dimensions e.g. ["campaign_id"] or ["adgroup_id"]' },
+          metrics:    { type: 'array', items: { type: 'string' }, description: 'Metrics to retrieve (optional — defaults to key metrics)' },
+        },
+        required: ['startDate', 'endDate'],
+      },
+    },
+    {
+      name: 'tiktok_list_ad_groups',
+      description: 'List TikTok Ads ad groups (ad sets) with optional campaign filter.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          campaignId: { type: 'string', description: 'Campaign ID to filter (optional)' },
+          limit:      { type: 'number', description: 'Max ad groups (default 20)' },
+        },
+        required: [],
+      },
+    },
+  ],
+
+  // ── Google Ads ────────────────────────────────────────────────────────────────
+  google_ads: [
+    {
+      name: 'google_ads_list_campaigns',
+      description: 'List Google Ads campaigns with status, budget and type.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['ENABLED', 'PAUSED', 'REMOVED', 'ALL'], description: 'Status filter (default: ENABLED)' },
+          limit:  { type: 'number', description: 'Max campaigns (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'google_ads_get_lead_submissions',
+      description: 'Retrieve lead form submissions from Google Ads lead form extensions.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          campaignResourceName: { type: 'string', description: 'Campaign resource name (optional — all campaigns if omitted)' },
+          limit:                { type: 'number', description: 'Max submissions (default 50)' },
+        },
+        required: [],
+      },
+    },
+  ],
+
+  // ── OpenRouter ────────────────────────────────────────────────────────────────
+  openrouter: [
+    {
+      name: 'openrouter_chat',
+      description: 'Send a message to any AI model via OpenRouter — GPT-4o, Gemini, Llama, Mistral, and 100+ others. Use when you need a different AI model for a task.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          model:       { type: 'string', description: 'Model ID e.g. "openai/gpt-4o", "google/gemini-pro-1.5", "meta-llama/llama-3.1-405b-instruct"' },
+          messages:    { type: 'array', items: { type: 'object' }, description: 'Messages array: [{role:"user",content:"..."}]' },
+          maxTokens:   { type: 'number', description: 'Max tokens in response (optional)' },
+          temperature: { type: 'number', description: 'Temperature 0-2 (optional)' },
+        },
+        required: ['model', 'messages'],
+      },
+    },
+    {
+      name: 'openrouter_list_models',
+      description: 'List available AI models on OpenRouter with pricing and context length.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+  ],
+
+  // ── Gravity Forms ─────────────────────────────────────────────────────────────
+  gravity_forms: [
+    {
+      name: 'gf_list_forms',
+      description: 'List all Gravity Forms on the WordPress site.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'gf_get_entries',
+      description: 'Get form entries (submissions) from a Gravity Forms form.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          formId: { type: 'string', description: 'Gravity Forms form ID' },
+          limit:  { type: 'number', description: 'Max entries (default 20)' },
+          search: { type: 'string', description: 'Search term (optional)' },
+          status: { type: 'string', enum: ['active', 'spam', 'trash'], description: 'Entry status (default: active)' },
+        },
+        required: ['formId'],
+      },
+    },
+    {
+      name: 'gf_get_entry',
+      description: 'Get a single Gravity Forms entry by entry ID.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          entryId: { type: 'string', description: 'Gravity Forms entry ID' },
+        },
+        required: ['entryId'],
+      },
+    },
+  ],
+
+  // ── HTTP Client ───────────────────────────────────────────────────────────────
+  http_client: [
+    {
+      name: 'http_send_request',
+      description: 'Send an HTTP request to any URL. Use for testing webhooks, calling custom APIs, or any HTTP endpoint not covered by other integrations.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          method:  { type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], description: 'HTTP method' },
+          url:     { type: 'string', description: 'Full URL or path appended to the configured base URL' },
+          headers: { type: 'object', description: 'Additional request headers (optional)' },
+          body:    { type: 'object', description: 'Request body for POST/PUT/PATCH (optional)' },
+          params:  { type: 'object', description: 'URL query parameters (optional)' },
+          timeout: { type: 'number', description: 'Timeout in ms (default 10000)' },
+        },
+        required: ['method', 'url'],
       },
     },
   ],
@@ -1172,6 +1914,740 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     return resp.data;
   }
 
+  // ── ManyChat ─────────────────────────────────────────────────────────────────
+
+  if (toolName === 'manychat_find_subscriber') {
+    const { apiKey } = toolConfigs.manychat || {};
+    if (!apiKey) throw new Error('ManyChat API key not configured.');
+    const params = {};
+    if (input.email) params.email = input.email;
+    if (input.phone) params.phone = input.phone;
+    if (!input.email && !input.phone) throw new Error('Provide email or phone to find subscriber.');
+    const endpoint = input.phone
+      ? `https://api.manychat.com/fb/subscriber/findByPhone?phone=${encodeURIComponent(input.phone)}`
+      : `https://api.manychat.com/fb/subscriber/findByEmail?email=${encodeURIComponent(input.email)}`;
+    const resp = await axios.get(endpoint, { headers: { Authorization: `Bearer ${apiKey}` } });
+    return resp.data;
+  }
+
+  if (toolName === 'manychat_send_flow') {
+    const { apiKey } = toolConfigs.manychat || {};
+    if (!apiKey) throw new Error('ManyChat API key not configured.');
+    const resp = await axios.post('https://api.manychat.com/fb/sending/sendFlow', {
+      subscriber_id: input.subscriberId,
+      flow_ns:       input.flowNs,
+    }, { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } });
+    return resp.data;
+  }
+
+  if (toolName === 'manychat_add_tag') {
+    const { apiKey } = toolConfigs.manychat || {};
+    if (!apiKey) throw new Error('ManyChat API key not configured.');
+    const resp = await axios.post('https://api.manychat.com/fb/subscriber/addTag', {
+      subscriber_id: input.subscriberId,
+      tag_id:        input.tagId,
+    }, { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } });
+    return resp.data;
+  }
+
+  if (toolName === 'manychat_list_tags') {
+    const { apiKey } = toolConfigs.manychat || {};
+    if (!apiKey) throw new Error('ManyChat API key not configured.');
+    const resp = await axios.get('https://api.manychat.com/fb/page/getTags', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    return resp.data;
+  }
+
+  // ── Google Business Profile ───────────────────────────────────────────────────
+
+  if (toolName === 'gmb_list_accounts') {
+    const { accessToken } = toolConfigs.google_my_business || {};
+    if (!accessToken) throw new Error('Google Business Profile access token not configured.');
+    const resp = await axios.get('https://mybusinessaccountmanagement.googleapis.com/v1/accounts', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'gmb_list_locations') {
+    const { accessToken } = toolConfigs.google_my_business || {};
+    if (!accessToken) throw new Error('Google Business Profile access token not configured.');
+    const resp = await axios.get(`https://mybusinessbusinessinformation.googleapis.com/v1/${input.accountId}/locations`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: { readMask: 'name,title,phoneNumbers,websiteUri,storefrontAddress' },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'gmb_list_reviews') {
+    const { accessToken } = toolConfigs.google_my_business || {};
+    if (!accessToken) throw new Error('Google Business Profile access token not configured.');
+    const resp = await axios.get(`https://mybusiness.googleapis.com/v4/${input.locationName}/reviews`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: { pageSize: input.pageSize || 20 },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'gmb_reply_to_review') {
+    const { accessToken } = toolConfigs.google_my_business || {};
+    if (!accessToken) throw new Error('Google Business Profile access token not configured.');
+    const resp = await axios.put(`https://mybusiness.googleapis.com/v4/${input.reviewName}/reply`, {
+      comment: input.replyText,
+    }, { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } });
+    return resp.data;
+  }
+
+  // ── Shopify ───────────────────────────────────────────────────────────────────
+
+  if (toolName === 'shopify_list_orders') {
+    const { shopDomain, accessToken } = toolConfigs.shopify || {};
+    if (!shopDomain || !accessToken) throw new Error('Shopify shop domain and access token not configured.');
+    const resp = await axios.get(`https://${shopDomain}/admin/api/2024-01/orders.json`, {
+      headers: { 'X-Shopify-Access-Token': accessToken },
+      params: { status: input.status || 'any', limit: Math.min(input.limit || 20, 250) },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'shopify_list_products') {
+    const { shopDomain, accessToken } = toolConfigs.shopify || {};
+    if (!shopDomain || !accessToken) throw new Error('Shopify shop domain and access token not configured.');
+    const params = { limit: Math.min(input.limit || 20, 250) };
+    if (input.status && input.status !== 'any') params.status = input.status;
+    const resp = await axios.get(`https://${shopDomain}/admin/api/2024-01/products.json`, {
+      headers: { 'X-Shopify-Access-Token': accessToken }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'shopify_list_customers') {
+    const { shopDomain, accessToken } = toolConfigs.shopify || {};
+    if (!shopDomain || !accessToken) throw new Error('Shopify shop domain and access token not configured.');
+    const params = { limit: Math.min(input.limit || 20, 250) };
+    if (input.query) params.query = input.query;
+    const resp = await axios.get(`https://${shopDomain}/admin/api/2024-01/customers/search.json`, {
+      headers: { 'X-Shopify-Access-Token': accessToken }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'shopify_create_discount') {
+    const { shopDomain, accessToken } = toolConfigs.shopify || {};
+    if (!shopDomain || !accessToken) throw new Error('Shopify shop domain and access token not configured.');
+    const priceRule = {
+      title:          input.code,
+      target_type:    'line_item',
+      target_selection: 'all',
+      allocation_method: 'across',
+      value_type: input.discountType === 'percentage' ? 'percentage'
+        : input.discountType === 'free_shipping'       ? 'fixed_amount'
+        : 'fixed_amount',
+      value: input.discountType === 'percentage' ? `-${input.value}` : `-${input.value}`,
+      customer_selection: 'all',
+      starts_at: new Date().toISOString(),
+    };
+    if (input.endsAt)     priceRule.ends_at      = input.endsAt;
+    if (input.usageLimit) priceRule.usage_limit  = input.usageLimit;
+    if (input.discountType === 'free_shipping') {
+      priceRule.target_type      = 'shipping_line';
+      priceRule.value            = '-100.0';
+      priceRule.value_type       = 'percentage';
+    }
+    const prRule = await axios.post(`https://${shopDomain}/admin/api/2024-01/price_rules.json`,
+      { price_rule: priceRule },
+      { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }
+    );
+    const ruleId = prRule.data.price_rule.id;
+    const code = await axios.post(`https://${shopDomain}/admin/api/2024-01/price_rules/${ruleId}/discount_codes.json`,
+      { discount_code: { code: input.code } },
+      { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }
+    );
+    return { priceRule: prRule.data.price_rule, discountCode: code.data.discount_code };
+  }
+
+  // ── WooCommerce ───────────────────────────────────────────────────────────────
+
+  if (toolName === 'woo_list_orders') {
+    const { siteUrl, consumerKey, consumerSecret } = toolConfigs.woocommerce || {};
+    if (!siteUrl || !consumerKey || !consumerSecret) throw new Error('WooCommerce site URL, consumer key and secret not configured.');
+    const params = { per_page: Math.min(input.limit || 20, 100) };
+    if (input.status && input.status !== 'any') params.status = input.status;
+    const resp = await axios.get(`${siteUrl}/wp-json/wc/v3/orders`, {
+      auth: { username: consumerKey, password: consumerSecret }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'woo_list_products') {
+    const { siteUrl, consumerKey, consumerSecret } = toolConfigs.woocommerce || {};
+    if (!siteUrl || !consumerKey || !consumerSecret) throw new Error('WooCommerce not configured.');
+    const params = { per_page: Math.min(input.limit || 20, 100) };
+    if (input.status && input.status !== 'any') params.status = input.status;
+    if (input.search) params.search = input.search;
+    const resp = await axios.get(`${siteUrl}/wp-json/wc/v3/products`, {
+      auth: { username: consumerKey, password: consumerSecret }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'woo_list_customers') {
+    const { siteUrl, consumerKey, consumerSecret } = toolConfigs.woocommerce || {};
+    if (!siteUrl || !consumerKey || !consumerSecret) throw new Error('WooCommerce not configured.');
+    const params = { per_page: Math.min(input.limit || 20, 100) };
+    if (input.email) params.email = input.email;
+    const resp = await axios.get(`${siteUrl}/wp-json/wc/v3/customers`, {
+      auth: { username: consumerKey, password: consumerSecret }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'woo_create_coupon') {
+    const { siteUrl, consumerKey, consumerSecret } = toolConfigs.woocommerce || {};
+    if (!siteUrl || !consumerKey || !consumerSecret) throw new Error('WooCommerce not configured.');
+    const body = { code: input.code, discount_type: input.discountType, amount: input.amount };
+    if (input.usageLimit) body.usage_limit = input.usageLimit;
+    if (input.expiryDate) body.date_expires = input.expiryDate;
+    const resp = await axios.post(`${siteUrl}/wp-json/wc/v3/coupons`, body, {
+      auth: { username: consumerKey, password: consumerSecret },
+    });
+    return resp.data;
+  }
+
+  // ── Google Calendar ───────────────────────────────────────────────────────────
+
+  if (toolName === 'gcal_list_events') {
+    const { accessToken, calendarId } = toolConfigs.google_calendar || {};
+    if (!accessToken) throw new Error('Google Calendar access token not configured.');
+    const calId = calendarId || 'primary';
+    const params = {
+      maxResults:  input.maxResults || 20,
+      singleEvents: true,
+      orderBy:     'startTime',
+      timeMin:     input.timeMin || new Date().toISOString(),
+    };
+    if (input.timeMax) params.timeMax = input.timeMax;
+    if (input.query)   params.q       = input.query;
+    const resp = await axios.get(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events`, {
+      headers: { Authorization: `Bearer ${accessToken}` }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'gcal_create_event') {
+    const { accessToken, calendarId } = toolConfigs.google_calendar || {};
+    if (!accessToken) throw new Error('Google Calendar access token not configured.');
+    const calId = calendarId || 'primary';
+    const body = {
+      summary:     input.summary,
+      start:       { dateTime: input.startDateTime },
+      end:         { dateTime: input.endDateTime },
+    };
+    if (input.description) body.description = input.description;
+    if (input.location)    body.location    = input.location;
+    if (Array.isArray(input.attendees) && input.attendees.length) {
+      body.attendees = input.attendees.map(email => ({ email }));
+    }
+    const resp = await axios.post(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events`,
+      body,
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+    return resp.data;
+  }
+
+  if (toolName === 'gcal_delete_event') {
+    const { accessToken, calendarId } = toolConfigs.google_calendar || {};
+    if (!accessToken) throw new Error('Google Calendar access token not configured.');
+    const calId = calendarId || 'primary';
+    await axios.delete(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${input.eventId}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    return { success: true, deletedEventId: input.eventId };
+  }
+
+  // ── LinkedIn ──────────────────────────────────────────────────────────────────
+
+  if (toolName === 'linkedin_get_ad_campaigns') {
+    const { accessToken, adAccountId } = toolConfigs.linkedin || {};
+    if (!accessToken) throw new Error('LinkedIn access token not configured.');
+    if (!adAccountId) throw new Error('LinkedIn Ad Account ID not configured.');
+    const params = {
+      q:                              'search',
+      'search.account.values[0]':     `urn:li:sponsoredAccount:${adAccountId}`,
+      count:                          input.limit || 20,
+    };
+    if (input.status && input.status !== 'ALL') {
+      params['search.status.values[0]'] = input.status;
+    }
+    const resp = await axios.get('https://api.linkedin.com/v2/adCampaignGroupsV2', {
+      headers: { Authorization: `Bearer ${accessToken}`, 'LinkedIn-Version': '202401' },
+      params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'linkedin_get_ad_analytics') {
+    const { accessToken, adAccountId } = toolConfigs.linkedin || {};
+    if (!accessToken) throw new Error('LinkedIn access token not configured.');
+    if (!adAccountId) throw new Error('LinkedIn Ad Account ID not configured.');
+    const [startYear, startMonth, startDay] = input.dateRangeStart.split('-');
+    const [endYear, endMonth, endDay]       = input.dateRangeEnd.split('-');
+    const params = {
+      q:             'analytics',
+      pivot:         input.pivot || 'CAMPAIGN',
+      dateRange:     `(start:(year:${startYear},month:${startMonth},day:${startDay}),end:(year:${endYear},month:${endMonth},day:${endDay}))`,
+      'accounts[0]': `urn:li:sponsoredAccount:${adAccountId}`,
+      fields:        'impressions,clicks,costInLocalCurrency,conversions',
+    };
+    const resp = await axios.get('https://api.linkedin.com/v2/adAnalyticsV2', {
+      headers: { Authorization: `Bearer ${accessToken}`, 'LinkedIn-Version': '202401' },
+      params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'linkedin_create_post') {
+    const { accessToken } = toolConfigs.linkedin || {};
+    if (!accessToken) throw new Error('LinkedIn access token not configured.');
+    // Get own profile ID first
+    const me = await axios.get('https://api.linkedin.com/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const authorUrn = `urn:li:person:${me.data.sub}`;
+    const resp = await axios.post('https://api.linkedin.com/v2/ugcPosts', {
+      author:           authorUrn,
+      lifecycleState:   'PUBLISHED',
+      specificContent: {
+        'com.linkedin.ugc.ShareContent': {
+          shareCommentary: { text: input.text },
+          shareMediaCategory: 'NONE',
+        },
+      },
+      visibility: {
+        'com.linkedin.ugc.MemberNetworkVisibility': input.visibility || 'PUBLIC',
+      },
+    }, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'LinkedIn-Version': '202401' },
+    });
+    return resp.data;
+  }
+
+  // ── Google Contacts ───────────────────────────────────────────────────────────
+
+  if (toolName === 'gcontacts_list_contacts') {
+    const { accessToken } = toolConfigs.google_contacts || {};
+    if (!accessToken) throw new Error('Google Contacts access token not configured.');
+    const params = {
+      personFields:  'names,emailAddresses,phoneNumbers,organizations',
+      pageSize:      Math.min(input.pageSize || 50, 1000),
+    };
+    const url = input.query
+      ? `https://people.googleapis.com/v1/people:searchContacts?query=${encodeURIComponent(input.query)}&readMask=names,emailAddresses,phoneNumbers`
+      : 'https://people.googleapis.com/v1/people/me/connections';
+    const resp = await axios.get(url, { headers: { Authorization: `Bearer ${accessToken}` }, params: input.query ? {} : params });
+    return resp.data;
+  }
+
+  if (toolName === 'gcontacts_create_contact') {
+    const { accessToken } = toolConfigs.google_contacts || {};
+    if (!accessToken) throw new Error('Google Contacts access token not configured.');
+    const body = { names: [{ givenName: input.firstName, familyName: input.lastName || '' }] };
+    if (input.email)   body.emailAddresses  = [{ value: input.email }];
+    if (input.phone)   body.phoneNumbers    = [{ value: input.phone }];
+    if (input.company) body.organizations   = [{ name: input.company }];
+    const resp = await axios.post('https://people.googleapis.com/v1/people:createContact', body, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    });
+    return resp.data;
+  }
+
+  // ── Google Forms ──────────────────────────────────────────────────────────────
+
+  if (toolName === 'gforms_list_forms') {
+    const { accessToken } = toolConfigs.google_forms || {};
+    if (!accessToken) throw new Error('Google Forms access token not configured.');
+    const resp = await axios.get('https://www.googleapis.com/drive/v3/files', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: {
+        q:        "mimeType='application/vnd.google-apps.form'",
+        pageSize: input.pageSize || 20,
+        fields:   'files(id,name,createdTime,modifiedTime)',
+      },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'gforms_get_responses') {
+    const { accessToken } = toolConfigs.google_forms || {};
+    if (!accessToken) throw new Error('Google Forms access token not configured.');
+    const resp = await axios.get(`https://forms.googleapis.com/v1/forms/${input.formId}/responses`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: { pageSize: input.pageSize || 50 },
+    });
+    return resp.data;
+  }
+
+  // ── Airtable ──────────────────────────────────────────────────────────────────
+
+  if (toolName === 'airtable_list_records') {
+    const { apiKey, baseId } = toolConfigs.airtable || {};
+    if (!apiKey || !baseId) throw new Error('Airtable API key and Base ID not configured.');
+    const params = { pageSize: Math.min(input.maxRecords || 50, 100) };
+    if (input.filterFormula) params.filterByFormula = input.filterFormula;
+    if (Array.isArray(input.fields) && input.fields.length) {
+      input.fields.forEach((f, i) => { params[`fields[${i}]`] = f; });
+    }
+    const resp = await axios.get(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(input.tableId)}`, {
+      headers: { Authorization: `Bearer ${apiKey}` }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'airtable_create_record') {
+    const { apiKey, baseId } = toolConfigs.airtable || {};
+    if (!apiKey || !baseId) throw new Error('Airtable API key and Base ID not configured.');
+    const resp = await axios.post(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(input.tableId)}`,
+      { fields: input.fields },
+      { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } }
+    );
+    return resp.data;
+  }
+
+  if (toolName === 'airtable_update_record') {
+    const { apiKey, baseId } = toolConfigs.airtable || {};
+    if (!apiKey || !baseId) throw new Error('Airtable API key and Base ID not configured.');
+    const resp = await axios.patch(
+      `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(input.tableId)}/${input.recordId}`,
+      { fields: input.fields },
+      { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } }
+    );
+    return resp.data;
+  }
+
+  if (toolName === 'airtable_search_records') {
+    const { apiKey, baseId } = toolConfigs.airtable || {};
+    if (!apiKey || !baseId) throw new Error('Airtable API key and Base ID not configured.');
+    const resp = await axios.get(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(input.tableId)}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      params: { filterByFormula: input.filterFormula, pageSize: Math.min(input.maxRecords || 25, 100) },
+    });
+    return resp.data;
+  }
+
+  // ── Monday.com ────────────────────────────────────────────────────────────────
+
+  if (toolName === 'monday_list_boards') {
+    const { apiToken } = toolConfigs.monday || {};
+    if (!apiToken) throw new Error('Monday.com API token not configured.');
+    const resp = await axios.post('https://api.monday.com/v2', {
+      query: `{ boards(limit: ${input.limit || 10}) { id name description columns { id title type } } }`,
+    }, { headers: { Authorization: apiToken, 'Content-Type': 'application/json' } });
+    return resp.data?.data;
+  }
+
+  if (toolName === 'monday_list_items') {
+    const { apiToken } = toolConfigs.monday || {};
+    if (!apiToken) throw new Error('Monday.com API token not configured.');
+    const resp = await axios.post('https://api.monday.com/v2', {
+      query: `{ boards(ids: [${input.boardId}]) { items_page(limit: ${input.limit || 25}) { items { id name column_values { id text value } } } } }`,
+    }, { headers: { Authorization: apiToken, 'Content-Type': 'application/json' } });
+    return resp.data?.data;
+  }
+
+  if (toolName === 'monday_create_item') {
+    const { apiToken } = toolConfigs.monday || {};
+    if (!apiToken) throw new Error('Monday.com API token not configured.');
+    const colVals = input.columnValues ? JSON.stringify(JSON.stringify(input.columnValues)) : '"{}"';
+    const groupPart = input.groupId ? `, group_id: "${input.groupId}"` : '';
+    const resp = await axios.post('https://api.monday.com/v2', {
+      query: `mutation { create_item(board_id: ${input.boardId}, item_name: "${input.itemName}"${groupPart}, column_values: ${colVals}) { id name } }`,
+    }, { headers: { Authorization: apiToken, 'Content-Type': 'application/json' } });
+    return resp.data?.data;
+  }
+
+  if (toolName === 'monday_update_item_column') {
+    const { apiToken } = toolConfigs.monday || {};
+    if (!apiToken) throw new Error('Monday.com API token not configured.');
+    const resp = await axios.post('https://api.monday.com/v2', {
+      query: `mutation { change_column_value(board_id: ${input.boardId}, item_id: ${input.itemId}, column_id: "${input.columnId}", value: ${JSON.stringify(JSON.stringify(input.value))}) { id } }`,
+    }, { headers: { Authorization: apiToken, 'Content-Type': 'application/json' } });
+    return resp.data?.data;
+  }
+
+  // ── Typeform ──────────────────────────────────────────────────────────────────
+
+  if (toolName === 'typeform_list_forms') {
+    const { accessToken } = toolConfigs.typeform || {};
+    if (!accessToken) throw new Error('Typeform access token not configured.');
+    const resp = await axios.get('https://api.typeform.com/forms', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: { page_size: input.pageSize || 20 },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'typeform_get_responses') {
+    const { accessToken } = toolConfigs.typeform || {};
+    if (!accessToken) throw new Error('Typeform access token not configured.');
+    const params = { page_size: input.pageSize || 25 };
+    if (input.since) params.since = input.since;
+    const resp = await axios.get(`https://api.typeform.com/forms/${input.formId}/responses`, {
+      headers: { Authorization: `Bearer ${accessToken}` }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'typeform_get_form') {
+    const { accessToken } = toolConfigs.typeform || {};
+    if (!accessToken) throw new Error('Typeform access token not configured.');
+    const resp = await axios.get(`https://api.typeform.com/forms/${input.formId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return resp.data;
+  }
+
+  // ── Asana ─────────────────────────────────────────────────────────────────────
+
+  if (toolName === 'asana_list_projects') {
+    const { accessToken } = toolConfigs.asana || {};
+    if (!accessToken) throw new Error('Asana access token not configured.');
+    let workspaceId = input.workspaceId;
+    if (!workspaceId) {
+      const ws = await axios.get('https://app.asana.com/api/1.0/workspaces', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      workspaceId = ws.data?.data?.[0]?.gid;
+    }
+    const resp = await axios.get('https://app.asana.com/api/1.0/projects', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: { workspace: workspaceId, limit: input.limit || 20, opt_fields: 'name,notes,due_on,status' },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'asana_list_tasks') {
+    const { accessToken } = toolConfigs.asana || {};
+    if (!accessToken) throw new Error('Asana access token not configured.');
+    const params = {
+      project:    input.projectId,
+      limit:      input.limit || 25,
+      opt_fields: 'name,notes,due_on,completed,assignee',
+    };
+    if (!input.completed) params.completed = false;
+    const resp = await axios.get('https://app.asana.com/api/1.0/tasks', {
+      headers: { Authorization: `Bearer ${accessToken}` }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'asana_create_task') {
+    const { accessToken } = toolConfigs.asana || {};
+    if (!accessToken) throw new Error('Asana access token not configured.');
+    const body = { data: { name: input.name, projects: [input.projectId] } };
+    if (input.notes)    body.data.notes    = input.notes;
+    if (input.dueOn)    body.data.due_on   = input.dueOn;
+    if (input.assignee) body.data.assignee = input.assignee;
+    const resp = await axios.post('https://app.asana.com/api/1.0/tasks', body, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'asana_complete_task') {
+    const { accessToken } = toolConfigs.asana || {};
+    if (!accessToken) throw new Error('Asana access token not configured.');
+    const resp = await axios.put(`https://app.asana.com/api/1.0/tasks/${input.taskId}`,
+      { data: { completed: input.completed !== false } },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+    return resp.data;
+  }
+
+  // ── Canva ─────────────────────────────────────────────────────────────────────
+
+  if (toolName === 'canva_list_designs') {
+    const { accessToken } = toolConfigs.canva || {};
+    if (!accessToken) throw new Error('Canva access token not configured.');
+    const params = { limit: input.limit || 20 };
+    if (input.query) params.query = input.query;
+    const resp = await axios.get('https://api.canva.com/rest/v1/designs', {
+      headers: { Authorization: `Bearer ${accessToken}` }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'canva_get_design') {
+    const { accessToken } = toolConfigs.canva || {};
+    if (!accessToken) throw new Error('Canva access token not configured.');
+    const resp = await axios.get(`https://api.canva.com/rest/v1/designs/${input.designId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return resp.data;
+  }
+
+  // ── TikTok Ads ────────────────────────────────────────────────────────────────
+
+  if (toolName === 'tiktok_list_campaigns') {
+    const { accessToken, advertiserId } = toolConfigs.tiktok_ads || {};
+    if (!accessToken || !advertiserId) throw new Error('TikTok access token and advertiser ID not configured.');
+    const params = {
+      advertiser_id: advertiserId,
+      page_size:     Math.min(input.limit || 20, 100),
+    };
+    if (input.status && input.status !== 'CAMPAIGN_STATUS_ALL') {
+      params.primary_status = input.status;
+    }
+    const resp = await axios.get('https://business-api.tiktok.com/open_api/v1.3/campaign/get/', {
+      headers: { 'Access-Token': accessToken }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'tiktok_get_ad_insights') {
+    const { accessToken, advertiserId } = toolConfigs.tiktok_ads || {};
+    if (!accessToken || !advertiserId) throw new Error('TikTok access token and advertiser ID not configured.');
+    const defaultMetrics = ['spend', 'impressions', 'clicks', 'ctr', 'cpc', 'conversions'];
+    const resp = await axios.get('https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/', {
+      headers: { 'Access-Token': accessToken },
+      params: {
+        advertiser_id: advertiserId,
+        report_type:   'BASIC',
+        data_level:    'AUCTION_CAMPAIGN',
+        dimensions:    JSON.stringify(input.dimensions || ['campaign_id']),
+        metrics:       JSON.stringify(input.metrics || defaultMetrics),
+        start_date:    input.startDate,
+        end_date:      input.endDate,
+        page_size:     50,
+      },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'tiktok_list_ad_groups') {
+    const { accessToken, advertiserId } = toolConfigs.tiktok_ads || {};
+    if (!accessToken || !advertiserId) throw new Error('TikTok access token and advertiser ID not configured.');
+    const params = { advertiser_id: advertiserId, page_size: Math.min(input.limit || 20, 100) };
+    if (input.campaignId) params.campaign_ids = JSON.stringify([input.campaignId]);
+    const resp = await axios.get('https://business-api.tiktok.com/open_api/v1.3/adgroup/get/', {
+      headers: { 'Access-Token': accessToken }, params,
+    });
+    return resp.data;
+  }
+
+  // ── Google Ads ────────────────────────────────────────────────────────────────
+
+  if (toolName === 'google_ads_list_campaigns') {
+    const { accessToken, customerId, developerToken } = toolConfigs.google_ads || {};
+    if (!accessToken || !customerId || !developerToken) throw new Error('Google Ads access token, customer ID and developer token not configured.');
+    const statusFilter = (!input.status || input.status === 'ALL')
+      ? '' : `AND campaign.status = '${input.status}'`;
+    const resp = await axios.post(
+      `https://googleads.googleapis.com/v17/customers/${customerId}/googleAds:search`,
+      { query: `SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign_budget.amount_micros FROM campaign WHERE campaign.status != 'REMOVED' ${statusFilter} LIMIT ${input.limit || 20}` },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'developer-token': developerToken, 'Content-Type': 'application/json' } }
+    );
+    return resp.data;
+  }
+
+  if (toolName === 'google_ads_get_lead_submissions') {
+    const { accessToken, customerId, developerToken } = toolConfigs.google_ads || {};
+    if (!accessToken || !customerId || !developerToken) throw new Error('Google Ads not configured.');
+    const whereClause = input.campaignResourceName
+      ? `WHERE lead_form_submission_data.campaign = '${input.campaignResourceName}'`
+      : '';
+    const resp = await axios.post(
+      `https://googleads.googleapis.com/v17/customers/${customerId}/googleAds:search`,
+      { query: `SELECT lead_form_submission_data.id, lead_form_submission_data.form_id, lead_form_submission_data.submission_date_time, lead_form_submission_data.lead_form_submission_fields FROM lead_form_submission_data ${whereClause} LIMIT ${input.limit || 50}` },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'developer-token': developerToken, 'Content-Type': 'application/json' } }
+    );
+    return resp.data;
+  }
+
+  // ── OpenRouter ────────────────────────────────────────────────────────────────
+
+  if (toolName === 'openrouter_chat') {
+    const { apiKey } = toolConfigs.openrouter || {};
+    if (!apiKey) throw new Error('OpenRouter API key not configured.');
+    const body = { model: input.model, messages: input.messages };
+    if (input.maxTokens)   body.max_tokens  = input.maxTokens;
+    if (input.temperature !== undefined) body.temperature = input.temperature;
+    const resp = await axios.post('https://openrouter.ai/api/v1/chat/completions', body, {
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    });
+    return { content: resp.data.choices[0].message.content, model: resp.data.model, usage: resp.data.usage };
+  }
+
+  if (toolName === 'openrouter_list_models') {
+    const { apiKey } = toolConfigs.openrouter || {};
+    if (!apiKey) throw new Error('OpenRouter API key not configured.');
+    const resp = await axios.get('https://openrouter.ai/api/v1/models', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    return resp.data;
+  }
+
+  // ── Gravity Forms ─────────────────────────────────────────────────────────────
+
+  if (toolName === 'gf_list_forms') {
+    const { siteUrl, consumerKey, consumerSecret } = toolConfigs.gravity_forms || {};
+    if (!siteUrl || !consumerKey || !consumerSecret) throw new Error('Gravity Forms site URL, consumer key and secret not configured.');
+    const resp = await axios.get(`${siteUrl}/wp-json/gf/v2/forms`, {
+      auth: { username: consumerKey, password: consumerSecret },
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'gf_get_entries') {
+    const { siteUrl, consumerKey, consumerSecret } = toolConfigs.gravity_forms || {};
+    if (!siteUrl || !consumerKey || !consumerSecret) throw new Error('Gravity Forms not configured.');
+    const params = {
+      'paging[page_size]': Math.min(input.limit || 20, 200),
+      'form_ids[0]':       input.formId,
+      status:              input.status || 'active',
+    };
+    if (input.search) params['search[field_filters][0][value]'] = input.search;
+    const resp = await axios.get(`${siteUrl}/wp-json/gf/v2/entries`, {
+      auth: { username: consumerKey, password: consumerSecret }, params,
+    });
+    return resp.data;
+  }
+
+  if (toolName === 'gf_get_entry') {
+    const { siteUrl, consumerKey, consumerSecret } = toolConfigs.gravity_forms || {};
+    if (!siteUrl || !consumerKey || !consumerSecret) throw new Error('Gravity Forms not configured.');
+    const resp = await axios.get(`${siteUrl}/wp-json/gf/v2/entries/${input.entryId}`, {
+      auth: { username: consumerKey, password: consumerSecret },
+    });
+    return resp.data;
+  }
+
+  // ── HTTP Client ───────────────────────────────────────────────────────────────
+
+  if (toolName === 'http_send_request') {
+    const { baseUrl, defaultHeaders } = toolConfigs.http_client || {};
+    let parsedDefaultHeaders = {};
+    try { if (defaultHeaders) parsedDefaultHeaders = JSON.parse(defaultHeaders); } catch { /* ignore */ }
+
+    const url = (input.url.startsWith('http://') || input.url.startsWith('https://'))
+      ? input.url
+      : `${(baseUrl || '').replace(/\/$/, '')}/${input.url.replace(/^\//, '')}`;
+
+    const config = {
+      method:  input.method,
+      url,
+      headers: { ...parsedDefaultHeaders, ...(input.headers || {}) },
+      timeout: input.timeout || 10000,
+    };
+    if (input.params) config.params = input.params;
+    if (input.body && ['POST', 'PUT', 'PATCH'].includes(input.method)) config.data = input.body;
+
+    const resp = await axios(config);
+    return { status: resp.status, statusText: resp.statusText, headers: resp.headers, data: resp.data };
+  }
+
   // ── HubSpot ───────────────────────────────────────────────────────────────────
 
   if (toolName === 'hubspot_search_contacts') {
@@ -1415,6 +2891,162 @@ const TOOL_METADATA = {
       { key: 'apiLoginId',     label: 'API Login ID',     type: 'text',     placeholder: 'Your API Login ID' },
       { key: 'transactionKey', label: 'Transaction Key',  type: 'password', placeholder: 'Your Transaction Key' },
       { key: 'mode',           label: 'Mode',             type: 'text',     placeholder: 'live or sandbox' },
+    ],
+  },
+  manychat: {
+    label:       'ManyChat',
+    icon:        '💙',
+    description: 'Messenger/SMS subscriber automation and flow triggering',
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'Your ManyChat API key' },
+    ],
+  },
+  google_my_business: {
+    label:       'Google Business Profile',
+    icon:        '📍',
+    description: 'Manage business listings, reviews and replies',
+    configFields: [
+      { key: 'accessToken', label: 'OAuth Access Token', type: 'password', placeholder: 'ya29...' },
+    ],
+  },
+  shopify: {
+    label:       'Shopify',
+    icon:        '🛍️',
+    description: 'Orders, products, customers and discount codes',
+    configFields: [
+      { key: 'shopDomain',  label: 'Shop Domain',        type: 'text',     placeholder: 'mystore.myshopify.com' },
+      { key: 'accessToken', label: 'Admin Access Token', type: 'password', placeholder: 'shpat_...' },
+    ],
+  },
+  woocommerce: {
+    label:       'WooCommerce',
+    icon:        '🛒',
+    description: 'Orders, products, customers and coupons via WooCommerce',
+    configFields: [
+      { key: 'siteUrl',        label: 'Site URL',        type: 'text',     placeholder: 'https://mysite.com' },
+      { key: 'consumerKey',    label: 'Consumer Key',    type: 'text',     placeholder: 'ck_...' },
+      { key: 'consumerSecret', label: 'Consumer Secret', type: 'password', placeholder: 'cs_...' },
+    ],
+  },
+  google_calendar: {
+    label:       'Google Calendar',
+    icon:        '📅',
+    description: 'List, create and delete Google Calendar events',
+    configFields: [
+      { key: 'accessToken', label: 'OAuth Access Token', type: 'password', placeholder: 'ya29...' },
+      { key: 'calendarId',  label: 'Calendar ID',        type: 'text',     placeholder: 'primary' },
+    ],
+  },
+  linkedin: {
+    label:       'LinkedIn',
+    icon:        '💼',
+    description: 'Ads analytics and organic post publishing via LinkedIn',
+    configFields: [
+      { key: 'accessToken', label: 'OAuth Access Token', type: 'password', placeholder: 'AQV...' },
+      { key: 'adAccountId', label: 'Ad Account ID',      type: 'text',     placeholder: '123456789' },
+    ],
+  },
+  google_contacts: {
+    label:       'Google Contacts',
+    icon:        '👥',
+    description: 'List, search and create Google Contacts via People API',
+    configFields: [
+      { key: 'accessToken', label: 'OAuth Access Token', type: 'password', placeholder: 'ya29...' },
+    ],
+  },
+  google_forms: {
+    label:       'Google Forms',
+    icon:        '📋',
+    description: 'Retrieve Google Forms structure and responses',
+    configFields: [
+      { key: 'accessToken', label: 'OAuth Access Token', type: 'password', placeholder: 'ya29...' },
+    ],
+  },
+  airtable: {
+    label:       'Airtable',
+    icon:        '🗂️',
+    description: 'Read, create and update records across Airtable bases',
+    configFields: [
+      { key: 'apiKey', label: 'Personal Access Token', type: 'password', placeholder: 'patXXXX...' },
+      { key: 'baseId', label: 'Base ID',               type: 'text',     placeholder: 'appXXXXXXXXXXXXXX' },
+    ],
+  },
+  monday: {
+    label:       'Monday.com',
+    icon:        '📌',
+    description: 'Manage Monday.com boards, items and status columns',
+    configFields: [
+      { key: 'apiToken', label: 'API Token', type: 'password', placeholder: 'eyJhbGci...' },
+    ],
+  },
+  typeform: {
+    label:       'Typeform',
+    icon:        '📝',
+    description: 'Fetch forms and collect survey responses via Typeform',
+    configFields: [
+      { key: 'accessToken', label: 'Personal Access Token', type: 'password', placeholder: 'tfp_...' },
+    ],
+  },
+  asana: {
+    label:       'Asana',
+    icon:        '✅',
+    description: 'List, create and complete Asana tasks and projects',
+    configFields: [
+      { key: 'accessToken', label: 'Personal Access Token', type: 'password', placeholder: '1/1234...' },
+    ],
+  },
+  canva: {
+    label:       'Canva',
+    icon:        '🎨',
+    description: 'Browse and export Canva designs via Connect API',
+    configFields: [
+      { key: 'accessToken', label: 'OAuth Access Token', type: 'password', placeholder: 'Your Canva access token' },
+    ],
+  },
+  tiktok_ads: {
+    label:       'TikTok Ads',
+    icon:        '🎵',
+    description: 'TikTok Ads campaigns and performance analytics',
+    configFields: [
+      { key: 'accessToken',  label: 'Access Token',  type: 'password', placeholder: 'Your TikTok Marketing API token' },
+      { key: 'advertiserId', label: 'Advertiser ID', type: 'text',     placeholder: '7123456789012345678' },
+    ],
+  },
+  google_ads: {
+    label:       'Google Ads',
+    icon:        '📢',
+    description: 'Google Ads campaigns and lead form submission data',
+    configFields: [
+      { key: 'accessToken',    label: 'OAuth Access Token', type: 'password', placeholder: 'ya29...' },
+      { key: 'customerId',     label: 'Customer ID',        type: 'text',     placeholder: '1234567890 (no dashes)' },
+      { key: 'developerToken', label: 'Developer Token',    type: 'password', placeholder: 'Your Google Ads developer token' },
+    ],
+  },
+  openrouter: {
+    label:       'OpenRouter',
+    icon:        '🔀',
+    description: 'Access 100+ AI models — GPT-4o, Gemini, Llama via one API',
+    configFields: [
+      { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'sk-or-v1-...' },
+    ],
+  },
+  gravity_forms: {
+    label:       'Gravity Forms',
+    icon:        '⚡',
+    description: 'Pull Gravity Forms entries from WordPress sites',
+    configFields: [
+      { key: 'siteUrl',        label: 'WordPress Site URL', type: 'text',     placeholder: 'https://mysite.com' },
+      { key: 'consumerKey',    label: 'Consumer Key',       type: 'text',     placeholder: 'ck_...' },
+      { key: 'consumerSecret', label: 'Consumer Secret',    type: 'password', placeholder: 'cs_...' },
+    ],
+  },
+  http_client: {
+    label:       'HTTP Client / Webhook Tester',
+    icon:        '🌐',
+    description: 'Send HTTP requests to any URL — webhooks, custom APIs, testing',
+    configFields: [
+      { key: 'baseUrl',        label: 'Base URL',        type: 'text', placeholder: 'https://api.example.com' },
+      { key: 'defaultHeaders', label: 'Default Headers', type: 'text', placeholder: '{"Authorization":"Bearer token"}' },
     ],
   },
   hubspot: {

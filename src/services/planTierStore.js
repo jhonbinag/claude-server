@@ -46,7 +46,7 @@ const DEFAULT_TIERS = {
     name:                'Gold',
     icon:                '🥇',
     integrationLimit:    10,
-    allowedIntegrations: ['perplexity', 'openai', 'facebook_ads', 'sendgrid', 'slack', 'apollo', 'heygen', 'hubspot', 'keap'],
+    allowedIntegrations: ['perplexity', 'openai', 'facebook_ads', 'sendgrid', 'slack', 'apollo', 'heygen', 'hubspot', 'keap', 'manychat', 'google_calendar', 'airtable', 'monday', 'typeform', 'asana', 'openrouter', 'shopify'],
     description:         'Up to 10 integrations — full toolkit access.',
     price:               99,
     interval:            'mo',
