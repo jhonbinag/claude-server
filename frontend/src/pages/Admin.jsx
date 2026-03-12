@@ -1151,7 +1151,6 @@ export default function Admin() {
 function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
   const [form, setForm] = useState({
     locationId:  modal.data?.locationId || modal.locationId || '',
-    plan:        modal.data?.plan       || 'trial',
     tier:        modal.data?.tier       || 'bronze',
     status:      modal.data?.status     || 'trial',
     amount:      modal.data?.amount     ?? '',
@@ -1178,7 +1177,7 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
         res = await adminFetch(`/admin/billing/${locId}`, {
           method: 'POST', adminKey,
           body: {
-            plan: form.plan, tier: form.tier, status: form.status,
+            tier: form.tier, status: form.status,
             amount: form.amount !== '' ? Number(form.amount) : undefined,
             currency: form.currency, interval: form.interval, notes: form.notes,
           },
@@ -1228,11 +1227,6 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
 
         {!isInvoice && (
           <>
-            <label style={lbl}>Plan</label>
-            <select style={sel} value={form.plan} onChange={e => set('plan', e.target.value)}>
-              {['trial', 'starter', 'pro', 'agency'].map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-            </select>
-
             <label style={lbl}>Tier (Integration Access)</label>
             <select style={sel} value={form.tier} onChange={e => set('tier', e.target.value)}>
               <option value="bronze">🥉 Bronze — 2 integrations</option>
