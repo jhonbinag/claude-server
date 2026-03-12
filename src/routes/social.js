@@ -84,8 +84,22 @@ router.get('/connect/:platform', async (req, res) => {
   try {
     const { platform } = req.params;
     const { reconnect = 'false' } = req.query;
+
+    // Resolve userId — from token record or fallback to Users API
+    let userId = req.userId;
+    if (!userId) {
+      try {
+        const users = await req.ghl('GET', '/users/search', null, { locationId: req.locationId });
+        const list = users?.users || users?.data || users || [];
+        userId = Array.isArray(list) && list[0]?.id;
+        console.log('[Social] resolved userId from Users API:', userId);
+      } catch (e) {
+        console.warn('[Social] Could not fetch userId from Users API:', e.message);
+      }
+    }
+
     const params = { locationId: req.locationId, reconnect };
-    if (req.userId) params.userId = req.userId;
+    if (userId) params.userId = userId;
     const data = await req.ghl(
       'GET',
       `/social-media-posting/oauth/${platform}/start`,
