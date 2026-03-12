@@ -323,14 +323,14 @@ const TOOL_DEFINITIONS = [
 
   {
     name: 'create_social_post',
-    description: 'Schedule a social media post on connected social accounts via GHL Social Planner.',
+    description: 'Create a social media post via GHL Social Planner. DEFAULT to status DRAFT so the user can review in the Social Planner UI before publishing. Only use NOW or SCHEDULED if the user explicitly requests it.',
     input_schema: {
       type: 'object',
       properties: {
         summary:       { type: 'string', description: 'Caption / post text' },
-        status:        { type: 'string', enum: ['DRAFT', 'SCHEDULED', 'NOW'], description: 'Post status — use NOW to post immediately, SCHEDULED to set a time' },
+        status:        { type: 'string', enum: ['DRAFT', 'SCHEDULED', 'NOW'], description: 'Post status — DEFAULT to DRAFT for review. Use SCHEDULED with scheduledDate to auto-publish later. Use NOW only if user explicitly asks to post immediately.' },
         scheduledDate: { type: 'string', description: 'ISO 8601 date/time to post (required if status is SCHEDULED)' },
-        accountIds:    { type: 'array', items: { type: 'string' }, description: 'Social account IDs to post to (get from list_social_accounts)' },
+        accountIds:    { type: 'array', items: { type: 'string' }, description: 'Social account IDs to post to (get from list_social_accounts first)' },
       },
       required: ['summary', 'status'],
     },

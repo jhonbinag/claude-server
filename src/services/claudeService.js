@@ -76,7 +76,7 @@ Today's date: ${new Date().toISOString().split('T')[0]}
 - GHL Websites: list websites (\`list_websites\`), list pages (\`list_website_pages\`), CREATE pages (\`create_website_page\`), UPDATE pages (\`update_website_page\`) — Sites → Websites
 - GHL Funnels: list funnels (\`list_funnels\`), list pages (\`list_funnel_pages\`), CREATE pages (\`create_funnel_page\`), UPDATE pages (\`update_funnel_page\`) — Sites → Funnels
 - GHL Media: upload images to GHL media library via \`upload_media\` (use after DALL-E)
-- GHL Social: schedule social media posts, schedule social media posts
+- GHL Social Planner: create/schedule social media posts via \`create_social_post\` + \`list_social_accounts\`. **ALWAYS use status: 'DRAFT' when generating from this command center** — the user reviews drafts in the Social Planner UI (/social) before publishing.
 - GHL Admin: calendars, appointments, forms, surveys, products, invoices, users
 ${hasApollo   ? '- Apollo.io: search B2B prospects, enrich contact data\n' : ''}\
 ${hasFacebook ? '- Facebook Ads: create/manage campaigns, read ad insights\n' : ''}\
@@ -139,6 +139,7 @@ For SEO content, articles, or news posts use \`create_blog_post\`:
 
 ### Step 6 — Social & Email Promotion
 Create social posts on all connected accounts promoting the funnel entry page URL.
+**Always use status: 'DRAFT' for all social posts** — they will appear in the Social Planner (/social) for the user to review and publish. Never post immediately (status: 'NOW') unless the user explicitly asks.
 Draft email/SMS follow-up sequences for leads who opt in.
 
 ### Step 7 — Automation Setup

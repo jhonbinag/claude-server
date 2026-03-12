@@ -93,6 +93,8 @@ const QUICK_ACTIONS = [
   { label: 'Create invoice',        prompt: 'List all GHL products and show me the steps to create a new invoice.' },
   { label: 'Apollo prospecting',    prompt: 'Find 10 marketing directors at SaaS companies using Apollo and add them as GHL contacts tagged "apollo-lead".' },
   { label: 'Email campaign',        prompt: 'Draft a promotional email campaign and send via SendGrid to all contacts tagged "subscribed".' },
+  { label: 'Social post drafts',    prompt: 'List my connected social accounts, then create 3 engaging social media post drafts (status: DRAFT) for me to review in the Social Planner. Ask me for the topic or promotion first.' },
+  { label: 'Week of social content',prompt: 'List my connected social accounts, then generate a full week of social media content (7 posts, one per day) and save each as DRAFT in the Social Planner. Ask me for the brand/topic first.' },
 ];
 
 // Accumulate streamed text into messages array
