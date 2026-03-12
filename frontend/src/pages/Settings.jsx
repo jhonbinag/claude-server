@@ -413,10 +413,7 @@ export default function Settings() {
         </div>
 
         {/* ── External integrations ──────────────────────────────────────── */}
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">External Integrations</h2>
-          <GhlSyncButton apiKey={apiKey} onSynced={refreshStatus} showToast={showToast} />
-        </div>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">External Integrations</h2>
 
         {/* Payment Hub — unified card for all payment providers */}
         <div className="mb-4">
@@ -628,7 +625,7 @@ export default function Settings() {
                     )}
 
                     {/* Action row */}
-                    <div className="flex gap-2 pt-1">
+                    <div className="flex gap-2 pt-1 flex-wrap">
                       {/* Save All — only shown if any edits / new values exist */}
                       {(!enabled || hasChanges) && (
                         <button onClick={() => save(cfg)} className="btn-primary flex-1 py-2">
@@ -648,6 +645,11 @@ export default function Settings() {
                         >
                           ↻ Test
                         </button>
+                      )}
+
+                      {/* Facebook Ads — Sync Leads to CRM */}
+                      {enabled && cfg.key === 'facebook_ads' && (
+                        <FbLeadSyncButton apiKey={apiKey} showToast={showToast} />
                       )}
 
                       {/* Disconnect */}
@@ -996,41 +998,54 @@ const PLATFORM_META = {
   gmb:       { label: 'Google My Business', icon: '🔵', bg: '#4285f4', color: 'rgba(66,133,244,0.1)', border: 'rgba(66,133,244,0.35)' },
 };
 
-// ── GHL Sync Button — syncs GHL social accounts into External Integrations ────
-function GhlSyncButton({ apiKey, onSynced, showToast }) {
-  const [syncing, setSyncing] = useState(false);
+// ── Facebook Lead Sync Button — pulls FB Lead Ads leads → GHL contacts ───────
+function FbLeadSyncButton({ apiKey, showToast }) {
+  const [syncing,  setSyncing]  = useState(false);
+  const [result,   setResult]   = useState(null); // { synced, total }
 
   async function handleSync() {
     if (!apiKey) return;
     setSyncing(true);
+    setResult(null);
     try {
-      const d = await api.postWithKey('/social/sync', {}, apiKey);
-      if (d.code === 'GHL_OAUTH_REQUIRED') {
-        showToast('GHL OAuth not connected — reinstall the app to enable sync.', false);
-      } else if (d.success) {
-        const count = d.synced || 0;
-        showToast(count > 0 ? `Synced ${count} account${count !== 1 ? 's' : ''} from GHL.` : 'Sync complete — no GHL social accounts found yet.', count > 0);
-        if (onSynced) onSynced();
+      const d = await api.postWithKey('/ads/facebook/sync-leads', {}, apiKey);
+      if (d.success) {
+        const msg = d.synced > 0
+          ? `${d.synced} lead${d.synced !== 1 ? 's' : ''} synced to CRM`
+          : 'No new leads to sync';
+        setResult({ synced: d.synced, total: d.total });
+        showToast(msg, d.synced > 0);
       } else {
-        showToast(d.error || 'Sync failed.', false);
+        showToast(d.error || 'Lead sync failed.', false);
       }
     } catch (e) {
-      showToast('Sync error: ' + e.message, false);
+      showToast('Lead sync error: ' + e.message, false);
     } finally {
       setSyncing(false);
     }
   }
 
   return (
-    <button
-      onClick={handleSync}
-      disabled={syncing || !apiKey}
-      className="btn-ghost px-3 py-1.5 text-xs flex items-center gap-1.5"
-      title="Sync connected accounts from GoHighLevel"
-    >
-      <span style={{ display: 'inline-block', transition: 'transform 0.6s', transform: syncing ? 'rotate(360deg)' : 'none' }}>↻</span>
-      {syncing ? 'Syncing…' : 'Sync from GHL'}
-    </button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <button
+        onClick={handleSync}
+        disabled={syncing}
+        style={{
+          background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)',
+          borderRadius: 12, padding: '8px 14px',
+          color: '#4ade80', cursor: syncing ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 500,
+          opacity: syncing ? 0.7 : 1,
+        }}
+        title="Fetch lead form submissions from Facebook & Instagram and create them as contacts in your CRM"
+      >
+        {syncing ? '⏳ Syncing leads…' : '⬇ Sync Leads to CRM'}
+      </button>
+      {result && (
+        <span style={{ fontSize: 11, color: result.synced > 0 ? '#4ade80' : '#9ca3af', textAlign: 'center' }}>
+          {result.synced}/{result.total} leads synced
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -1146,19 +1161,9 @@ function SocialHubCard({ showToast }) {
             <p className="text-xs text-gray-500 mt-0.5">Facebook · Instagram · TikTok · YouTube · LinkedIn · Pinterest</p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={loadAccounts}
-            disabled={loading}
-            className="btn-ghost px-3 py-1.5 text-xs"
-            title="Sync from GHL"
-          >
-            {loading ? '↻' : '↻ Sync'}
-          </button>
-          <button onClick={() => setIsOpen(o => !o)} className="btn-ghost px-4 py-1.5 text-xs">
-            {isOpen ? '▲ Collapse' : anyConnected ? '⚙️ Manage' : '+ Connect'}
-          </button>
-        </div>
+        <button onClick={() => setIsOpen(o => !o)} className="btn-ghost px-4 py-1.5 text-xs">
+          {isOpen ? '▲ Collapse' : anyConnected ? '⚙️ Manage' : '+ Connect'}
+        </button>
       </div>
 
       {/* Collapsed pill preview */}
