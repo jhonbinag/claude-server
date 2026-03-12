@@ -1019,20 +1019,14 @@ function SocialHubCard({ showToast }) {
     setError(null);
     try {
       const d = await api.get('/social/accounts');
-      // api.get never throws — check for error fields explicitly
-      if (d?.code === 'GHL_OAUTH_REQUIRED') {
-        setError('ghl_oauth');
-        setAccounts([]);
-        return;
-      }
-      if (d?.error && !d?.accounts && !Array.isArray(d)) {
-        // 401 = scope missing — show connect buttons anyway, just note the issue
-        setError(d.error.includes('401') ? 'scope_missing' : d.error);
-        setAccounts([]);
-        return;
-      }
+      // New response format: { accounts: [...], ghlConnected: bool, ghlError: string|undefined }
+      // Fall back to old format for compatibility
       const list = Array.isArray(d) ? d : (d.accounts || d.data || []);
       setAccounts(list);
+      // Show a non-blocking warning if GHL oauth is missing but still show registry accounts
+      if (!d?.ghlConnected && d?.ghlError) {
+        setError('scope_missing'); // shows a soft warning, not a blocker
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1144,7 +1138,7 @@ function SocialHubCard({ showToast }) {
           )}
           {error === 'scope_missing' && (
             <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 10, padding: '0.75rem 1rem', fontSize: 13, color: '#fbbf24', marginBottom: '1rem' }}>
-              ⚠️ Social Planner scope missing — <strong>reinstall the app</strong> once to sync existing GHL social accounts. Connect buttons still work below.
+              Some social platforms may not be visible — GHL OAuth connection is needed for full sync.
             </div>
           )}
           {error && error !== 'ghl_oauth' && error !== 'scope_missing' && (

@@ -1444,6 +1444,7 @@ Object.assign(EXTERNAL_TOOL_DEFINITIONS, {
       input_schema: { type: 'object', properties: { boardId: { type: 'string', description: 'Board ID' }, pageSize: { type: 'number', description: 'Max pins (default 25)' } }, required: ['boardId'] },
     },
   ],
+  ghl_social_planner: [],
 });
 
 // ─── Executors ────────────────────────────────────────────────────────────────
@@ -3158,6 +3159,12 @@ const TOOL_METADATA = {
     configFields: [
       { key: 'apiKey', label: 'API Key', type: 'password', placeholder: 'Your ManyChat API key' },
     ],
+  },
+  ghl_social_planner: {
+    label:       'GHL Social Planner',
+    icon:        '📱',
+    description: 'Social media accounts connected via GoHighLevel Social Planner (Facebook, Instagram, TikTok, YouTube, LinkedIn)',
+    configFields: [],
   },
   google_my_business: {
     label:       'Google Business Profile',
