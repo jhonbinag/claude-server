@@ -1008,6 +1008,17 @@ function SocialHubCard({ showToast }) {
     setError(null);
     try {
       const d = await api.get('/social/accounts');
+      // api.get never throws — check for error fields explicitly
+      if (d?.code === 'GHL_OAUTH_REQUIRED') {
+        setError('GHL OAuth not connected. Reinstall the app to sync social accounts.');
+        setAccounts([]);
+        return;
+      }
+      if (d?.error && !d?.accounts && !Array.isArray(d)) {
+        setError(d.error);
+        setAccounts([]);
+        return;
+      }
       const list = Array.isArray(d) ? d : (d.accounts || d.data || []);
       setAccounts(list);
     } catch (e) {

@@ -31,7 +31,11 @@ router.use(requireGhl);
 router.get('/accounts', async (req, res) => {
   try {
     const data = await req.ghl('GET', `/social-media-posting/${req.locationId}/accounts`);
-    res.json(data);
+    console.log('[Social] accounts raw:', JSON.stringify(data)?.substring(0, 300));
+    // Normalize to always return { accounts: [...] }
+    const accounts = Array.isArray(data) ? data
+      : data?.accounts || data?.data || data?.socialAccounts || data?.result || [];
+    res.json({ accounts });
   } catch (err) {
     console.error('[Social] accounts error:', err.message);
     res.status(500).json({ error: err.message });
