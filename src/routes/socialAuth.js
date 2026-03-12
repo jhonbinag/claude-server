@@ -362,6 +362,36 @@ async function saveAccount(locationId, platform, account) {
 
   await registry.saveToolConfig(locationId, toolKey, config);
   console.log(`[SocialAuth] Saved ${platform} account "${account.name}" for location ${locationId}`);
+
+  // ── Auto-detect Facebook Ad Account when Facebook is connected ──────────────
+  // Use the user access token to discover the ad account and pre-configure facebook_ads.
+  if (platform === 'facebook' && account.token) {
+    try {
+      const adResp = await axios.get('https://graph.facebook.com/v20.0/me/adaccounts', {
+        params: { access_token: account.token, fields: 'id,name,account_status,currency,business', limit: 10 },
+      });
+      const adAccounts = (adResp.data.data || []).filter(a => a.account_status === 1); // 1 = ACTIVE
+      if (adAccounts.length > 0) {
+        const best = adAccounts[0];
+        const adAccountId = best.id.replace('act_', '');
+        const existing = (await registry.getToolConfig(locationId)).facebook_ads || {};
+        // Only pre-fill if not already manually configured
+        if (!existing.adAccountId) {
+          await registry.saveToolConfig(locationId, 'facebook_ads', {
+            ...existing,
+            accessToken:  account.token,
+            adAccountId,
+            adAccountName: best.name || '',
+            ghlConnected: true,
+            connectedAt:  new Date().toISOString(),
+          });
+          console.log(`[SocialAuth] Auto-configured facebook_ads with ad account ${adAccountId} for location ${locationId}`);
+        }
+      }
+    } catch (e) {
+      console.warn('[SocialAuth] Could not auto-detect Facebook ad account:', e.message);
+    }
+  }
 }
 
 module.exports = router;

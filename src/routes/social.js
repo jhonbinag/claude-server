@@ -202,21 +202,49 @@ router.post('/sync', async (req, res) => {
 
     // Extract any location-level social/integration info
     const locationSocial = locInfo.social || {};
-    const detected = {
-      facebookUrl:  locationSocial.facebookUrl  || null,
-      instagramUrl: locationSocial.instagramUrl  || null,
-      linkedInUrl:  locationSocial.linkedIn      || null,
-      twitterUrl:   locationSocial.twitter       || null,
-      youtubeUrl:   locationSocial.youtube       || null,
-      pinterestUrl: locationSocial.pinterest     || null,
-    };
+
+    // ── Auto-configure facebook_ads from existing social_facebook token ────────
+    // If social_facebook has a token but facebook_ads is not yet configured,
+    // use the page access token to discover the linked ad account.
+    const integrations = await toolRegistry.getToolConfig(req.locationId);
+    const fbPageToken  = integrations.social_facebook?.pageAccessToken || integrations.social_facebook?.accessToken;
+    const adsConfig    = integrations.facebook_ads || {};
+    if (fbPageToken && !adsConfig.adAccountId) {
+      try {
+        const adResp = await axios.get('https://graph.facebook.com/v20.0/me/adaccounts', {
+          params: { access_token: fbPageToken, fields: 'id,name,account_status,currency', limit: 10 },
+        });
+        const activeAds = (adResp.data?.data || []).filter(a => a.account_status === 1);
+        if (activeAds.length > 0) {
+          const best = activeAds[0];
+          await toolRegistry.saveToolConfig(req.locationId, 'facebook_ads', {
+            ...adsConfig,
+            accessToken:   fbPageToken,
+            adAccountId:   best.id.replace('act_', ''),
+            adAccountName: best.name || '',
+            ghlConnected:  true,
+            connectedAt:   new Date().toISOString(),
+          });
+          console.log(`[Social] Auto-configured facebook_ads → ad account ${best.id} for location ${req.locationId}`);
+        }
+      } catch (e) {
+        console.warn('[Social] Could not auto-detect Facebook ad account during sync:', e.message);
+      }
+    }
 
     const platforms = [...new Set(accounts.map(a => normalizePlatformType(a.type || a.platform || a.accountType || '')))];
     res.json({
       success:  true,
       synced:   accounts.length,
       platforms,
-      detected, // location-level social URL hints
+      detected: {
+        facebookUrl:  locationSocial.facebookUrl  || null,
+        instagramUrl: locationSocial.instagramUrl  || null,
+        linkedInUrl:  locationSocial.linkedIn      || null,
+        twitterUrl:   locationSocial.twitter       || null,
+        youtubeUrl:   locationSocial.youtube       || null,
+        pinterestUrl: locationSocial.pinterest     || null,
+      },
     });
   } catch (err) {
     console.error('[Social] sync error:', err.message);
