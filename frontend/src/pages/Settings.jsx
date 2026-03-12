@@ -413,7 +413,7 @@ export default function Settings() {
         {/* ── Social Hub ─────────────────────────────────────────────────── */}
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Social Hub</h2>
         <div className="mb-8">
-          <SocialHubCard serverMap={serverMap} showToast={showToast} refreshStatus={refreshStatus} locationId={locationId} />
+          <SocialHubCard showToast={showToast} />
         </div>
 
         {/* ── External integrations ──────────────────────────────────────── */}
@@ -979,133 +979,47 @@ function BuiltInCard({ icon, label, badge, color, description, rightLabel, right
   );
 }
 
-// ── Social Hub Card (OAuth-based — no manual token entry) ────────────────────
+// ── Social Hub Card — reads connected accounts from GHL ───────────────────────
 
-const SOCIAL_PLATFORMS = [
-  { key: 'social_facebook',        oauthKey: 'facebook',  label: 'Facebook',   icon: '📘', bg: '#1877f2', color: 'rgba(24,119,242,0.12)',  border: 'rgba(24,119,242,0.4)' },
-  { key: 'social_instagram',       oauthKey: 'facebook',  label: 'Instagram',  icon: '📸', bg: '#e1306c', color: 'rgba(225,48,108,0.12)',  border: 'rgba(225,48,108,0.4)', viaFacebook: true },
-  { key: 'social_tiktok_organic',  oauthKey: 'tiktok',    label: 'TikTok',     icon: '🎵', bg: '#010101', color: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.2)' },
-  { key: 'social_youtube',         oauthKey: 'google',    label: 'YouTube',    icon: '📺', bg: '#ff0000', color: 'rgba(255,0,0,0.1)',      border: 'rgba(255,0,0,0.35)' },
-  { key: 'social_linkedin_organic',oauthKey: 'linkedin',  label: 'LinkedIn',   icon: '💼', bg: '#0077b5', color: 'rgba(0,119,181,0.12)',   border: 'rgba(0,119,181,0.4)' },
-  { key: 'social_pinterest',       oauthKey: 'pinterest', label: 'Pinterest',  icon: '📌', bg: '#e60023', color: 'rgba(230,0,35,0.1)',     border: 'rgba(230,0,35,0.35)' },
-];
+const PLATFORM_META = {
+  facebook:  { icon: '📘', bg: '#1877f2', color: 'rgba(24,119,242,0.12)',  border: 'rgba(24,119,242,0.4)' },
+  instagram: { icon: '📸', bg: '#e1306c', color: 'rgba(225,48,108,0.12)',  border: 'rgba(225,48,108,0.4)' },
+  tiktok:    { icon: '🎵', bg: '#010101', color: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.2)' },
+  youtube:   { icon: '📺', bg: '#ff0000', color: 'rgba(255,0,0,0.1)',      border: 'rgba(255,0,0,0.35)' },
+  linkedin:  { icon: '💼', bg: '#0077b5', color: 'rgba(0,119,181,0.12)',   border: 'rgba(0,119,181,0.4)' },
+  pinterest: { icon: '📌', bg: '#e60023', color: 'rgba(230,0,35,0.1)',     border: 'rgba(230,0,35,0.35)' },
+  twitter:   { icon: '🐦', bg: '#1da1f2', color: 'rgba(29,161,242,0.1)',   border: 'rgba(29,161,242,0.35)' },
+  google:    { icon: '🔵', bg: '#4285f4', color: 'rgba(66,133,244,0.1)',   border: 'rgba(66,133,244,0.35)' },
+};
 
-function SocialHubCard({ serverMap, showToast, refreshStatus, locationId }) {
-  const [pageModal,   setPageModal]   = useState(null);  // { platform, pages[] }
-  const [connecting,  setConnecting]  = useState(null);  // platform key being connected
-  const [isOpen,      setIsOpen]      = useState(false);
+function SocialHubCard({ showToast }) {
+  const [accounts, setAccounts] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
+  const [isOpen,   setIsOpen]   = useState(false);
 
-  const connectedPlatforms = SOCIAL_PLATFORMS.filter(p => serverMap[p.key]?.enabled);
-  const anyConnected = connectedPlatforms.length > 0;
-
-  // ── Listen for postMessage from OAuth popup ──────────────────────────────
   useEffect(() => {
-    function onMessage(e) {
-      if (!e.data || e.data.type !== 'social_oauth') return;
-      const { platform, error, saved, accounts, account } = e.data;
-      setConnecting(null);
-
-      if (error) {
-        showToast(`${platform}: ${error}`, false);
-        return;
-      }
-      if (saved) {
-        showToast(`${platform} connected: ${account?.name}`, true);
-        refreshStatus();
-        return;
-      }
-      if (accounts?.length > 0) {
-        setPageModal({ platform, pages: accounts });
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const d = await api.get('/social/accounts');
+        // GHL returns { accounts: [...] } or an array directly
+        const list = Array.isArray(d) ? d : (d.accounts || d.data || []);
+        setAccounts(list);
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
       }
     }
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [showToast, refreshStatus]);
+    load();
+  }, []);
 
-  // ── Open OAuth popup ─────────────────────────────────────────────────────
-  function connectPlatform(p) {
-    if (p.viaFacebook) {
-      // Instagram connects via same Facebook OAuth — result handled in postMessage
-    }
-    const locId = locationId || localStorage.getItem('gtm_location_id') || '';
-    const url   = `/social-auth/${p.oauthKey}?locationId=${encodeURIComponent(locId)}`;
-    const popup = window.open(url, 'social_oauth', 'width=620,height=700,scrollbars=yes');
-    if (!popup) {
-      showToast('Popup blocked — please allow popups for this site.', false);
-      return;
-    }
-    setConnecting(p.key);
-    // Detect popup closed without completing
-    const timer = setInterval(() => {
-      if (popup.closed) { clearInterval(timer); setConnecting(null); }
-    }, 800);
-  }
-
-  // ── Save selected page from modal ────────────────────────────────────────
-  async function selectPage(page) {
-    const { platform } = pageModal;
-    setPageModal(null);
-    try {
-      const r = await fetch(`/social-auth/${platform}/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationId: locationId || localStorage.getItem('gtm_location_id'), account: page }),
-      });
-      const d = await r.json();
-      if (d.success) {
-        showToast(`Connected: ${page.name}`, true);
-        refreshStatus();
-      } else {
-        showToast(d.error || 'Save failed', false);
-      }
-    } catch (e) {
-      showToast(e.message, false);
-    }
-  }
-
-  // ── Disconnect ────────────────────────────────────────────────────────────
-  async function disconnect(p) {
-    if (!confirm(`Disconnect ${p.label}?`)) return;
-    const d = await api.del(`/tools/${p.key}`);
-    if (d.success) { showToast(`${p.label} disconnected.`, true); refreshStatus(); }
-    else showToast(d.error, false);
-  }
+  const anyConnected = accounts.length > 0;
 
   return (
     <div className={`card p-5${anyConnected ? ' connected' : ''}`}>
-
-      {/* ── Page selector modal ── */}
-      {pageModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: '1.5rem', width: '100%', maxWidth: 480, maxHeight: '80vh', overflow: 'auto' }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0', margin: '0 0 4px' }}>Select a Page</h3>
-            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 1rem' }}>Choose which page to connect to this location.</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {pageModal.pages.map(page => (
-                <button key={page.id} onClick={() => selectPage(page)} style={{
-                  display: 'flex', alignItems: 'center', gap: '0.75rem',
-                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: 10, padding: '10px 14px', cursor: 'pointer', textAlign: 'left',
-                  transition: 'border-color .15s',
-                }}
-                onMouseOver={e => e.currentTarget.style.borderColor='rgba(99,102,241,0.5)'}
-                onMouseOut={e => e.currentTarget.style.borderColor='rgba(255,255,255,0.1)'}
-                >
-                  {page.picture
-                    ? <img src={page.picture} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                    : <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{(page.name||'?')[0]}</div>
-                  }
-                  <div>
-                    <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{page.name}</p>
-                    {page.followers && <p style={{ margin: 0, fontSize: 11, color: '#6b7280' }}>{Number(page.followers).toLocaleString()} followers</p>}
-                  </div>
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setPageModal(null)} style={{ marginTop: '1rem', width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px', color: '#6b7280', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
-          </div>
-        </div>
-      )}
 
       {/* ── Card header ── */}
       <div className="flex items-center justify-between gap-4 mb-3">
@@ -1115,95 +1029,94 @@ function SocialHubCard({ serverMap, showToast, refreshStatus, locationId }) {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-white text-sm">Social Hub</span>
               <span className={`text-xs px-2 py-0.5 rounded-full ${anyConnected ? 'badge-on' : 'badge-off'}`}>
-                {anyConnected ? `${connectedPlatforms.length} connected` : 'Not connected'}
+                {loading ? 'Loading…' : anyConnected ? `${accounts.length} connected` : 'No accounts'}
               </span>
             </div>
-            <p className="text-xs text-gray-500 mt-0.5">Facebook · Instagram · TikTok · YouTube · LinkedIn · Pinterest</p>
+            <p className="text-xs text-gray-500 mt-0.5">Synced from GoHighLevel · manage connections in GHL Settings</p>
           </div>
         </div>
         <button onClick={() => setIsOpen(o => !o)} className="btn-ghost px-4 py-1.5 text-xs">
-          {isOpen ? '▲ Collapse' : anyConnected ? '⚙️ Manage' : '+ Connect'}
+          {isOpen ? '▲ Collapse' : '▼ View'}
         </button>
       </div>
 
-      {/* Connected pills (collapsed view) */}
+      {/* Collapsed pill preview */}
       {anyConnected && !isOpen && (
         <div className="flex flex-wrap gap-2 mt-1">
-          {connectedPlatforms.map(p => {
-            const preview = serverMap[p.key]?.configPreview || {};
+          {accounts.map(acc => {
+            const type = (acc.type || acc.platform || '').toLowerCase();
+            const meta = PLATFORM_META[type] || { icon: '🔗', bg: '#6366f1', color: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.4)' };
             return (
-              <span key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 5, background: p.color, border: `1px solid ${p.border}`, borderRadius: 20, padding: '3px 10px 3px 6px', fontSize: 12, color: '#e2e8f0' }}>
-                {preview.picture
-                  ? <img src={preview.picture} alt="" style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }} />
-                  : <span>{p.icon}</span>
+              <span key={acc.id || acc.accountId} style={{ display: 'flex', alignItems: 'center', gap: 5, background: meta.color, border: `1px solid ${meta.border}`, borderRadius: 20, padding: '3px 10px 3px 6px', fontSize: 12, color: '#e2e8f0' }}>
+                {acc.avatar || acc.picture
+                  ? <img src={acc.avatar || acc.picture} alt="" style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }} />
+                  : <span>{meta.icon}</span>
                 }
-                {preview.pageName || p.label}
+                {acc.name || acc.displayName || type}
               </span>
             );
           })}
         </div>
       )}
 
-      {/* ── Expanded platform grid ── */}
+      {/* Expanded account grid */}
       {isOpen && (
-        <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
-          {SOCIAL_PLATFORMS.map(p => {
-            const isConn  = serverMap[p.key]?.enabled;
-            const preview = serverMap[p.key]?.configPreview || {};
-            const isBusy  = connecting === p.key;
+        <div style={{ marginTop: '1rem' }}>
+          {loading && <p style={{ color: '#6b7280', fontSize: 13, textAlign: 'center', padding: '1rem 0' }}>Loading social accounts…</p>}
 
-            return (
-              <div key={p.key} style={{
-                background: isConn ? p.color : 'rgba(255,255,255,0.03)',
-                border: `1px solid ${isConn ? p.border : 'rgba(255,255,255,0.08)'}`,
-                borderRadius: 14, padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem',
-              }}>
-                {/* Platform name + status */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <span style={{ fontSize: 20 }}>{p.icon}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{p.label}</span>
-                  </div>
-                  {isConn && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399', flexShrink: 0 }} />}
-                </div>
+          {error && (
+            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '0.75rem 1rem', fontSize: 13, color: '#f87171' }}>
+              {error.includes('GHL_OAUTH_REQUIRED')
+                ? 'GHL is not connected. Complete the OAuth install flow to sync social accounts.'
+                : error}
+            </div>
+          )}
 
-                {/* Connected account info */}
-                {isConn && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {preview.picture
-                      ? <img src={preview.picture} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                      : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{(preview.pageName || p.label)[0]}</div>
-                    }
-                    <div>
-                      <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#e2e8f0', lineHeight: 1.2 }}>{preview.pageName || 'Connected'}</p>
-                      {preview.followers && <p style={{ margin: 0, fontSize: 11, color: '#9ca3af' }}>{Number(preview.followers).toLocaleString()} followers</p>}
+          {!loading && !error && accounts.length === 0 && (
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '1.5rem', textAlign: 'center' }}>
+              <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 4px' }}>No social accounts connected yet.</p>
+              <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Go to <strong style={{ color: '#a5b4fc' }}>GHL → Settings → Social Planner</strong> to connect Facebook, Instagram, TikTok, and more.</p>
+            </div>
+          )}
+
+          {!loading && accounts.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+              {accounts.map(acc => {
+                const type = (acc.type || acc.platform || '').toLowerCase();
+                const meta = PLATFORM_META[type] || { icon: '🔗', bg: '#6366f1', color: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.4)' };
+                const name = acc.name || acc.displayName || acc.username || 'Account';
+                const avatar = acc.avatar || acc.picture;
+                return (
+                  <div key={acc.id || acc.accountId} style={{
+                    background: meta.color, border: `1px solid ${meta.border}`,
+                    borderRadius: 14, padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <span style={{ fontSize: 20 }}>{meta.icon}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', textTransform: 'capitalize' }}>{type || 'Social'}</span>
+                      </div>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399', flexShrink: 0 }} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {avatar
+                        ? <img src={avatar} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                        : <div style={{ width: 28, height: 28, borderRadius: '50%', background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{name[0]}</div>
+                      }
+                      <div>
+                        <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#e2e8f0', lineHeight: 1.2 }}>{name}</p>
+                        {acc.followers != null && <p style={{ margin: 0, fontSize: 11, color: '#9ca3af' }}>{Number(acc.followers).toLocaleString()} followers</p>}
+                      </div>
                     </div>
                   </div>
-                )}
+                );
+              })}
+            </div>
+          )}
 
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: '0.4rem', marginTop: 'auto' }}>
-                  {isConn ? (
-                    <>
-                      <button onClick={() => connectPlatform(p)} disabled={isBusy} style={{ flex: 1, background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 8, padding: '6px 8px', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
-                        {isBusy ? '⟳' : '↻ Reconnect'}
-                      </button>
-                      <button onClick={() => disconnect(p)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, padding: '6px 10px', color: '#f87171', cursor: 'pointer', fontSize: 11 }}>✕</button>
-                    </>
-                  ) : (
-                    <button onClick={() => connectPlatform(p)} disabled={isBusy} style={{
-                      flex: 1, background: p.bg, color: '#fff', border: 'none',
-                      borderRadius: 8, padding: '7px 10px', fontSize: 12, fontWeight: 700,
-                      cursor: isBusy ? 'wait' : 'pointer', opacity: isBusy ? 0.7 : 1,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                    }}>
-                      {isBusy ? '⟳ Connecting…' : `Connect ${p.label}`}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          <p style={{ fontSize: 11, color: '#4b5563', marginTop: '0.75rem', textAlign: 'center' }}>
+            To add or remove accounts, go to <strong style={{ color: '#6b7280' }}>GHL → Settings → Social Planner</strong>
+          </p>
         </div>
       )}
     </div>
