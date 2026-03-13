@@ -338,6 +338,13 @@ export default function AdLibrary() {
   async function handleSearch(e) {
     e?.preventDefault();
     if (!query.trim()) return;
+
+    // Google tab — open Transparency Center directly, no backend call
+    if (platform === 'google') {
+      window.open(`https://adstransparency.google.com/?region=anywhere&q=${encodeURIComponent(query)}`, '_blank');
+      return;
+    }
+
     setLoading(true); setError(''); setAds([]); setSelected(new Set()); setAnalysis(''); setSearched(true);
     try {
       const country_ = country === 'ALL' ? 'US' : country;
