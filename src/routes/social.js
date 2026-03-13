@@ -14,18 +14,39 @@ const config       = require('../config');
 
 router.use(authenticate);
 
-// Normalize GHL platform type strings → our internal keys
+const PLATFORM_NAMES = ['facebook','instagram','tiktok','youtube','linkedin','pinterest','twitter','gmb'];
+
+// Normalize a single string → platform key
 function normalizePlatformType(raw = '') {
-  const t = raw.toLowerCase().replace(/[_\-\s]/g, '');
-  if (t.includes('facebook') || t === 'fb')       return 'facebook';
-  if (t.includes('instagram') || t === 'ig')       return 'instagram';
-  if (t.includes('tiktok'))                        return 'tiktok';
+  const t = (raw || '').toLowerCase().replace(/[_\-\s]/g, '');
+  if (t.includes('facebook') || t === 'fb')        return 'facebook';
+  if (t.includes('instagram') || t === 'ig')        return 'instagram';
+  if (t.includes('tiktok'))                         return 'tiktok';
   if (t.includes('youtube') || t.includes('ytube')) return 'youtube';
-  if (t.includes('linkedin') || t === 'li')        return 'linkedin';
-  if (t.includes('pinterest') || t === 'pin')      return 'pinterest';
+  if (t.includes('linkedin') || t === 'li')         return 'linkedin';
+  if (t.includes('pinterest') || t === 'pin')       return 'pinterest';
   if (t.includes('twitter') || t.includes('xcom') || t === 'x') return 'twitter';
   if (t.includes('gmb') || t.includes('google') || t.includes('mybusiness')) return 'gmb';
   return t;
+}
+
+// Detect platform from ANY string field on a GHL account object
+function detectPlatform(acc) {
+  if (!acc || typeof acc !== 'object') return '';
+  // Check known type fields first
+  const knownFields = ['type','platform','accountType','account_type','network','provider','service','socialType'];
+  for (const f of knownFields) {
+    const p = normalizePlatformType(acc[f] || '');
+    if (PLATFORM_NAMES.includes(p)) return p;
+  }
+  // Scan every string value on the object (catches unknown field names)
+  for (const val of Object.values(acc)) {
+    if (typeof val === 'string' && val.length < 50) { // skip long strings like tokens
+      const p = normalizePlatformType(val);
+      if (PLATFORM_NAMES.includes(p)) return p;
+    }
+  }
+  return '';
 }
 
 // Auto-sync GHL social accounts into toolRegistry so the command center
@@ -127,9 +148,9 @@ router.get('/accounts', async (req, res) => {
   }
 
   // Merge: GHL accounts take priority; add registry-only accounts if not already in GHL list
-  // Always inject a normalized `platform` field so the frontend can reliably match tiles.
+  // Use detectPlatform to scan ALL string fields — handles any GHL field name.
   const merged = [...ghlAccounts.map(a => {
-    const platform = normalizePlatformType(a.type || a.platform || a.accountType || a.account_type || '');
+    const platform = detectPlatform(a);
     return { ...a, platform, source: 'ghl' };
   })];
   console.log('[Social] ghlAccounts normalized:', merged.map(a => `${a.platform}:${a.name || a.id}`));
@@ -174,17 +195,10 @@ router.get('/status', async (req, res) => {
       const accs = Array.isArray(data) ? data : (data?.results?.accounts || []);
       console.log('[Social/status] GHL raw accounts:', JSON.stringify(accs));
       accs.forEach(a => {
-        // Try every string field on the account object to find a platform name
-        const candidates = Object.values(a).filter(v => typeof v === 'string');
-        let p = '';
-        for (const c of candidates) {
-          p = normalizePlatformType(c);
-          if (p && ['facebook','instagram','tiktok','youtube','linkedin','pinterest','twitter','gmb'].includes(p)) break;
-          p = '';
-        }
+        const p = detectPlatform(a);
         if (p) ghlPlatforms.add(p);
       });
-      console.log('[Social/status] ghlPlatforms:', [...ghlPlatforms]);
+      console.log('[Social/status] ghlPlatforms detected:', [...ghlPlatforms]);
     } catch (e) { console.error('[Social/status] GHL error:', e.message); }
   }
 
@@ -193,7 +207,6 @@ router.get('/status', async (req, res) => {
     let connected = false;
     let name = null;
     let avatar = null;
-    // Check toolRegistry
     for (const key of keys) {
       const c = configs[key];
       if (c && (c.pageName || c.pageId || c.accessToken || c.pageAccessToken || c.channelId || c.organizationId || c.openId)) {
@@ -203,13 +216,17 @@ router.get('/status', async (req, res) => {
         break;
       }
     }
-    // Check GHL social planner
     if (!connected && ghlPlatforms.has(platform)) connected = true;
     status[platform] = { connected, name, avatar };
   }
 
-  console.log('[Social] /status:', Object.entries(status).filter(([,v]) => v.connected).map(([k]) => k));
-  res.json({ status, ghlConnected: !!req.ghl });
+  const connectedList = Object.entries(status).filter(([,v]) => v.connected).map(([k]) => k);
+  console.log('[Social] /status result:', connectedList);
+  res.json({
+    status,
+    ghlConnected: !!req.ghl,
+    _debug: { registryKeys: Object.keys(configs), ghlPlatforms: [...ghlPlatforms], connected: connectedList },
+  });
 });
 
 // Maps GHL social planner accounts → individual social_* toolRegistry keys

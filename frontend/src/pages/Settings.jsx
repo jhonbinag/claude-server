@@ -1087,8 +1087,21 @@ function SocialHubCard({ showToast }) {
         api.get('/social/status'),
       ]);
       const list = Array.isArray(accData) ? accData : (accData.accounts || accData.data || []);
+      console.log('[SocialHub] /social/status _debug:', statusData?._debug);
+      console.log('[SocialHub] /social/accounts list:', list.map(a => `${a.platform}:${a.name}`));
+
+      // Merge status from /social/status with platform fields from /social/accounts
+      // so either source can mark a platform as connected
+      const mergedStatus = { ...(statusData?.status || {}) };
+      list.forEach(a => {
+        if (a.platform && !mergedStatus[a.platform]?.connected) {
+          mergedStatus[a.platform] = { connected: true, name: a.name || null, avatar: a.avatar || a.picture || null };
+        }
+      });
+      console.log('[SocialHub] merged connected:', Object.entries(mergedStatus).filter(([,v]) => v.connected).map(([k]) => k));
+
       setAccounts(list);
-      setStatus(statusData?.status || {});
+      setStatus(mergedStatus);
       setGhlConnected(accData?.ghlConnected !== false);
     } catch (e) {
       setError(e.message);
