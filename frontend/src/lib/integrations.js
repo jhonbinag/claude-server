@@ -1,5 +1,16 @@
 export const INTEGRATIONS = [
   {
+    key:         'ghl_agent',
+    label:       'GHL Agent Studio',
+    icon:        '🤖',
+    color:       'rgba(34,197,94,0.12)',
+    description: 'Trigger a GHL Agent Studio agent to build native funnels, websites and automations inside GHL.',
+    docsUrl:     'https://help.gohighlevel.com/support/solutions/articles/155000003649',
+    fields: [
+      { key: 'webhookUrl', label: 'Agent Trigger Webhook URL', type: 'password', placeholder: 'https://services.leadconnectorhq.com/hooks/...' },
+    ],
+  },
+  {
     key:         'perplexity',
     label:       'Perplexity AI',
     icon:        '🔍',

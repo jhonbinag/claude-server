@@ -23,6 +23,7 @@ let socialAuthRoutes; try { socialAuthRoutes = require('./src/routes/socialAuth'
 let manychatRoutes;   try { manychatRoutes   = require('./src/routes/manychat');   } catch (e) { _errors.manychat   = e.message; }
 let promptRoutes;     try { promptRoutes     = require('./src/routes/prompts');     } catch (e) { _errors.prompts    = e.message; }
 let cronRoutes;       try { cronRoutes       = require('./src/routes/cron');         } catch (e) { _errors.cron       = e.message; }
+let agentRoutes;      try { agentRoutes      = require('./src/routes/agent');        } catch (e) { _errors.agent      = e.message; }
 let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui          = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
@@ -101,6 +102,7 @@ if (socialAuthRoutes)  app.use('/social-auth', socialAuthRoutes);
 if (manychatRoutes)    app.use('/manychat',    manychatRoutes);
 if (promptRoutes)      app.use('/prompts',     promptRoutes);
 if (cronRoutes)        app.use('/cron',        cronRoutes);
+if (agentRoutes)       app.use('/agent',       agentRoutes);
 if (uiRoute)         app.use('/',           uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────

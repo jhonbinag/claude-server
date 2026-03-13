@@ -10,6 +10,7 @@ import Admin           from './pages/Admin';
 import SocialPlanner  from './pages/SocialPlanner';
 import AdLibrary      from './pages/AdLibrary';
 import ManyChatPage   from './pages/ManyChat';
+import GHLAgent       from './pages/GHLAgent';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/social"        element={<SocialPlanner />} />
         <Route path="/ad-library"    element={<AdLibrary />} />
         <Route path="/manychat"      element={<ManyChatPage />} />
+        <Route path="/ghl-agent"     element={<GHLAgent />} />
         <Route path="*"              element={<Navigate to="/" replace />} />
       </Routes>
     </AppProvider>
