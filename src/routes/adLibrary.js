@@ -60,6 +60,61 @@ async function getFbToken(locationId) {
   return null;
 }
 
+// ── Public scraper: Facebook's own internal Ad Library endpoint ───────────────
+// No API token needed — this is the same endpoint the facebook.com website uses.
+async function searchPublicAdLibrary({ q, country = 'US', status = 'ALL', limit = 30 }) {
+  const params = new URLSearchParams({
+    q,
+    ad_type:       'all',
+    active_status: status === 'ACTIVE' ? 'active' : status === 'INACTIVE' ? 'inactive' : 'all',
+    country,
+    start_index:   '0',
+    count:         String(Math.min(Number(limit), 50)),
+    session_id:    require('crypto').randomUUID(),
+    source:        'Search',
+    search_type:   'keyword_unordered',
+    view_all_page_id: '',
+  });
+
+  const response = await axios.get(
+    `https://www.facebook.com/ads/library/async/search_ads/?${params.toString()}`,
+    {
+      headers: {
+        'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept':          'application/json, text/javascript, */*; q=0.01',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer':         'https://www.facebook.com/ads/library/',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      timeout: 15000,
+    }
+  );
+
+  // Facebook prefixes JSON responses with "for (;;);" — strip it
+  let raw = response.data;
+  if (typeof raw === 'string') {
+    raw = raw.replace(/^for \(;;\);/, '').trim();
+    raw = JSON.parse(raw);
+  }
+
+  // Extract ads from the response payload
+  const ads = raw?.payload?.results || raw?.data?.results || raw?.results || [];
+  return ads.map(ad => ({
+    id:                      ad.adArchiveID || ad.id || String(Math.random()),
+    page_name:               ad.pageName    || ad.page_name || '',
+    ad_creative_bodies:      ad.snapshot?.body?.markup?.__html
+                               ? [ad.snapshot.body.markup.__html.replace(/<[^>]+>/g, '')]
+                               : (ad.ad_creative_bodies || []),
+    ad_creative_link_titles: ad.snapshot?.title ? [ad.snapshot.title] : (ad.ad_creative_link_titles || []),
+    ad_creative_link_descriptions: ad.snapshot?.linkDescription ? [ad.snapshot.linkDescription] : [],
+    ad_delivery_start_time:  ad.startDate || ad.ad_delivery_start_time || '',
+    publisher_platforms:     ad.publisherPlatform || ad.publisher_platforms || [],
+    impressions:             ad.impressionsWithIndex || ad.impressions || null,
+    spend:                   ad.spend || null,
+    _source:                 'public',
+  }));
+}
+
 // ── GET /ad-library/search ────────────────────────────────────────────────────
 // Query params:
 //   q        — search terms (brand / competitor name)
@@ -73,35 +128,39 @@ router.get('/search', async (req, res) => {
     console.log(`[AdLibrary] search request: locationId=${req.locationId} q="${q}" country=${country} status=${status} limit=${limit}`);
     if (!q) return res.status(400).json({ error: 'Search term (q) is required.' });
 
+    // ── Try official API first ─────────────────────────────────────────────────
     const token = await getFbToken(req.locationId);
-    if (!token) {
-      console.warn(`[AdLibrary] FB token missing for location ${req.locationId}`);
-      return res.status(400).json({
-        error:   'Facebook access token not configured.',
-        hint:    'Go to Settings → Facebook Ads and enter your App ID + App Secret (or a User Access Token).',
-        code:    'FB_TOKEN_MISSING',
-      });
+    if (token) {
+      try {
+        const params = {
+          access_token:         token,
+          search_terms:         q,
+          ad_reached_countries: JSON.stringify([country === 'ALL' ? 'US' : country]),
+          ad_type:              type,
+          fields:               AD_FIELDS,
+          limit:                Math.min(Number(limit), 50),
+        };
+        if (status !== 'ALL') params.ad_active_status = status;
+        const response = await axios.get(`${FB_API}/ads_archive`, { params });
+        const ads = response.data?.data || [];
+        console.log(`[AdLibrary] official API: ${ads.length} ads for "${q}"`);
+        return res.json({ data: ads });
+      } catch (apiErr) {
+        const msg = apiErr.response?.data?.error?.message || apiErr.message;
+        console.warn(`[AdLibrary] official API failed (${msg}), falling back to public scraper`);
+      }
     }
 
-    const params = {
-      access_token:        token,
-      search_terms:        q,
-      ad_reached_countries: JSON.stringify([country]),
-      ad_type:             type,
-      fields:              AD_FIELDS,
-      limit:               Math.min(Number(limit), 50),
-    };
-    if (status !== 'ALL') params.ad_active_status = status;
+    // ── Fall back to public scraper (no token needed) ─────────────────────────
+    console.log(`[AdLibrary] using public scraper for "${q}"`);
+    const ads = await searchPublicAdLibrary({ q, country: country === 'ALL' ? 'US' : country, status, limit });
+    console.log(`[AdLibrary] public scraper: ${ads.length} ads for "${q}"`);
+    res.json({ data: ads });
 
-    const response = await axios.get(`${FB_API}/ads_archive`, { params });
-    const count = (response.data?.data || []).length;
-    console.log(`[AdLibrary] search results: ${count} ads returned for "${q}"`);
-    res.json(response.data);
   } catch (err) {
-    const status  = err.response?.status;
     const message = err.response?.data?.error?.message || err.message;
     console.error('[AdLibrary] search error:', message);
-    res.status(status || 500).json({ error: message });
+    res.status(err.response?.status || 500).json({ error: message });
   }
 });
 
