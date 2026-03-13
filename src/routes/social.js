@@ -351,9 +351,10 @@ router.get('/posts', async (req, res) => {
   if (!req.ghl) return res.status(503).json({ error: 'GHL OAuth not connected.', code: 'GHL_OAUTH_REQUIRED' });
   try {
     const { status, page = 1, limit = 20 } = req.query;
-    const params = { page, limit };
-    if (status) params.status = status;
-    const data = await req.ghl('GET', `/social-media-posting/${req.locationId}/posts`, null, params);
+    // GHL API uses POST /posts/list (GET /posts returns 404)
+    const body = { page: Number(page), limit: Number(limit) };
+    if (status) body.status = status;
+    const data = await req.ghl('POST', `/social-media-posting/${req.locationId}/posts/list`, body);
     res.json(data);
   } catch (err) {
     console.error('[Social] posts error:', err.message);
