@@ -304,65 +304,93 @@ export default function SocialPlanner() {
           </div>
         )}
 
-        {/* ── Posts List ─────────────────────────────────────────────── */}
+        {/* ── Posts Table ─────────────────────────────────────────────── */}
         <section>
-          {/* Tabs */}
-          <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1rem', background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 4, width: 'fit-content' }}>
-            {['SCHEDULED', 'PUBLISHED', 'DRAFT'].map(s => (
-              <button
-                key={s}
-                onClick={() => setTab(s)}
-                style={{
+          {/* Tabs + refresh */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', gap: '0.25rem', background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 4 }}>
+              {['SCHEDULED', 'PUBLISHED', 'DRAFT'].map(s => (
+                <button key={s} onClick={() => setTab(s)} style={{
                   background: tab === s ? 'rgba(99,102,241,0.3)' : 'transparent',
                   border: tab === s ? '1px solid rgba(99,102,241,0.5)' : '1px solid transparent',
-                  borderRadius: 7, padding: '5px 16px', fontSize: 12, fontWeight: 600,
+                  borderRadius: 7, padding: '5px 18px', fontSize: 12, fontWeight: 600,
                   color: tab === s ? '#c7d2fe' : '#6b7280', cursor: 'pointer',
-                }}
-              >
-                {STATUS_STYLES[s]?.label || s}
-              </button>
-            ))}
+                }}>
+                  {STATUS_STYLES[s]?.label || s}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => loadPosts(tab)} disabled={loadingPosts}
+              style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 6, padding: '4px 12px', fontSize: 11, color: '#a5b4fc', cursor: 'pointer', opacity: loadingPosts ? 0.5 : 1 }}>
+              {loadingPosts ? '↻ Loading…' : '↻ Refresh'}
+            </button>
           </div>
 
           {loadingPosts ? (
             <p style={{ color: '#6b7280', fontSize: 13 }}>Loading posts…</p>
           ) : postError ? (
-            <p style={{ color: '#fca5a5', fontSize: 13 }}>Error: {postError}</p>
+            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '0.75rem 1rem', color: '#fca5a5', fontSize: 13 }}>
+              ❌ {postError}
+            </div>
           ) : posts.length === 0 ? (
-            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: '2rem', textAlign: 'center' }}>
-              <p style={{ color: '#4b5563', fontSize: 13 }}>No {STATUS_STYLES[tab]?.label.toLowerCase()} posts yet.</p>
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: '3rem', textAlign: 'center' }}>
+              <p style={{ color: '#4b5563', fontSize: 14, margin: 0 }}>No {STATUS_STYLES[tab]?.label.toLowerCase()} posts yet.</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {posts.map(post => {
-                const ss = STATUS_STYLES[post.status] || STATUS_STYLES.DRAFT;
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, overflow: 'hidden' }}>
+              {/* Table header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px 160px 100px 80px', gap: '0.5rem', padding: '0.6rem 1.25rem', background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                {['Content', 'Platforms', 'Date', 'Status', ''].map((h, i) => (
+                  <span key={i} style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
+                ))}
+              </div>
+              {/* Table rows */}
+              {posts.map((post, idx) => {
+                const ss  = STATUS_STYLES[post.status] || STATUS_STYLES.DRAFT;
+                const pid = post.id || post._id;
+                const date = post.status === 'PUBLISHED' ? post.publishedDate : post.scheduledDate;
                 return (
-                  <div key={post.id || post._id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '1rem 1.25rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 14, color: '#e2e8f0', margin: '0 0 0.4rem', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                          {post.summary || post.content || post.text || '(no content)'}
-                        </p>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
-                          <span style={{ background: ss.bg, color: ss.color, borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{ss.label}</span>
-                          {post.scheduledDate && (
-                            <span style={{ fontSize: 11, color: '#6b7280' }}>🕐 {fmt(post.scheduledDate)}</span>
-                          )}
-                          {post.publishedDate && (
-                            <span style={{ fontSize: 11, color: '#6b7280' }}>✅ {fmt(post.publishedDate)}</span>
-                          )}
-                          {(post.accounts || []).map(acc => {
+                  <div key={pid} style={{
+                    display: 'grid', gridTemplateColumns: '1fr 140px 160px 100px 80px',
+                    gap: '0.5rem', padding: '0.85rem 1.25rem', alignItems: 'center',
+                    borderBottom: idx < posts.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                    transition: 'background 0.15s',
+                  }}
+                    onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                    onMouseOut={e  => e.currentTarget.style.background = 'transparent'}
+                  >
+                    {/* Content */}
+                    <p style={{ fontSize: 13, color: '#e2e8f0', margin: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.5 }}>
+                      {post.summary || post.content || post.text || <span style={{ color: '#4b5563' }}>(no content)</span>}
+                    </p>
+                    {/* Platforms */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                      {(post.accounts || []).length === 0
+                        ? <span style={{ fontSize: 11, color: '#4b5563' }}>—</span>
+                        : (post.accounts || []).map(acc => {
                             const pm = platformOf(acc);
-                            return <span key={acc.id} style={{ fontSize: 12 }} title={pm.label}>{pm.icon}</span>;
-                          })}
-                        </div>
-                      </div>
+                            return (
+                              <span key={acc.id} title={`${pm.label}: ${acc.name || acc.displayName || ''}`}
+                                style={{ fontSize: 13, background: 'rgba(255,255,255,0.06)', borderRadius: 6, padding: '2px 6px' }}>
+                                {pm.icon}
+                              </span>
+                            );
+                          })
+                      }
+                    </div>
+                    {/* Date */}
+                    <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                      {date ? fmt(date) : <span style={{ color: '#4b5563' }}>—</span>}
+                    </span>
+                    {/* Status badge */}
+                    <span style={{ background: ss.bg, color: ss.color, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {ss.label}
+                    </span>
+                    {/* Actions */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       {post.status !== 'PUBLISHED' && (
-                        <button
-                          onClick={() => handleDelete(post.id || post._id)}
-                          title="Delete post"
-                          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, color: '#f87171', padding: '4px 10px', fontSize: 12, cursor: 'pointer', flexShrink: 0 }}
-                        >
+                        <button onClick={() => handleDelete(pid)} title="Delete"
+                          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, color: '#f87171', padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
                           Delete
                         </button>
                       )}
