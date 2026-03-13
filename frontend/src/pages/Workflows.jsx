@@ -382,7 +382,9 @@ function applyEvent(prev, type, data) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function Workflows() {
-  const { isAuthenticated, isAuthLoading, locationId, integrations } = useApp();
+  const { isAuthenticated, isAuthLoading, locationId, integrations: ctxIntegrations, integrationsLoaded, loadIntegrations } = useApp();
+  const [localIntegrations, setLocalIntegrations] = useState(null); // null = not yet fetched locally
+  const integrations = localIntegrations ?? ctxIntegrations;
   const { isRunning, stream, stop } = useStreamFetch();
 
   const [nodes,     setNodes]     = useState([]);
@@ -427,6 +429,15 @@ export default function Workflows() {
   }, [locationId]);
 
   useEffect(() => { loadSaved(); }, [loadSaved]);
+
+  // Fetch integrations directly so we always have fresh enabled-status data
+  useEffect(() => {
+    if (!locationId) return;
+    fetch('/tools', { headers: { 'x-location-id': locationId } })
+      .then(r => r.json())
+      .then(d => { if (d.success) setLocalIntegrations(d.data || []); })
+      .catch(() => {});
+  }, [locationId]);
 
   const loadWfLibrary = useCallback(async () => {
     if (!locationId) return;
