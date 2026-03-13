@@ -224,7 +224,7 @@ Output the full sequence as a JSON array and then a human-readable summary of ea
     }
     case 'crm_action': {
       const crmLabel = CRM_ACTIONS.find(a => a.key === config.crmAction)?.label || config.crmAction;
-      return `${node?.toolLabel || 'CRM'}: ${crmLabel}.${ctx} ${config.crmDetail || ''}`;
+      return `${config.toolLabel || 'CRM'}: ${crmLabel}.${ctx} ${config.crmDetail || ''}`;
     }
     case 'social_hub': {
       const platforms = (config.platforms || []).map(p => SOCIAL_PLATFORMS.find(x => x.key === p)?.label || p).join(', ') || 'all connected platforms';
@@ -287,7 +287,7 @@ function uid() { return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}
 function mkNode(tool, label, icon, x, y) {
   let config = null;
   if (tool === 'ghl') config = { action: null };
-  else if (tool === 'hubspot' || tool === 'keap') config = { action: 'crm_action', crmAction: null };
+  else if (tool === 'hubspot' || tool === 'keap') config = { action: 'crm_action', crmAction: null, toolLabel: label };
   else if (tool === 'social_hub') config = { action: 'social_hub', platforms: [], socialAction: null };
   else if (tool === 'payment_hub') config = { action: 'payment_hub', gateway: null, paymentAction: null };
   return { id: `n_${uid()}`, tool, label, icon, x, y, instruction: '', config };

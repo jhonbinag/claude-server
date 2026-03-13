@@ -107,40 +107,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ─── GET /tools/debug — raw Firebase vs toolRegistry diagnostic ──────────────
-
-router.get('/debug', async (req, res) => {
-  try {
-    const fb = require('../services/firebaseStore');
-    const firebaseRaw = config.isFirebaseEnabled ? await fb.getToolConfig(req.locationId) : null;
-
-    // Also read the raw Firestore document to see actual field names
-    let rawDoc = null;
-    if (config.isFirebaseEnabled) {
-      try {
-        const admin = require('firebase-admin');
-        const snap = await admin.firestore().collection('toolConfigs').doc(req.locationId).get();
-        rawDoc = snap.exists ? snap.data() : 'document does not exist';
-      } catch (e) { rawDoc = 'error: ' + e.message; }
-    }
-
-    const registryFull = await toolRegistry.loadToolConfigs(req.locationId);
-    const enabled      = await toolRegistry.getEnabledIntegrations(req.locationId);
-
-    res.json({
-      success:           true,
-      locationId:        req.locationId,
-      isFirebaseEnabled: config.isFirebaseEnabled,
-      firebaseKeys:      firebaseRaw ? Object.keys(firebaseRaw) : null,
-      rawFirestoreDoc:   rawDoc,
-      registryKeys:      Object.keys(registryFull),
-      enabledCategories: enabled,
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
 // ─── GET /tools/sync — full sync status with token health ────────────────────
 
 router.get('/sync', async (req, res) => {
