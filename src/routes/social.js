@@ -355,7 +355,10 @@ router.get('/posts', async (req, res) => {
     const body = { page: Number(page), limit: Number(limit) };
     if (status) body.status = status;
     const data = await req.ghl('POST', `/social-media-posting/${req.locationId}/posts/list`, body);
-    res.json(data);
+    // Normalize: GHL may return posts under 'posts', 'postList', or top-level array
+    const posts = Array.isArray(data) ? data
+      : (data?.posts || data?.postList || data?.data || []);
+    res.json({ posts, total: data?.total || posts.length });
   } catch (err) {
     console.error('[Social] posts error:', err.message);
     res.status(500).json({ error: err.message });
