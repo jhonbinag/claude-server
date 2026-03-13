@@ -128,11 +128,11 @@ router.get('/search', async (req, res) => {
     console.log(`[AdLibrary] search request: locationId=${req.locationId} q="${q}" country=${country} status=${status} limit=${limit}`);
     if (!q) return res.status(400).json({ error: 'Search term (q) is required.' });
 
-    // ── Try official API first ─────────────────────────────────────────────────
+    // ── Try official API first (skip if token missing/expired) ──────────────────
     const token = await getFbToken(req.locationId);
     if (token) {
       try {
-        const params = {
+        const apiParams = {
           access_token:         token,
           search_terms:         q,
           ad_reached_countries: JSON.stringify([country === 'ALL' ? 'US' : country]),
@@ -140,22 +140,28 @@ router.get('/search', async (req, res) => {
           fields:               AD_FIELDS,
           limit:                Math.min(Number(limit), 50),
         };
-        if (status !== 'ALL') params.ad_active_status = status;
-        const response = await axios.get(`${FB_API}/ads_archive`, { params });
-        const ads = response.data?.data || [];
-        console.log(`[AdLibrary] official API: ${ads.length} ads for "${q}"`);
-        return res.json({ data: ads });
+        if (status !== 'ALL') apiParams.ad_active_status = status;
+        const response = await axios.get(`${FB_API}/ads_archive`, { params: apiParams });
+        const apiAds = response.data?.data || [];
+        console.log(`[AdLibrary] official API: ${apiAds.length} ads for "${q}"`);
+        return res.json({ data: apiAds });
       } catch (apiErr) {
         const msg = apiErr.response?.data?.error?.message || apiErr.message;
         console.warn(`[AdLibrary] official API failed (${msg}), falling back to public scraper`);
+        // Continue to public scraper — do NOT re-throw
       }
     }
 
-    // ── Fall back to public scraper (no token needed) ─────────────────────────
+    // ── Public scraper fallback (no token needed) ─────────────────────────────
     console.log(`[AdLibrary] using public scraper for "${q}"`);
-    const ads = await searchPublicAdLibrary({ q, country: country === 'ALL' ? 'US' : country, status, limit });
-    console.log(`[AdLibrary] public scraper: ${ads.length} ads for "${q}"`);
-    res.json({ data: ads });
+    try {
+      const ads = await searchPublicAdLibrary({ q, country: country === 'ALL' ? 'US' : country, status, limit });
+      console.log(`[AdLibrary] public scraper: ${ads.length} ads for "${q}"`);
+      return res.json({ data: ads });
+    } catch (scrapeErr) {
+      console.error('[AdLibrary] public scraper failed:', scrapeErr.message);
+      return res.status(500).json({ error: 'Unable to fetch ads. Facebook may be blocking server-side requests. Try the Paste & Analyze option instead.' });
+    }
 
   } catch (err) {
     const message = err.response?.data?.error?.message || err.message;
