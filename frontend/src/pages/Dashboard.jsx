@@ -718,7 +718,7 @@ export default function Dashboard() {
                         <span className="text-xs font-semibold" style={{ color: '#c084fc' }}>🎓 Persona Training</span>
                         {trainPromptId && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}>Updating</span>}
                       </div>
-                      <button onClick={() => { clearTrainSession(); autoSaveTrainingRef.current = null; trainMsgsRef.current = []; trainFolderRef.current = null; setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); setTrainInput(''); setTrainLoading(false); setTrainSaveTitle(''); }}
+                      <button onClick={() => { clearTrainSession(); autoSaveTrainingRef.current = null; trainMsgsRef.current = []; trainFolderRef.current = null; setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); setTrainInput(''); setTrainLoading(false); setTrainSaveTitle(''); setTimeout(loadLibrary, 300); }}
                         className="text-xs text-gray-500 hover:text-gray-300">✕ Exit</button>
                     </div>
 
