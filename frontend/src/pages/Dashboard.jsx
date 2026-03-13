@@ -129,6 +129,13 @@ export default function Dashboard() {
   const [showNewPrompt, setShowNewPrompt] = useState(false);
   const [newPromptTitle,setNewPromptTitle]= useState('');
   const [newPromptBody, setNewPromptBody] = useState('');
+  // ── Persona training ───────────────────────────────────────────────────────
+  const [trainFolder,   setTrainFolder]   = useState(null);   // folder id being trained
+  const [trainMsgs,     setTrainMsgs]     = useState([]);     // [{role,content}]
+  const [trainInput,    setTrainInput]    = useState('');
+  const [trainLoading,  setTrainLoading]  = useState(false);
+  const [trainGenerated,setTrainGenerated]= useState('');     // finalized persona text
+  const [trainSaveTitle,setTrainSaveTitle]= useState('');
   const { isRunning, stream, stop } = useStreamFetch();
 
   const { listening, supported: voiceSupported, toggle: toggleVoice, elapsed, liveText } = useVoice(
@@ -205,6 +212,52 @@ export default function Dashboard() {
     if (!title) return;
     await fetch(`/prompts/folders/${activeFolder}/prompts`, { method: 'POST', headers: apiHeaders,
       body: JSON.stringify({ title: title.trim(), content: task.trim() }) });
+    loadLibrary();
+  };
+
+  const startTraining = (folderId) => {
+    setTrainFolder(folderId);
+    setTrainMsgs([]);
+    setTrainInput('');
+    setTrainGenerated('');
+    setTrainSaveTitle('');
+    setActiveFolder(folderId);
+  };
+
+  const sendTrainMsg = async (overrideAction) => {
+    const content = trainInput.trim();
+    if (!content && !overrideAction) return;
+    const userMsg = content ? { role: 'user', content } : null;
+    const msgs = userMsg ? [...trainMsgs, userMsg] : trainMsgs;
+    if (userMsg) setTrainMsgs(msgs);
+    setTrainInput('');
+    setTrainLoading(true);
+    try {
+      const res  = await fetch('/prompts/train', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-location-id': apiKey },
+        body: JSON.stringify({ messages: msgs, action: overrideAction || 'chat' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (overrideAction === 'finalize') {
+          setTrainGenerated(data.reply);
+          setTrainSaveTitle('My Custom Persona');
+        } else {
+          setTrainMsgs(m => [...m, { role: 'assistant', content: data.reply }]);
+        }
+      }
+    } catch { /* non-fatal */ }
+    finally { setTrainLoading(false); }
+  };
+
+  const saveTrainedPersona = async () => {
+    if (!trainGenerated.trim() || !trainSaveTitle.trim() || !trainFolder) return;
+    await fetch(`/prompts/folders/${trainFolder}/prompts`, {
+      method: 'POST', headers: apiHeaders,
+      body: JSON.stringify({ title: trainSaveTitle.trim(), content: trainGenerated.trim() }),
+    });
+    setTrainFolder(null); setTrainMsgs([]); setTrainGenerated(''); setTrainSaveTitle('');
     loadLibrary();
   };
 
@@ -459,21 +512,95 @@ export default function Dashboard() {
                 )}
                 {library.map(folder => (
                   <div key={folder.id}
-                    onClick={() => { setActiveFolder(folder.id); setShowNewPrompt(false); }}
+                    onClick={() => { setActiveFolder(folder.id); setShowNewPrompt(false); setTrainFolder(null); setTrainGenerated(''); }}
                     className="group flex items-center gap-2 px-3 py-2 cursor-pointer transition-all"
                     style={{ background: activeFolder === folder.id ? 'rgba(99,102,241,0.15)' : 'transparent', borderLeft: `2px solid ${activeFolder === folder.id ? '#6366f1' : 'transparent'}` }}>
                     <span className="text-base flex-shrink-0">{folder.icon}</span>
                     <span className="flex-1 text-xs text-gray-300 truncate">{folder.name}</span>
-                    <span className="text-xs text-gray-600 flex-shrink-0">{folder.prompts.length}</span>
+                    <button onClick={e => { e.stopPropagation(); startTraining(folder.id); }}
+                      title="Train a persona for this folder"
+                      className="opacity-0 group-hover:opacity-100 text-xs px-1.5 py-0.5 rounded flex-shrink-0 transition-all"
+                      style={{ background: 'rgba(168,85,247,0.2)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' }}>
+                      🎓
+                    </button>
                     <button onClick={e => { e.stopPropagation(); deleteFolder(folder.id); }}
                       className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 text-xs flex-shrink-0 transition-all">×</button>
                   </div>
                 ))}
               </div>
 
-              {/* Right: prompts in selected folder */}
+              {/* Right: training mode OR prompts list */}
               <div className="flex-1 flex flex-col overflow-hidden">
-                {!activeFolder ? (
+                {trainFolder && activeFolder === trainFolder ? (
+                  /* ── Persona Training Chat ── */
+                  <div className="flex flex-col h-full">
+                    <div className="flex items-center justify-between px-3 pt-3 pb-2 flex-shrink-0"
+                      style={{ borderBottom: '1px solid rgba(168,85,247,0.2)', background: 'rgba(168,85,247,0.06)' }}>
+                      <span className="text-xs font-semibold" style={{ color: '#c084fc' }}>🎓 Persona Training</span>
+                      <button onClick={() => { setTrainFolder(null); setTrainMsgs([]); setTrainGenerated(''); }}
+                        className="text-xs text-gray-500 hover:text-gray-300">✕ Exit</button>
+                    </div>
+
+                    {trainGenerated ? (
+                      /* Generated persona — review + save */
+                      <div className="flex-1 flex flex-col p-3 gap-2 overflow-y-auto">
+                        <p className="text-xs font-semibold text-green-400">✓ Persona generated! Review and save:</p>
+                        <textarea value={trainGenerated} onChange={e => setTrainGenerated(e.target.value)}
+                          rows={8} className="field w-full text-xs flex-1" style={{ resize: 'none' }} />
+                        <input value={trainSaveTitle} onChange={e => setTrainSaveTitle(e.target.value)}
+                          placeholder="Persona name…" className="field w-full text-xs" />
+                        <div className="flex gap-2">
+                          <button onClick={saveTrainedPersona} className="btn-primary text-xs flex-1 py-1.5">
+                            💾 Save Persona
+                          </button>
+                          <button onClick={() => setTrainGenerated('')}
+                            className="btn-ghost text-xs px-3 py-1.5">↩ Retrain</button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Training chat */
+                      <>
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                          {trainMsgs.length === 0 && (
+                            <div className="text-xs text-gray-500 text-center py-4">
+                              Tell Claude what kind of persona you want to create.<br/>
+                              <span className="text-gray-600">e.g. "I run a fitness coaching brand targeting women 30–45"</span>
+                            </div>
+                          )}
+                          {trainMsgs.map((m, i) => (
+                            <div key={i} className={`text-xs px-3 py-2 rounded-xl max-w-[90%] ${m.role === 'user' ? 'ml-auto' : 'mr-auto'}`}
+                              style={m.role === 'user'
+                                ? { background: 'rgba(99,102,241,0.2)', color: '#c7d2fe' }
+                                : { background: 'rgba(255,255,255,0.05)', color: '#e2e8f0' }}>
+                              {m.content}
+                            </div>
+                          ))}
+                          {trainLoading && (
+                            <div className="text-xs text-gray-500 px-3 py-2 mr-auto">
+                              <span className="animate-pulse">Claude is thinking…</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-shrink-0 p-2 space-y-1.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                          <div className="flex gap-1.5">
+                            <input value={trainInput} onChange={e => setTrainInput(e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendTrainMsg()}
+                              placeholder="Describe your persona…" className="field flex-1 text-xs py-1.5" />
+                            <button onClick={() => sendTrainMsg()} disabled={!trainInput.trim() || trainLoading}
+                              className="btn-primary text-xs px-3 py-1.5">Send</button>
+                          </div>
+                          {trainMsgs.length >= 3 && (
+                            <button onClick={() => sendTrainMsg('finalize')} disabled={trainLoading}
+                              className="w-full text-xs py-1.5 rounded-lg font-semibold transition-all"
+                              style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.4)', color: '#c084fc' }}>
+                              ✨ Generate Persona
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : !activeFolder ? (
                   <div className="flex items-center justify-center h-full text-xs text-gray-600">Select a folder</div>
                 ) : (
                   <>

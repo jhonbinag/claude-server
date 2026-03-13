@@ -143,4 +143,60 @@ router.delete('/folders/:fid/prompts/:pid', async (req, res) => {
   }
 });
 
+// ── POST /prompts/train ───────────────────────────────────────────────────────
+// Persona training chat. Body: { messages, action: 'chat' | 'finalize' }
+// 'chat'     → coaching conversation (ask questions, gather info)
+// 'finalize' → synthesize conversation into a clean system prompt
+
+router.post('/train', async (req, res) => {
+  try {
+    const { messages = [], action = 'chat' } = req.body;
+
+    const registry = require('../tools/toolRegistry');
+    const configs  = await registry.loadToolConfigs(req.locationId);
+    const apiKey   = configs.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return res.status(400).json({ success: false, error: 'Anthropic API key not configured.' });
+
+    const COACH_SYSTEM = `You are a friendly persona training coach helping a user define their ideal AI persona through natural conversation.
+
+Ask focused questions one or two at a time to learn about:
+- Their business, brand, or use case
+- Preferred tone and communication style (formal, casual, witty, direct, empathetic)
+- Expertise areas or topics to focus on
+- Things the AI should NEVER say or do
+- Specific phrases, terminology, or examples they like
+- How responses should be structured (brief, detailed, bullet points, etc.)
+
+Keep each response short and conversational — you're having a chat, not writing an essay.
+After 4–6 exchanges when you feel you have a clear picture, say something like:
+"I think I have everything I need! Click **Generate Persona** to create your custom system prompt."
+
+Do NOT generate the final persona during the chat — that happens in the finalize step.`;
+
+    const FINALIZE_SYSTEM = `You are an expert at writing AI system prompts. Based on the training conversation provided, generate a polished, ready-to-use system prompt for the user's persona.
+
+Requirements:
+- Start with "You are [persona description]..."
+- Include: role/identity, tone and communication style, expertise areas, audience, and any specific behaviors or constraints discussed
+- Be specific and actionable, not vague
+- 150–300 words maximum
+- Output ONLY the system prompt — no preamble, no explanation, no markdown headers`;
+
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey });
+
+    const message = await client.messages.create({
+      model:      'claude-opus-4-6',
+      max_tokens: action === 'finalize' ? 600 : 300,
+      system:     action === 'finalize' ? FINALIZE_SYSTEM : COACH_SYSTEM,
+      messages,
+    });
+
+    res.json({ success: true, reply: message.content[0]?.text || '' });
+  } catch (err) {
+    console.error('[Prompts] train error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
