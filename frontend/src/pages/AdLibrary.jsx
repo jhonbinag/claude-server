@@ -378,6 +378,23 @@ export default function AdLibrary() {
     finally { setLoading(false); }
   }
 
+  function handleUrlImport(url) {
+    try {
+      const u = new URL(url.trim());
+      const q       = u.searchParams.get('q');
+      const country = u.searchParams.get('country');
+      const active  = u.searchParams.get('active_status'); // active | inactive | all
+      const adType  = u.searchParams.get('ad_type');       // all | political_and_issue_ads
+      if (q)       setQuery(q);
+      if (country) setCountry(country.toUpperCase());
+      if (active === 'active')   setStatus('ACTIVE');
+      else if (active === 'inactive') setStatus('INACTIVE');
+      else if (active === 'all') setStatus('ALL');
+      if (adType === 'political_and_issue_ads') setAdType('POLITICAL_AND_ISSUE_ADS');
+      else setAdType('ALL');
+    } catch { /* invalid URL, ignore */ }
+  }
+
   function toggleAd(id) {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
@@ -441,6 +458,27 @@ export default function AdLibrary() {
               </button>
             )}
           </div>
+
+          {/* URL import row — Facebook only */}
+          {platform === 'facebook' && (
+            <div style={{ paddingBottom: 6 }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  style={{
+                    flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: 8, padding: '6px 12px', color: '#9ca3af', fontSize: 12,
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                  placeholder="Paste a Facebook Ad Library URL to auto-fill filters…"
+                  onPaste={e => { e.preventDefault(); handleUrlImport(e.clipboardData.getData('text')); }}
+                  onChange={e => handleUrlImport(e.target.value)}
+                />
+                <a href="https://www.facebook.com/ads/library/" target="_blank" rel="noreferrer" style={{
+                  fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap', textDecoration: 'none',
+                }}>Open Ad Library ↗</a>
+              </div>
+            </div>
+          )}
 
           {/* Search bar row */}
           <div style={{ paddingBottom: 10 }}>
