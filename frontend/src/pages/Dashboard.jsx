@@ -166,32 +166,34 @@ export default function Dashboard() {
         const folders = data.data || [];
         setLibrary(folders);
 
-        // ── Restore training session after page reload ───────────────────────
-        const key = `train_session_${apiKey}`;
-        const saved = localStorage.getItem(key);
-        if (saved) {
-          try {
-            const { folderId, promptId } = JSON.parse(saved);
-            const folder = folders.find(f => f.id === folderId);
-            if (folder) {
-              const prompt = promptId ? folder.prompts?.find(p => p.id === promptId) : null;
-              // Restore: open library panel, select folder, resume training
-              setShowLibrary(true);
-              setActiveFolder(folderId);
-              const pid = prompt?.id || null;
-              autoSaveTrainingRef.current = pid;
-              trainFolderRef.current      = folderId;
-              const history = prompt?.trainHistory || [];
-              trainMsgsRef.current = history;
-              setTrainFolder(folderId);
-              setTrainPromptId(pid);
-              setTrainMsgs(history);
-              setTrainSaveTitle(prompt?.isDraft ? '' : (prompt?.title || ''));
-            } else {
-              // Folder no longer exists — clear stale session
-              localStorage.removeItem(key);
-            }
-          } catch { localStorage.removeItem(key); }
+        // ── Restore training session after page reload ────────────────────────
+        // Skip restore if training is already active (e.g. deferred loadLibrary from autoSave)
+        if (!trainFolderRef.current) {
+          const key = `train_session_${apiKey}`;
+          const saved = localStorage.getItem(key);
+          if (saved) {
+            try {
+              const { folderId, promptId } = JSON.parse(saved);
+              const folder = folders.find(f => f.id === folderId);
+              if (folder) {
+                const prompt = promptId ? folder.prompts?.find(p => p.id === promptId) : null;
+                // Restore: open library panel, select folder, resume training
+                setShowLibrary(true);
+                setActiveFolder(folderId);
+                const pid = prompt?.id || null;
+                autoSaveTrainingRef.current = pid;
+                trainFolderRef.current      = folderId;
+                const history = prompt?.trainHistory || [];
+                trainMsgsRef.current = history;
+                setTrainFolder(folderId);
+                setTrainPromptId(pid);
+                setTrainMsgs(history);
+                setTrainSaveTitle(prompt?.isDraft ? '' : (prompt?.title || ''));
+              } else {
+                localStorage.removeItem(key);
+              }
+            } catch { localStorage.removeItem(key); }
+          }
         }
       }
     } catch { /* non-fatal */ }
@@ -276,25 +278,42 @@ export default function Dashboard() {
     trainChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [trainMsgs, trainLoading]);
 
-  const startTraining = (folderId, existingPrompt = null) => {
+  const startTraining = async (folderId, existingPrompt = null) => {
     const pid = existingPrompt?.id || null;
     autoSaveTrainingRef.current = pid;
     trainFolderRef.current      = folderId;
     setTrainFolder(folderId);
     setTrainPromptId(pid);
-    const history = existingPrompt?.trainHistory || [];
-    trainMsgsRef.current = history;
-    setTrainMsgs(history);
+    setActiveFolder(folderId);
     setTrainInput('');
     setTrainGenerated('');
     setTrainSaveTitle(existingPrompt?.isDraft ? '' : (existingPrompt?.title || ''));
-    setActiveFolder(folderId);
-    // Persist so page reload can restore this session
     saveTrainSession(folderId, pid);
+
+    // Fetch fresh training history directly from backend to avoid stale library state
+    if (pid) {
+      try {
+        const res = await fetch(`/prompts/folders/${folderId}/prompts/${pid}`, {
+          headers: { 'x-location-id': apiKey },
+        });
+        const data = await res.json();
+        if (data.success) {
+          const history = data.data.trainHistory || [];
+          trainMsgsRef.current = history;
+          setTrainMsgs(history);
+          return;
+        }
+      } catch { /* fall through to use library data */ }
+    }
+    // Fallback: use what's already in the library state
+    const history = existingPrompt?.trainHistory || [];
+    trainMsgsRef.current = history;
+    setTrainMsgs(history);
   };
 
   // Auto-save to Firebase after every exchange — fire-and-forget, never blocks UI
   const autoSaveTraining = useCallback(async (currentMsgs, currentDraftId, folderId) => {
+    if (!folderId) return; // training was exited before save
     try {
       const headers = { 'Content-Type': 'application/json', 'x-location-id': apiKey };
       if (currentDraftId) {
@@ -357,6 +376,8 @@ export default function Dashboard() {
         body:    JSON.stringify({ messages: msgsToSend, action: overrideAction || 'chat' }),
       });
       const data = await res.json();
+      // Guard: user may have exited training while request was in-flight
+      if (!trainFolderRef.current) return;
       if (data.success) {
         if (overrideAction === 'finalize') {
           setTrainGenerated(data.reply);
@@ -649,13 +670,18 @@ export default function Dashboard() {
                     onClick={() => {
                       setActiveFolder(folder.id);
                       setShowNewPrompt(false);
-                      // Only reset training state if we're switching to a different folder
                       if (trainFolder !== folder.id) {
-                        clearTrainSession();
-                        autoSaveTrainingRef.current = null;
-                        trainMsgsRef.current = [];
-                        trainFolderRef.current = null;
-                        setTrainFolder(null); setTrainPromptId(null); setTrainGenerated('');
+                        // Auto-load training session if a draft exists in this folder
+                        const draft = folder.prompts?.find(p => p.isDraft);
+                        if (draft) {
+                          startTraining(folder.id, draft);
+                        } else {
+                          clearTrainSession();
+                          autoSaveTrainingRef.current = null;
+                          trainMsgsRef.current = [];
+                          trainFolderRef.current = null;
+                          setTrainFolder(null); setTrainPromptId(null); setTrainGenerated('');
+                        }
                       }
                     }}
                     className="group flex items-center gap-2 px-3 py-2 cursor-pointer transition-all"
@@ -692,7 +718,7 @@ export default function Dashboard() {
                         <span className="text-xs font-semibold" style={{ color: '#c084fc' }}>🎓 Persona Training</span>
                         {trainPromptId && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}>Updating</span>}
                       </div>
-                      <button onClick={() => { clearTrainSession(); autoSaveTrainingRef.current = null; trainMsgsRef.current = []; trainFolderRef.current = null; setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); }}
+                      <button onClick={() => { clearTrainSession(); autoSaveTrainingRef.current = null; trainMsgsRef.current = []; trainFolderRef.current = null; setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); setTrainInput(''); setTrainLoading(false); setTrainSaveTitle(''); }}
                         className="text-xs text-gray-500 hover:text-gray-300">✕ Exit</button>
                     </div>
 
@@ -799,25 +825,27 @@ export default function Dashboard() {
                         <p className="text-xs text-gray-600 px-3 py-3">No prompts yet. Click + Add.</p>
                       )}
                       {(library.find(f => f.id === activeFolder)?.prompts || []).map(p => (
-                        <div key={p.id} className="group px-3 py-2.5 transition-all"
-                          style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: p.isDraft ? 'rgba(168,85,247,0.04)' : 'transparent' }}>
+                        <div key={p.id}
+                          onClick={() => (p.isDraft || p.trainHistory?.length > 0) && startTraining(activeFolder, p)}
+                          className="group px-3 py-2.5 transition-all"
+                          style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: p.isDraft ? 'rgba(168,85,247,0.06)' : 'transparent', cursor: (p.isDraft || p.trainHistory?.length > 0) ? 'pointer' : 'default' }}>
                           <div className="flex items-start gap-2">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5">
                                 <p className="text-xs font-semibold truncate" style={{ color: p.isDraft ? '#c084fc' : '#fff' }}>{p.title}</p>
                                 {p.isDraft
-                                  ? <span className="text-xs flex-shrink-0 px-1 rounded" style={{ background: 'rgba(168,85,247,0.2)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' }}>draft</span>
+                                  ? <span className="text-xs flex-shrink-0 px-1 rounded" style={{ background: 'rgba(168,85,247,0.2)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' }}>draft · {Math.floor((p.trainHistory?.length || 0) / 2)} exchanges</span>
                                   : p.trainHistory?.length > 0 && <span title="Trained persona" className="text-xs flex-shrink-0" style={{ color: '#c084fc' }}>🎓</span>
                                 }
                               </div>
-                              <p className="text-xs mt-0.5" style={{ color: p.isDraft ? '#7c3aed' : '#6b7280', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                                {p.isDraft ? `${p.trainHistory?.length || 0} messages — resume to continue training` : p.content}
+                              <p className="text-xs mt-0.5" style={{ color: p.isDraft ? '#a855f7' : '#6b7280', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                {p.isDraft ? 'Click to resume training conversation' : p.content}
                               </p>
                             </div>
                             <div className="flex flex-col gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all">
                               {p.isDraft ? (
                                 /* Draft: only show Resume and Delete */
-                                <button onClick={() => startTraining(activeFolder, p)}
+                                <button onClick={e => { e.stopPropagation(); startTraining(activeFolder, p); }}
                                   className="text-xs px-2 py-0.5 rounded transition-all"
                                   style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.4)', color: '#c084fc' }}>▶ Resume</button>
                               ) : (

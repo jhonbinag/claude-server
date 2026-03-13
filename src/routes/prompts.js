@@ -89,6 +89,21 @@ router.delete('/folders/:fid', async (req, res) => {
   }
 });
 
+// ── GET /prompts/folders/:fid/prompts/:pid ───────────────────────────────────
+
+router.get('/folders/:fid/prompts/:pid', async (req, res) => {
+  try {
+    const folders = await load(req.locationId);
+    const folder  = folders.find(f => f.id === req.params.fid);
+    if (!folder) return res.status(404).json({ success: false, error: 'Folder not found' });
+    const p = folder.prompts?.find(p => p.id === req.params.pid);
+    if (!p) return res.status(404).json({ success: false, error: 'Prompt not found' });
+    res.json({ success: true, data: p });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /prompts/folders/:fid/prompts ───────────────────────────────────────
 
 router.post('/folders/:fid/prompts', async (req, res) => {
