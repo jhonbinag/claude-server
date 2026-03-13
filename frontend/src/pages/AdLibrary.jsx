@@ -460,9 +460,24 @@ export default function AdLibrary() {
 
         {/* Error */}
         {error && (
-          <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '0.75rem 1rem', fontSize: 13, color: '#fca5a5', marginBottom: '1rem' }}>
+          <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '1rem 1.25rem', fontSize: 13, color: '#fca5a5', marginBottom: '1rem', lineHeight: 1.7 }}>
             {error.includes('Facebook access token') || error.includes('FB_TOKEN') ? (
               <>{error} <Link to="/settings" style={{ color: '#818cf8' }}>Go to Settings →</Link></>
+            ) : error.toLowerCase().includes('permission') || error.toLowerCase().includes('oauth') ? (
+              <>
+                <strong style={{ display: 'block', marginBottom: 6, color: '#f87171' }}>Facebook API Permission Error</strong>
+                Your access token does not have the <code style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 4, padding: '1px 5px' }}>ads_read</code> permission required for the Ad Library API.
+                <br /><br />
+                <strong>To fix this:</strong>
+                <ol style={{ margin: '6px 0 0 16px', padding: 0, lineHeight: 2 }}>
+                  <li>Go to <a href="https://developers.facebook.com/tools/explorer" target="_blank" rel="noreferrer" style={{ color: '#818cf8' }}>Graph API Explorer</a></li>
+                  <li>Select your Facebook App from the dropdown</li>
+                  <li>Click <strong>Generate Access Token</strong> and add the <code style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 4, padding: '1px 5px' }}>ads_read</code> permission</li>
+                  <li>Copy the User Access Token (not Page Token)</li>
+                  <li>Paste it in <Link to="/settings" style={{ color: '#818cf8' }}>Settings → Social Hub</Link></li>
+                </ol>
+                <div style={{ marginTop: 8, color: '#9ca3af', fontSize: 12 }}>Note: Your Facebook Developer App must also be approved for <code style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 4, padding: '1px 5px' }}>ads_read</code> via App Review, or be in Development mode with yourself as a test user.</div>
+              </>
             ) : error}
           </div>
         )}
