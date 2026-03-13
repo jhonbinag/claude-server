@@ -9,18 +9,20 @@
 
 const config = require('../config');
 
-let admin = null;
-let _db   = null;
+let _db = null;
 
-if (config.isFirebaseEnabled) {
+// Lazy — resolves after firebaseStore.js has initialized the Admin SDK.
+function db() {
+  if (_db) return _db;
+  if (!config.isFirebaseEnabled) return null;
   try {
-    admin = require('firebase-admin');
-    // Firebase Admin app is already initialized by firebaseStore.js — just get the Firestore instance.
-    _db = admin.apps.length ? admin.app().firestore() : null;
-  } catch { _db = null; }
+    const admin = require('firebase-admin');
+    if (admin.apps.length) {
+      _db = admin.app().firestore();
+    }
+  } catch { /* ignore */ }
+  return _db;
 }
-
-function db() { return _db; }
 
 const COLLECTION = 'promptLibrary';
 const memStore   = {}; // fallback for dev
@@ -39,6 +41,7 @@ async function getLibrary(locationId) {
 async function saveLibrary(locationId, folders) {
   const d = db();
   if (d) {
+    const admin = require('firebase-admin');
     await d.collection(COLLECTION).doc(locationId).set({
       folders:   JSON.stringify(folders),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
