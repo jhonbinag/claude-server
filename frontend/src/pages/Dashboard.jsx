@@ -217,14 +217,47 @@ export default function Dashboard() {
   };
 
   const startTraining = (folderId, existingPrompt = null) => {
+    autoSaveTrainingRef.current = existingPrompt?.id || null;
     setTrainFolder(folderId);
     setTrainPromptId(existingPrompt?.id || null);
     setTrainMsgs(existingPrompt?.trainHistory || []);
     setTrainInput('');
     setTrainGenerated('');
-    setTrainSaveTitle(existingPrompt?.title || '');
+    setTrainSaveTitle(existingPrompt?.isDraft ? '' : (existingPrompt?.title || ''));
     setActiveFolder(folderId);
   };
+
+  // Auto-save training conversation to Firebase after every message exchange.
+  // Creates a draft prompt on the first exchange; updates it on every subsequent one.
+  const autoSaveTrainingRef = useRef(null); // holds current trainPromptId for async closure
+  const autoSaveTraining = useCallback(async (currentMsgs, currentTrainPromptId, folderId) => {
+    try {
+      if (currentTrainPromptId) {
+        await fetch(`/prompts/folders/${folderId}/prompts/${currentTrainPromptId}`, {
+          method: 'PUT', headers: apiHeaders,
+          body: JSON.stringify({ trainHistory: currentMsgs }),
+        });
+      } else {
+        // First exchange — create a draft prompt to anchor this training session
+        const res  = await fetch(`/prompts/folders/${folderId}/prompts`, {
+          method: 'POST', headers: apiHeaders,
+          body: JSON.stringify({
+            title:        'Training in Progress…',
+            content:      '(Persona not yet finalized — continue training to generate)',
+            isDraft:      true,
+            trainHistory: currentMsgs,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          autoSaveTrainingRef.current = data.data.id;
+          setTrainPromptId(data.data.id);
+          loadLibrary(); // show draft in list immediately
+        }
+      }
+    } catch { /* non-fatal — training continues even if save fails */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey, apiHeaders]);
 
   const sendTrainMsg = async (overrideAction) => {
     const content = trainInput.trim();
@@ -244,9 +277,12 @@ export default function Dashboard() {
       if (data.success) {
         if (overrideAction === 'finalize') {
           setTrainGenerated(data.reply);
-          setTrainSaveTitle('My Custom Persona');
+          setTrainSaveTitle(trainSaveTitle || 'My Custom Persona');
         } else {
-          setTrainMsgs(m => [...m, { role: 'assistant', content: data.reply }]);
+          const updatedMsgs = [...msgs, { role: 'assistant', content: data.reply }];
+          setTrainMsgs(updatedMsgs);
+          // Auto-save every message exchange to Firebase
+          autoSaveTraining(updatedMsgs, autoSaveTrainingRef.current, trainFolder);
         }
       }
     } catch { /* non-fatal */ }
@@ -255,20 +291,22 @@ export default function Dashboard() {
 
   const saveTrainedPersona = async () => {
     if (!trainGenerated.trim() || !trainSaveTitle.trim() || !trainFolder) return;
-    const payload = { title: trainSaveTitle.trim(), content: trainGenerated.trim(), trainHistory: trainMsgs };
-    if (trainPromptId) {
-      // Update existing trained persona
-      await fetch(`/prompts/folders/${trainFolder}/prompts/${trainPromptId}`, {
+    const currentId = autoSaveTrainingRef.current || trainPromptId;
+    const payload = { title: trainSaveTitle.trim(), content: trainGenerated.trim(), trainHistory: trainMsgs, isDraft: false };
+    if (currentId) {
+      // Update draft → finalized persona
+      await fetch(`/prompts/folders/${trainFolder}/prompts/${currentId}`, {
         method: 'PUT', headers: apiHeaders,
         body: JSON.stringify(payload),
       });
     } else {
-      // Create new persona
+      // No draft was created (finalized very quickly) — create fresh
       await fetch(`/prompts/folders/${trainFolder}/prompts`, {
         method: 'POST', headers: apiHeaders,
         body: JSON.stringify(payload),
       });
     }
+    autoSaveTrainingRef.current = null;
     setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); setTrainSaveTitle('');
     loadLibrary();
   };
@@ -552,7 +590,7 @@ export default function Dashboard() {
                         <span className="text-xs font-semibold" style={{ color: '#c084fc' }}>🎓 Persona Training</span>
                         {trainPromptId && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}>Updating</span>}
                       </div>
-                      <button onClick={() => { setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); }}
+                      <button onClick={() => { autoSaveTrainingRef.current = null; setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); }}
                         className="text-xs text-gray-500 hover:text-gray-300">✕ Exit</button>
                     </div>
 
@@ -646,31 +684,41 @@ export default function Dashboard() {
                       )}
                       {(library.find(f => f.id === activeFolder)?.prompts || []).map(p => (
                         <div key={p.id} className="group px-3 py-2.5 transition-all"
-                          style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                          style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: p.isDraft ? 'rgba(168,85,247,0.04)' : 'transparent' }}>
                           <div className="flex items-start gap-2">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5">
-                                <p className="text-xs font-semibold text-white truncate">{p.title}</p>
-                                {p.trainHistory?.length > 0 && (
-                                  <span title="Trained persona" className="text-xs flex-shrink-0" style={{ color: '#c084fc' }}>🎓</span>
-                                )}
+                                <p className="text-xs font-semibold truncate" style={{ color: p.isDraft ? '#c084fc' : '#fff' }}>{p.title}</p>
+                                {p.isDraft
+                                  ? <span className="text-xs flex-shrink-0 px-1 rounded" style={{ background: 'rgba(168,85,247,0.2)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' }}>draft</span>
+                                  : p.trainHistory?.length > 0 && <span title="Trained persona" className="text-xs flex-shrink-0" style={{ color: '#c084fc' }}>🎓</span>
+                                }
                               </div>
-                              <p className="text-xs text-gray-500 mt-0.5 line-clamp-2" style={{ overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                                {p.content}
+                              <p className="text-xs mt-0.5" style={{ color: p.isDraft ? '#7c3aed' : '#6b7280', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                {p.isDraft ? `${p.trainHistory?.length || 0} messages — resume to continue training` : p.content}
                               </p>
                             </div>
                             <div className="flex flex-col gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all">
-                              <button onClick={() => usePrompt(p)}
-                                className="text-xs px-2 py-0.5 rounded text-indigo-400 hover:text-white transition-all"
-                                style={{ background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)' }}>Use</button>
-                              <button onClick={() => setPersona(p)}
-                                className="text-xs px-2 py-0.5 rounded transition-all"
-                                style={{ background: activePersona?.id === p.id ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.05)', border: `1px solid ${activePersona?.id === p.id ? 'rgba(16,185,129,0.5)' : 'rgba(255,255,255,0.1)'}`, color: activePersona?.id === p.id ? '#34d399' : '#9ca3af' }}>
-                                {activePersona?.id === p.id ? '✓ Set' : 'Persona'}</button>
-                              {p.trainHistory?.length > 0 && (
+                              {p.isDraft ? (
+                                /* Draft: only show Resume and Delete */
                                 <button onClick={() => startTraining(activeFolder, p)}
                                   className="text-xs px-2 py-0.5 rounded transition-all"
-                                  style={{ background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.35)', color: '#c084fc' }}>🎓 Train</button>
+                                  style={{ background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.4)', color: '#c084fc' }}>▶ Resume</button>
+                              ) : (
+                                <>
+                                  <button onClick={() => usePrompt(p)}
+                                    className="text-xs px-2 py-0.5 rounded text-indigo-400 hover:text-white transition-all"
+                                    style={{ background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)' }}>Use</button>
+                                  <button onClick={() => setPersona(p)}
+                                    className="text-xs px-2 py-0.5 rounded transition-all"
+                                    style={{ background: activePersona?.id === p.id ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.05)', border: `1px solid ${activePersona?.id === p.id ? 'rgba(16,185,129,0.5)' : 'rgba(255,255,255,0.1)'}`, color: activePersona?.id === p.id ? '#34d399' : '#9ca3af' }}>
+                                    {activePersona?.id === p.id ? '✓ Set' : 'Persona'}</button>
+                                  {p.trainHistory?.length > 0 && (
+                                    <button onClick={() => startTraining(activeFolder, p)}
+                                      className="text-xs px-2 py-0.5 rounded transition-all"
+                                      style={{ background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.35)', color: '#c084fc' }}>🎓 Train</button>
+                                  )}
+                                </>
                               )}
                               <button onClick={() => deletePrompt(activeFolder, p.id)}
                                 className="text-xs px-2 py-0.5 rounded text-gray-600 hover:text-red-400 transition-all"

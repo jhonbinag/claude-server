@@ -93,7 +93,7 @@ router.delete('/folders/:fid', async (req, res) => {
 
 router.post('/folders/:fid/prompts', async (req, res) => {
   try {
-    const { title, content, trainHistory } = req.body;
+    const { title, content, trainHistory, isDraft } = req.body;
     if (!title?.trim() || !content?.trim())
       return res.status(400).json({ success: false, error: 'title and content required' });
     const folders = await load(req.locationId);
@@ -101,6 +101,7 @@ router.post('/folders/:fid/prompts', async (req, res) => {
     if (!folder) return res.status(404).json({ success: false, error: 'Folder not found' });
     const p = { id: uuid(), title: title.trim(), content: content.trim(), createdAt: Date.now() };
     if (Array.isArray(trainHistory) && trainHistory.length) p.trainHistory = trainHistory;
+    if (isDraft) p.isDraft = true;
     folder.prompts.push(p);
     await save(req.locationId, folders);
     res.json({ success: true, data: p });
@@ -118,10 +119,12 @@ router.put('/folders/:fid/prompts/:pid', async (req, res) => {
     if (!folder) return res.status(404).json({ success: false, error: 'Folder not found' });
     const pidx = folder.prompts.findIndex(p => p.id === req.params.pid);
     if (pidx === -1) return res.status(404).json({ success: false, error: 'Prompt not found' });
-    const { title, content, trainHistory } = req.body;
+    const { title, content, trainHistory, isDraft } = req.body;
     if (title)   folder.prompts[pidx].title   = title.trim();
     if (content) folder.prompts[pidx].content = content.trim();
     if (Array.isArray(trainHistory)) folder.prompts[pidx].trainHistory = trainHistory;
+    if (isDraft === false) delete folder.prompts[pidx].isDraft;
+    else if (isDraft)      folder.prompts[pidx].isDraft = true;
     folder.prompts[pidx].updatedAt = Date.now();
     await save(req.locationId, folders);
     res.json({ success: true, data: folder.prompts[pidx] });
