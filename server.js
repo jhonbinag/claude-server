@@ -65,6 +65,26 @@ app.get('/debug', (req, res) => {
 const path = require('path');
 app.use('/ui', express.static(path.join(__dirname, 'public/ui'), { index: false, maxAge: '1y', immutable: true }));
 
+// ── Privacy Policy (required for Facebook App Live mode) ─────────────────────
+app.get('/privacy', (req, res) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Privacy Policy — GTM AI Toolkit</title>
+<style>body{font-family:sans-serif;max-width:720px;margin:40px auto;padding:0 20px;color:#222;line-height:1.7}h1{color:#111}h2{margin-top:2rem}</style></head>
+<body>
+<h1>Privacy Policy</h1>
+<p><strong>Effective date:</strong> ${new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</p>
+<p>GTM AI Toolkit ("we", "our", or "us") operates the GTM AI Toolkit platform. This page informs you of our policies regarding the collection, use, and disclosure of personal data.</p>
+<h2>Data We Collect</h2>
+<p>When you connect a social account (Facebook, Instagram, etc.) we store an access token to perform actions on your behalf. We do not sell or share your data with third parties.</p>
+<h2>How We Use Data</h2>
+<p>Access tokens are used solely to perform actions you explicitly request (reading pages, posting content, searching ad library). Tokens are encrypted at rest using AES-256-GCM.</p>
+<h2>Data Retention</h2>
+<p>You may disconnect any integration at any time. Upon disconnection your access token is deleted from our systems.</p>
+<h2>Contact</h2>
+<p>For privacy questions, contact us at the email address on your GoHighLevel account.</p>
+</body></html>`);
+});
+
 if (authRoutes)    app.use('/oauth',    authRoutes);
 if (apiRoutes)     app.use('/api',      apiRoutes);
 if (webhookRoutes) app.use('/webhooks', webhookRoutes);
