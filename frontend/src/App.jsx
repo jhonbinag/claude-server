@@ -4,7 +4,7 @@ import Dashboard       from './pages/Dashboard';
 import Settings        from './pages/Settings';
 import Workflows       from './pages/Workflows';
 import AdsGenerator    from './pages/AdsGenerator';
-import CampaignBuilder from './pages/CampaignBuilder';
+import Agents         from './pages/Agents';
 import Billing         from './pages/Billing';
 import Admin           from './pages/Admin';
 import SocialPlanner  from './pages/SocialPlanner';
@@ -20,7 +20,7 @@ export default function App() {
         <Route path="/settings"      element={<Settings />} />
         <Route path="/workflows"     element={<Workflows />} />
         <Route path="/ads-generator"    element={<AdsGenerator />} />
-        <Route path="/campaign-builder" element={<CampaignBuilder />} />
+        <Route path="/agents"           element={<Agents />} />
         <Route path="/billing"       element={<Billing />} />
         {/* Admin dashboard — uses separate x-admin-key auth */}
         <Route path="/admin"         element={<Admin />} />

@@ -3,13 +3,12 @@ import { useApp } from '../context/AppContext';
 
 const NAV = [
   { to: '/',                 label: 'Dashboard',  icon: '🏠' },
-  { to: '/campaign-builder', label: 'Builder',    icon: '🏗️' },
+  { to: '/agents',           label: 'Agents',     icon: '🤖' },
   { to: '/workflows',        label: 'Workflows',  icon: '🔀' },
   { to: '/ads-generator',    label: 'Bulk Ads',   icon: '🎯' },
   { to: '/ad-library',       label: 'Ad Library', icon: '📊' },
   { to: '/manychat',         label: 'ManyChat',   icon: '💙' },
-  { to: '/ghl-agent',        label: 'GHL Agent',  icon: '🤖' },
-  { to: '/social',           label: 'Social',     icon: '📱' },
+{ to: '/social',           label: 'Social',     icon: '📱' },
   { to: '/billing',          label: 'Billing',    icon: '💳' },
   { to: '/settings',         label: 'Settings',   icon: '⚙️' },
 ];
