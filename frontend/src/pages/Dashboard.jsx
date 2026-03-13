@@ -318,10 +318,13 @@ export default function Dashboard() {
     const savePromise = (async () => { try {
       const headers = { 'Content-Type': 'application/json', 'x-location-id': apiKey };
       if (currentDraftId) {
-        await fetch(`/prompts/folders/${folderId}/prompts/${currentDraftId}`, {
+        const r = await fetch(`/prompts/folders/${folderId}/prompts/${currentDraftId}`, {
           method: 'PUT', headers,
           body: JSON.stringify({ trainHistory: currentMsgs }),
         });
+        const rj = await r.json();
+        if (!rj.success) console.error('[Training] PUT failed:', rj.error);
+        else console.log('[Training] Saved', currentMsgs.length, 'messages to Firebase');
       } else {
         // First exchange — create a draft to anchor this session
         const res  = await fetch(`/prompts/folders/${folderId}/prompts`, {
@@ -334,7 +337,9 @@ export default function Dashboard() {
           }),
         });
         const data = await res.json();
+        if (!data.success) { console.error('[Training] POST draft failed:', data.error); return; }
         if (data.success) {
+          console.log('[Training] Draft created in Firebase, pid:', data.data.id);
           const newPid = data.data.id;
           autoSaveTrainingRef.current = newPid;
           setTrainPromptId(newPid);

@@ -131,6 +131,7 @@ router.post('/folders/:fid/prompts', async (req, res) => {
     await save(req.locationId, folders);
     res.json({ success: true, data: { ...p, trainHistory: trainHistory || [] } });
   } catch (err) {
+    console.error('[Prompts] POST prompt error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -176,6 +177,7 @@ router.put('/folders/:fid/prompts/:pid', async (req, res) => {
     await save(req.locationId, folders);
     res.json({ success: true, data: { ...folder.prompts[pidx], trainHistory: trainHistory || [] } });
   } catch (err) {
+    console.error('[Prompts] PUT prompt error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

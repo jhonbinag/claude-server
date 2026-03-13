@@ -80,14 +80,16 @@ async function saveTraining(locationId, promptId, trainHistory, meta = {}) {
     await d.collection(TRAIN_COL).doc(key).set({
       locationId,
       promptId,
-      folderId:    meta.folderId    || null,
-      promptTitle: meta.promptTitle || null,
-      isDraft:     meta.isDraft     ?? true,
+      folderId:     meta.folderId    || null,
+      promptTitle:  meta.promptTitle || null,
+      isDraft:      meta.isDraft     ?? true,
       trainHistory,
       messageCount: trainHistory.length,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt:    admin.firestore.FieldValue.serverTimestamp(),
     });
+    console.log(`[PromptStore] Saved training for ${key} (${trainHistory.length} messages)`);
   } else {
+    console.warn(`[PromptStore] Firebase not connected — training for ${key} saved to memory only`);
     memTraining[key] = { locationId, promptId, trainHistory, ...meta };
   }
 }
