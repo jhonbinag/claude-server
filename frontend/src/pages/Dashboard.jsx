@@ -148,6 +148,20 @@ export default function Dashboard() {
 
   const connected = (integrations || []).filter(i => i.enabled);
 
+  // Group social and payment tools into summary entries
+  const SOCIAL_KEYS  = ['social_facebook','social_instagram','social_tiktok_organic','social_youtube','social_linkedin_organic','social_pinterest','social_twitter','social_gmb'];
+  const PAYMENT_KEYS = ['stripe','paypal','square','authorizenet'];
+
+  const socialConnected  = connected.filter(i => SOCIAL_KEYS.includes(i.key));
+  const paymentConnected = connected.filter(i => PAYMENT_KEYS.includes(i.key));
+  const otherConnected   = connected.filter(i => !SOCIAL_KEYS.includes(i.key) && !PAYMENT_KEYS.includes(i.key));
+
+  const sidebarItems = [
+    ...otherConnected,
+    ...(socialConnected.length  > 0 ? [{ key: '__social_hub',  label: 'Social Hub',      icon: '📱', count: socialConnected.length,  total: SOCIAL_KEYS.length }]  : []),
+    ...(paymentConnected.length > 0 ? [{ key: '__payment_gw',  label: 'Payment Gateway', icon: '💳', count: paymentConnected.length, total: PAYMENT_KEYS.length }] : []),
+  ];
+
   return (
     <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
       <Header
@@ -204,7 +218,7 @@ export default function Dashboard() {
               {integrationsLoaded && connected.length === 0 && (
                 <div className="text-xs text-gray-600 text-center py-4">No integrations connected yet</div>
               )}
-              {connected.map(item => (
+              {sidebarItems.map(item => (
                 <div
                   key={item.key}
                   className="flex items-center gap-2 px-2.5 py-2 rounded-xl"
@@ -213,7 +227,10 @@ export default function Dashboard() {
                   <span className="text-base flex-shrink-0">{item.icon}</span>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium text-white truncate">{item.label}</div>
-                    <div className="text-xs text-gray-600">{item.toolCount} tools</div>
+                    {item.count != null
+                      ? <div className="text-xs text-green-400">{item.count} connected</div>
+                      : <div className="text-xs text-gray-600">{item.toolCount} tools</div>
+                    }
                   </div>
                   <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-400" />
                 </div>
