@@ -33,11 +33,19 @@ const AD_FIELDS = [
 router.use(authenticate);
 
 // ── Helper: resolve FB access token ───────────────────────────────────────────
+// Checks all possible sources in priority order:
+//   1. social_facebook (Social Hub — pageAccessToken field)
+//   2. facebook_ads (Manual FB Ads config — accessToken field)
 async function getFbToken(locationId) {
   const registry = require('../tools/toolRegistry');
   const configs  = await registry.loadToolConfigs(locationId);
-  const fb       = configs.social_facebook || configs.facebook_ads || {};
-  return fb.pageToken || fb.accessToken || fb.userAccessToken || null;
+  const fb  = configs.social_facebook || {};
+  const ads = configs.facebook_ads    || {};
+  return (
+    fb.pageAccessToken || fb.accessToken || fb.pageToken || fb.userAccessToken ||
+    ads.accessToken    || ads.pageToken  || ads.userAccessToken ||
+    null
+  );
 }
 
 // ── GET /ad-library/search ────────────────────────────────────────────────────
@@ -56,7 +64,7 @@ router.get('/search', async (req, res) => {
     if (!token) {
       return res.status(400).json({
         error:   'Facebook access token not configured.',
-        hint:    'Connect Facebook in Settings → Social Hub.',
+        hint:    'Connect Facebook in Settings → Social Hub (enter your Page Access Token).',
         code:    'FB_TOKEN_MISSING',
       });
     }
