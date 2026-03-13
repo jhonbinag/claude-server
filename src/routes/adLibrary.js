@@ -58,10 +58,12 @@ async function getFbToken(locationId) {
 router.get('/search', async (req, res) => {
   try {
     const { q, country = 'US', type = 'ALL', status = 'ALL', limit = 25 } = req.query;
+    console.log(`[AdLibrary] search request: locationId=${req.locationId} q="${q}" country=${country} status=${status} limit=${limit}`);
     if (!q) return res.status(400).json({ error: 'Search term (q) is required.' });
 
     const token = await getFbToken(req.locationId);
     if (!token) {
+      console.warn(`[AdLibrary] FB token missing for location ${req.locationId}`);
       return res.status(400).json({
         error:   'Facebook access token not configured.',
         hint:    'Connect Facebook in Settings → Social Hub (enter your Page Access Token).',
@@ -80,6 +82,8 @@ router.get('/search', async (req, res) => {
     if (status !== 'ALL') params.ad_active_status = status;
 
     const response = await axios.get(`${FB_API}/ads_archive`, { params });
+    const count = (response.data?.data || []).length;
+    console.log(`[AdLibrary] search results: ${count} ads returned for "${q}"`);
     res.json(response.data);
   } catch (err) {
     const status  = err.response?.status;
