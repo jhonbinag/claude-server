@@ -320,20 +320,41 @@ function GoogleAdsPanel({ query }) {
 
 /* ── Main component ───────────────────────────────────────────────────────── */
 export default function AdLibrary() {
-  const [platform,  setPlatform]  = useState('facebook');
-  const [query,     setQuery]     = useState('');
-  const [country,   setCountry]   = useState('ALL');
-  const [adType,    setAdType]    = useState('ALL');
-  const [status,    setStatus]    = useState('ACTIVE');
-  const [focus,     setFocus]     = useState('all');
-  const [ads,       setAds]       = useState([]);
-  const [selected,  setSelected]  = useState(new Set());
-  const [loading,   setLoading]   = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [error,     setError]     = useState('');
-  const [analysis,  setAnalysis]  = useState('');
-  const [searched,  setSearched]  = useState(false);
+  const [platform,   setPlatform]   = useState('facebook');
+  const [query,      setQuery]      = useState('');
+  const [country,    setCountry]    = useState('ALL');
+  const [adType,     setAdType]     = useState('ALL');
+  const [status,     setStatus]     = useState('ACTIVE');
+  const [focus,      setFocus]      = useState('all');
+  const [ads,        setAds]        = useState([]);
+  const [selected,   setSelected]   = useState(new Set());
+  const [loading,    setLoading]    = useState(false);
+  const [analyzing,  setAnalyzing]  = useState(false);
+  const [error,      setError]      = useState('');
+  const [analysis,   setAnalysis]   = useState('');
+  const [searched,   setSearched]   = useState(false);
+  const [pasteMode,  setPasteMode]  = useState(false);
+  const [pasteText,  setPasteText]  = useState('');
+  const [pasteAnalysis, setPasteAnalysis] = useState('');
+  const [pasteAnalyzing, setPasteAnalyzing] = useState(false);
   const analysisRef = useRef(null);
+  const pasteRef    = useRef(null);
+
+  async function handlePasteAnalyze() {
+    if (!pasteText.trim()) return;
+    setPasteAnalyzing(true); setPasteAnalysis('');
+    try {
+      const d = await api.post('/ad-library/analyze', {
+        ads: [{ ad_creative_bodies: [pasteText], page_name: 'Pasted Ad' }],
+        focus,
+        competitor: query || 'competitor',
+      });
+      if (d.error) { setPasteAnalysis('Error: ' + d.error); return; }
+      setPasteAnalysis(d.analysis || '');
+      setTimeout(() => pasteRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    } catch (e) { setPasteAnalysis('Error: ' + e.message); }
+    finally { setPasteAnalyzing(false); }
+  }
 
   async function handleSearch(e) {
     e?.preventDefault();
@@ -389,6 +410,7 @@ export default function AdLibrary() {
           {/* Platform tabs */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', paddingTop: 8, paddingBottom: 0 }}>
             <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 3 }}>
+
               {[
                 { key: 'facebook', label: 'Ad Library',        icon: PlatformIcons.facebook },
                 { key: 'google',   label: 'Google Transparency',icon: <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg> },
@@ -404,6 +426,20 @@ export default function AdLibrary() {
                 </button>
               ))}
             </div>
+
+            {/* Paste & Analyze toggle — only on Facebook tab */}
+            {platform === 'facebook' && (
+              <button onClick={() => { setPasteMode(p => !p); setPasteAnalysis(''); }} style={{
+                marginLeft: 'auto',
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: pasteMode ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.06)',
+                border: `1px solid ${pasteMode ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.12)'}`,
+                color: pasteMode ? '#a5b4fc' : '#9ca3af',
+                borderRadius: 8, padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}>
+                ✂️ Paste &amp; Analyze
+              </button>
+            )}
           </div>
 
           {/* Search bar row */}
@@ -486,6 +522,63 @@ export default function AdLibrary() {
                 <div style={{ marginTop: 8, color: '#9ca3af', fontSize: 12 }}>Note: Your Facebook Developer App must also be approved for <code style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 4, padding: '1px 5px' }}>ads_read</code> via App Review, or be in Development mode with yourself as a test user.</div>
               </>
             ) : error}
+          </div>
+        )}
+
+        {/* ── Paste & Analyze panel ── */}
+        {platform === 'facebook' && pasteMode && (
+          <div style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#c7d2fe' }}>✂️ Paste Ad Content for Analysis</p>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>
+                  Copy ad text from <a href="https://www.facebook.com/ads/library/" target="_blank" rel="noreferrer" style={{ color: '#818cf8' }}>Facebook Ad Library ↗</a> and paste it below — no API token needed.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select value={focus} onChange={e => setFocus(e.target.value)} style={{
+                  background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 6, padding: '5px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none', cursor: 'pointer',
+                }}>
+                  {FOCUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <button
+                  onClick={handlePasteAnalyze}
+                  disabled={pasteAnalyzing || !pasteText.trim()}
+                  style={{
+                    background: pasteAnalyzing || !pasteText.trim() ? '#374151' : '#6366f1',
+                    color: '#fff', border: 'none', borderRadius: 8, padding: '7px 18px',
+                    fontSize: 13, fontWeight: 700, cursor: pasteAnalyzing || !pasteText.trim() ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {pasteAnalyzing ? '⟳ Analyzing…' : '🤖 Analyze'}
+                </button>
+              </div>
+            </div>
+            <textarea
+              value={pasteText}
+              onChange={e => setPasteText(e.target.value)}
+              placeholder="Paste one or more Facebook ad texts here…&#10;&#10;Example:&#10;Headline: Get 50% Off Today Only&#10;Body: We've helped 10,000+ customers achieve their goals. Limited time offer — don't miss out!&#10;CTA: Shop Now"
+              style={{
+                width: '100%', minHeight: 140, background: 'rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+                padding: '10px 12px', color: '#e2e8f0', fontSize: 13, lineHeight: 1.6,
+                outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit',
+              }}
+            />
+            {pasteAnalysis && (
+              <div ref={pasteRef} style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: '#c7d2fe' }}>🤖 Analysis</span>
+                  <button onClick={() => navigator.clipboard.writeText(pasteAnalysis)} style={{
+                    background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: 6, padding: '3px 10px', fontSize: 11, color: '#9ca3af', cursor: 'pointer',
+                  }}>Copy</button>
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.75, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>{pasteAnalysis}</div>
+              </div>
+            )}
           </div>
         )}
 
