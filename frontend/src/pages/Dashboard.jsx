@@ -145,17 +145,62 @@ export default function Dashboard() {
 
   const navigate = useNavigate();
 
+  // localStorage key scoped per location so different accounts don't share state
+  const trainSessionKey = apiKey ? `train_session_${apiKey}` : null;
+
+  const saveTrainSession  = (folderId, promptId) => {
+    if (!trainSessionKey) return;
+    localStorage.setItem(trainSessionKey, JSON.stringify({ folderId, promptId }));
+  };
+  const clearTrainSession = () => {
+    if (trainSessionKey) localStorage.removeItem(trainSessionKey);
+  };
+
   const loadLibrary = useCallback(async () => {
     if (!apiKey) return;
     setLibLoading(true);
     try {
       const res  = await fetch('/prompts', { headers: { 'x-location-id': apiKey } });
       const data = await res.json();
-      if (data.success) setLibrary(data.data || []);
+      if (data.success) {
+        const folders = data.data || [];
+        setLibrary(folders);
+
+        // ── Restore training session after page reload ───────────────────────
+        const key = `train_session_${apiKey}`;
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          try {
+            const { folderId, promptId } = JSON.parse(saved);
+            const folder = folders.find(f => f.id === folderId);
+            if (folder) {
+              const prompt = promptId ? folder.prompts?.find(p => p.id === promptId) : null;
+              // Restore: open library panel, select folder, resume training
+              setShowLibrary(true);
+              setActiveFolder(folderId);
+              const pid = prompt?.id || null;
+              autoSaveTrainingRef.current = pid;
+              trainFolderRef.current      = folderId;
+              const history = prompt?.trainHistory || [];
+              trainMsgsRef.current = history;
+              setTrainFolder(folderId);
+              setTrainPromptId(pid);
+              setTrainMsgs(history);
+              setTrainSaveTitle(prompt?.isDraft ? '' : (prompt?.title || ''));
+            } else {
+              // Folder no longer exists — clear stale session
+              localStorage.removeItem(key);
+            }
+          } catch { localStorage.removeItem(key); }
+        }
+      }
     } catch { /* non-fatal */ }
     finally { setLibLoading(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiKey]);
 
+  // Load library on mount (to restore session) and whenever panel opens
+  useEffect(() => { if (apiKey) loadLibrary(); }, [apiKey, loadLibrary]);
   useEffect(() => { if (showLibrary) loadLibrary(); }, [showLibrary, loadLibrary]);
 
   const run = useCallback(async (taskText) => {
@@ -244,6 +289,8 @@ export default function Dashboard() {
     setTrainGenerated('');
     setTrainSaveTitle(existingPrompt?.isDraft ? '' : (existingPrompt?.title || ''));
     setActiveFolder(folderId);
+    // Persist so page reload can restore this session
+    saveTrainSession(folderId, pid);
   };
 
   // Auto-save to Firebase after every exchange — fire-and-forget, never blocks UI
@@ -268,8 +315,19 @@ export default function Dashboard() {
         });
         const data = await res.json();
         if (data.success) {
-          autoSaveTrainingRef.current = data.data.id;
-          setTrainPromptId(data.data.id);
+          const newPid = data.data.id;
+          autoSaveTrainingRef.current = newPid;
+          setTrainPromptId(newPid);
+          // Persist updated promptId so reload restores to exact draft
+          if (trainSessionKey) {
+            const cur = localStorage.getItem(trainSessionKey);
+            if (cur) {
+              try {
+                const s = JSON.parse(cur);
+                localStorage.setItem(trainSessionKey, JSON.stringify({ ...s, promptId: newPid }));
+              } catch { /* ignore */ }
+            }
+          }
           // Refresh library in background so draft appears — deferred to avoid disrupting chat state
           setTimeout(loadLibrary, 500);
         }
@@ -329,6 +387,7 @@ export default function Dashboard() {
         method: 'POST', headers, body: JSON.stringify(payload),
       });
     }
+    clearTrainSession();
     autoSaveTrainingRef.current = null;
     trainMsgsRef.current        = [];
     trainFolderRef.current      = null;
@@ -592,6 +651,7 @@ export default function Dashboard() {
                       setShowNewPrompt(false);
                       // Only reset training state if we're switching to a different folder
                       if (trainFolder !== folder.id) {
+                        clearTrainSession();
                         autoSaveTrainingRef.current = null;
                         trainMsgsRef.current = [];
                         trainFolderRef.current = null;
@@ -632,7 +692,7 @@ export default function Dashboard() {
                         <span className="text-xs font-semibold" style={{ color: '#c084fc' }}>🎓 Persona Training</span>
                         {trainPromptId && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}>Updating</span>}
                       </div>
-                      <button onClick={() => { autoSaveTrainingRef.current = null; trainMsgsRef.current = []; trainFolderRef.current = null; setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); }}
+                      <button onClick={() => { clearTrainSession(); autoSaveTrainingRef.current = null; trainMsgsRef.current = []; trainFolderRef.current = null; setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); }}
                         className="text-xs text-gray-500 hover:text-gray-300">✕ Exit</button>
                     </div>
 
