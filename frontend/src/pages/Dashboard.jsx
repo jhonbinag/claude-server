@@ -587,12 +587,29 @@ export default function Dashboard() {
                 )}
                 {library.map(folder => (
                   <div key={folder.id}
-                    onClick={() => { setActiveFolder(folder.id); setShowNewPrompt(false); setTrainFolder(null); setTrainPromptId(null); setTrainGenerated(''); }}
+                    onClick={() => {
+                      setActiveFolder(folder.id);
+                      setShowNewPrompt(false);
+                      // Only reset training state if we're switching to a different folder
+                      if (trainFolder !== folder.id) {
+                        autoSaveTrainingRef.current = null;
+                        trainMsgsRef.current = [];
+                        trainFolderRef.current = null;
+                        setTrainFolder(null); setTrainPromptId(null); setTrainGenerated('');
+                      }
+                    }}
                     className="group flex items-center gap-2 px-3 py-2 cursor-pointer transition-all"
                     style={{ background: activeFolder === folder.id ? 'rgba(99,102,241,0.15)' : 'transparent', borderLeft: `2px solid ${activeFolder === folder.id ? '#6366f1' : 'transparent'}` }}>
                     <span className="text-base flex-shrink-0">{folder.icon}</span>
                     <span className="flex-1 text-xs text-gray-300 truncate">{folder.name}</span>
-                    <button onClick={e => { e.stopPropagation(); startTraining(folder.id); }}
+                    <button onClick={e => {
+                        e.stopPropagation();
+                        // If already training this folder, just switch to it — don't reset
+                        if (trainFolder === folder.id) { setActiveFolder(folder.id); return; }
+                        // Auto-resume existing draft if one exists in this folder
+                        const draft = folder.prompts?.find(p => p.isDraft);
+                        startTraining(folder.id, draft || null);
+                      }}
                       title="Train a persona for this folder"
                       className="opacity-0 group-hover:opacity-100 text-xs px-1.5 py-0.5 rounded flex-shrink-0 transition-all"
                       style={{ background: 'rgba(168,85,247,0.2)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' }}>
