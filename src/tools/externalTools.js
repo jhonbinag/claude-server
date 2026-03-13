@@ -3520,7 +3520,7 @@ const TOOL_METADATA = {
     ],
   },
   ghl_social_planner: {
-    label:       'GHL Social Planner',
+    label:       'Social Hub',
     icon:        '📱',
     description: 'Social media accounts connected via GoHighLevel Social Planner (Facebook, Instagram, TikTok, YouTube, LinkedIn)',
     configFields: [],

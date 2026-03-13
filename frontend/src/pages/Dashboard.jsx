@@ -155,7 +155,8 @@ export default function Dashboard() {
 
   const socialConnected  = connected.filter(i => SOCIAL_KEYS.includes(i.key));
   const paymentConnected = connected.filter(i => PAYMENT_KEYS.includes(i.key));
-  const otherConnected   = connected.filter(i => !SOCIAL_KEYS.includes(i.key) && !PAYMENT_KEYS.includes(i.key));
+  // Exclude zero-toolCount items (e.g. ghl_social_planner) from individual display — they belong in groups only
+  const otherConnected   = connected.filter(i => !SOCIAL_KEYS.includes(i.key) && !PAYMENT_KEYS.includes(i.key) && (i.toolCount || 0) > 0);
 
   // Count unique connected social platforms:
   // ghl_social_planner stores a platforms[] array; individual social_* keys each = 1 platform
