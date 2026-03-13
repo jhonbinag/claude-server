@@ -397,6 +397,9 @@ export default function Workflows() {
   const [showSaved, setShowSaved] = useState(false);
   const [copyDone,  setCopyDone]  = useState(false);
   const [showOutput,setShowOutput]= useState(false);
+  const [wfLibrary,      setWfLibrary]      = useState([]);
+  const [wfLibOpen,      setWfLibOpen]      = useState(false);
+  const [wfActiveFolder, setWfActiveFolder] = useState(null);
 
   // Connecting state
   const [connecting, setConnecting] = useState(null); // { fromNodeId, x, y }
@@ -424,6 +427,17 @@ export default function Workflows() {
   }, [locationId]);
 
   useEffect(() => { loadSaved(); }, [loadSaved]);
+
+  const loadWfLibrary = useCallback(async () => {
+    if (!locationId) return;
+    try {
+      const res  = await fetch('/prompts', { headers: { 'x-location-id': locationId } });
+      const data = await res.json();
+      if (data.success) setWfLibrary(data.data || []);
+    } catch { /* non-fatal */ }
+  }, [locationId]);
+
+  useEffect(() => { loadWfLibrary(); }, [loadWfLibrary]);
 
   // ── Canvas mouse ───────────────────────────────────────────────────────────
 
@@ -462,6 +476,14 @@ export default function Workflows() {
     const x = last ? last.x + NODE_W + 80 : 60;
     const y = last ? last.y : 120;
     setNodes(prev => [...prev, mkNode(tool, label, icon, x, y)]);
+  }
+
+  function addPromptAsNode(p) {
+    const last = nodes[nodes.length - 1];
+    const x = last ? last.x + NODE_W + 80 : 60;
+    const y = last ? last.y : 120;
+    const node = { id: `n_${uid()}`, tool: 'openai', label: p.title, icon: '📚', x, y, instruction: p.content, config: null };
+    setNodes(prev => [...prev, node]);
   }
 
   // ── Node drag ─────────────────────────────────────────────────────────────
@@ -707,6 +729,49 @@ export default function Workflows() {
           </div>
           <div className="flex-1" />
           <Link to="/settings" className="text-xs text-center text-indigo-400 hover:text-indigo-300 py-3 block">+ Connect APIs</Link>
+
+          {/* ── Prompt Library / Command Center ── */}
+          <div className="flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <button onClick={() => setWfLibOpen(v => !v)}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-left transition-all"
+              style={{ background: wfLibOpen ? 'rgba(99,102,241,0.1)' : 'transparent' }}>
+              <span className="text-sm">📚</span>
+              <span className="text-xs font-semibold text-gray-400 flex-1">Command Center</span>
+              <span className="text-xs text-gray-600">{wfLibOpen ? '▲' : '▼'}</span>
+            </button>
+            {wfLibOpen && (
+              <div className="overflow-y-auto" style={{ maxHeight: 300 }}>
+                {wfLibrary.length === 0 && (
+                  <p className="text-xs text-gray-600 px-3 py-2 text-center">No saved prompts yet.<br/>Build your library in the Dashboard.</p>
+                )}
+                {wfLibrary.map(folder => (
+                  <div key={folder.id}>
+                    <button onClick={() => setWfActiveFolder(id => id === folder.id ? null : folder.id)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left"
+                      style={{ background: 'rgba(255,255,255,0.02)' }}>
+                      <span className="text-xs">{folder.icon}</span>
+                      <span className="text-xs text-gray-400 flex-1 truncate">{folder.name}</span>
+                      <span className="text-xs text-gray-600">{folder.prompts.length}</span>
+                    </button>
+                    {wfActiveFolder === folder.id && folder.prompts.map(p => (
+                      <button key={p.id} onClick={() => addPromptAsNode(p)}
+                        title={`Add "${p.title}" as a workflow node`}
+                        className="w-full flex items-start gap-2 px-4 py-2 text-left transition-all"
+                        style={{ background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.03)' }}
+                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.12)'; }}
+                        onMouseOut={e  => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}>
+                        <span className="text-xs flex-shrink-0 mt-0.5">📝</span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-white truncate">{p.title}</div>
+                          <div className="text-xs text-gray-600 truncate">{p.content.slice(0, 40)}…</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </aside>
 
         {/* ── Canvas ── */}

@@ -118,6 +118,17 @@ export default function Dashboard() {
   const [task, setTask]         = useState('');
   const [messages, setMessages] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showLibrary,   setShowLibrary]   = useState(false);
+  const [library,       setLibrary]       = useState([]);    // folders[]
+  const [activeFolder,  setActiveFolder]  = useState(null);  // folder id
+  const [activePersona, setActivePersona] = useState(null);  // { title, content } — prepended to every run
+  const [libLoading,    setLibLoading]    = useState(false);
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderIcon, setNewFolderIcon] = useState('📁');
+  const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const [newPromptTitle,setNewPromptTitle]= useState('');
+  const [newPromptBody, setNewPromptBody] = useState('');
   const { isRunning, stream, stop } = useStreamFetch();
 
   const { listening, supported: voiceSupported, toggle: toggleVoice, elapsed, liveText } = useVoice(
@@ -126,16 +137,79 @@ export default function Dashboard() {
 
   const navigate = useNavigate();
 
+  const loadLibrary = useCallback(async () => {
+    if (!apiKey) return;
+    setLibLoading(true);
+    try {
+      const res  = await fetch('/prompts', { headers: { 'x-location-id': apiKey } });
+      const data = await res.json();
+      if (data.success) setLibrary(data.data || []);
+    } catch { /* non-fatal */ }
+    finally { setLibLoading(false); }
+  }, [apiKey]);
+
+  useEffect(() => { if (showLibrary) loadLibrary(); }, [showLibrary, loadLibrary]);
+
   const run = useCallback(async (taskText) => {
     if (!taskText.trim() || isRunning) return;
     setMessages([]);
-    await stream('/claude/task', { task: taskText.trim() }, (evtType, data) => {
+    const fullTask = activePersona
+      ? `[System Context — ${activePersona.title}]:\n${activePersona.content}\n\n---\n\n${taskText.trim()}`
+      : taskText.trim();
+    await stream('/claude/task', { task: fullTask }, (evtType, data) => {
       setMessages(prev => applyEvent(prev, evtType, data));
     }, apiKey);
-  }, [isRunning, stream, apiKey]);
+  }, [isRunning, stream, apiKey, activePersona]);
+
+  const apiHeaders = { 'Content-Type': 'application/json', 'x-location-id': apiKey };
+
+  const createFolder = async () => {
+    if (!newFolderName.trim()) return;
+    await fetch('/prompts/folders', { method: 'POST', headers: apiHeaders,
+      body: JSON.stringify({ name: newFolderName.trim(), icon: newFolderIcon }) });
+    setNewFolderName(''); setNewFolderIcon('📁'); setShowNewFolder(false);
+    loadLibrary();
+  };
+
+  const deleteFolder = async (fid) => {
+    await fetch(`/prompts/folders/${fid}`, { method: 'DELETE', headers: apiHeaders });
+    if (activeFolder === fid) setActiveFolder(null);
+    loadLibrary();
+  };
+
+  const createPrompt = async () => {
+    if (!newPromptTitle.trim() || !newPromptBody.trim() || !activeFolder) return;
+    await fetch(`/prompts/folders/${activeFolder}/prompts`, { method: 'POST', headers: apiHeaders,
+      body: JSON.stringify({ title: newPromptTitle.trim(), content: newPromptBody.trim() }) });
+    setNewPromptTitle(''); setNewPromptBody(''); setShowNewPrompt(false);
+    loadLibrary();
+  };
+
+  const deletePrompt = async (fid, pid) => {
+    await fetch(`/prompts/folders/${fid}/prompts/${pid}`, { method: 'DELETE', headers: apiHeaders });
+    loadLibrary();
+  };
+
+  const usePrompt = (p) => {
+    setTask(p.content);
+    setShowLibrary(false);
+  };
+
+  const setPersona = (p) => {
+    setActivePersona(prev => prev?.id === p.id ? null : { id: p.id, title: p.title, content: p.content });
+  };
+
+  const saveCurrentAsPrompt = async () => {
+    if (!task.trim() || !activeFolder) return;
+    const title = window.prompt('Prompt title?');
+    if (!title) return;
+    await fetch(`/prompts/folders/${activeFolder}/prompts`, { method: 'POST', headers: apiHeaders,
+      body: JSON.stringify({ title: title.trim(), content: task.trim() }) });
+    loadLibrary();
+  };
 
   const handleSubmit = () => { run(task); };
-  const handleChip   = (prompt) => { setTask(prompt); run(prompt); setSidebarOpen(false); };
+  const handleChip   = (p) => { setTask(p); run(p); setSidebarOpen(false); };
 
   if (isAuthLoading)    return <Spinner />;
   if (!isAuthenticated) return (
@@ -327,6 +401,136 @@ export default function Dashboard() {
             }}
             voice={{ listening, supported: voiceSupported, toggle: toggleVoice, elapsed, liveText }}
           />
+
+          {/* ── Prompt Library trigger + active persona bar ── */}
+          <div className="flex items-center gap-2 px-3 py-1.5 flex-shrink-0"
+            style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}>
+            <button onClick={() => setShowLibrary(v => !v)}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
+              style={{ background: showLibrary ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)', border: `1px solid ${showLibrary ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.08)'}`, color: showLibrary ? '#a5b4fc' : '#9ca3af' }}>
+              📚 Prompt Library {library.length > 0 && <span style={{ color: '#6366f1', fontWeight: 700 }}>{library.reduce((a, f) => a + f.prompts.length, 0)}</span>}
+            </button>
+            {activePersona && (
+              <div className="flex items-center gap-1.5 flex-1 min-w-0 text-xs px-3 py-1.5 rounded-lg"
+                style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', color: '#34d399' }}>
+                <span>🧠</span>
+                <span className="truncate font-medium">{activePersona.title}</span>
+                <span className="text-gray-500 flex-shrink-0">active persona</span>
+                <button onClick={() => setActivePersona(null)} className="ml-auto flex-shrink-0 text-gray-500 hover:text-red-400">×</button>
+              </div>
+            )}
+            {task.trim() && activeFolder && (
+              <button onClick={saveCurrentAsPrompt} title="Save current prompt to library"
+                className="flex-shrink-0 text-xs px-2 py-1.5 rounded-lg text-gray-500 hover:text-indigo-400 transition-all"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                💾 Save
+              </button>
+            )}
+          </div>
+
+          {/* ── Prompt Library panel ── */}
+          {showLibrary && (
+            <div className="flex-shrink-0 flex overflow-hidden" style={{ height: 320, borderTop: '1px solid rgba(99,102,241,0.2)', background: '#0c0c12' }}>
+              {/* Left: folders */}
+              <div className="flex flex-col flex-shrink-0 overflow-y-auto"
+                style={{ width: 180, borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                <div className="px-3 pt-3 pb-1 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Folders</span>
+                  <button onClick={() => setShowNewFolder(v => !v)} className="text-indigo-400 text-xs hover:text-indigo-300">+</button>
+                </div>
+                {showNewFolder && (
+                  <div className="px-2 pb-2 space-y-1">
+                    <div className="flex gap-1">
+                      {['📁','📣','🧠','💼','🎯','⚡','🚀','🌟'].map(ic => (
+                        <button key={ic} onClick={() => setNewFolderIcon(ic)}
+                          className="text-sm rounded px-1 py-0.5 transition-all"
+                          style={{ background: newFolderIcon === ic ? 'rgba(99,102,241,0.3)' : 'transparent' }}>{ic}</button>
+                      ))}
+                    </div>
+                    <input value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && createFolder()}
+                      placeholder="Folder name…" className="field w-full text-xs" />
+                    <button onClick={createFolder} className="btn-primary text-xs w-full py-1">Create</button>
+                  </div>
+                )}
+                {libLoading && <p className="text-xs text-gray-600 px-3 py-2">Loading…</p>}
+                {library.length === 0 && !libLoading && (
+                  <p className="text-xs text-gray-600 px-3 py-2">No folders yet.</p>
+                )}
+                {library.map(folder => (
+                  <div key={folder.id}
+                    onClick={() => { setActiveFolder(folder.id); setShowNewPrompt(false); }}
+                    className="group flex items-center gap-2 px-3 py-2 cursor-pointer transition-all"
+                    style={{ background: activeFolder === folder.id ? 'rgba(99,102,241,0.15)' : 'transparent', borderLeft: `2px solid ${activeFolder === folder.id ? '#6366f1' : 'transparent'}` }}>
+                    <span className="text-base flex-shrink-0">{folder.icon}</span>
+                    <span className="flex-1 text-xs text-gray-300 truncate">{folder.name}</span>
+                    <span className="text-xs text-gray-600 flex-shrink-0">{folder.prompts.length}</span>
+                    <button onClick={e => { e.stopPropagation(); deleteFolder(folder.id); }}
+                      className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 text-xs flex-shrink-0 transition-all">×</button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Right: prompts in selected folder */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {!activeFolder ? (
+                  <div className="flex items-center justify-center h-full text-xs text-gray-600">Select a folder</div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between px-3 pt-3 pb-1 flex-shrink-0">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        {library.find(f => f.id === activeFolder)?.name}
+                      </span>
+                      <button onClick={() => setShowNewPrompt(v => !v)} className="text-xs text-indigo-400 hover:text-indigo-300">+ Add</button>
+                    </div>
+                    {showNewPrompt && (
+                      <div className="px-3 pb-2 space-y-1.5 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <input value={newPromptTitle} onChange={e => setNewPromptTitle(e.target.value)}
+                          placeholder="Prompt title…" className="field w-full text-xs" />
+                        <textarea value={newPromptBody} onChange={e => setNewPromptBody(e.target.value)}
+                          placeholder="Prompt content / system instructions…"
+                          rows={3} className="field w-full text-xs" style={{ resize: 'none' }} />
+                        <div className="flex gap-1">
+                          <button onClick={createPrompt} className="btn-primary text-xs flex-1 py-1">Save</button>
+                          <button onClick={() => setShowNewPrompt(false)} className="btn-ghost text-xs flex-1 py-1">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex-1 overflow-y-auto">
+                      {(library.find(f => f.id === activeFolder)?.prompts || []).length === 0 && (
+                        <p className="text-xs text-gray-600 px-3 py-3">No prompts yet. Click + Add.</p>
+                      )}
+                      {(library.find(f => f.id === activeFolder)?.prompts || []).map(p => (
+                        <div key={p.id} className="group px-3 py-2.5 transition-all"
+                          style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                          <div className="flex items-start gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-white truncate">{p.title}</p>
+                              <p className="text-xs text-gray-500 mt-0.5 line-clamp-2" style={{ overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                {p.content}
+                              </p>
+                            </div>
+                            <div className="flex flex-col gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                              <button onClick={() => usePrompt(p)}
+                                className="text-xs px-2 py-0.5 rounded text-indigo-400 hover:text-white transition-all"
+                                style={{ background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)' }}>Use</button>
+                              <button onClick={() => setPersona(p)}
+                                className="text-xs px-2 py-0.5 rounded transition-all"
+                                style={{ background: activePersona?.id === p.id ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.05)', border: `1px solid ${activePersona?.id === p.id ? 'rgba(16,185,129,0.5)' : 'rgba(255,255,255,0.1)'}`, color: activePersona?.id === p.id ? '#34d399' : '#9ca3af' }}>
+                                {activePersona?.id === p.id ? '✓ Set' : 'Persona'}</button>
+                              <button onClick={() => deletePrompt(activeFolder, p.id)}
+                                className="text-xs px-2 py-0.5 rounded text-gray-600 hover:text-red-400 transition-all"
+                                style={{ border: '1px solid rgba(255,255,255,0.08)' }}>Del</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Input */}
           <div
