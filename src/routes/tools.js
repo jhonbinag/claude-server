@@ -223,10 +223,13 @@ router.post('/test/:category', async (req, res) => {
         { headers: { 'X-Api-Key': cfg.apiKey, 'Content-Type': 'application/json' }, timeout: 10000 }
       );
     } else if (category === 'heygen') {
-      await axios.get('https://api.heygen.com/v1/user/remaining.quota', {
+      const r = await axios.get('https://api.heygen.com/v2/user/remaining_quota', {
         headers: { 'X-Api-Key': cfg.apiKey },
         timeout: 10000,
       });
+      if (r.data?.error) throw new Error(r.data.error.message || 'Invalid API key');
+      const quota = r.data?.data;
+      info = quota ? `HeyGen connected (${quota.remaining_quota ?? quota.remaining ?? 'quota ok'} credits remaining)` : 'HeyGen connected';
     } else if (category === 'stripe') {
       if (!cfg.secretKey) throw new Error('Secret key not configured.');
       const r = await axios.get('https://api.stripe.com/v1/account', {
