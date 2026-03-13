@@ -23,6 +23,30 @@ import Spinner      from '../components/Spinner';
 import { INTEGRATIONS } from '../lib/integrations';
 import { api }      from '../lib/api';
 
+// ── OAuth popup helper ────────────────────────────────────────────────────────
+// Opens a platform OAuth popup and resolves with the postMessage payload.
+function openOAuthPopup(platform, locationId) {
+  return new Promise((resolve, reject) => {
+    const url  = `/social-auth/${platform}?locationId=${encodeURIComponent(locationId)}`;
+    const win  = window.open(url, `${platform}_oauth`, 'width=600,height=700,left=200,top=100');
+    if (!win) { reject(new Error('Popup blocked')); return; }
+
+    function onMessage(e) {
+      if (!e.data || e.data.type !== 'social_oauth') return;
+      if (e.data.platform !== platform) return;
+      window.removeEventListener('message', onMessage);
+      if (e.data.error) reject(new Error(e.data.error));
+      else resolve(e.data);
+    }
+    window.addEventListener('message', onMessage);
+
+    // Clean up if popup closed without postMessage
+    const poll = setInterval(() => {
+      if (win.closed) { clearInterval(poll); window.removeEventListener('message', onMessage); resolve(null); }
+    }, 500);
+  });
+}
+
 export default function Settings() {
   const { isAuthenticated, isAuthLoading, apiKey, claudeReady, locationId, refreshStatus, integrations } = useApp();
 
@@ -495,6 +519,16 @@ export default function Settings() {
                 {/* ── Expanded form ────────────────────────────────────── */}
                 {!tierLocked && isOpen && (
                   <div className="mt-4 space-y-4 fade-up">
+
+                    {/* Facebook Ads — OAuth connect button */}
+                    {cfg.key === 'facebook_ads' && (
+                      <FacebookOAuthButton
+                        apiKey={apiKey}
+                        enabled={enabled}
+                        showToast={showToast}
+                        onConnected={refreshStatus}
+                      />
+                    )}
 
                     {cfg.fields.map(f => {
                       const dbVal    = getMasked(cfg.key, f.key);
@@ -998,6 +1032,51 @@ const PLATFORM_META = {
   gmb:       { label: 'Google My Business', icon: '🔵', bg: '#4285f4', color: 'rgba(66,133,244,0.1)', border: 'rgba(66,133,244,0.35)' },
 };
 
+// ── Facebook OAuth Connect Button — for facebook_ads card ────────────────────
+function FacebookOAuthButton({ apiKey, enabled, showToast, onConnected }) {
+  const [connecting, setConnecting] = useState(false);
+
+  async function connect() {
+    if (!apiKey) { showToast('No location key found.', false); return; }
+    setConnecting(true);
+    try {
+      const result = await openOAuthPopup('facebook', apiKey);
+      if (result === null) { /* popup closed */ return; }
+      showToast(`Facebook connected: ${result.account?.name || 'page saved'}`, true);
+      if (onConnected) onConnected();
+    } catch (err) {
+      showToast(`Facebook connect failed: ${err.message}`, false);
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  return (
+    <div style={{ background: 'rgba(24,119,242,0.08)', border: '1px solid rgba(24,119,242,0.3)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <div>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
+          📘 Connect with Facebook
+        </p>
+        <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>
+          {enabled ? 'Reconnect to update your page / token.' : 'Sign in with Facebook to select your Page — no manual token needed.'}
+        </p>
+      </div>
+      <button
+        onClick={connect}
+        disabled={connecting}
+        style={{
+          background: connecting ? 'rgba(24,119,242,0.3)' : '#1877f2',
+          border: 'none', borderRadius: 8, padding: '8px 16px',
+          color: '#fff', fontSize: 12, fontWeight: 700, cursor: connecting ? 'not-allowed' : 'pointer',
+          flexShrink: 0, whiteSpace: 'nowrap',
+        }}
+      >
+        {connecting ? '⏳ Connecting…' : enabled ? '↻ Reconnect' : '+ Connect'}
+      </button>
+    </div>
+  );
+}
+
 // ── Facebook Lead Sync Button — pulls FB Lead Ads leads → GHL contacts ───────
 function FbLeadSyncButton({ apiKey, showToast }) {
   const [syncing,  setSyncing]  = useState(false);
@@ -1067,13 +1146,33 @@ function normalizePlatform(raw = '') {
 // Platforms that can be connected (shown as tiles even when not connected)
 const CONNECTABLE = ['facebook', 'instagram', 'tiktok', 'youtube', 'linkedin', 'pinterest', 'twitter', 'gmb'];
 
+// Platforms that support our OAuth flow (must match PLATFORMS in socialAuth.js)
+const OAUTH_PLATFORMS = new Set(['facebook', 'google', 'linkedin', 'tiktok', 'pinterest']);
+
 function SocialHubCard() {
+  const { apiKey, refreshStatus: refreshIntegrations } = useApp();
   const [accounts,      setAccounts]      = useState([]);
   const [status,        setStatus]        = useState({}); // { facebook: { connected, name, avatar }, ... }
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState(null);
   const [isOpen,        setIsOpen]        = useState(true);
   const [ghlConnected,  setGhlConnected]  = useState(true);
+  const [connecting,    setConnecting]    = useState(null); // platformKey being connected
+
+  async function connectPlatform(platformKey) {
+    if (!apiKey) { setError('No location key found.'); return; }
+    setConnecting(platformKey);
+    try {
+      const result = await openOAuthPopup(platformKey, apiKey);
+      if (result === null) return; // popup closed without completing
+      await loadAccounts();
+      if (refreshIntegrations) refreshIntegrations();
+    } catch (err) {
+      setError(`${platformKey} connect failed: ${err.message}`);
+    } finally {
+      setConnecting(null);
+    }
+  }
 
   async function loadAccounts() {
     setLoading(true);
@@ -1212,8 +1311,25 @@ function SocialHubCard() {
                         </div>
                       </>
                     ) : (
-                      /* ── Not connected: status label only, no button ── */
-                      <div style={{ marginTop: 'auto', fontSize: 12, color: '#6b7280' }}>Not connected</div>
+                      /* ── Not connected ── */
+                      <div style={{ marginTop: 'auto' }}>
+                        {OAUTH_PLATFORMS.has(platformKey) ? (
+                          <button
+                            onClick={() => connectPlatform(platformKey)}
+                            disabled={connecting === platformKey}
+                            style={{
+                              width: '100%', padding: '6px 0', borderRadius: 8,
+                              background: connecting === platformKey ? 'rgba(255,255,255,0.06)' : meta.color,
+                              border: `1px solid ${meta.border}`,
+                              color: '#e2e8f0', fontSize: 12, fontWeight: 600, cursor: connecting === platformKey ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            {connecting === platformKey ? '⏳ Connecting…' : `+ Connect ${meta.label}`}
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 12, color: '#6b7280' }}>Not connected</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
