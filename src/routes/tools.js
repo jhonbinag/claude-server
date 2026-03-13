@@ -111,22 +111,30 @@ router.get('/', async (req, res) => {
 
 router.get('/debug', async (req, res) => {
   try {
-    const firebaseRaw   = config.isFirebaseEnabled
-      ? await require('../services/firebaseStore').getToolConfig(req.locationId)
-      : null;
-    const registryFull  = await toolRegistry.loadToolConfigs(req.locationId);
-    const enabled       = await toolRegistry.getEnabledIntegrations(req.locationId);
+    const fb = require('../services/firebaseStore');
+    const firebaseRaw = config.isFirebaseEnabled ? await fb.getToolConfig(req.locationId) : null;
+
+    // Also read the raw Firestore document to see actual field names
+    let rawDoc = null;
+    if (config.isFirebaseEnabled) {
+      try {
+        const admin = require('firebase-admin');
+        const snap = await admin.firestore().collection('toolConfigs').doc(req.locationId).get();
+        rawDoc = snap.exists ? snap.data() : 'document does not exist';
+      } catch (e) { rawDoc = 'error: ' + e.message; }
+    }
+
+    const registryFull = await toolRegistry.loadToolConfigs(req.locationId);
+    const enabled      = await toolRegistry.getEnabledIntegrations(req.locationId);
 
     res.json({
       success:           true,
       locationId:        req.locationId,
       isFirebaseEnabled: config.isFirebaseEnabled,
       firebaseKeys:      firebaseRaw ? Object.keys(firebaseRaw) : null,
+      rawFirestoreDoc:   rawDoc,
       registryKeys:      Object.keys(registryFull),
       enabledCategories: enabled,
-      firebasePreview:   firebaseRaw
-        ? Object.fromEntries(Object.entries(firebaseRaw).map(([k, v]) => [k, Object.keys(v || {})]))
-        : null,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
