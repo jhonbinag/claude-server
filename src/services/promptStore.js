@@ -2,9 +2,14 @@
  * src/services/promptStore.js
  *
  * Firestore-backed prompt library.
- * Collection: promptLibrary / {locationId}
- * Stores folders + prompts as a JSON string (no encryption needed — prompts are not secrets).
- * Falls back to in-memory map when Firebase is disabled.
+ *
+ * Collections:
+ *   promptLibrary  / {locationId}   — folders + prompts metadata (JSON blob)
+ *   promptTraining / {locationId}_{promptId} — full training conversation history
+ *
+ * Training history is stored in its own collection so it doesn't bloat the
+ * main library document and is visible as a distinct collection in Firebase.
+ * Falls back to in-memory maps when Firebase is disabled.
  */
 
 const config = require('../config');
@@ -24,31 +29,95 @@ function db() {
   return _db;
 }
 
-const COLLECTION = 'promptLibrary';
-const memStore   = {}; // fallback for dev
+const LIB_COL      = 'promptLibrary';
+const TRAIN_COL    = 'promptTraining';
+const memLibrary   = {}; // fallback for dev
+const memTraining  = {}; // fallback for dev
+
+// ── Prompt Library (folders + prompts metadata) ───────────────────────────────
 
 async function getLibrary(locationId) {
   const d = db();
   if (d) {
-    const snap = await d.collection(COLLECTION).doc(locationId).get();
+    const snap = await d.collection(LIB_COL).doc(locationId).get();
     if (!snap.exists) return { folders: [] };
     try { return { folders: JSON.parse(snap.data().folders || '[]') }; }
     catch { return { folders: [] }; }
   }
-  return { folders: memStore[locationId] || [] };
+  return { folders: memLibrary[locationId] || [] };
 }
 
 async function saveLibrary(locationId, folders) {
   const d = db();
   if (d) {
     const admin = require('firebase-admin');
-    await d.collection(COLLECTION).doc(locationId).set({
-      folders:   JSON.stringify(folders),
+    // Strip trainHistory from embedded prompt objects before saving —
+    // training data lives in promptTraining collection, not here.
+    const clean = folders.map(f => ({
+      ...f,
+      prompts: (f.prompts || []).map(({ trainHistory: _th, ...p }) => p),
+    }));
+    await d.collection(LIB_COL).doc(locationId).set({
+      folders:   JSON.stringify(clean),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   } else {
-    memStore[locationId] = folders;
+    memLibrary[locationId] = folders;
   }
 }
 
-module.exports = { getLibrary, saveLibrary };
+// ── Training History (separate collection) ────────────────────────────────────
+
+/**
+ * Save training conversation history for a specific prompt.
+ * Document ID: {locationId}_{promptId}
+ */
+async function saveTraining(locationId, promptId, trainHistory, meta = {}) {
+  const d = db();
+  const key = `${locationId}_${promptId}`;
+  if (d) {
+    const admin = require('firebase-admin');
+    await d.collection(TRAIN_COL).doc(key).set({
+      locationId,
+      promptId,
+      folderId:    meta.folderId    || null,
+      promptTitle: meta.promptTitle || null,
+      isDraft:     meta.isDraft     ?? true,
+      trainHistory,
+      messageCount: trainHistory.length,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } else {
+    memTraining[key] = { locationId, promptId, trainHistory, ...meta };
+  }
+}
+
+/**
+ * Load training history for a specific prompt.
+ * Returns [] if none found.
+ */
+async function getTraining(locationId, promptId) {
+  const d = db();
+  const key = `${locationId}_${promptId}`;
+  if (d) {
+    const snap = await d.collection(TRAIN_COL).doc(key).get();
+    if (!snap.exists) return [];
+    return snap.data().trainHistory || [];
+  }
+  return memTraining[key]?.trainHistory || [];
+}
+
+/**
+ * Delete training history when a prompt is deleted.
+ */
+async function deleteTraining(locationId, promptId) {
+  const d = db();
+  const key = `${locationId}_${promptId}`;
+  if (d) {
+    await d.collection(TRAIN_COL).doc(key).delete();
+  } else {
+    delete memTraining[key];
+  }
+}
+
+module.exports = { getLibrary, saveLibrary, saveTraining, getTraining, deleteTraining };

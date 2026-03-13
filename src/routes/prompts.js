@@ -30,6 +30,9 @@ async function load(locationId) {
 async function save(locationId, folders) {
   await promptStore.saveLibrary(locationId, folders);
 }
+async function saveTraining(locationId, promptId, trainHistory, meta) {
+  await promptStore.saveTraining(locationId, promptId, trainHistory, meta);
+}
 
 // ── GET /prompts ──────────────────────────────────────────────────────────────
 
@@ -98,7 +101,9 @@ router.get('/folders/:fid/prompts/:pid', async (req, res) => {
     if (!folder) return res.status(404).json({ success: false, error: 'Folder not found' });
     const p = folder.prompts?.find(p => p.id === req.params.pid);
     if (!p) return res.status(404).json({ success: false, error: 'Prompt not found' });
-    res.json({ success: true, data: p });
+    // Merge training history from dedicated promptTraining collection
+    const trainHistory = await promptStore.getTraining(req.locationId, req.params.pid);
+    res.json({ success: true, data: { ...p, trainHistory } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -115,11 +120,16 @@ router.post('/folders/:fid/prompts', async (req, res) => {
     const folder  = folders.find(f => f.id === req.params.fid);
     if (!folder) return res.status(404).json({ success: false, error: 'Folder not found' });
     const p = { id: uuid(), title: title.trim(), content: content.trim(), createdAt: Date.now() };
-    if (Array.isArray(trainHistory) && trainHistory.length) p.trainHistory = trainHistory;
     if (isDraft) p.isDraft = true;
+    if (Array.isArray(trainHistory) && trainHistory.length) {
+      p.hasTraining = true; // flag in library doc (no full history stored here)
+      await saveTraining(req.locationId, p.id, trainHistory, {
+        folderId: req.params.fid, promptTitle: p.title, isDraft: !!isDraft,
+      });
+    }
     folder.prompts.push(p);
     await save(req.locationId, folders);
-    res.json({ success: true, data: p });
+    res.json({ success: true, data: { ...p, trainHistory: trainHistory || [] } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -137,12 +147,34 @@ router.put('/folders/:fid/prompts/:pid', async (req, res) => {
     const { title, content, trainHistory, isDraft } = req.body;
     if (title)   folder.prompts[pidx].title   = title.trim();
     if (content) folder.prompts[pidx].content = content.trim();
-    if (Array.isArray(trainHistory)) folder.prompts[pidx].trainHistory = trainHistory;
-    if (isDraft === false) delete folder.prompts[pidx].isDraft;
-    else if (isDraft)      folder.prompts[pidx].isDraft = true;
+    if (isDraft === false) {
+      delete folder.prompts[pidx].isDraft;
+      // Mark training as finalized in promptTraining collection
+      if (folder.prompts[pidx].hasTraining) {
+        const existing = await promptStore.getTraining(req.locationId, req.params.pid);
+        if (existing.length) {
+          await saveTraining(req.locationId, req.params.pid, existing, {
+            folderId: req.params.fid,
+            promptTitle: folder.prompts[pidx].title,
+            isDraft: false,
+          });
+        }
+      }
+    } else if (isDraft) {
+      folder.prompts[pidx].isDraft = true;
+    }
+    // Save training history to dedicated collection (never stored in library blob)
+    if (Array.isArray(trainHistory)) {
+      folder.prompts[pidx].hasTraining = trainHistory.length > 0;
+      await saveTraining(req.locationId, req.params.pid, trainHistory, {
+        folderId:    req.params.fid,
+        promptTitle: folder.prompts[pidx].title,
+        isDraft:     !!folder.prompts[pidx].isDraft,
+      });
+    }
     folder.prompts[pidx].updatedAt = Date.now();
     await save(req.locationId, folders);
-    res.json({ success: true, data: folder.prompts[pidx] });
+    res.json({ success: true, data: { ...folder.prompts[pidx], trainHistory: trainHistory || [] } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -157,6 +189,8 @@ router.delete('/folders/:fid/prompts/:pid', async (req, res) => {
     if (!folder) return res.status(404).json({ success: false, error: 'Folder not found' });
     folder.prompts = folder.prompts.filter(p => p.id !== req.params.pid);
     await save(req.locationId, folders);
+    // Clean up training data from dedicated collection
+    await promptStore.deleteTraining(req.locationId, req.params.pid).catch(() => {});
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
