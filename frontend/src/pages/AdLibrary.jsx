@@ -337,8 +337,12 @@ export default function AdLibrary() {
   const [pasteText,  setPasteText]  = useState('');
   const [pasteAnalysis, setPasteAnalysis] = useState('');
   const [pasteAnalyzing, setPasteAnalyzing] = useState(false);
+  const [urlInput,   setUrlInput]   = useState('');
+  const [urlAnalyzing, setUrlAnalyzing] = useState(false);
+  const [urlAnalysis,  setUrlAnalysis]  = useState('');
   const analysisRef = useRef(null);
   const pasteRef    = useRef(null);
+  const urlRef      = useRef(null);
 
   async function handlePasteAnalyze() {
     if (!pasteText.trim()) return;
@@ -354,6 +358,39 @@ export default function AdLibrary() {
       setTimeout(() => pasteRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (e) { setPasteAnalysis('Error: ' + e.message); }
     finally { setPasteAnalyzing(false); }
+  }
+
+  async function handleUrlAnalyze() {
+    if (!urlInput.trim()) return;
+    setUrlAnalyzing(true); setUrlAnalysis('');
+    try {
+      // Parse URL params
+      const u = new URL(urlInput.trim());
+      const q        = u.searchParams.get('q') || '';
+      const country_ = (u.searchParams.get('country') || 'US').toUpperCase();
+      const active   = u.searchParams.get('active_status') || 'all';
+      const adType_  = u.searchParams.get('ad_type') || 'all';
+      const statusVal = active === 'active' ? 'ACTIVE' : active === 'inactive' ? 'INACTIVE' : 'ALL';
+      const adTypeVal = adType_ === 'political_and_issue_ads' ? 'POLITICAL_AND_ISSUE_ADS' : 'ALL';
+
+      if (!q) { setUrlAnalysis('Error: No search term found in URL.'); return; }
+
+      // Fetch ads
+      const d = await api.get(
+        `/ad-library/search?q=${encodeURIComponent(q)}&country=${country_ === 'ALL' ? 'US' : country_}&status=${statusVal}&type=${adTypeVal}&limit=25`
+      );
+      if (d.error) { setUrlAnalysis('Error: ' + d.error + (d.hint ? ' ' + d.hint : '')); return; }
+      const fetchedAds = Array.isArray(d.data) ? d.data : [];
+      if (!fetchedAds.length) { setUrlAnalysis('No ads found for this search.'); return; }
+
+      // Auto-analyze
+      const a = await api.post('/ad-library/analyze', { ads: fetchedAds, focus, competitor: q });
+      if (a.error) { setUrlAnalysis('Error: ' + a.error); return; }
+      setUrlAnalysis(a.analysis || '');
+      setTimeout(() => urlRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    } catch (e) {
+      setUrlAnalysis('Error: ' + (e.message.includes('Invalid URL') ? 'Please paste a valid Facebook Ad Library URL.' : e.message));
+    } finally { setUrlAnalyzing(false); }
   }
 
   async function handleSearch(e) {
@@ -376,23 +413,6 @@ export default function AdLibrary() {
       setAds(Array.isArray(d.data) ? d.data : []);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
-  }
-
-  function handleUrlImport(url) {
-    try {
-      const u = new URL(url.trim());
-      const q       = u.searchParams.get('q');
-      const country = u.searchParams.get('country');
-      const active  = u.searchParams.get('active_status'); // active | inactive | all
-      const adType  = u.searchParams.get('ad_type');       // all | political_and_issue_ads
-      if (q)       setQuery(q);
-      if (country) setCountry(country.toUpperCase());
-      if (active === 'active')   setStatus('ACTIVE');
-      else if (active === 'inactive') setStatus('INACTIVE');
-      else if (active === 'all') setStatus('ALL');
-      if (adType === 'political_and_issue_ads') setAdType('POLITICAL_AND_ISSUE_ADS');
-      else setAdType('ALL');
-    } catch { /* invalid URL, ignore */ }
   }
 
   function toggleAd(id) {
@@ -459,23 +479,33 @@ export default function AdLibrary() {
             )}
           </div>
 
-          {/* URL import row — Facebook only */}
+          {/* URL Analyze row — Facebook only */}
           {platform === 'facebook' && (
             <div style={{ paddingBottom: 6 }}>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <input
+                  value={urlInput}
+                  onChange={e => setUrlInput(e.target.value)}
                   style={{
                     flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: 8, padding: '6px 12px', color: '#9ca3af', fontSize: 12,
+                    borderRadius: 8, padding: '6px 12px', color: '#e2e8f0', fontSize: 12,
                     outline: 'none', boxSizing: 'border-box',
                   }}
-                  placeholder="Paste a Facebook Ad Library URL to auto-fill filters…"
-                  onPaste={e => { e.preventDefault(); handleUrlImport(e.clipboardData.getData('text')); }}
-                  onChange={e => handleUrlImport(e.target.value)}
+                  placeholder="Paste a Facebook Ad Library URL and click Analyze…"
+                  onKeyDown={e => e.key === 'Enter' && handleUrlAnalyze()}
                 />
-                <a href="https://www.facebook.com/ads/library/" target="_blank" rel="noreferrer" style={{
-                  fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap', textDecoration: 'none',
-                }}>Open Ad Library ↗</a>
+                <button
+                  onClick={handleUrlAnalyze}
+                  disabled={urlAnalyzing || !urlInput.trim()}
+                  style={{
+                    background: urlAnalyzing || !urlInput.trim() ? '#374151' : '#6366f1',
+                    color: '#fff', border: 'none', borderRadius: 8, padding: '6px 16px',
+                    fontSize: 12, fontWeight: 700, cursor: urlAnalyzing || !urlInput.trim() ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >
+                  {urlAnalyzing ? '⟳ Analyzing…' : '🤖 Analyze URL'}
+                </button>
               </div>
             </div>
           )}
@@ -617,6 +647,25 @@ export default function AdLibrary() {
                 <div style={{ fontSize: 13, lineHeight: 1.75, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>{pasteAnalysis}</div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── URL Analysis result ── */}
+        {platform === 'facebook' && (urlAnalysis || urlAnalyzing) && (
+          <div ref={urlRef} style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#c7d2fe' }}>🤖 URL Analysis</span>
+              {urlAnalysis && !urlAnalysis.startsWith('Error') && (
+                <button onClick={() => navigator.clipboard.writeText(urlAnalysis)} style={{
+                  background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 6, padding: '3px 10px', fontSize: 11, color: '#9ca3af', cursor: 'pointer',
+                }}>Copy</button>
+              )}
+            </div>
+            {urlAnalyzing
+              ? <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>Fetching ads and analyzing…</p>
+              : <div style={{ fontSize: 13, lineHeight: 1.75, color: urlAnalysis.startsWith('Error') ? '#fca5a5' : '#cbd5e1', whiteSpace: 'pre-wrap' }}>{urlAnalysis}</div>
+            }
           </div>
         )}
 
