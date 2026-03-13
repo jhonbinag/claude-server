@@ -45,9 +45,11 @@ for (const [category, defs] of Object.entries(EXTERNAL_TOOL_DEFINITIONS)) {
  */
 async function loadToolConfigs(locationId) {
   // Tier 1: Redis 1-hour cache (fastest)
+  // Only accept a non-empty cache hit — an empty {} may be stale (written before
+  // Firebase was populated) and must not block Firebase reads.
   try {
     const cached = await toolTokenService.getCachedToolConfig(locationId);
-    if (cached !== null) return cached;
+    if (cached !== null && Object.keys(cached).length > 0) return cached;
   } catch { /* cache unavailable — continue to next tier */ }
 
   let configs = {};

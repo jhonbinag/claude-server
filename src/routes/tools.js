@@ -107,6 +107,17 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ─── POST /tools/cache-bust — force-clear Redis cache so next read hits Firebase ─
+router.post('/cache-bust', async (req, res) => {
+  try {
+    await toolTokenService.invalidateToolConfigCache(req.locationId);
+    console.log(`[Tools] Cache busted for ${req.locationId}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
 // ─── GET /tools/sync — full sync status with token health ────────────────────
 
 router.get('/sync', async (req, res) => {
