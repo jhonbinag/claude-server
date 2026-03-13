@@ -61,30 +61,49 @@ async function getFbToken(locationId) {
 }
 
 // ── Public scraper: Facebook's own internal Ad Library endpoint ───────────────
-// No API token needed — this is the same endpoint the facebook.com website uses.
+// Step 1: fetch the Ad Library page to get session cookies
+// Step 2: use those cookies for the async search request
 async function searchPublicAdLibrary({ q, country = 'US', status = 'ALL', limit = 30 }) {
+  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
+  // Step 1: get cookies from the Ad Library page
+  const seedRes = await axios.get('https://www.facebook.com/ads/library/', {
+    headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' },
+    timeout: 10000,
+    maxRedirects: 5,
+  });
+  const cookies = (seedRes.headers['set-cookie'] || [])
+    .map(c => c.split(';')[0]).join('; ');
+
+  // Extract __spin_r, __spin_b, lsd token from page HTML if present
+  const html   = typeof seedRes.data === 'string' ? seedRes.data : '';
+  const lsdMatch = html.match(/"LSD",\s*\[\],\s*\{"token":"([^"]+)"/);
+  const lsd    = lsdMatch?.[1] || '';
+
   const params = new URLSearchParams({
     q,
-    ad_type:       'all',
-    active_status: status === 'ACTIVE' ? 'active' : status === 'INACTIVE' ? 'inactive' : 'all',
+    ad_type:          'all',
+    active_status:    status === 'ACTIVE' ? 'active' : status === 'INACTIVE' ? 'inactive' : 'all',
     country,
-    start_index:   '0',
-    count:         String(Math.min(Number(limit), 50)),
-    session_id:    require('crypto').randomUUID(),
-    source:        'Search',
-    search_type:   'keyword_unordered',
+    start_index:      '0',
+    count:            String(Math.min(Number(limit), 50)),
+    session_id:       require('crypto').randomUUID(),
+    source:           'Search',
+    search_type:      'keyword_unordered',
     view_all_page_id: '',
+    ...(lsd ? { lsd } : {}),
   });
 
   const response = await axios.get(
     `https://www.facebook.com/ads/library/async/search_ads/?${params.toString()}`,
     {
       headers: {
-        'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept':          'application/json, text/javascript, */*; q=0.01',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer':         'https://www.facebook.com/ads/library/',
+        'User-Agent':       UA,
+        'Accept':           'application/json, text/javascript, */*; q=0.01',
+        'Accept-Language':  'en-US,en;q=0.9',
+        'Referer':          'https://www.facebook.com/ads/library/',
         'X-Requested-With': 'XMLHttpRequest',
+        ...(cookies ? { 'Cookie': cookies } : {}),
       },
       timeout: 15000,
     }
@@ -99,6 +118,8 @@ async function searchPublicAdLibrary({ q, country = 'US', status = 'ALL', limit 
 
   // Extract ads from the response payload
   const ads = raw?.payload?.results || raw?.data?.results || raw?.results || [];
+  if (!Array.isArray(ads)) throw new Error('Unexpected response format from Facebook');
+
   return ads.map(ad => ({
     id:                      ad.adArchiveID || ad.id || String(Math.random()),
     page_name:               ad.pageName    || ad.page_name || '',
