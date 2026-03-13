@@ -13,7 +13,7 @@
   "crons": [
     {
       "path": "/cron/run-schedules",
-      "schedule": "0 * * * *"
+      "schedule": "0 9 * * *"
     }
   ],
   "env": {
