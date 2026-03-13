@@ -409,7 +409,7 @@ export default function Settings() {
         {/* ── Social Hub ─────────────────────────────────────────────────── */}
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Social Hub</h2>
         <div className="mb-8">
-          <SocialHubCard showToast={showToast} />
+          <SocialHubCard />
         </div>
 
         {/* ── External integrations ──────────────────────────────────────── */}
@@ -1067,14 +1067,12 @@ function normalizePlatform(raw = '') {
 // Platforms that can be connected (shown as tiles even when not connected)
 const CONNECTABLE = ['facebook', 'instagram', 'tiktok', 'youtube', 'linkedin', 'pinterest', 'twitter', 'gmb'];
 
-function SocialHubCard({ showToast }) {
+function SocialHubCard() {
   const [accounts,      setAccounts]      = useState([]);
   const [status,        setStatus]        = useState({}); // { facebook: { connected, name, avatar }, ... }
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState(null);
   const [isOpen,        setIsOpen]        = useState(true);
-  const [connecting,    setConnecting]    = useState(null);
-  const [disconnecting, setDisconnecting] = useState(null);
   const [ghlConnected,  setGhlConnected]  = useState(true);
 
   async function loadAccounts() {
@@ -1112,45 +1110,6 @@ function SocialHubCard({ showToast }) {
 
   useEffect(() => { loadAccounts(); }, []);
 
-  // Open GHL OAuth popup for a platform
-  async function connectPlatform(platformKey, reconnect = false) {
-    setConnecting(platformKey);
-    try {
-      const d = await api.get(`/social/connect/${platformKey}${reconnect ? '?reconnect=true' : ''}`);
-      const url = d?.url || d?.authUrl;
-      if (!url) throw new Error(d?.error || `GHL response: ${JSON.stringify(d)}`);
-      const popup = window.open(url, 'ghl_social_oauth', 'width=640,height=720,scrollbars=yes');
-      if (!popup) { showToast('Popup blocked — please allow popups.', false); setConnecting(null); return; }
-      // Poll for popup close then refresh
-      const timer = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(timer);
-          setConnecting(null);
-          loadAccounts();
-        }
-      }, 800);
-    } catch (e) {
-      showToast(`Connect failed: ${e.message}`, false);
-      setConnecting(null);
-    }
-  }
-
-  // Disconnect a social account
-  async function disconnectAccount(acc) {
-    const id = acc.id || acc.accountId;
-    const name = acc.name || acc.displayName || 'account';
-    if (!confirm(`Disconnect ${name}?`)) return;
-    setDisconnecting(id);
-    try {
-      await api.del(`/social/accounts/${id}`);
-      showToast(`${name} disconnected.`, true);
-      loadAccounts();
-    } catch (e) {
-      showToast(`Disconnect failed: ${e.message}`, false);
-    } finally {
-      setDisconnecting(null);
-    }
-  }
 
   const connectedCount = Object.values(status).filter(s => s.connected).length;
   const anyConnected   = connectedCount > 0 || accounts.length > 0;
@@ -1224,14 +1183,8 @@ function SocialHubCard({ showToast }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '0.75rem' }}>
               {CONNECTABLE.map(platformKey => {
                 const meta        = PLATFORM_META[platformKey];
-                const s           = status[platformKey] || {};   // { connected, name, avatar }
+                const s           = status[platformKey] || {};
                 const isConnected = !!s.connected;
-                const isBusy      = connecting === platformKey;
-                // Find matching account detail for disconnect button
-                const accDetail   = accounts.find(a =>
-                  (a.platform && a.platform === platformKey) ||
-                  normalizePlatform(a.type || a.accountType || '') === platformKey
-                );
 
                 return (
                   <div key={platformKey} style={{
@@ -1249,43 +1202,18 @@ function SocialHubCard({ showToast }) {
                     </div>
 
                     {isConnected ? (
-                      /* ── Connected: status only, NO connect button ── */
+                      /* ── Connected ── */
                       <>
-                        {(s.name || s.avatar) && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {s.avatar
-                              ? <img src={s.avatar} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                              : <div style={{ width: 28, height: 28, borderRadius: '50%', background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{(s.name || meta.label)[0].toUpperCase()}</div>}
-                            <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{s.name || meta.label}</p>
-                            {accDetail && (
-                              <button
-                                onClick={() => disconnectAccount(accDetail)}
-                                disabled={disconnecting === (accDetail.id || accDetail.accountId)}
-                                title="Disconnect"
-                                style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 6, padding: '3px 7px', color: '#f87171', cursor: 'pointer', fontSize: 11, flexShrink: 0 }}
-                              >✕</button>
-                            )}
-                          </div>
+                        {s.name && (
+                          <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</p>
                         )}
                         <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#34d399' }}>
                           <span>✓</span> Connected
                         </div>
                       </>
                     ) : (
-                      /* ── Not connected: connect button only ── */
-                      <button
-                        onClick={() => connectPlatform(platformKey, false)}
-                        disabled={isBusy}
-                        style={{
-                          marginTop: 'auto', background: meta.bg, border: 'none',
-                          borderRadius: 8, padding: '7px 10px', color: '#fff',
-                          cursor: isBusy ? 'wait' : 'pointer', fontSize: 12, fontWeight: 700,
-                          opacity: isBusy ? 0.7 : 1,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                        }}
-                      >
-                        {isBusy ? '⟳ Connecting…' : `Connect ${meta.label}`}
-                      </button>
+                      /* ── Not connected: status label only, no button ── */
+                      <div style={{ marginTop: 'auto', fontSize: 12, color: '#6b7280' }}>Not connected</div>
                     )}
                   </div>
                 );
