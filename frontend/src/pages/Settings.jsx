@@ -1146,6 +1146,7 @@ function SocialHubCard({ showToast }) {
     if (!connectedByType[type]) connectedByType[type] = [];
     connectedByType[type].push(acc);
   });
+  if (accounts.length > 0) console.log('[SocialHub] connectedByType keys:', Object.keys(connectedByType), 'CONNECTABLE:', CONNECTABLE);
 
   return (
     <div className={`card p-5${anyConnected ? ' connected' : ''}`}>
@@ -1216,13 +1217,17 @@ function SocialHubCard({ showToast }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '0.75rem' }}>
               {CONNECTABLE.map(platformKey => {
                 const meta = PLATFORM_META[platformKey];
-                const connected = connectedByType[platformKey] || [];
+                // Also match accounts where normalizePlatform returns this key
+                const connected = accounts.filter(a =>
+                  normalizePlatform(a.type || a.platform || a.accountType || '') === platformKey
+                );
                 const isBusy = connecting === platformKey;
+                const isConnected = connected.length > 0;
 
                 return (
                   <div key={platformKey} style={{
-                    background: connected.length ? meta.color : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${connected.length ? meta.border : 'rgba(255,255,255,0.08)'}`,
+                    background: isConnected ? meta.color : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${isConnected ? meta.border : 'rgba(255,255,255,0.08)'}`,
                     borderRadius: 14, padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem',
                   }}>
                     {/* Platform header */}
@@ -1231,53 +1236,40 @@ function SocialHubCard({ showToast }) {
                         <span style={{ fontSize: 20 }}>{meta.icon}</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{meta.label}</span>
                       </div>
-                      {connected.length > 0 && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399', flexShrink: 0 }} />}
+                      {isConnected && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399', flexShrink: 0 }} />}
                     </div>
 
-                    {/* Connected accounts list */}
-                    {connected.map(acc => {
-                      const name   = acc.name || acc.displayName || acc.username || 'Account';
-                      const avatar = acc.avatar || acc.picture;
-                      const accId  = acc.id || acc.accountId;
-                      return (
-                        <div key={accId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {avatar
-                            ? <img src={avatar} alt="" style={{ width: 26, height: 26, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                            : <div style={{ width: 26, height: 26, borderRadius: '50%', background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{name[0]}</div>}
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#e2e8f0', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</p>
-                            {acc.followers != null && <p style={{ margin: 0, fontSize: 11, color: '#9ca3af' }}>{Number(acc.followers).toLocaleString()} followers</p>}
-                          </div>
-                          <button
-                            onClick={() => disconnectAccount(acc)}
-                            disabled={disconnecting === accId}
-                            title="Disconnect"
-                            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 6, padding: '3px 7px', color: '#f87171', cursor: 'pointer', fontSize: 11, flexShrink: 0 }}
-                          >✕</button>
-                        </div>
-                      );
-                    })}
-
-                    {/* Connected status OR connect button */}
-                    {connected.length > 0 ? (
-                      <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#34d399' }}>
+                    {isConnected ? (
+                      /* ── Connected: show account info + status, NO connect button ── */
+                      <>
+                        {connected.map(acc => {
+                          const name  = acc.name || acc.displayName || acc.username || meta.label;
+                          const avatar = acc.avatar || acc.picture;
+                          const accId  = acc.id || acc.accountId;
+                          return (
+                            <div key={accId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              {avatar
+                                ? <img src={avatar} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                                : <div style={{ width: 28, height: 28, borderRadius: '50%', background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{name[0]?.toUpperCase()}</div>}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#e2e8f0', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</p>
+                                {acc.followers > 0 && <p style={{ margin: 0, fontSize: 11, color: '#9ca3af' }}>{Number(acc.followers).toLocaleString()} followers</p>}
+                              </div>
+                              <button
+                                onClick={() => disconnectAccount(acc)}
+                                disabled={disconnecting === accId}
+                                title="Disconnect"
+                                style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 6, padding: '3px 7px', color: '#f87171', cursor: 'pointer', fontSize: 11, flexShrink: 0 }}
+                              >✕</button>
+                            </div>
+                          );
+                        })}
+                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#34d399' }}>
                           <span style={{ fontSize: 14 }}>✓</span> Connected
-                        </span>
-                        <button
-                          onClick={() => connectPlatform(platformKey, true)}
-                          disabled={isBusy}
-                          title="Add another account"
-                          style={{
-                            background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)',
-                            borderRadius: 6, padding: '3px 8px', color: '#a5b4fc',
-                            cursor: isBusy ? 'wait' : 'pointer', fontSize: 11, fontWeight: 600,
-                          }}
-                        >
-                          {isBusy ? '⟳' : '+ Add'}
-                        </button>
-                      </div>
+                        </div>
+                      </>
                     ) : (
+                      /* ── Not connected: show connect button ── */
                       <button
                         onClick={() => connectPlatform(platformKey, false)}
                         disabled={isBusy}
