@@ -16,15 +16,15 @@ router.use(authenticate);
 
 // Normalize GHL platform type strings → our internal keys
 function normalizePlatformType(raw = '') {
-  const t = raw.toLowerCase();
-  if (t.includes('facebook'))   return 'facebook';
-  if (t.includes('instagram'))  return 'instagram';
-  if (t.includes('tiktok'))     return 'tiktok';
-  if (t.includes('youtube'))    return 'youtube';
-  if (t.includes('linkedin'))   return 'linkedin';
-  if (t.includes('pinterest'))  return 'pinterest';
-  if (t.includes('twitter') || t.includes('x.com')) return 'twitter';
-  if (t.includes('gmb') || t.includes('google'))    return 'gmb';
+  const t = raw.toLowerCase().replace(/[_\-\s]/g, '');
+  if (t.includes('facebook') || t === 'fb')       return 'facebook';
+  if (t.includes('instagram') || t === 'ig')       return 'instagram';
+  if (t.includes('tiktok'))                        return 'tiktok';
+  if (t.includes('youtube') || t.includes('ytube')) return 'youtube';
+  if (t.includes('linkedin') || t === 'li')        return 'linkedin';
+  if (t.includes('pinterest') || t === 'pin')      return 'pinterest';
+  if (t.includes('twitter') || t.includes('xcom') || t === 'x') return 'twitter';
+  if (t.includes('gmb') || t.includes('google') || t.includes('mybusiness')) return 'gmb';
   return t;
 }
 
@@ -161,7 +161,10 @@ router.get('/status', async (req, res) => {
   };
 
   let configs = {};
-  try { configs = await toolRegistry.getToolConfig(req.locationId); } catch (e) { /* ignore */ }
+  try {
+    configs = await toolRegistry.getToolConfig(req.locationId);
+    console.log('[Social/status] registry keys:', Object.keys(configs));
+  } catch (e) { /* ignore */ }
 
   // Also check GHL social planner accounts
   let ghlPlatforms = new Set();
@@ -169,11 +172,20 @@ router.get('/status', async (req, res) => {
     try {
       const data = await req.ghl('GET', `/social-media-posting/${req.locationId}/accounts`);
       const accs = Array.isArray(data) ? data : (data?.results?.accounts || []);
+      console.log('[Social/status] GHL raw accounts:', JSON.stringify(accs));
       accs.forEach(a => {
-        const p = normalizePlatformType(a.type || a.platform || a.accountType || a.account_type || a.network || '');
+        // Try every string field on the account object to find a platform name
+        const candidates = Object.values(a).filter(v => typeof v === 'string');
+        let p = '';
+        for (const c of candidates) {
+          p = normalizePlatformType(c);
+          if (p && ['facebook','instagram','tiktok','youtube','linkedin','pinterest','twitter','gmb'].includes(p)) break;
+          p = '';
+        }
         if (p) ghlPlatforms.add(p);
       });
-    } catch (e) { /* ignore */ }
+      console.log('[Social/status] ghlPlatforms:', [...ghlPlatforms]);
+    } catch (e) { console.error('[Social/status] GHL error:', e.message); }
   }
 
   const status = {};
