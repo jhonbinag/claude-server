@@ -479,89 +479,56 @@ export default function AdLibrary() {
             )}
           </div>
 
-          {/* URL Analyze row — Facebook only */}
-          {platform === 'facebook' && (
-            <div style={{ paddingBottom: 6 }}>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {/* URL Analyze row */}
+          <div style={{ paddingBottom: 10 }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }}
+                  width="14" height="14" fill="none" stroke="#e2e8f0" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+                  <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+                </svg>
                 <input
                   value={urlInput}
                   onChange={e => setUrlInput(e.target.value)}
-                  style={{
-                    flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: 8, padding: '6px 12px', color: '#e2e8f0', fontSize: 12,
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                  placeholder="Paste a Facebook Ad Library URL and click Analyze…"
                   onKeyDown={e => e.key === 'Enter' && handleUrlAnalyze()}
-                />
-                <button
-                  onClick={handleUrlAnalyze}
-                  disabled={urlAnalyzing || !urlInput.trim()}
-                  style={{
-                    background: urlAnalyzing || !urlInput.trim() ? '#374151' : '#6366f1',
-                    color: '#fff', border: 'none', borderRadius: 8, padding: '6px 16px',
-                    fontSize: 12, fontWeight: 700, cursor: urlAnalyzing || !urlInput.trim() ? 'not-allowed' : 'pointer',
-                    whiteSpace: 'nowrap', flexShrink: 0,
-                  }}
-                >
-                  {urlAnalyzing ? '⟳ Analyzing…' : '🤖 Analyze URL'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Search bar row */}
-          <div style={{ paddingBottom: 10 }}>
-            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              {/* Country */}
-              <select value={country} onChange={e => setCountry(e.target.value)} style={{
-                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: 20, padding: '6px 14px', color: '#e2e8f0', fontSize: 13, outline: 'none', cursor: 'pointer',
-              }}>
-                {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
-              </select>
-
-              {/* Ad type */}
-              <select value={adType} onChange={e => setAdType(e.target.value)} style={{
-                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: 20, padding: '6px 14px', color: '#e2e8f0', fontSize: 13, outline: 'none', cursor: 'pointer',
-              }}>
-                {AD_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-
-              {/* Search input */}
-              <div style={{ flex: 1, minWidth: 240, position: 'relative' }}>
-                <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}
-                  width="14" height="14" fill="none" stroke="#e2e8f0" strokeWidth="2" viewBox="0 0 24 24">
-                  <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
-                </svg>
-                <input
                   style={{
                     width: '100%', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
                     borderRadius: 20, padding: '7px 14px 7px 34px', color: '#e2e8f0', fontSize: 14,
                     outline: 'none', boxSizing: 'border-box',
                   }}
-                  placeholder="Search by keyword or advertiser…"
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
+                  placeholder={platform === 'facebook' ? 'Paste Facebook Ad Library URL…' : 'Enter search term…'}
                 />
               </div>
-
-              {/* Status */}
-              <select value={status} onChange={e => setStatus(e.target.value)} style={{
-                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: 20, padding: '6px 14px', color: '#e2e8f0', fontSize: 13, outline: 'none', cursor: 'pointer',
-              }}>
-                {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label} ads</option>)}
-              </select>
-
-              <button type="submit" disabled={loading || !query.trim()} style={{
-                background: '#1877f2', color: '#fff', border: 'none', borderRadius: 20,
-                padding: '7px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
-              }}>
-                {loading ? 'Searching…' : 'Search'}
-              </button>
-            </form>
+              {platform === 'facebook' && (
+                <button
+                  onClick={handleUrlAnalyze}
+                  disabled={urlAnalyzing || !urlInput.trim()}
+                  style={{
+                    background: urlAnalyzing || !urlInput.trim() ? '#374151' : '#6366f1',
+                    color: '#fff', border: 'none', borderRadius: 20, padding: '7px 20px',
+                    fontSize: 13, fontWeight: 700, cursor: urlAnalyzing || !urlInput.trim() ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >
+                  {urlAnalyzing ? '⟳ Analyzing…' : '🤖 Analyze'}
+                </button>
+              )}
+              {platform === 'google' && (
+                <button
+                  onClick={() => urlInput.trim() && window.open(`https://adstransparency.google.com/?region=anywhere&q=${encodeURIComponent(urlInput.trim())}`, '_blank')}
+                  disabled={!urlInput.trim()}
+                  style={{
+                    background: !urlInput.trim() ? '#374151' : '#4285F4',
+                    color: '#fff', border: 'none', borderRadius: 20, padding: '7px 20px',
+                    fontSize: 13, fontWeight: 700, cursor: !urlInput.trim() ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >
+                  Open Google ↗
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
