@@ -268,6 +268,7 @@ export default function Dashboard() {
   const trainMsgsRef        = useRef([]);   // mirror of trainMsgs for async closures
   const trainFolderRef      = useRef(null); // mirror of trainFolder for async closures
   const trainChatEndRef     = useRef(null); // scroll-to-bottom anchor
+  const pendingSaveRef      = useRef(null); // tracks in-flight autoSave promise
 
   // Keep refs in sync with state
   useEffect(() => { trainMsgsRef.current  = trainMsgs;  }, [trainMsgs]);
@@ -312,9 +313,9 @@ export default function Dashboard() {
   };
 
   // Auto-save to Firebase after every exchange — fire-and-forget, never blocks UI
-  const autoSaveTraining = useCallback(async (currentMsgs, currentDraftId, folderId) => {
+  const autoSaveTraining = useCallback((currentMsgs, currentDraftId, folderId) => {
     if (!folderId) return; // training was exited before save
-    try {
+    const savePromise = (async () => { try {
       const headers = { 'Content-Type': 'application/json', 'x-location-id': apiKey };
       if (currentDraftId) {
         await fetch(`/prompts/folders/${folderId}/prompts/${currentDraftId}`, {
@@ -352,7 +353,30 @@ export default function Dashboard() {
         }
       }
     } catch { /* non-fatal — training continues even if save fails */ }
+    })();
+    pendingSaveRef.current = savePromise;
+    return savePromise;
   }, [apiKey, loadLibrary]);
+
+  const exitTraining = useCallback(async () => {
+    // Wait for any in-flight save to complete before refreshing library
+    if (pendingSaveRef.current) {
+      try { await pendingSaveRef.current; } catch { /* ignore */ }
+      pendingSaveRef.current = null;
+    }
+    if (trainSessionKey) localStorage.removeItem(trainSessionKey);
+    autoSaveTrainingRef.current = null;
+    trainMsgsRef.current        = [];
+    trainFolderRef.current      = null;
+    setTrainFolder(null);
+    setTrainPromptId(null);
+    setTrainMsgs([]);
+    setTrainGenerated('');
+    setTrainInput('');
+    setTrainLoading(false);
+    setTrainSaveTitle('');
+    await loadLibrary(); // direct await — no race condition
+  }, [trainSessionKey, loadLibrary]);
 
   const sendTrainMsg = useCallback(async (overrideAction) => {
     const content = trainInput.trim();
@@ -718,7 +742,7 @@ export default function Dashboard() {
                         <span className="text-xs font-semibold" style={{ color: '#c084fc' }}>🎓 Persona Training</span>
                         {trainPromptId && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}>Updating</span>}
                       </div>
-                      <button onClick={() => { clearTrainSession(); autoSaveTrainingRef.current = null; trainMsgsRef.current = []; trainFolderRef.current = null; setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); setTrainInput(''); setTrainLoading(false); setTrainSaveTitle(''); setTimeout(loadLibrary, 300); }}
+                      <button onClick={exitTraining}
                         className="text-xs text-gray-500 hover:text-gray-300">✕ Exit</button>
                     </div>
 
