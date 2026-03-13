@@ -399,6 +399,16 @@ export default function Workflows() {
   const [showSaved, setShowSaved] = useState(false);
   const [copyDone,  setCopyDone]  = useState(false);
   const [showOutput,setShowOutput]= useState(false);
+
+  // Schedule state
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [schedules,         setSchedules]         = useState([]);
+  const [schedType,         setSchedType]         = useState('once');
+  const [schedAt,           setSchedAt]           = useState('');   // datetime-local
+  const [schedTime,         setSchedTime]         = useState('09:00');
+  const [schedDow,          setSchedDow]          = useState(1);    // 0=Sun…6=Sat
+  const [schedDom,          setSchedDom]          = useState(1);    // 1–31
+  const [schedSaving,       setSchedSaving]       = useState(false);
   const [wfLibrary,      setWfLibrary]      = useState([]);
   const [wfLibOpen,      setWfLibOpen]      = useState(false);
   const [wfActiveFolder, setWfActiveFolder] = useState(null);
@@ -632,6 +642,53 @@ export default function Workflows() {
     setTimeout(() => setCopyDone(false), 2000);
   };
 
+  // ── Schedules ─────────────────────────────────────────────────────────────
+
+  const loadSchedules = useCallback(async () => {
+    if (!locationId) return;
+    try {
+      const res  = await fetch('/workflows/schedules', { headers: { 'x-location-id': locationId } });
+      const data = await res.json();
+      if (data.success) setSchedules(data.data || []);
+    } catch { /* non-fatal */ }
+  }, [locationId]);
+
+  useEffect(() => { loadSchedules(); }, [loadSchedules]);
+
+  const createSchedule = async () => {
+    if (!currentId) return;
+    setSchedSaving(true);
+    try {
+      const body = { workflowId: currentId, type: schedType };
+      if (schedType === 'once')    body.scheduledAt = new Date(schedAt).getTime();
+      if (schedType !== 'once')    body.time        = schedTime;
+      if (schedType === 'weekly')  body.dayOfWeek   = Number(schedDow);
+      if (schedType === 'monthly') body.dayOfMonth  = Number(schedDom);
+
+      const res  = await fetch('/workflows/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await loadSchedules();
+        setShowScheduleModal(false);
+      }
+    } catch { /* non-fatal */ }
+    finally { setSchedSaving(false); }
+  };
+
+  const deleteSchedule = async (scheduleId) => {
+    try {
+      await fetch(`/workflows/schedules/${scheduleId}`, {
+        method: 'DELETE',
+        headers: { 'x-location-id': locationId },
+      });
+      await loadSchedules();
+    } catch { /* non-fatal */ }
+  };
+
   // ── Guards ────────────────────────────────────────────────────────────────
 
   if (isAuthLoading)    return <Spinner />;
@@ -665,6 +722,16 @@ export default function Workflows() {
         <button onClick={save} disabled={saving || !wfName.trim() || !nodes.length}
           className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap">
           {saving ? '…' : '💾 Save'}
+        </button>
+        <button
+          onClick={() => setShowScheduleModal(v => !v)}
+          disabled={!currentId}
+          title={!currentId ? 'Save the workflow first to schedule it' : 'Schedule or automate this workflow'}
+          className={`btn-ghost px-3 py-1.5 text-xs whitespace-nowrap${showScheduleModal ? ' text-indigo-400' : ''}${!currentId ? ' opacity-40' : ''}`}
+        >
+          ⏰ {schedules.filter(s => s.workflowId === currentId && s.status === 'active').length > 0
+            ? `Schedules (${schedules.filter(s => s.workflowId === currentId && s.status === 'active').length})`
+            : 'Schedule'}
         </button>
         <button onClick={isRunning ? stop : run} disabled={!isRunning && !nodes.length}
           className="btn-primary px-4 py-1.5 text-sm whitespace-nowrap">
@@ -958,6 +1025,129 @@ export default function Workflows() {
           </div>
         )}
       </div>
+
+      {/* ── Schedule Modal ── */}
+      {showScheduleModal && currentId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowScheduleModal(false); }}>
+          <div className="rounded-2xl p-6 flex flex-col gap-4" style={{ background: '#16161e', border: '1px solid rgba(255,255,255,0.1)', width: 480, maxHeight: '80vh', overflowY: 'auto' }}>
+            <div className="flex items-center gap-3">
+              <span className="text-xl">⏰</span>
+              <div className="flex-1">
+                <h2 className="font-bold text-white text-sm">Schedule Workflow</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Run <span className="text-indigo-400">{wfName}</span> automatically</p>
+              </div>
+              <button onClick={() => setShowScheduleModal(false)} className="text-gray-600 hover:text-gray-300">×</button>
+            </div>
+
+            {/* Existing schedules */}
+            {schedules.filter(s => s.workflowId === currentId).length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Active Schedules</p>
+                <div className="flex flex-col gap-1.5">
+                  {schedules.filter(s => s.workflowId === currentId).map(s => (
+                    <div key={s.id} className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <span className="text-xs" style={{ color: s.status === 'completed' ? '#6b7280' : '#4ade80' }}>
+                        {s.status === 'completed' ? '✓' : '●'}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-white capitalize">{s.type === 'once' ? 'One-time' : s.type}</p>
+                        <p className="text-xs text-gray-500">
+                          {s.status === 'completed'
+                            ? `Ran ${new Date(s.lastRun).toLocaleString()}`
+                            : s.nextRun
+                              ? `Next: ${new Date(s.nextRun).toLocaleString()}`
+                              : 'Pending'}
+                        </p>
+                      </div>
+                      <button onClick={() => deleteSchedule(s.id)} className="text-gray-600 hover:text-red-400 text-sm px-1">×</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* New schedule form */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Add New Schedule</p>
+
+              {/* Type tabs */}
+              <div className="flex gap-1 mb-4 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                {[['once','One-time'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly']].map(([v, l]) => (
+                  <button key={v} onClick={() => setSchedType(v)}
+                    className="flex-1 text-xs py-1.5 rounded-lg transition-all"
+                    style={{ background: schedType === v ? 'rgba(99,102,241,0.3)' : 'transparent', color: schedType === v ? '#a5b4fc' : '#6b7280' }}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+
+              {schedType === 'once' && (
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Date &amp; Time</label>
+                  <input type="datetime-local" value={schedAt} onChange={e => setSchedAt(e.target.value)}
+                    className="field text-xs w-full"
+                    min={new Date().toISOString().slice(0, 16)}
+                  />
+                </div>
+              )}
+
+              {schedType !== 'once' && (
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Time of Day</label>
+                    <input type="time" value={schedTime} onChange={e => setSchedTime(e.target.value)}
+                      className="field text-xs" style={{ width: 140 }} />
+                  </div>
+
+                  {schedType === 'weekly' && (
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">Day of Week</label>
+                      <select value={schedDow} onChange={e => setSchedDow(Number(e.target.value))}
+                        className="field text-xs" style={{ width: 160 }}>
+                        {['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d, i) => (
+                          <option key={i} value={i}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {schedType === 'monthly' && (
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">Day of Month</label>
+                      <select value={schedDom} onChange={e => setSchedDom(Number(e.target.value))}
+                        className="field text-xs" style={{ width: 80 }}>
+                        {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-gray-600">
+                    {schedType === 'daily'   && `Runs every day at ${schedTime}`}
+                    {schedType === 'weekly'  && `Runs every ${'Sunday Monday Tuesday Wednesday Thursday Friday Saturday'.split(' ')[schedDow]} at ${schedTime}`}
+                    {schedType === 'monthly' && `Runs on the ${schedDom}${['st','nd','rd'][((schedDom+90)%100-10)%10-1]||'th'} of each month at ${schedTime}`}
+                  </p>
+                </div>
+              )}
+
+              <button
+                onClick={createSchedule}
+                disabled={schedSaving || (schedType === 'once' && !schedAt)}
+                className="btn-primary w-full py-2 text-xs mt-4"
+              >
+                {schedSaving ? 'Scheduling…' : '⏰ Create Schedule'}
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-600 text-center">
+              Schedules run automatically via Vercel cron (checked hourly).
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

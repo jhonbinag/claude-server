@@ -10,6 +10,12 @@
   "rewrites": [
     { "source": "/(.*)", "destination": "/api" }
   ],
+  "crons": [
+    {
+      "path": "/cron/run-schedules",
+      "schedule": "0 * * * *"
+    }
+  ],
   "env": {
     "NODE_ENV": "production"
   }

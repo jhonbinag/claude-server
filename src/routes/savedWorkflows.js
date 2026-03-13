@@ -14,6 +14,7 @@ const express          = require('express');
 const router           = express.Router();
 const authenticate     = require('../middleware/authenticate');
 const workflowStore    = require('../services/workflowStore');
+const scheduleStore    = require('../services/scheduleStore');
 const claudeService    = require('../services/claudeService');
 const activityLogger   = require('../services/activityLogger');
 
@@ -57,6 +58,59 @@ router.post('/', authenticate, async (req, res) => {
       success:    true,
     });
     res.json({ success: true, data: wf });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── GET /workflows/schedules — list schedules for this location ───────────────
+
+router.get('/schedules', authenticate, async (req, res) => {
+  try {
+    const list = await scheduleStore.listSchedules(req.locationId);
+    res.json({ success: true, data: list });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /workflows/schedules — create a schedule ─────────────────────────────
+
+router.post('/schedules', authenticate, async (req, res) => {
+  const { workflowId, type, scheduledAt, time, dayOfWeek, dayOfMonth } = req.body;
+  if (!workflowId || !type) {
+    return res.status(400).json({ success: false, error: '"workflowId" and "type" are required.' });
+  }
+  try {
+    const list = await workflowStore.listWorkflows(req.locationId);
+    const wf   = list.find((w) => w.id === workflowId);
+    if (!wf) return res.status(404).json({ success: false, error: 'Workflow not found.' });
+
+    const sched = await scheduleStore.createSchedule(req.locationId, {
+      workflowId,
+      workflowName: wf.name,
+      webhookToken: wf.webhookToken,
+      type, scheduledAt, time, dayOfWeek, dayOfMonth,
+    });
+    activityLogger.log({
+      locationId: req.locationId,
+      event:      'workflow_schedule_create',
+      detail:     { scheduleId: sched.id, workflowId, type, nextRun: sched.nextRun },
+      success:    true,
+    });
+    res.json({ success: true, data: sched });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── DELETE /workflows/schedules/:id — delete a schedule ──────────────────────
+// IMPORTANT: must be registered before DELETE /:id to avoid route collision
+
+router.delete('/schedules/:id', authenticate, async (req, res) => {
+  try {
+    await scheduleStore.deleteSchedule(req.params.id, req.locationId);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
