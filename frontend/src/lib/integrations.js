@@ -29,7 +29,9 @@ export const INTEGRATIONS = [
     description: 'Manage campaigns, ad sets, creatives and read Ads Library.',
     docsUrl:     'https://developers.facebook.com/docs/marketing-api',
     fields: [
-      { key: 'accessToken', label: 'User Access Token', type: 'password', placeholder: 'EAABs...' },
+      { key: 'appId',       label: 'App ID',            type: 'text',     placeholder: 'Your Facebook App ID' },
+      { key: 'appSecret',   label: 'App Secret',        type: 'password', placeholder: 'Your Facebook App Secret' },
+      { key: 'accessToken', label: 'User Access Token (optional)', type: 'password', placeholder: 'EAABs... (leave blank to use App Token)' },
       { key: 'adAccountId', label: 'Ad Account ID',     type: 'text',     placeholder: 'XXXXXXXXXX (numbers only, without act_ prefix)' },
     ],
   },

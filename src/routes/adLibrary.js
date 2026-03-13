@@ -33,19 +33,29 @@ const AD_FIELDS = [
 router.use(authenticate);
 
 // ── Helper: resolve FB access token ───────────────────────────────────────────
-// Checks all possible sources in priority order:
+// Priority order:
 //   1. social_facebook (Social Hub — pageAccessToken field)
-//   2. facebook_ads (Manual FB Ads config — accessToken field)
+//   2. facebook_ads user access token
+//   3. facebook_ads app token (APP_ID|APP_SECRET) — no OAuth needed
 async function getFbToken(locationId) {
   const registry = require('../tools/toolRegistry');
   const configs  = await registry.loadToolConfigs(locationId);
   const fb  = configs.social_facebook || {};
   const ads = configs.facebook_ads    || {};
-  return (
+
+  // User/page token takes priority
+  const userToken =
     fb.pageAccessToken || fb.accessToken || fb.pageToken || fb.userAccessToken ||
     ads.accessToken    || ads.pageToken  || ads.userAccessToken ||
-    null
-  );
+    null;
+  if (userToken) return userToken;
+
+  // Fall back to App Token (APP_ID|APP_SECRET) — works for Ad Library reads
+  if (ads.appId && ads.appSecret) {
+    return `${ads.appId}|${ads.appSecret}`;
+  }
+
+  return null;
 }
 
 // ── GET /ad-library/search ────────────────────────────────────────────────────
@@ -66,7 +76,7 @@ router.get('/search', async (req, res) => {
       console.warn(`[AdLibrary] FB token missing for location ${req.locationId}`);
       return res.status(400).json({
         error:   'Facebook access token not configured.',
-        hint:    'Connect Facebook in Settings → Social Hub (enter your Page Access Token).',
+        hint:    'Go to Settings → Facebook Ads and enter your App ID + App Secret (or a User Access Token).',
         code:    'FB_TOKEN_MISSING',
       });
     }
