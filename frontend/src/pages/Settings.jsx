@@ -1146,8 +1146,14 @@ function normalizePlatform(raw = '') {
 // Platforms that can be connected (shown as tiles even when not connected)
 const CONNECTABLE = ['facebook', 'instagram', 'tiktok', 'youtube', 'linkedin', 'pinterest', 'twitter', 'gmb'];
 
-// Platforms that support our OAuth flow (must match PLATFORMS in socialAuth.js)
-const OAUTH_PLATFORMS = new Set(['facebook', 'google', 'linkedin', 'tiktok', 'pinterest']);
+// Platforms that have OAuth connect buttons.
+// Some use a parent platform's flow (instagram → facebook, gmb → google).
+const OAUTH_PLATFORMS = new Set(['facebook', 'instagram', 'google', 'gmb', 'linkedin', 'tiktok', 'pinterest']);
+// Maps a platform key to the actual OAuth route to open
+const OAUTH_PLATFORM_ROUTE = {
+  instagram: 'facebook', // Instagram Business connects via Facebook OAuth
+  gmb:       'google',   // Google My Business connects via Google OAuth
+};
 
 function SocialHubCard() {
   const { apiKey, refreshStatus: refreshIntegrations } = useApp();
@@ -1163,7 +1169,8 @@ function SocialHubCard() {
     if (!apiKey) { setError('No location key found.'); return; }
     setConnecting(platformKey);
     try {
-      const result = await openOAuthPopup(platformKey, apiKey);
+      const oauthRoute = OAUTH_PLATFORM_ROUTE[platformKey] || platformKey;
+      const result = await openOAuthPopup(oauthRoute, apiKey);
       if (result === null) return; // popup closed without completing
       await loadAccounts();
       if (refreshIntegrations) refreshIntegrations();

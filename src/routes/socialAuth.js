@@ -33,7 +33,7 @@ const PLATFORMS = {
   google: {
     authUrl:   'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUrl:  'https://oauth2.googleapis.com/token',
-    scope:     'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly',
+    scope:     'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly https://www.googleapis.com/auth/business.manage',
     clientId:  () => process.env.GOOGLE_CLIENT_ID,
     secret:    () => process.env.GOOGLE_CLIENT_SECRET,
     extra:     { access_type: 'offline', prompt: 'consent' },
@@ -363,33 +363,80 @@ async function saveAccount(locationId, platform, account) {
   await registry.saveToolConfig(locationId, toolKey, config);
   console.log(`[SocialAuth] Saved ${platform} account "${account.name}" for location ${locationId}`);
 
-  // ── Auto-detect Facebook Ad Account when Facebook is connected ──────────────
-  // Use the user access token to discover the ad account and pre-configure facebook_ads.
+  // ── When Facebook connects: auto-save Instagram + auto-detect Ads account ───
   if (platform === 'facebook' && account.token) {
+    // 1. Instagram Business account linked to this Facebook Page
+    try {
+      const igRes = await axios.get(`https://graph.facebook.com/v19.0/${account.id}`, {
+        params: { access_token: account.token, fields: 'instagram_business_account{id,name,username,followers_count,profile_picture_url}' },
+      });
+      const ig = igRes.data?.instagram_business_account;
+      if (ig?.id) {
+        await registry.saveToolConfig(locationId, 'social_instagram', {
+          pageAccessToken: account.token,
+          accessToken:     account.token,
+          igUserId:        ig.id,
+          igUsername:      ig.username || ig.name,
+          pageName:        ig.name || ig.username,
+          picture:         ig.profile_picture_url || '',
+          followers:       ig.followers_count || 0,
+          connectedVia:    'facebook',
+          connectedAt:     new Date().toISOString(),
+        });
+        console.log(`[SocialAuth] Auto-saved Instagram account @${ig.username} for location ${locationId}`);
+      }
+    } catch (e) {
+      console.warn('[SocialAuth] Could not auto-detect Instagram account:', e.message);
+    }
+
+    // 2. Facebook Ad Account
     try {
       const adResp = await axios.get('https://graph.facebook.com/v20.0/me/adaccounts', {
         params: { access_token: account.token, fields: 'id,name,account_status,currency,business', limit: 10 },
       });
-      const adAccounts = (adResp.data.data || []).filter(a => a.account_status === 1); // 1 = ACTIVE
+      const adAccounts = (adResp.data.data || []).filter(a => a.account_status === 1);
       if (adAccounts.length > 0) {
         const best = adAccounts[0];
         const adAccountId = best.id.replace('act_', '');
         const existing = (await registry.getToolConfig(locationId)).facebook_ads || {};
-        // Only pre-fill if not already manually configured
         if (!existing.adAccountId) {
           await registry.saveToolConfig(locationId, 'facebook_ads', {
             ...existing,
-            accessToken:  account.token,
+            accessToken:   account.token,
             adAccountId,
             adAccountName: best.name || '',
-            ghlConnected: true,
-            connectedAt:  new Date().toISOString(),
+            ghlConnected:  true,
+            connectedAt:   new Date().toISOString(),
           });
           console.log(`[SocialAuth] Auto-configured facebook_ads with ad account ${adAccountId} for location ${locationId}`);
         }
       }
     } catch (e) {
       console.warn('[SocialAuth] Could not auto-detect Facebook ad account:', e.message);
+    }
+  }
+
+  // ── When Google connects: also save Google My Business if accessible ─────────
+  if (platform === 'google' && account.token) {
+    try {
+      const gmbRes = await axios.get('https://mybusinessaccountmanagement.googleapis.com/v1/accounts', {
+        headers: { Authorization: `Bearer ${account.token}` },
+      });
+      const gmbAccounts = gmbRes.data?.accounts || [];
+      if (gmbAccounts.length > 0) {
+        const best = gmbAccounts[0];
+        await registry.saveToolConfig(locationId, 'google_my_business', {
+          accessToken:  account.token,
+          refreshToken: account.refresh || '',
+          accountId:    best.name,      // e.g. accounts/12345
+          accountName:  best.accountName,
+          connectedAt:  new Date().toISOString(),
+        });
+        console.log(`[SocialAuth] Auto-saved Google My Business account "${best.accountName}" for location ${locationId}`);
+      }
+    } catch (e) {
+      // GMB API requires Business Profile API enabled — silently skip if not available
+      console.warn('[SocialAuth] Could not auto-detect Google My Business account:', e.message);
     }
   }
 }
