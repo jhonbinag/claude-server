@@ -142,15 +142,24 @@ async function getToolConfig(locationId) {
   const snap = await d.collection(COLLECTION).doc(locationId).get();
   if (!snap.exists) return {};
 
-  const { configs = {} } = snap.data();
-  const result = {};
+  const data = snap.data();
 
-  for (const [category, ciphertext] of Object.entries(configs)) {
+  // The Admin SDK's set({ 'configs.category': value }, { merge: true }) stores fields
+  // with literal dots in the name (e.g. key = 'configs.manychat'), NOT as a nested map.
+  // Parse all top-level keys that start with 'configs.' to reconstruct the category map.
+  const configEntries = {};
+  for (const [key, val] of Object.entries(data)) {
+    if (key.startsWith('configs.') && typeof val === 'string') {
+      configEntries[key.slice(8)] = val; // 8 = 'configs.'.length
+    }
+  }
+
+  const result = {};
+  for (const [category, ciphertext] of Object.entries(configEntries)) {
     try {
       result[category] = JSON.parse(decrypt(ciphertext));
     } catch (err) {
       console.error(`[FirebaseStore] Decrypt failed for ${locationId}/${category}:`, err.message);
-      // Skip corrupted entries rather than crashing
     }
   }
 
@@ -167,10 +176,14 @@ async function deleteToolConfig(locationId, category) {
   const d = db();
   if (!d) return;
 
-  await d.collection(COLLECTION).doc(locationId).update({
-    [`configs.${category}`]: admin.firestore.FieldValue.delete(),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  // The field is stored as a literal key 'configs.category' (dot in name, not nested).
+  // Use FieldPath with a single-string constructor so the dot is treated as part of
+  // the field name rather than a path separator.
+  const fieldPath = new admin.firestore.FieldPath(`configs.${category}`);
+  await d.collection(COLLECTION).doc(locationId).update(
+    fieldPath, admin.firestore.FieldValue.delete(),
+    'updatedAt', admin.firestore.FieldValue.serverTimestamp(),
+  );
 
   console.log(`[FirebaseStore] Deleted ${category} config for location ${locationId}`);
 }
