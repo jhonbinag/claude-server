@@ -403,12 +403,12 @@ export default function Dashboard() {
           />
 
           {/* ── Prompt Library trigger + active persona bar ── */}
-          <div className="flex items-center gap-2 px-3 py-1.5 flex-shrink-0"
-            style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}>
+          <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0"
+            style={{ borderTop: '1px solid rgba(99,102,241,0.2)', background: 'rgba(99,102,241,0.06)' }}>
             <button onClick={() => setShowLibrary(v => !v)}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
-              style={{ background: showLibrary ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)', border: `1px solid ${showLibrary ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.08)'}`, color: showLibrary ? '#a5b4fc' : '#9ca3af' }}>
-              📚 Prompt Library {library.length > 0 && <span style={{ color: '#6366f1', fontWeight: 700 }}>{library.reduce((a, f) => a + f.prompts.length, 0)}</span>}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
+              style={{ background: showLibrary ? 'rgba(99,102,241,0.3)' : 'rgba(99,102,241,0.12)', border: `1px solid ${showLibrary ? '#6366f1' : 'rgba(99,102,241,0.4)'}`, color: showLibrary ? '#c7d2fe' : '#a5b4fc' }}>
+              📚 Prompt Library {library.length > 0 ? <span style={{ background: '#6366f1', color: '#fff', borderRadius: 10, padding: '0 6px', marginLeft: 4 }}>{library.reduce((a, f) => a + f.prompts.length, 0)}</span> : <span style={{ color: 'rgba(165,180,252,0.5)', fontWeight: 400 }}>· Save &amp; reuse prompts</span>}
             </button>
             {activePersona && (
               <div className="flex items-center gap-1.5 flex-1 min-w-0 text-xs px-3 py-1.5 rounded-lg"
