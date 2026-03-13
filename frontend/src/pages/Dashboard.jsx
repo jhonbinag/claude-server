@@ -149,17 +149,30 @@ export default function Dashboard() {
   const connected = (integrations || []).filter(i => i.enabled);
 
   // Group social and payment tools into summary entries
-  const SOCIAL_KEYS  = ['social_facebook','social_instagram','social_tiktok_organic','social_youtube','social_linkedin_organic','social_pinterest','social_twitter','social_gmb'];
+  // ghl_social_planner = GHL-connected accounts; social_* = direct OAuth connections
+  const SOCIAL_KEYS  = ['ghl_social_planner','social_facebook','social_instagram','social_tiktok_organic','social_youtube','social_linkedin_organic','social_pinterest','social_twitter','social_gmb'];
   const PAYMENT_KEYS = ['stripe','paypal','square','authorizenet'];
 
   const socialConnected  = connected.filter(i => SOCIAL_KEYS.includes(i.key));
   const paymentConnected = connected.filter(i => PAYMENT_KEYS.includes(i.key));
   const otherConnected   = connected.filter(i => !SOCIAL_KEYS.includes(i.key) && !PAYMENT_KEYS.includes(i.key));
 
+  // Count unique connected social platforms:
+  // ghl_social_planner stores a platforms[] array; individual social_* keys each = 1 platform
+  const socialPlatforms = new Set();
+  socialConnected.forEach(i => {
+    if (i.key === 'ghl_social_planner') {
+      (i.configPreview?.platforms || []).forEach(p => socialPlatforms.add(p));
+    } else {
+      socialPlatforms.add(i.key.replace('social_', '').replace('_organic', ''));
+    }
+  });
+  const socialCount = socialPlatforms.size || socialConnected.length;
+
   const sidebarItems = [
     ...otherConnected,
-    ...(socialConnected.length  > 0 ? [{ key: '__social_hub',  label: 'Social Hub',      icon: '📱', count: socialConnected.length,  total: SOCIAL_KEYS.length }]  : []),
-    ...(paymentConnected.length > 0 ? [{ key: '__payment_gw',  label: 'Payment Gateway', icon: '💳', count: paymentConnected.length, total: PAYMENT_KEYS.length }] : []),
+    ...(socialConnected.length  > 0 ? [{ key: '__social_hub', label: 'Social Hub',      icon: '📱', count: socialCount            }] : []),
+    ...(paymentConnected.length > 0 ? [{ key: '__payment_gw', label: 'Payment Gateway', icon: '💳', count: paymentConnected.length }] : []),
   ];
 
   return (
