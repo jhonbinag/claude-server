@@ -131,6 +131,7 @@ export default function Dashboard() {
   const [newPromptBody, setNewPromptBody] = useState('');
   // ── Persona training ───────────────────────────────────────────────────────
   const [trainFolder,   setTrainFolder]   = useState(null);   // folder id being trained
+  const [trainPromptId, setTrainPromptId] = useState(null);   // null=new, pid=updating existing
   const [trainMsgs,     setTrainMsgs]     = useState([]);     // [{role,content}]
   const [trainInput,    setTrainInput]    = useState('');
   const [trainLoading,  setTrainLoading]  = useState(false);
@@ -215,12 +216,13 @@ export default function Dashboard() {
     loadLibrary();
   };
 
-  const startTraining = (folderId) => {
+  const startTraining = (folderId, existingPrompt = null) => {
     setTrainFolder(folderId);
-    setTrainMsgs([]);
+    setTrainPromptId(existingPrompt?.id || null);
+    setTrainMsgs(existingPrompt?.trainHistory || []);
     setTrainInput('');
     setTrainGenerated('');
-    setTrainSaveTitle('');
+    setTrainSaveTitle(existingPrompt?.title || '');
     setActiveFolder(folderId);
   };
 
@@ -253,11 +255,21 @@ export default function Dashboard() {
 
   const saveTrainedPersona = async () => {
     if (!trainGenerated.trim() || !trainSaveTitle.trim() || !trainFolder) return;
-    await fetch(`/prompts/folders/${trainFolder}/prompts`, {
-      method: 'POST', headers: apiHeaders,
-      body: JSON.stringify({ title: trainSaveTitle.trim(), content: trainGenerated.trim() }),
-    });
-    setTrainFolder(null); setTrainMsgs([]); setTrainGenerated(''); setTrainSaveTitle('');
+    const payload = { title: trainSaveTitle.trim(), content: trainGenerated.trim(), trainHistory: trainMsgs };
+    if (trainPromptId) {
+      // Update existing trained persona
+      await fetch(`/prompts/folders/${trainFolder}/prompts/${trainPromptId}`, {
+        method: 'PUT', headers: apiHeaders,
+        body: JSON.stringify(payload),
+      });
+    } else {
+      // Create new persona
+      await fetch(`/prompts/folders/${trainFolder}/prompts`, {
+        method: 'POST', headers: apiHeaders,
+        body: JSON.stringify(payload),
+      });
+    }
+    setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); setTrainSaveTitle('');
     loadLibrary();
   };
 
@@ -512,7 +524,7 @@ export default function Dashboard() {
                 )}
                 {library.map(folder => (
                   <div key={folder.id}
-                    onClick={() => { setActiveFolder(folder.id); setShowNewPrompt(false); setTrainFolder(null); setTrainGenerated(''); }}
+                    onClick={() => { setActiveFolder(folder.id); setShowNewPrompt(false); setTrainFolder(null); setTrainPromptId(null); setTrainGenerated(''); }}
                     className="group flex items-center gap-2 px-3 py-2 cursor-pointer transition-all"
                     style={{ background: activeFolder === folder.id ? 'rgba(99,102,241,0.15)' : 'transparent', borderLeft: `2px solid ${activeFolder === folder.id ? '#6366f1' : 'transparent'}` }}>
                     <span className="text-base flex-shrink-0">{folder.icon}</span>
@@ -536,8 +548,11 @@ export default function Dashboard() {
                   <div className="flex flex-col h-full">
                     <div className="flex items-center justify-between px-3 pt-3 pb-2 flex-shrink-0"
                       style={{ borderBottom: '1px solid rgba(168,85,247,0.2)', background: 'rgba(168,85,247,0.06)' }}>
-                      <span className="text-xs font-semibold" style={{ color: '#c084fc' }}>🎓 Persona Training</span>
-                      <button onClick={() => { setTrainFolder(null); setTrainMsgs([]); setTrainGenerated(''); }}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold" style={{ color: '#c084fc' }}>🎓 Persona Training</span>
+                        {trainPromptId && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}>Updating</span>}
+                      </div>
+                      <button onClick={() => { setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); }}
                         className="text-xs text-gray-500 hover:text-gray-300">✕ Exit</button>
                     </div>
 
@@ -551,10 +566,10 @@ export default function Dashboard() {
                           placeholder="Persona name…" className="field w-full text-xs" />
                         <div className="flex gap-2">
                           <button onClick={saveTrainedPersona} className="btn-primary text-xs flex-1 py-1.5">
-                            💾 Save Persona
+                            💾 {trainPromptId ? 'Update Persona' : 'Save Persona'}
                           </button>
-                          <button onClick={() => setTrainGenerated('')}
-                            className="btn-ghost text-xs px-3 py-1.5">↩ Retrain</button>
+                          <button onClick={() => { setTrainGenerated(''); }}
+                            className="btn-ghost text-xs px-3 py-1.5">↩ Keep Training</button>
                         </div>
                       </div>
                     ) : (
@@ -563,8 +578,10 @@ export default function Dashboard() {
                         <div className="flex-1 overflow-y-auto p-3 space-y-2">
                           {trainMsgs.length === 0 && (
                             <div className="text-xs text-gray-500 text-center py-4">
-                              Tell Claude what kind of persona you want to create.<br/>
-                              <span className="text-gray-600">e.g. "I run a fitness coaching brand targeting women 30–45"</span>
+                              {trainPromptId
+                                ? <>Continue refining this persona — add more context or adjustments.<br/><span className="text-gray-600">e.g. "Make the tone more casual" or "Also focus on email writing"</span></>
+                                : <>Tell Claude what kind of persona you want to create.<br/><span className="text-gray-600">e.g. "I run a fitness coaching brand targeting women 30–45"</span></>
+                              }
                             </div>
                           )}
                           {trainMsgs.map((m, i) => (
@@ -632,7 +649,12 @@ export default function Dashboard() {
                           style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                           <div className="flex items-start gap-2">
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-white truncate">{p.title}</p>
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-semibold text-white truncate">{p.title}</p>
+                                {p.trainHistory?.length > 0 && (
+                                  <span title="Trained persona" className="text-xs flex-shrink-0" style={{ color: '#c084fc' }}>🎓</span>
+                                )}
+                              </div>
                               <p className="text-xs text-gray-500 mt-0.5 line-clamp-2" style={{ overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                                 {p.content}
                               </p>
@@ -645,6 +667,11 @@ export default function Dashboard() {
                                 className="text-xs px-2 py-0.5 rounded transition-all"
                                 style={{ background: activePersona?.id === p.id ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.05)', border: `1px solid ${activePersona?.id === p.id ? 'rgba(16,185,129,0.5)' : 'rgba(255,255,255,0.1)'}`, color: activePersona?.id === p.id ? '#34d399' : '#9ca3af' }}>
                                 {activePersona?.id === p.id ? '✓ Set' : 'Persona'}</button>
+                              {p.trainHistory?.length > 0 && (
+                                <button onClick={() => startTraining(activeFolder, p)}
+                                  className="text-xs px-2 py-0.5 rounded transition-all"
+                                  style={{ background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.35)', color: '#c084fc' }}>🎓 Train</button>
+                              )}
                               <button onClick={() => deletePrompt(activeFolder, p.id)}
                                 className="text-xs px-2 py-0.5 rounded text-gray-600 hover:text-red-400 transition-all"
                                 style={{ border: '1px solid rgba(255,255,255,0.08)' }}>Del</button>
