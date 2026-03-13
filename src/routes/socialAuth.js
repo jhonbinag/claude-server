@@ -26,7 +26,12 @@ const PLATFORMS = {
   facebook: {
     authUrl:   'https://www.facebook.com/v19.0/dialog/oauth',
     tokenUrl:  'https://graph.facebook.com/v19.0/oauth/access_token',
-    scope:     'pages_read_engagement,pages_manage_posts,pages_show_list,instagram_basic,instagram_content_publish,ads_read,read_insights',
+    // public_profile is auto-approved (no App Review needed) and sufficient for:
+    //   - Ad Library search (/ads_archive)
+    //   - Reading public page info
+    // Advanced permissions (pages_manage_posts, ads_read, instagram_content_publish)
+    // require Meta App Review before they work for general public users.
+    scope:     'public_profile,pages_show_list,pages_read_engagement',
     clientId:  () => process.env.FACEBOOK_APP_ID,
     secret:    () => process.env.FACEBOOK_APP_SECRET,
   },
