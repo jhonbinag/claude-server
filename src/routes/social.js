@@ -102,22 +102,29 @@ router.get('/accounts', async (req, res) => {
   let registryAccounts = [];
   try {
     const configs = await toolRegistry.getToolConfig(req.locationId);
-    const socialKeys = ['social_facebook', 'social_instagram', 'social_tiktok_organic', 'social_youtube', 'social_linkedin_organic', 'social_pinterest'];
+    console.log('[Social] registry configs keys:', Object.keys(configs || {}));
+    const socialKeys = ['social_facebook', 'social_instagram', 'social_tiktok_organic', 'social_youtube', 'social_linkedin_organic', 'social_pinterest', 'social_twitter', 'social_gmb'];
     for (const key of socialKeys) {
-      if (configs[key] && configs[key].pageName) {
+      const c = configs[key];
+      // Accept any config that has any sign of connection (not just pageName)
+      const isConnected = c && (c.pageName || c.pageId || c.accessToken || c.pageAccessToken || c.channelId || c.organizationId || c.openId);
+      if (isConnected) {
         const platform = key.replace('social_', '').replace('_organic', '');
         registryAccounts.push({
-          id:        configs[key].pageId || key,
-          name:      configs[key].pageName,
+          id:        c.pageId || c.channelId || c.organizationId || c.openId || key,
+          name:      c.pageName || c.channelName || c.name || platform,
           type:      platform,
           platform:  platform,
-          avatar:    configs[key].picture,
-          followers: configs[key].followers,
+          avatar:    c.picture || c.avatar || '',
+          followers: c.followers || 0,
           source:    'registry',
         });
       }
     }
-  } catch (e) { /* non-fatal */ }
+    console.log('[Social] registryAccounts:', registryAccounts.map(a => `${a.platform}:${a.name}`));
+  } catch (e) {
+    console.error('[Social] registryAccounts error:', e.message);
+  }
 
   // Merge: GHL accounts take priority; add registry-only accounts if not already in GHL list
   const merged = [...ghlAccounts.map(a => ({ ...a, source: 'ghl' }))];

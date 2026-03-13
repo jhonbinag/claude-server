@@ -1083,6 +1083,9 @@ function SocialHubCard({ showToast }) {
       const d = await api.get('/social/accounts');
       // Response format: { accounts: [...], ghlConnected: bool, ghlError?: string }
       const list = Array.isArray(d) ? d : (d.accounts || d.data || []);
+      console.log('[SocialHub] raw response:', d);
+      console.log('[SocialHub] accounts list:', list);
+      list.forEach(a => console.log('[SocialHub] account type:', a.type, 'platform:', a.platform, 'name:', a.name));
       setAccounts(list);
       setGhlConnected(d?.ghlConnected !== false); // default true if old format
     } catch (e) {
