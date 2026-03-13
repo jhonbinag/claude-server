@@ -1255,24 +1255,42 @@ function SocialHubCard({ showToast }) {
                       );
                     })}
 
-                    {/* Connect / Add another button */}
-                    <button
-                      onClick={() => connectPlatform(platformKey, connected.length > 0)}
-                      disabled={isBusy}
-                      style={{
-                        marginTop: 'auto',
-                        background: connected.length ? 'rgba(99,102,241,0.15)' : meta.bg,
-                        border: connected.length ? '1px solid rgba(99,102,241,0.3)' : 'none',
-                        borderRadius: 8, padding: '7px 10px',
-                        color: connected.length ? '#a5b4fc' : '#fff',
-                        cursor: isBusy ? 'wait' : 'pointer',
-                        fontSize: 12, fontWeight: 700,
-                        opacity: isBusy ? 0.7 : 1,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                      }}
-                    >
-                      {isBusy ? '⟳ Connecting…' : connected.length ? '+ Add Account' : `Connect ${meta.label}`}
-                    </button>
+                    {/* Connected status OR connect button */}
+                    {connected.length > 0 ? (
+                      <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#34d399' }}>
+                          <span style={{ fontSize: 14 }}>✓</span> Connected
+                        </span>
+                        <button
+                          onClick={() => connectPlatform(platformKey, true)}
+                          disabled={isBusy}
+                          title="Add another account"
+                          style={{
+                            background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)',
+                            borderRadius: 6, padding: '3px 8px', color: '#a5b4fc',
+                            cursor: isBusy ? 'wait' : 'pointer', fontSize: 11, fontWeight: 600,
+                          }}
+                        >
+                          {isBusy ? '⟳' : '+ Add'}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => connectPlatform(platformKey, false)}
+                        disabled={isBusy}
+                        style={{
+                          marginTop: 'auto',
+                          background: meta.bg, border: 'none',
+                          borderRadius: 8, padding: '7px 10px', color: '#fff',
+                          cursor: isBusy ? 'wait' : 'pointer',
+                          fontSize: 12, fontWeight: 700,
+                          opacity: isBusy ? 0.7 : 1,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                        }}
+                      >
+                        {isBusy ? '⟳ Connecting…' : `Connect ${meta.label}`}
+                      </button>
+                    )}
                   </div>
                 );
               })}
