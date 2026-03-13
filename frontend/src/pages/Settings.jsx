@@ -1217,9 +1217,10 @@ function SocialHubCard({ showToast }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '0.75rem' }}>
               {CONNECTABLE.map(platformKey => {
                 const meta = PLATFORM_META[platformKey];
-                // Also match accounts where normalizePlatform returns this key
+                // Match by platform field (normalized by backend) or type fallback
                 const connected = accounts.filter(a =>
-                  normalizePlatform(a.type || a.platform || a.accountType || '') === platformKey
+                  (a.platform && a.platform === platformKey) ||
+                  normalizePlatform(a.type || a.accountType || '') === platformKey
                 );
                 const isBusy = connecting === platformKey;
                 const isConnected = connected.length > 0;

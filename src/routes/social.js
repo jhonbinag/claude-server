@@ -127,13 +127,17 @@ router.get('/accounts', async (req, res) => {
   }
 
   // Merge: GHL accounts take priority; add registry-only accounts if not already in GHL list
-  const merged = [...ghlAccounts.map(a => ({ ...a, source: 'ghl' }))];
+  // Always inject a normalized `platform` field so the frontend can reliably match tiles.
+  const merged = [...ghlAccounts.map(a => {
+    const platform = normalizePlatformType(a.type || a.platform || a.accountType || a.account_type || '');
+    return { ...a, platform, source: 'ghl' };
+  })];
+  console.log('[Social] ghlAccounts normalized:', merged.map(a => `${a.platform}:${a.name || a.id}`));
   for (const ra of registryAccounts) {
-    const alreadyPresent = merged.some(a =>
-      normalizePlatformType(a.type || a.platform || '') === ra.platform
-    );
+    const alreadyPresent = merged.some(a => a.platform === ra.platform);
     if (!alreadyPresent) merged.push(ra);
   }
+  console.log('[Social] merged accounts:', merged.map(a => `${a.platform}:${a.name}`));
 
   res.json({
     accounts: merged,
