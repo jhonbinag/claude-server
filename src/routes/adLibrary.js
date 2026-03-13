@@ -50,9 +50,11 @@ async function getFbToken(locationId) {
     null;
   if (userToken) return userToken;
 
-  // Fall back to App Token (APP_ID|APP_SECRET) — works for Ad Library reads
-  if (ads.appId && ads.appSecret) {
-    return `${ads.appId}|${ads.appSecret}`;
+  // Fall back to App Token from env vars (APP_ID|APP_SECRET) — works for Ad Library reads
+  const appId     = ads.appId     || process.env.FACEBOOK_APP_ID;
+  const appSecret = ads.appSecret || process.env.FACEBOOK_APP_SECRET;
+  if (appId && appSecret) {
+    return `${appId}|${appSecret}`;
   }
 
   return null;
