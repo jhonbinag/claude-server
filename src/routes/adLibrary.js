@@ -61,24 +61,50 @@ async function getFbToken(locationId) {
 }
 
 // ── Public scraper: Facebook's own internal Ad Library endpoint ───────────────
-// Step 1: fetch the Ad Library page to get session cookies
+// Step 1: fetch the Ad Library page to get session cookies + CSRF tokens
 // Step 2: use those cookies for the async search request
 async function searchPublicAdLibrary({ q, country = 'US', status = 'ALL', limit = 30 }) {
-  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+  const crypto = require('crypto');
+
+  // Rotate through realistic Chrome UAs to reduce fingerprinting
+  const UAS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0',
+  ];
+  const UA = UAS[Math.floor(Math.random() * UAS.length)];
 
   // Step 1: get cookies from the Ad Library page
   const seedRes = await axios.get('https://www.facebook.com/ads/library/', {
-    headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' },
-    timeout: 10000,
+    headers: {
+      'User-Agent':         UA,
+      'Accept':             'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language':    'en-US,en;q=0.9',
+      'Accept-Encoding':    'gzip, deflate, br',
+      'DNT':                '1',
+      'sec-ch-ua':          '"Chromium";v="123", "Not:A-Brand";v="8"',
+      'sec-ch-ua-mobile':   '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      'sec-fetch-dest':     'document',
+      'sec-fetch-mode':     'navigate',
+      'sec-fetch-site':     'none',
+      'sec-fetch-user':     '?1',
+      'Upgrade-Insecure-Requests': '1',
+    },
+    timeout: 12000,
     maxRedirects: 5,
+    validateStatus: s => s < 400,
   });
+
   const cookies = (seedRes.headers['set-cookie'] || [])
     .map(c => c.split(';')[0]).join('; ');
 
-  // Extract __spin_r, __spin_b, lsd token from page HTML if present
-  const html   = typeof seedRes.data === 'string' ? seedRes.data : '';
-  const lsdMatch = html.match(/"LSD",\s*\[\],\s*\{"token":"([^"]+)"/);
-  const lsd    = lsdMatch?.[1] || '';
+  // Extract CSRF tokens embedded in page HTML
+  const html      = typeof seedRes.data === 'string' ? seedRes.data : '';
+  const lsdMatch  = html.match(/"LSD",\s*\[\],\s*\{"token":"([^"]+)"/);
+  const lsd       = lsdMatch?.[1] || '';
+  const dtsgMatch = html.match(/"DTSGInitialData",\s*\[\],\s*\{"token":"([^"]+)"/);
+  const dtsg      = dtsgMatch?.[1] || '';
 
   const params = new URLSearchParams({
     q,
@@ -87,11 +113,12 @@ async function searchPublicAdLibrary({ q, country = 'US', status = 'ALL', limit 
     country,
     start_index:      '0',
     count:            String(Math.min(Number(limit), 50)),
-    session_id:       require('crypto').randomUUID(),
+    session_id:       crypto.randomUUID(),
     source:           'Search',
     search_type:      'keyword_unordered',
     view_all_page_id: '',
-    ...(lsd ? { lsd } : {}),
+    ...(lsd  ? { lsd }          : {}),
+    ...(dtsg ? { fb_dtsg: dtsg } : {}),
   });
 
   const response = await axios.get(
@@ -101,11 +128,16 @@ async function searchPublicAdLibrary({ q, country = 'US', status = 'ALL', limit 
         'User-Agent':       UA,
         'Accept':           'application/json, text/javascript, */*; q=0.01',
         'Accept-Language':  'en-US,en;q=0.9',
+        'Accept-Encoding':  'gzip, deflate, br',
         'Referer':          'https://www.facebook.com/ads/library/',
+        'Origin':           'https://www.facebook.com',
         'X-Requested-With': 'XMLHttpRequest',
+        'sec-fetch-dest':   'empty',
+        'sec-fetch-mode':   'cors',
+        'sec-fetch-site':   'same-origin',
         ...(cookies ? { 'Cookie': cookies } : {}),
       },
-      timeout: 15000,
+      timeout: 20000,
     }
   );
 

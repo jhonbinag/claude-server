@@ -333,7 +333,7 @@ export default function AdLibrary() {
   const [error,      setError]      = useState('');
   const [analysis,   setAnalysis]   = useState('');
   const [searched,   setSearched]   = useState(false);
-  const [pasteMode,  setPasteMode]  = useState(false);
+  const [activeTab,  setActiveTab]  = useState('paste'); // 'paste' | 'url'
   const [pasteText,  setPasteText]  = useState('');
   const [pasteAnalysis, setPasteAnalysis] = useState('');
   const [pasteAnalyzing, setPasteAnalyzing] = useState(false);
@@ -445,12 +445,11 @@ export default function AdLibrary() {
         <div style={{ maxWidth: 1300, margin: '0 auto', padding: '0 1.5rem' }}>
 
           {/* Platform tabs */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', paddingTop: 8, paddingBottom: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingTop: 8, paddingBottom: 8 }}>
             <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 3 }}>
-
               {[
-                { key: 'facebook', label: 'Ad Library',        icon: PlatformIcons.facebook },
-                { key: 'google',   label: 'Google Transparency',icon: <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg> },
+                { key: 'facebook', label: 'Ad Library',         icon: PlatformIcons.facebook },
+                { key: 'google',   label: 'Google Transparency', icon: <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg> },
               ].map(t => (
                 <button key={t.key} onClick={() => setPlatform(t.key)} style={{
                   display: 'flex', alignItems: 'center', gap: 6,
@@ -464,71 +463,54 @@ export default function AdLibrary() {
               ))}
             </div>
 
-            {/* Paste & Analyze toggle — only on Facebook tab */}
+            {/* Facebook mode tabs */}
             {platform === 'facebook' && (
-              <button onClick={() => { setPasteMode(p => !p); setPasteAnalysis(''); }} style={{
-                marginLeft: 'auto',
-                display: 'flex', alignItems: 'center', gap: 6,
-                background: pasteMode ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.06)',
-                border: `1px solid ${pasteMode ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.12)'}`,
-                color: pasteMode ? '#a5b4fc' : '#9ca3af',
-                borderRadius: 8, padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              }}>
-                ✂️ Paste &amp; Analyze
-              </button>
+              <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 3 }}>
+                {[
+                  { key: 'paste', label: '✂️ Paste & Analyze' },
+                  { key: 'url',   label: '🔗 URL Analyze' },
+                ].map(t => (
+                  <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
+                    background: activeTab === t.key ? 'rgba(99,102,241,0.25)' : 'transparent',
+                    border: 'none', color: activeTab === t.key ? '#a5b4fc' : '#6b7280',
+                    fontSize: 12, fontWeight: activeTab === t.key ? 700 : 500,
+                    borderRadius: 6, padding: '5px 12px', cursor: 'pointer', transition: 'all .15s',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
             )}
-          </div>
 
-          {/* URL Analyze row */}
-          <div style={{ paddingBottom: 10 }}>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }}
-                  width="14" height="14" fill="none" stroke="#e2e8f0" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
-                  <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
-                </svg>
+            {/* Google search input */}
+            {platform === 'google' && (
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flex: 1 }}>
                 <input
                   value={urlInput}
                   onChange={e => setUrlInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleUrlAnalyze()}
+                  onKeyDown={e => e.key === 'Enter' && urlInput.trim() && window.open(`https://adstransparency.google.com/?region=anywhere&q=${encodeURIComponent(urlInput.trim())}`, '_blank')}
                   style={{
-                    width: '100%', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-                    borderRadius: 20, padding: '7px 14px 7px 34px', color: '#e2e8f0', fontSize: 14,
-                    outline: 'none', boxSizing: 'border-box',
+                    flex: 1, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: 20, padding: '6px 14px', color: '#e2e8f0', fontSize: 13,
+                    outline: 'none',
                   }}
-                  placeholder={platform === 'facebook' ? 'Paste Facebook Ad Library URL…' : 'Enter search term…'}
+                  placeholder="Search brand or advertiser…"
                 />
-              </div>
-              {platform === 'facebook' && (
-                <button
-                  onClick={handleUrlAnalyze}
-                  disabled={urlAnalyzing || !urlInput.trim()}
-                  style={{
-                    background: urlAnalyzing || !urlInput.trim() ? '#374151' : '#6366f1',
-                    color: '#fff', border: 'none', borderRadius: 20, padding: '7px 20px',
-                    fontSize: 13, fontWeight: 700, cursor: urlAnalyzing || !urlInput.trim() ? 'not-allowed' : 'pointer',
-                    whiteSpace: 'nowrap', flexShrink: 0,
-                  }}
-                >
-                  {urlAnalyzing ? '⟳ Analyzing…' : '🤖 Analyze'}
-                </button>
-              )}
-              {platform === 'google' && (
                 <button
                   onClick={() => urlInput.trim() && window.open(`https://adstransparency.google.com/?region=anywhere&q=${encodeURIComponent(urlInput.trim())}`, '_blank')}
                   disabled={!urlInput.trim()}
                   style={{
                     background: !urlInput.trim() ? '#374151' : '#4285F4',
-                    color: '#fff', border: 'none', borderRadius: 20, padding: '7px 20px',
-                    fontSize: 13, fontWeight: 700, cursor: !urlInput.trim() ? 'not-allowed' : 'pointer',
+                    color: '#fff', border: 'none', borderRadius: 20, padding: '6px 18px',
+                    fontSize: 12, fontWeight: 700, cursor: !urlInput.trim() ? 'not-allowed' : 'pointer',
                     whiteSpace: 'nowrap', flexShrink: 0,
                   }}
                 >
                   Open Google ↗
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -560,79 +542,136 @@ export default function AdLibrary() {
           </div>
         )}
 
-        {/* ── Paste & Analyze panel ── */}
-        {platform === 'facebook' && pasteMode && (
-          <div style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: 8 }}>
-              <div>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#c7d2fe' }}>✂️ Paste Ad Content for Analysis</p>
-                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>
-                  Copy ad text from <a href="https://www.facebook.com/ads/library/" target="_blank" rel="noreferrer" style={{ color: '#818cf8' }}>Facebook Ad Library ↗</a> and paste it below — no API token needed.
-                </p>
+        {/* ── Paste & Analyze panel (primary Facebook mode) ── */}
+        {platform === 'facebook' && activeTab === 'paste' && (
+          <div style={{ marginBottom: '1.5rem' }}>
+            {/* How-to steps */}
+            <div style={{ background: 'rgba(24,119,242,0.06)', border: '1px solid rgba(24,119,242,0.2)', borderRadius: 10, padding: '0.875rem 1.1rem', marginBottom: '1rem' }}>
+              <p style={{ margin: '0 0 0.5rem', fontSize: 12, fontWeight: 700, color: '#93c5fd', textTransform: 'uppercase', letterSpacing: '0.05em' }}>How to use</p>
+              <ol style={{ margin: 0, padding: '0 0 0 1.1rem', fontSize: 12, color: '#6b7280', lineHeight: 2 }}>
+                <li>Open <a href="https://www.facebook.com/ads/library/" target="_blank" rel="noreferrer" style={{ color: '#818cf8' }}>facebook.com/ads/library ↗</a> in a new tab</li>
+                <li>Search for a competitor brand name</li>
+                <li>Copy the ad text (headline, body, description)</li>
+                <li>Paste it below and click <strong style={{ color: '#a5b4fc' }}>Analyze</strong></li>
+              </ol>
+            </div>
+
+            <div style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 12, padding: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: 8 }}>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#c7d2fe' }}>Paste Competitor Ad Text</p>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select value={focus} onChange={e => setFocus(e.target.value)} style={{
+                    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: 6, padding: '5px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none', cursor: 'pointer',
+                  }}>
+                    {FOCUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <button
+                    onClick={handlePasteAnalyze}
+                    disabled={pasteAnalyzing || !pasteText.trim()}
+                    style={{
+                      background: pasteAnalyzing || !pasteText.trim() ? '#374151' : '#6366f1',
+                      color: '#fff', border: 'none', borderRadius: 8, padding: '7px 18px',
+                      fontSize: 13, fontWeight: 700, cursor: pasteAnalyzing || !pasteText.trim() ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {pasteAnalyzing ? '⟳ Analyzing…' : '🤖 Analyze'}
+                  </button>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <textarea
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                placeholder={"Paste one or more ad texts here…\n\nExample:\nHeadline: Get 50% Off Today Only\nBody: We've helped 10,000+ customers achieve their goals. Limited time offer — don't miss out!\nCTA: Shop Now\n\nYou can paste multiple ads separated by blank lines."}
+                style={{
+                  width: '100%', minHeight: 160, background: 'rgba(0,0,0,0.3)',
+                  border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+                  padding: '10px 12px', color: '#e2e8f0', fontSize: 13, lineHeight: 1.6,
+                  outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit',
+                }}
+              />
+              {pasteAnalysis && (
+                <div ref={pasteRef} style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.25)', borderRadius: 8, padding: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#c7d2fe' }}>🤖 Claude Analysis</span>
+                    <button onClick={() => navigator.clipboard.writeText(pasteAnalysis)} style={{
+                      background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: 6, padding: '3px 10px', fontSize: 11, color: '#9ca3af', cursor: 'pointer',
+                    }}>Copy</button>
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 1.75, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>{pasteAnalysis}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── URL Analyze panel (secondary Facebook mode) ── */}
+        {platform === 'facebook' && activeTab === 'url' && (
+          <div style={{ marginBottom: '1.5rem' }}>
+            <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, padding: '0.875rem 1.1rem', marginBottom: '1rem' }}>
+              <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Requires Facebook API Access</p>
+              <p style={{ margin: 0, fontSize: 12, color: '#6b7280', lineHeight: 1.6 }}>
+                URL Analyze fetches ads automatically but requires a Facebook developer account with <code style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 3, padding: '1px 4px' }}>ads_read</code> permission.
+                If that's not set up yet, use <button onClick={() => setActiveTab('paste')} style={{ background: 'none', border: 'none', color: '#818cf8', cursor: 'pointer', padding: 0, fontSize: 12, textDecoration: 'underline' }}>Paste &amp; Analyze</button> instead.
+              </p>
+            </div>
+
+            <div style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 12, padding: '1.25rem' }}>
+              <p style={{ margin: '0 0 0.75rem', fontWeight: 700, fontSize: 14, color: '#c7d2fe' }}>Paste Facebook Ad Library URL</p>
+              <p style={{ margin: '0 0 0.875rem', fontSize: 12, color: '#6b7280' }}>
+                Go to <a href="https://www.facebook.com/ads/library/" target="_blank" rel="noreferrer" style={{ color: '#818cf8' }}>facebook.com/ads/library ↗</a>, search for a competitor, then copy the page URL and paste it here.
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <input
+                  value={urlInput}
+                  onChange={e => setUrlInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleUrlAnalyze()}
+                  style={{
+                    flex: 1, background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: 8, padding: '9px 14px', color: '#e2e8f0', fontSize: 13,
+                    outline: 'none',
+                  }}
+                  placeholder="https://www.facebook.com/ads/library/?q=brand&active_status=active…"
+                />
                 <select value={focus} onChange={e => setFocus(e.target.value)} style={{
                   background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-                  borderRadius: 6, padding: '5px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none', cursor: 'pointer',
+                  borderRadius: 6, padding: '9px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none', cursor: 'pointer', flexShrink: 0,
                 }}>
                   {FOCUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 <button
-                  onClick={handlePasteAnalyze}
-                  disabled={pasteAnalyzing || !pasteText.trim()}
+                  onClick={handleUrlAnalyze}
+                  disabled={urlAnalyzing || !urlInput.trim()}
                   style={{
-                    background: pasteAnalyzing || !pasteText.trim() ? '#374151' : '#6366f1',
-                    color: '#fff', border: 'none', borderRadius: 8, padding: '7px 18px',
-                    fontSize: 13, fontWeight: 700, cursor: pasteAnalyzing || !pasteText.trim() ? 'not-allowed' : 'pointer',
-                    whiteSpace: 'nowrap',
+                    background: urlAnalyzing || !urlInput.trim() ? '#374151' : '#6366f1',
+                    color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px',
+                    fontSize: 13, fontWeight: 700, cursor: urlAnalyzing || !urlInput.trim() ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap', flexShrink: 0,
                   }}
                 >
-                  {pasteAnalyzing ? '⟳ Analyzing…' : '🤖 Analyze'}
+                  {urlAnalyzing ? '⟳ Fetching…' : '🤖 Fetch & Analyze'}
                 </button>
               </div>
-            </div>
-            <textarea
-              value={pasteText}
-              onChange={e => setPasteText(e.target.value)}
-              placeholder="Paste one or more Facebook ad texts here…&#10;&#10;Example:&#10;Headline: Get 50% Off Today Only&#10;Body: We've helped 10,000+ customers achieve their goals. Limited time offer — don't miss out!&#10;CTA: Shop Now"
-              style={{
-                width: '100%', minHeight: 140, background: 'rgba(0,0,0,0.3)',
-                border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
-                padding: '10px 12px', color: '#e2e8f0', fontSize: 13, lineHeight: 1.6,
-                outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit',
-              }}
-            />
-            {pasteAnalysis && (
-              <div ref={pasteRef} style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <span style={{ fontWeight: 700, fontSize: 13, color: '#c7d2fe' }}>🤖 Analysis</span>
-                  <button onClick={() => navigator.clipboard.writeText(pasteAnalysis)} style={{
-                    background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
-                    borderRadius: 6, padding: '3px 10px', fontSize: 11, color: '#9ca3af', cursor: 'pointer',
-                  }}>Copy</button>
+              {(urlAnalysis || urlAnalyzing) && (
+                <div ref={urlRef} style={{ marginTop: '0.75rem', background: 'rgba(0,0,0,0.25)', borderRadius: 8, padding: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#c7d2fe' }}>🤖 Claude Analysis</span>
+                    {urlAnalysis && !urlAnalysis.startsWith('Error') && (
+                      <button onClick={() => navigator.clipboard.writeText(urlAnalysis)} style={{
+                        background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: 6, padding: '3px 10px', fontSize: 11, color: '#9ca3af', cursor: 'pointer',
+                      }}>Copy</button>
+                    )}
+                  </div>
+                  {urlAnalyzing
+                    ? <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>Fetching ads and analyzing with Claude…</p>
+                    : <div style={{ fontSize: 13, lineHeight: 1.75, color: urlAnalysis.startsWith('Error') ? '#fca5a5' : '#cbd5e1', whiteSpace: 'pre-wrap' }}>{urlAnalysis}</div>
+                  }
                 </div>
-                <div style={{ fontSize: 13, lineHeight: 1.75, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>{pasteAnalysis}</div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── URL Analysis result ── */}
-        {platform === 'facebook' && (urlAnalysis || urlAnalyzing) && (
-          <div ref={urlRef} style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontWeight: 700, fontSize: 14, color: '#c7d2fe' }}>🤖 URL Analysis</span>
-              {urlAnalysis && !urlAnalysis.startsWith('Error') && (
-                <button onClick={() => navigator.clipboard.writeText(urlAnalysis)} style={{
-                  background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
-                  borderRadius: 6, padding: '3px 10px', fontSize: 11, color: '#9ca3af', cursor: 'pointer',
-                }}>Copy</button>
               )}
             </div>
-            {urlAnalyzing
-              ? <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>Fetching ads and analyzing…</p>
-              : <div style={{ fontSize: 13, lineHeight: 1.75, color: urlAnalysis.startsWith('Error') ? '#fca5a5' : '#cbd5e1', whiteSpace: 'pre-wrap' }}>{urlAnalysis}</div>
-            }
           </div>
         )}
 
@@ -700,35 +739,11 @@ export default function AdLibrary() {
               </div>
             )}
 
-            {/* Empty state */}
+            {/* Empty state after URL fetch returned 0 */}
             {searched && !loading && ads.length === 0 && !error && (
               <div style={{ textAlign: 'center', padding: '3rem', background: 'rgba(255,255,255,0.03)', borderRadius: 10 }}>
-                <p style={{ color: '#6b7280', fontSize: 14 }}>No ads found for "{query}".</p>
-                <p style={{ color: '#4b5563', fontSize: 12 }}>Try a different keyword, check your Facebook token in Settings, or change the country.</p>
-              </div>
-            )}
-
-            {/* Intro */}
-            {!searched && !loading && (
-              <div style={{ textAlign: 'center', padding: '3rem 2rem', maxWidth: 580, margin: '2rem auto' }}>
-                <div style={{ marginBottom: '1rem' }}>{PlatformIcons.facebook}</div>
-                <h2 style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0', margin: '0 0 0.5rem' }}>Facebook Ad Library</h2>
-                <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 1.5rem', lineHeight: 1.6 }}>
-                  Search any competitor or brand to see all their active Facebook and Instagram ads.
-                  Analyze messaging, targeting, spend, and creative strategies with AI.
-                </p>
-                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-                  {['competitor brand', 'industry keyword', 'product category', 'local business'].map(ex => (
-                    <button key={ex} onClick={() => setQuery(ex)} style={{
-                      background: 'rgba(24,119,242,0.12)', color: '#60a5fa', border: '1px solid rgba(24,119,242,0.3)',
-                      borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                    }}>{ex}</button>
-                  ))}
-                </div>
-                <p style={{ color: '#4b5563', fontSize: 12 }}>
-                  Requires Facebook connected in{' '}
-                  <Link to="/settings" style={{ color: '#818cf8' }}>Settings → Social Hub</Link>
-                </p>
+                <p style={{ color: '#6b7280', fontSize: 14 }}>No ads found.</p>
+                <p style={{ color: '#4b5563', fontSize: 12 }}>Try the <button onClick={() => setActiveTab('paste')} style={{ background: 'none', border: 'none', color: '#818cf8', cursor: 'pointer', padding: 0, fontSize: 12, textDecoration: 'underline' }}>Paste &amp; Analyze</button> mode instead.</p>
               </div>
             )}
 
