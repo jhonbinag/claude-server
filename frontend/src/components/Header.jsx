@@ -7,6 +7,7 @@ const NAV = [
   { to: '/workflows',        label: 'Workflows',  icon: '🔀' },
   { to: '/ads-generator',    label: 'Bulk Ads',   icon: '🎯' },
   { to: '/ad-library',       label: 'Ad Library', icon: '📊' },
+  { to: '/manychat',         label: 'ManyChat',   icon: '💙' },
   { to: '/social',           label: 'Social',     icon: '📱' },
   { to: '/billing',          label: 'Billing',    icon: '💳' },
   { to: '/settings',         label: 'Settings',   icon: '⚙️' },
