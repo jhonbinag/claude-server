@@ -31,7 +31,7 @@ const PLATFORMS = {
     //   - Reading public page info
     // Advanced permissions (pages_manage_posts, ads_read, instagram_content_publish)
     // require Meta App Review before they work for general public users.
-    scope:     'public_profile,pages_show_list,pages_read_engagement',
+    scope:     'public_profile,pages_show_list,pages_read_engagement,ads_read',
     clientId:  () => process.env.FACEBOOK_APP_ID,
     secret:    () => process.env.FACEBOOK_APP_SECRET,
   },
@@ -194,6 +194,7 @@ router.get('/:platform/callback', async (req, res) => {
         id:          p.id,
         name:        p.name,
         token:       p.access_token,
+        userToken:   accessToken,   // long-lived user token — needed for Ad Library
         followers:   p.fan_count,
         picture:     p.picture?.data?.url,
         platform:    'facebook',
@@ -352,6 +353,7 @@ async function saveAccount(locationId, platform, account) {
   const config = {
     pageAccessToken: account.token,
     accessToken:     account.token,
+    userAccessToken: account.userToken || account.token, // user-level token for Ad Library
     refreshToken:    account.refresh || '',
     pageId:          account.id,
     pageName:        account.name,
