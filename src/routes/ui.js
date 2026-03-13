@@ -18,7 +18,10 @@ const SPA = path.join(__dirname, '../../public/ui/index.html');
 // The catch-all below only handles HTML navigation requests.
 
 // All /ui/* routes → serve index.html (SPA handles routing)
+// No-cache on HTML so browsers always pick up new asset filenames after deploy
 router.get('/*', (req, res) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
   res.sendFile(SPA);
 });
 
