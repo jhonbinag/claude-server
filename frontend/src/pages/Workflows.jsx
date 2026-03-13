@@ -696,31 +696,36 @@ export default function Workflows() {
           </div>
           <div className="flex flex-col gap-1 px-2 py-2">
             {(() => {
-              const SOCIAL_KEYS_SIDEBAR = ['ghl_social_planner','social_facebook','social_instagram','social_tiktok_organic','social_youtube','social_linkedin_organic','social_pinterest','social_twitter','social_gmb'];
-              const PAYMENT_KEYS_SIDEBAR = ['stripe','paypal','square','authorizenet'];
-              const paletteTools = [
-                { key:'ghl', label:'GHL CRM', icon:'⚡', alwaysOn:true },
-                { key:'social_hub', label:'Social Hub', icon:'📱', enabled: SOCIAL_KEYS_SIDEBAR.some(k => enabledKeys.has(k)) },
-                { key:'payment_hub', label:'Payment Hub', icon:'💳', enabled: PAYMENT_KEYS_SIDEBAR.some(k => enabledKeys.has(k)) },
-                ...INTEGRATIONS.map(i => ({ key:i.key, label:i.label, icon:i.icon })),
-              ];
-              return paletteTools.map(t => {
-                const enabled = t.alwaysOn || ('enabled' in t ? t.enabled : enabledKeys.has(t.key));
-                const color   = TOOL_COLOR[t.key] || '#6366f1';
+              const SOCIAL_KEYS_SIDEBAR   = ['ghl_social_planner','social_facebook','social_instagram','social_tiktok_organic','social_youtube','social_linkedin_organic','social_pinterest','social_twitter','social_gmb'];
+              const PAYMENT_KEYS_SIDEBAR  = ['stripe','paypal','square','authorizenet'];
+              const socialEnabled  = SOCIAL_KEYS_SIDEBAR.some(k => enabledKeys.has(k));
+              const paymentEnabled = PAYMENT_KEYS_SIDEBAR.some(k => enabledKeys.has(k));
+              const allTools = [
+                { key:'ghl',         label:'GHL CRM',    icon:'⚡', show: true },
+                { key:'social_hub',  label:'Social Hub', icon:'📱', show: socialEnabled },
+                { key:'payment_hub', label:'Payment Hub',icon:'💳', show: paymentEnabled },
+                ...INTEGRATIONS
+                  .filter(i => !SOCIAL_KEYS_SIDEBAR.includes(i.key) && !PAYMENT_KEYS_SIDEBAR.includes(i.key))
+                  .map(i => ({ key:i.key, label:i.label, icon:i.icon, show: enabledKeys.has(i.key) })),
+              ].filter(t => t.show);
+
+              if (allTools.length === 0) {
+                return <p className="text-xs text-gray-600 text-center py-4">No integrations connected yet</p>;
+              }
+              return allTools.map(t => {
+                const color = TOOL_COLOR[t.key] || '#6366f1';
                 return (
-                  <button key={t.key} onClick={() => enabled && addNode(t.key, t.label, t.icon)}
-                    title={enabled ? `Add ${t.label}` : 'Connect in Settings first'}
+                  <button key={t.key} onClick={() => addNode(t.key, t.label, t.icon)}
+                    title={`Add ${t.label}`}
                     className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-left transition-all"
-                    style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', opacity: enabled ? 1 : 0.35, cursor: enabled ? 'pointer' : 'not-allowed' }}
-                    onMouseOver={e => { if (enabled) e.currentTarget.style.borderColor = `${color}60`; }}
-                    onMouseOut={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
+                    style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', cursor:'pointer' }}
+                    onMouseOver={e => { e.currentTarget.style.borderColor = `${color}60`; e.currentTarget.style.background = `${color}10`; }}
+                    onMouseOut={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
                   >
                     <span className="text-base flex-shrink-0">{t.icon}</span>
                     <div className="min-w-0">
                       <div className="text-xs font-medium text-white truncate">{t.label}</div>
-                      <div className="text-xs" style={{ color: enabled ? color : '#4b5563' }}>
-                        {enabled ? (t.alwaysOn ? 'Always on' : '✓ Connected') : 'Not connected'}
-                      </div>
+                      <div className="text-xs" style={{ color }}>✓ Connected</div>
                     </div>
                   </button>
                 );
@@ -728,7 +733,7 @@ export default function Workflows() {
             })()}
           </div>
           <div className="flex-1" />
-          <Link to="/settings" className="text-xs text-center text-indigo-400 hover:text-indigo-300 py-3 block">+ Connect APIs</Link>
+          <Link to="/settings" className="text-xs text-center text-indigo-400 hover:text-indigo-300 py-3 block">+ Connect more</Link>
 
           {/* ── Prompt Library / Command Center ── */}
           <div className="flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
