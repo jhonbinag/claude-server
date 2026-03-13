@@ -40,8 +40,6 @@ export function AppProvider({ children }) {
     const id = locId || locationId;
     if (!id) return;
     try {
-      // Bust stale Redis cache first so Firebase data is always reflected
-      await apiFetch('/tools/cache-bust', id, { method: 'POST' }).catch(() => {});
       const data = await apiFetch('/tools', id);
       if (data.success) {
         setIntegrations(data.data || []);

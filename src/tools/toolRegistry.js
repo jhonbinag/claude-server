@@ -44,37 +44,35 @@ for (const [category, defs] of Object.entries(EXTERNAL_TOOL_DEFINITIONS)) {
  * @returns {Promise<object>}  Map of category → config object
  */
 async function loadToolConfigs(locationId) {
-  // Tier 1: Redis 1-hour cache (fastest)
-  // Only accept a non-empty cache hit — an empty {} may be stale (written before
-  // Firebase was populated) and must not block Firebase reads.
-  try {
-    const cached = await toolTokenService.getCachedToolConfig(locationId);
-    if (cached !== null && Object.keys(cached).length > 0) return cached;
-  } catch { /* cache unavailable — continue to next tier */ }
-
   let configs = {};
 
-  // Tier 2: Firebase Firestore (source of truth when enabled)
+  // Tier 1: Firebase Firestore — primary source of truth when enabled.
+  // If Firebase returns data, use it directly and warm the Redis cache.
   if (config.isFirebaseEnabled) {
     try {
       configs = await firebaseStore.getToolConfig(locationId);
+      if (Object.keys(configs).length > 0) {
+        // Warm Redis so writes and other services can use the cache
+        try { await toolTokenService.setCachedToolConfig(locationId, configs); } catch { /* non-fatal */ }
+        return configs;
+      }
     } catch (err) {
       console.error(`[ToolRegistry] Firebase read failed for ${locationId}:`, err.message);
     }
   }
 
-  // Tier 3: tokenStore fallback (dev / no-Firebase mode)
-  if (!config.isFirebaseEnabled || Object.keys(configs).length === 0) {
-    try {
-      const fallback = await Promise.resolve(tokenStore.getToolConfig(locationId));
-      if (Object.keys(configs).length === 0) configs = fallback;
-    } catch { /* ignore */ }
-  }
-
-  // Populate cache so next request skips Firebase
+  // Tier 2: Redis — used for first-time entries not yet committed to Firebase,
+  // or when Firebase is disabled / temporarily unavailable.
   try {
-    await toolTokenService.setCachedToolConfig(locationId, configs);
-  } catch { /* cache write failure is non-fatal */ }
+    const cached = await toolTokenService.getCachedToolConfig(locationId);
+    if (cached !== null && Object.keys(cached).length > 0) return cached;
+  } catch { /* cache unavailable — continue to next tier */ }
+
+  // Tier 3: tokenStore fallback (dev / no-Firebase mode)
+  try {
+    const fallback = await Promise.resolve(tokenStore.getToolConfig(locationId));
+    if (Object.keys(fallback || {}).length > 0) configs = fallback;
+  } catch { /* ignore */ }
 
   return configs;
 }

@@ -107,14 +107,29 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ─── POST /tools/cache-bust — force-clear Redis cache so next read hits Firebase ─
-router.post('/cache-bust', async (req, res) => {
+// ─── GET /tools/debug — raw Firebase vs toolRegistry diagnostic ──────────────
+
+router.get('/debug', async (req, res) => {
   try {
-    await toolTokenService.invalidateToolConfigCache(req.locationId);
-    console.log(`[Tools] Cache busted for ${req.locationId}`);
-    res.json({ success: true });
+    const firebaseRaw   = config.isFirebaseEnabled
+      ? await require('../services/firebaseStore').getToolConfig(req.locationId)
+      : null;
+    const registryFull  = await toolRegistry.loadToolConfigs(req.locationId);
+    const enabled       = await toolRegistry.getEnabledIntegrations(req.locationId);
+
+    res.json({
+      success:           true,
+      locationId:        req.locationId,
+      isFirebaseEnabled: config.isFirebaseEnabled,
+      firebaseKeys:      firebaseRaw ? Object.keys(firebaseRaw) : null,
+      registryKeys:      Object.keys(registryFull),
+      enabledCategories: enabled,
+      firebasePreview:   firebaseRaw
+        ? Object.fromEntries(Object.entries(firebaseRaw).map(([k, v]) => [k, Object.keys(v || {})]))
+        : null,
+    });
   } catch (err) {
-    res.json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
