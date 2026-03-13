@@ -146,6 +146,60 @@ router.get('/accounts', async (req, res) => {
   });
 });
 
+// GET /social/status — returns per-platform connected status directly from toolRegistry
+// This is authoritative: no type-guessing, just key existence checks.
+router.get('/status', async (req, res) => {
+  const PLATFORM_KEYS = {
+    facebook:  ['social_facebook'],
+    instagram: ['social_instagram'],
+    tiktok:    ['social_tiktok_organic', 'social_tiktok'],
+    youtube:   ['social_youtube'],
+    linkedin:  ['social_linkedin_organic', 'social_linkedin'],
+    pinterest: ['social_pinterest'],
+    twitter:   ['social_twitter'],
+    gmb:       ['social_gmb'],
+  };
+
+  let configs = {};
+  try { configs = await toolRegistry.getToolConfig(req.locationId); } catch (e) { /* ignore */ }
+
+  // Also check GHL social planner accounts
+  let ghlPlatforms = new Set();
+  if (req.ghl) {
+    try {
+      const data = await req.ghl('GET', `/social-media-posting/${req.locationId}/accounts`);
+      const accs = Array.isArray(data) ? data : (data?.results?.accounts || []);
+      accs.forEach(a => {
+        const p = normalizePlatformType(a.type || a.platform || a.accountType || a.account_type || a.network || '');
+        if (p) ghlPlatforms.add(p);
+      });
+    } catch (e) { /* ignore */ }
+  }
+
+  const status = {};
+  for (const [platform, keys] of Object.entries(PLATFORM_KEYS)) {
+    let connected = false;
+    let name = null;
+    let avatar = null;
+    // Check toolRegistry
+    for (const key of keys) {
+      const c = configs[key];
+      if (c && (c.pageName || c.pageId || c.accessToken || c.pageAccessToken || c.channelId || c.organizationId || c.openId)) {
+        connected = true;
+        name   = c.pageName || c.channelName || c.name || null;
+        avatar = c.picture  || c.avatar      || null;
+        break;
+      }
+    }
+    // Check GHL social planner
+    if (!connected && ghlPlatforms.has(platform)) connected = true;
+    status[platform] = { connected, name, avatar };
+  }
+
+  console.log('[Social] /status:', Object.entries(status).filter(([,v]) => v.connected).map(([k]) => k));
+  res.json({ status, ghlConnected: !!req.ghl });
+});
+
 // Maps GHL social planner accounts → individual social_* toolRegistry keys
 // so they appear as "Connected via GHL" in External Integrations.
 async function mapGhlAccountsToIntegrationKeys(locationId, accounts) {

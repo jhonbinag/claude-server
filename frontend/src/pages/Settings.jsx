@@ -1069,25 +1069,27 @@ const CONNECTABLE = ['facebook', 'instagram', 'tiktok', 'youtube', 'linkedin', '
 
 function SocialHubCard({ showToast }) {
   const [accounts,      setAccounts]      = useState([]);
+  const [status,        setStatus]        = useState({}); // { facebook: { connected, name, avatar }, ... }
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState(null);
   const [isOpen,        setIsOpen]        = useState(true);
   const [connecting,    setConnecting]    = useState(null);
   const [disconnecting, setDisconnecting] = useState(null);
-  const [ghlConnected,  setGhlConnected]  = useState(true); // assume connected until we know otherwise
+  const [ghlConnected,  setGhlConnected]  = useState(true);
 
   async function loadAccounts() {
     setLoading(true);
     setError(null);
     try {
-      const d = await api.get('/social/accounts');
-      // Response format: { accounts: [...], ghlConnected: bool, ghlError?: string }
-      const list = Array.isArray(d) ? d : (d.accounts || d.data || []);
-      console.log('[SocialHub] raw response:', d);
-      console.log('[SocialHub] accounts list:', list);
-      list.forEach(a => console.log('[SocialHub] account type:', a.type, 'platform:', a.platform, 'name:', a.name));
+      // Load both in parallel: account list (for details/disconnect) + status (authoritative per-platform)
+      const [accData, statusData] = await Promise.all([
+        api.get('/social/accounts'),
+        api.get('/social/status'),
+      ]);
+      const list = Array.isArray(accData) ? accData : (accData.accounts || accData.data || []);
       setAccounts(list);
-      setGhlConnected(d?.ghlConnected !== false); // default true if old format
+      setStatus(statusData?.status || {});
+      setGhlConnected(accData?.ghlConnected !== false);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1137,16 +1139,8 @@ function SocialHubCard({ showToast }) {
     }
   }
 
-  const anyConnected = accounts.length > 0;
-
-  // Build a map of connected accounts by platform type
-  const connectedByType = {};
-  accounts.forEach(acc => {
-    const type = normalizePlatform(acc.type || acc.platform || acc.accountType || '');
-    if (!connectedByType[type]) connectedByType[type] = [];
-    connectedByType[type].push(acc);
-  });
-  if (accounts.length > 0) console.log('[SocialHub] connectedByType keys:', Object.keys(connectedByType), 'CONNECTABLE:', CONNECTABLE);
+  const connectedCount = Object.values(status).filter(s => s.connected).length;
+  const anyConnected   = connectedCount > 0 || accounts.length > 0;
 
   return (
     <div className={`card p-5${anyConnected ? ' connected' : ''}`}>
@@ -1159,7 +1153,7 @@ function SocialHubCard({ showToast }) {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-white text-sm">Social Hub</span>
               <span className={`text-xs px-2 py-0.5 rounded-full ${anyConnected ? 'badge-on' : 'badge-off'}`}>
-                {loading ? 'Loading…' : anyConnected ? `${accounts.length} connected` : 'Not connected'}
+                {loading ? 'Loading…' : connectedCount > 0 ? `${connectedCount} connected` : 'Not connected'}
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-0.5">Facebook · Instagram · TikTok · YouTube · LinkedIn · Pinterest</p>
@@ -1216,14 +1210,15 @@ function SocialHubCard({ showToast }) {
           {!loading && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '0.75rem' }}>
               {CONNECTABLE.map(platformKey => {
-                const meta = PLATFORM_META[platformKey];
-                // Match by platform field (normalized by backend) or type fallback
-                const connected = accounts.filter(a =>
+                const meta        = PLATFORM_META[platformKey];
+                const s           = status[platformKey] || {};   // { connected, name, avatar }
+                const isConnected = !!s.connected;
+                const isBusy      = connecting === platformKey;
+                // Find matching account detail for disconnect button
+                const accDetail   = accounts.find(a =>
                   (a.platform && a.platform === platformKey) ||
                   normalizePlatform(a.type || a.accountType || '') === platformKey
                 );
-                const isBusy = connecting === platformKey;
-                const isConnected = connected.length > 0;
 
                 return (
                   <div key={platformKey} style={{
@@ -1241,45 +1236,37 @@ function SocialHubCard({ showToast }) {
                     </div>
 
                     {isConnected ? (
-                      /* ── Connected: show account info + status, NO connect button ── */
+                      /* ── Connected: status only, NO connect button ── */
                       <>
-                        {connected.map(acc => {
-                          const name  = acc.name || acc.displayName || acc.username || meta.label;
-                          const avatar = acc.avatar || acc.picture;
-                          const accId  = acc.id || acc.accountId;
-                          return (
-                            <div key={accId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              {avatar
-                                ? <img src={avatar} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                                : <div style={{ width: 28, height: 28, borderRadius: '50%', background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{name[0]?.toUpperCase()}</div>}
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#e2e8f0', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</p>
-                                {acc.followers > 0 && <p style={{ margin: 0, fontSize: 11, color: '#9ca3af' }}>{Number(acc.followers).toLocaleString()} followers</p>}
-                              </div>
+                        {(s.name || s.avatar) && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {s.avatar
+                              ? <img src={s.avatar} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                              : <div style={{ width: 28, height: 28, borderRadius: '50%', background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{(s.name || meta.label)[0].toUpperCase()}</div>}
+                            <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{s.name || meta.label}</p>
+                            {accDetail && (
                               <button
-                                onClick={() => disconnectAccount(acc)}
-                                disabled={disconnecting === accId}
+                                onClick={() => disconnectAccount(accDetail)}
+                                disabled={disconnecting === (accDetail.id || accDetail.accountId)}
                                 title="Disconnect"
                                 style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 6, padding: '3px 7px', color: '#f87171', cursor: 'pointer', fontSize: 11, flexShrink: 0 }}
                               >✕</button>
-                            </div>
-                          );
-                        })}
+                            )}
+                          </div>
+                        )}
                         <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#34d399' }}>
-                          <span style={{ fontSize: 14 }}>✓</span> Connected
+                          <span>✓</span> Connected
                         </div>
                       </>
                     ) : (
-                      /* ── Not connected: show connect button ── */
+                      /* ── Not connected: connect button only ── */
                       <button
                         onClick={() => connectPlatform(platformKey, false)}
                         disabled={isBusy}
                         style={{
-                          marginTop: 'auto',
-                          background: meta.bg, border: 'none',
+                          marginTop: 'auto', background: meta.bg, border: 'none',
                           borderRadius: 8, padding: '7px 10px', color: '#fff',
-                          cursor: isBusy ? 'wait' : 'pointer',
-                          fontSize: 12, fontWeight: 700,
+                          cursor: isBusy ? 'wait' : 'pointer', fontSize: 12, fontWeight: 700,
                           opacity: isBusy ? 0.7 : 1,
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
                         }}
