@@ -216,31 +216,49 @@ export default function Dashboard() {
     loadLibrary();
   };
 
+  // ── Persona training refs (stable across re-renders, safe in async callbacks) ──
+  const autoSaveTrainingRef = useRef(null); // current draft prompt id
+  const trainMsgsRef        = useRef([]);   // mirror of trainMsgs for async closures
+  const trainFolderRef      = useRef(null); // mirror of trainFolder for async closures
+  const trainChatEndRef     = useRef(null); // scroll-to-bottom anchor
+
+  // Keep refs in sync with state
+  useEffect(() => { trainMsgsRef.current  = trainMsgs;  }, [trainMsgs]);
+  useEffect(() => { trainFolderRef.current = trainFolder; }, [trainFolder]);
+
+  // Scroll to bottom whenever messages change
+  useEffect(() => {
+    trainChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [trainMsgs, trainLoading]);
+
   const startTraining = (folderId, existingPrompt = null) => {
-    autoSaveTrainingRef.current = existingPrompt?.id || null;
+    const pid = existingPrompt?.id || null;
+    autoSaveTrainingRef.current = pid;
+    trainFolderRef.current      = folderId;
     setTrainFolder(folderId);
-    setTrainPromptId(existingPrompt?.id || null);
-    setTrainMsgs(existingPrompt?.trainHistory || []);
+    setTrainPromptId(pid);
+    const history = existingPrompt?.trainHistory || [];
+    trainMsgsRef.current = history;
+    setTrainMsgs(history);
     setTrainInput('');
     setTrainGenerated('');
     setTrainSaveTitle(existingPrompt?.isDraft ? '' : (existingPrompt?.title || ''));
     setActiveFolder(folderId);
   };
 
-  // Auto-save training conversation to Firebase after every message exchange.
-  // Creates a draft prompt on the first exchange; updates it on every subsequent one.
-  const autoSaveTrainingRef = useRef(null); // holds current trainPromptId for async closure
-  const autoSaveTraining = useCallback(async (currentMsgs, currentTrainPromptId, folderId) => {
+  // Auto-save to Firebase after every exchange — fire-and-forget, never blocks UI
+  const autoSaveTraining = useCallback(async (currentMsgs, currentDraftId, folderId) => {
     try {
-      if (currentTrainPromptId) {
-        await fetch(`/prompts/folders/${folderId}/prompts/${currentTrainPromptId}`, {
-          method: 'PUT', headers: apiHeaders,
+      const headers = { 'Content-Type': 'application/json', 'x-location-id': apiKey };
+      if (currentDraftId) {
+        await fetch(`/prompts/folders/${folderId}/prompts/${currentDraftId}`, {
+          method: 'PUT', headers,
           body: JSON.stringify({ trainHistory: currentMsgs }),
         });
       } else {
-        // First exchange — create a draft prompt to anchor this training session
+        // First exchange — create a draft to anchor this session
         const res  = await fetch(`/prompts/folders/${folderId}/prompts`, {
-          method: 'POST', headers: apiHeaders,
+          method: 'POST', headers,
           body: JSON.stringify({
             title:        'Training in Progress…',
             content:      '(Persona not yet finalized — continue training to generate)',
@@ -252,61 +270,68 @@ export default function Dashboard() {
         if (data.success) {
           autoSaveTrainingRef.current = data.data.id;
           setTrainPromptId(data.data.id);
-          loadLibrary(); // show draft in list immediately
+          // Refresh library in background so draft appears — deferred to avoid disrupting chat state
+          setTimeout(loadLibrary, 500);
         }
       }
     } catch { /* non-fatal — training continues even if save fails */ }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKey, apiHeaders]);
+  }, [apiKey, loadLibrary]);
 
-  const sendTrainMsg = async (overrideAction) => {
+  const sendTrainMsg = useCallback(async (overrideAction) => {
     const content = trainInput.trim();
     if (!content && !overrideAction) return;
-    const userMsg = content ? { role: 'user', content } : null;
-    const msgs = userMsg ? [...trainMsgs, userMsg] : trainMsgs;
-    if (userMsg) setTrainMsgs(msgs);
+
+    // Build message list using ref (stable, not stale)
+    const userMsg   = content ? { role: 'user', content } : null;
+    const msgsToSend = userMsg ? [...trainMsgsRef.current, userMsg] : trainMsgsRef.current;
+
+    if (userMsg) {
+      trainMsgsRef.current = msgsToSend;
+      setTrainMsgs(msgsToSend);
+    }
     setTrainInput('');
     setTrainLoading(true);
+
     try {
       const res  = await fetch('/prompts/train', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json', 'x-location-id': apiKey },
-        body: JSON.stringify({ messages: msgs, action: overrideAction || 'chat' }),
+        body:    JSON.stringify({ messages: msgsToSend, action: overrideAction || 'chat' }),
       });
       const data = await res.json();
       if (data.success) {
         if (overrideAction === 'finalize') {
           setTrainGenerated(data.reply);
-          setTrainSaveTitle(trainSaveTitle || 'My Custom Persona');
+          setTrainSaveTitle(prev => prev || 'My Custom Persona');
         } else {
-          const updatedMsgs = [...msgs, { role: 'assistant', content: data.reply }];
+          const updatedMsgs = [...msgsToSend, { role: 'assistant', content: data.reply }];
+          trainMsgsRef.current = updatedMsgs;
           setTrainMsgs(updatedMsgs);
-          // Auto-save every message exchange to Firebase
-          autoSaveTraining(updatedMsgs, autoSaveTrainingRef.current, trainFolder);
+          // Auto-save using refs so we never read stale state
+          autoSaveTraining(updatedMsgs, autoSaveTrainingRef.current, trainFolderRef.current);
         }
       }
     } catch { /* non-fatal */ }
     finally { setTrainLoading(false); }
-  };
+  }, [apiKey, trainInput, autoSaveTraining]);
 
   const saveTrainedPersona = async () => {
-    if (!trainGenerated.trim() || !trainSaveTitle.trim() || !trainFolder) return;
-    const currentId = autoSaveTrainingRef.current || trainPromptId;
-    const payload = { title: trainSaveTitle.trim(), content: trainGenerated.trim(), trainHistory: trainMsgs, isDraft: false };
+    if (!trainGenerated.trim() || !trainSaveTitle.trim() || !trainFolderRef.current) return;
+    const currentId = autoSaveTrainingRef.current;
+    const headers   = { 'Content-Type': 'application/json', 'x-location-id': apiKey };
+    const payload   = { title: trainSaveTitle.trim(), content: trainGenerated.trim(), trainHistory: trainMsgsRef.current, isDraft: false };
     if (currentId) {
-      // Update draft → finalized persona
-      await fetch(`/prompts/folders/${trainFolder}/prompts/${currentId}`, {
-        method: 'PUT', headers: apiHeaders,
-        body: JSON.stringify(payload),
+      await fetch(`/prompts/folders/${trainFolderRef.current}/prompts/${currentId}`, {
+        method: 'PUT', headers, body: JSON.stringify(payload),
       });
     } else {
-      // No draft was created (finalized very quickly) — create fresh
-      await fetch(`/prompts/folders/${trainFolder}/prompts`, {
-        method: 'POST', headers: apiHeaders,
-        body: JSON.stringify(payload),
+      await fetch(`/prompts/folders/${trainFolderRef.current}/prompts`, {
+        method: 'POST', headers, body: JSON.stringify(payload),
       });
     }
     autoSaveTrainingRef.current = null;
+    trainMsgsRef.current        = [];
+    trainFolderRef.current      = null;
     setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); setTrainSaveTitle('');
     loadLibrary();
   };
@@ -590,7 +615,7 @@ export default function Dashboard() {
                         <span className="text-xs font-semibold" style={{ color: '#c084fc' }}>🎓 Persona Training</span>
                         {trainPromptId && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}>Updating</span>}
                       </div>
-                      <button onClick={() => { autoSaveTrainingRef.current = null; setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); }}
+                      <button onClick={() => { autoSaveTrainingRef.current = null; trainMsgsRef.current = []; trainFolderRef.current = null; setTrainFolder(null); setTrainPromptId(null); setTrainMsgs([]); setTrainGenerated(''); }}
                         className="text-xs text-gray-500 hover:text-gray-300">✕ Exit</button>
                     </div>
 
@@ -613,9 +638,9 @@ export default function Dashboard() {
                     ) : (
                       /* Training chat */
                       <>
-                        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        <div className="flex-1 overflow-y-auto p-3 space-y-3" style={{ minHeight: 0 }}>
                           {trainMsgs.length === 0 && (
-                            <div className="text-xs text-gray-500 text-center py-4">
+                            <div className="text-xs text-gray-500 text-center py-6">
                               {trainPromptId
                                 ? <>Continue refining this persona — add more context or adjustments.<br/><span className="text-gray-600">e.g. "Make the tone more casual" or "Also focus on email writing"</span></>
                                 : <>Tell Claude what kind of persona you want to create.<br/><span className="text-gray-600">e.g. "I run a fitness coaching brand targeting women 30–45"</span></>
@@ -623,26 +648,40 @@ export default function Dashboard() {
                             </div>
                           )}
                           {trainMsgs.map((m, i) => (
-                            <div key={i} className={`text-xs px-3 py-2 rounded-xl max-w-[90%] ${m.role === 'user' ? 'ml-auto' : 'mr-auto'}`}
-                              style={m.role === 'user'
-                                ? { background: 'rgba(99,102,241,0.2)', color: '#c7d2fe' }
-                                : { background: 'rgba(255,255,255,0.05)', color: '#e2e8f0' }}>
+                            <div key={i}
+                              className={`text-xs px-3 py-2 rounded-xl ${m.role === 'user' ? 'ml-auto' : 'mr-auto'}`}
+                              style={{
+                                maxWidth: '88%',
+                                wordBreak: 'break-word',
+                                whiteSpace: 'pre-wrap',
+                                ...(m.role === 'user'
+                                  ? { background: 'rgba(99,102,241,0.25)', color: '#c7d2fe', border: '1px solid rgba(99,102,241,0.3)' }
+                                  : { background: 'rgba(255,255,255,0.07)', color: '#e2e8f0', border: '1px solid rgba(255,255,255,0.08)' }),
+                              }}>
+                              {m.role === 'assistant' && <span className="text-purple-400 font-semibold block mb-1 text-xs">🤖 Claude</span>}
+                              {m.role === 'user'      && <span className="text-indigo-300 font-semibold block mb-1 text-xs">You</span>}
                               {m.content}
                             </div>
                           ))}
                           {trainLoading && (
-                            <div className="text-xs text-gray-500 px-3 py-2 mr-auto">
-                              <span className="animate-pulse">Claude is thinking…</span>
+                            <div className="text-xs px-3 py-2 rounded-xl mr-auto"
+                              style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)', color: '#c084fc' }}>
+                              <span className="animate-pulse">🤖 Claude is processing…</span>
                             </div>
                           )}
+                          {/* Scroll anchor */}
+                          <div ref={trainChatEndRef} />
                         </div>
                         <div className="flex-shrink-0 p-2 space-y-1.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                           <div className="flex gap-1.5">
                             <input value={trainInput} onChange={e => setTrainInput(e.target.value)}
                               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendTrainMsg()}
-                              placeholder="Describe your persona…" className="field flex-1 text-xs py-1.5" />
+                              placeholder="Describe your persona, brand, tone…"
+                              className="field flex-1 text-xs py-1.5" />
                             <button onClick={() => sendTrainMsg()} disabled={!trainInput.trim() || trainLoading}
-                              className="btn-primary text-xs px-3 py-1.5">Send</button>
+                              className="btn-primary text-xs px-3 py-1.5 flex-shrink-0">
+                              {trainLoading ? '…' : '▶ Process'}
+                            </button>
                           </div>
                           {trainMsgs.length >= 3 && (
                             <button onClick={() => sendTrainMsg('finalize')} disabled={trainLoading}
