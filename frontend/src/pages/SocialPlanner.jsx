@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import Header from '../components/Header';
 
 /* ── Platform icons / colours ─────────────────────────────────────────── */
 const PLATFORM_META = {
@@ -139,78 +139,77 @@ export default function SocialPlanner() {
 
   /* ── Render ───────────────────────────────────────────────────────── */
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-primary, #0f0f1a)', color: '#e2e8f0', fontFamily: 'sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: '#0f0f13', color: '#e2e8f0', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column' }}>
 
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 40 }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Link to="/" style={{ color: '#6366f1', textDecoration: 'none', fontSize: 13 }}>← Back</Link>
-            <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
-            <span style={{ fontWeight: 700, fontSize: 15 }}>📱 Social Planner</span>
+      {/* Shared top nav */}
+      <Header icon="📱" title="Social Planner" subtitle={`${accounts.length} account${accounts.length !== 1 ? 's' : ''} connected`} />
+
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '1.5rem' }}>
+
+        {/* ── Page hero ──────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.75rem', gap: '1rem', flexWrap: 'wrap' }}>
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: '#fff', margin: '0 0 0.25rem' }}>📱 Social Planner</h1>
+            <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Compose, schedule and track posts across all connected social accounts.</p>
           </div>
           <button
             onClick={() => { setComposerOpen(true); setSubmitMsg(''); }}
-            style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+            style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 20px', fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 2px 12px rgba(99,102,241,0.35)' }}
           >
             + New Post
           </button>
         </div>
-      </div>
 
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '1.5rem' }}>
-
-        {/* ── Connected Accounts ──────────────────────────────────────── */}
-        <section style={{ marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-            <h2 style={{ fontSize: 13, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>
-              Connected Accounts
-              {accounts.length > 0 && <span style={{ marginLeft: 8, color: '#34d399', fontWeight: 600 }}>{accounts.length}</span>}
-            </h2>
-            <button
-              onClick={loadAccounts}
-              disabled={loadingAcc}
-              style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: '#a5b4fc', cursor: 'pointer', opacity: loadingAcc ? 0.5 : 1 }}
-            >
-              {loadingAcc ? '↻ Syncing…' : '↻ Sync from GHL'}
+        {/* ── Connected Accounts card ─────────────────────────────────── */}
+        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>Connected Accounts</span>
+              {accounts.length > 0 && (
+                <span style={{ background: 'rgba(52,211,153,0.15)', color: '#34d399', borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>
+                  {accounts.length}
+                </span>
+              )}
+            </div>
+            <button onClick={loadAccounts} disabled={loadingAcc}
+              style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 6, padding: '4px 12px', fontSize: 11, color: '#a5b4fc', cursor: 'pointer', opacity: loadingAcc ? 0.5 : 1 }}>
+              {loadingAcc ? '↻ Syncing…' : '↻ Sync'}
             </button>
           </div>
 
           {!ghlConnected && (
-            <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 8, padding: '0.6rem 1rem', fontSize: 12, color: '#fbbf24', marginBottom: '0.75rem' }}>
-              ⚠️ GHL OAuth not connected — showing cached accounts only. <Link to="/settings" style={{ color: '#818cf8' }}>Reconnect in Settings →</Link>
+            <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 8, padding: '0.5rem 0.9rem', fontSize: 12, color: '#fbbf24', marginBottom: '0.75rem' }}>
+              ⚠️ GHL OAuth not connected — cached accounts shown only.
             </div>
           )}
 
           {loadingAcc ? (
-            <p style={{ color: '#6b7280', fontSize: 13 }}>Syncing from GoHighLevel…</p>
+            <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>Syncing from GoHighLevel…</p>
           ) : accError ? (
-            <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '0.75rem 1rem', fontSize: 13, color: '#fca5a5' }}>
-              {accError}
-            </div>
+            <p style={{ color: '#fca5a5', fontSize: 13, margin: 0 }}>{accError}</p>
           ) : accounts.length === 0 ? (
-            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '1.5rem', textAlign: 'center' }}>
-              <p style={{ color: '#6b7280', fontSize: 13, marginBottom: '0.5rem' }}>No social accounts connected in GoHighLevel.</p>
-              <p style={{ color: '#4b5563', fontSize: 12 }}>Connect accounts via <strong style={{ color: '#9ca3af' }}>GHL → Marketing → Social Planner → Settings</strong>, then click Sync.</p>
-            </div>
+            <p style={{ color: '#4b5563', fontSize: 13, margin: 0 }}>
+              No accounts found. Connect via <strong style={{ color: '#9ca3af' }}>GHL → Marketing → Social Planner → Settings</strong>.
+            </p>
           ) : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
               {accounts.map(acc => {
                 const pm = platformOf(acc);
                 return (
-                  <div key={acc.id} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 160 }}>
-                    <span style={{ fontSize: 18 }}>{pm.icon}</span>
+                  <div key={acc.id} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '0.45rem 0.85rem', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    <span style={{ fontSize: 15 }}>{pm.icon}</span>
                     <div>
-                      <p style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0', margin: 0 }}>{acc.name || acc.displayName || acc.username}</p>
-                      <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>{pm.label}</p>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0', margin: 0, lineHeight: 1.2 }}>{acc.name || acc.displayName || acc.username}</p>
+                      <p style={{ fontSize: 10, color: '#6b7280', margin: 0 }}>{pm.label}</p>
                     </div>
-                    <span style={{ marginLeft: 'auto', width: 7, height: 7, borderRadius: '50%', background: '#34d399', flexShrink: 0 }} title="Connected" />
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399', marginLeft: 4, flexShrink: 0 }} />
                   </div>
                 );
               })}
             </div>
           )}
-        </section>
+        </div>
 
         {/* ── Composer Modal ─────────────────────────────────────────── */}
         {composerOpen && (
@@ -401,6 +400,7 @@ export default function SocialPlanner() {
             </div>
           )}
         </section>
+      </div>
       </div>
     </div>
   );
