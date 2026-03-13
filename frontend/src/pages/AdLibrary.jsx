@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import Header from '../components/Header';
 
 /* ── Constants ────────────────────────────────────────────────────────────── */
 const COUNTRIES = [
@@ -371,16 +372,15 @@ export default function AdLibrary() {
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f1a', color: '#e2e8f0', fontFamily: 'sans-serif' }}>
 
-      {/* ── Header ── */}
-      <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 50 }}>
+      {/* ── Shared Header ── */}
+      <Header />
+
+      {/* ── Platform sub-nav + Search ── */}
+      <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)', position: 'sticky', top: 53, zIndex: 40 }}>
         <div style={{ maxWidth: 1300, margin: '0 auto', padding: '0 1.5rem' }}>
 
-          {/* Top bar */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', height: 52 }}>
-            <Link to="/" style={{ color: '#6366f1', textDecoration: 'none', fontSize: 13, whiteSpace: 'nowrap' }}>← Back</Link>
-            <span style={{ color: 'rgba(255,255,255,0.15)' }}>|</span>
-
-            {/* Platform tabs */}
+          {/* Platform tabs */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', paddingTop: 8, paddingBottom: 0 }}>
             <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 3 }}>
               {[
                 { key: 'facebook', label: 'Ad Library',        icon: PlatformIcons.facebook },
