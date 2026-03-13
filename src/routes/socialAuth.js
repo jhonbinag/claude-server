@@ -31,7 +31,7 @@ const PLATFORMS = {
     //   - Reading public page info
     // Advanced permissions (pages_manage_posts, ads_read, instagram_content_publish)
     // require Meta App Review before they work for general public users.
-    scope:     'public_profile,pages_show_list,pages_read_engagement,ads_read',
+    scope:     'public_profile,pages_show_list,pages_read_engagement',
     clientId:  () => process.env.FACEBOOK_APP_ID,
     secret:    () => process.env.FACEBOOK_APP_SECRET,
   },
