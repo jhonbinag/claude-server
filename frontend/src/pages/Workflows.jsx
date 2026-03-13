@@ -23,6 +23,7 @@ const TOOL_COLOR = {
   ghl: '#22c55e', perplexity: '#6366f1', openai: '#10b981',
   facebook_ads: '#1877f2', sendgrid: '#00a8a8', slack: '#9333ea',
   apollo: '#f97316', heygen: '#a855f7', manychat: '#0084ff',
+  hubspot: '#ff7a00', keap: '#00a3e0', social_hub: '#8b5cf6', payment_hub: '#10b981',
 };
 
 const NODE_W = 240;
@@ -67,6 +68,22 @@ const TOOL_FIELDS = {
     inputs:  ['topic', 'context', 'audience', 'offer', 'channels'],
     outputs: ['sequence', 'day0Message', 'day1Message', 'day7Message', 'day30Message'],
   },
+  hubspot: {
+    inputs:  ['contactEmail', 'firstName', 'lastName', 'company', 'tag', 'dealName', 'stage', 'amount'],
+    outputs: ['contactId', 'email', 'firstName', 'lastName', 'company', 'dealId', 'dealStage', 'notes'],
+  },
+  keap: {
+    inputs:  ['contactEmail', 'firstName', 'lastName', 'tag', 'sequenceId', 'note'],
+    outputs: ['contactId', 'email', 'firstName', 'lastName', 'tags', 'sequenceStatus'],
+  },
+  social_hub: {
+    inputs:  ['postContent', 'imageUrl', 'platform', 'scheduledTime', 'replyTo'],
+    outputs: ['postId', 'postUrl', 'platform', 'publishedAt', 'engagement'],
+  },
+  payment_hub: {
+    inputs:  ['customerEmail', 'amount', 'currency', 'description', 'customerId'],
+    outputs: ['paymentId', 'paymentUrl', 'status', 'invoiceId', 'receiptUrl'],
+  },
 };
 
 // ─── GHL action catalogue ─────────────────────────────────────────────────────
@@ -102,6 +119,62 @@ const BLOG_TYPES = ['How-To Guide','Listicle','Case Study','News / Announcement'
 const EMAIL_TYPES = ['Welcome','Value / Nurture','Case Study','Objection Handler','Sales / Offer','Follow-up','Re-engagement'];
 const PIPELINE_ACTIONS = ['Create opportunity','Move to stage','List open opportunities'];
 const CONTACT_ACTIONS  = ['Search contacts','Create contact','Add tags','Add to workflow'];
+
+// CRM actions (HubSpot / Keap)
+const CRM_ACTIONS = [
+  { key: 'search_contacts',  label: 'Search Contacts',        icon: '🔍' },
+  { key: 'create_contact',   label: 'Create Contact',         icon: '➕' },
+  { key: 'update_contact',   label: 'Update Contact',         icon: '✏️' },
+  { key: 'add_tags',         label: 'Add Tags / Labels',      icon: '🏷️' },
+  { key: 'add_sequence',     label: 'Add to Sequence',        icon: '📋' },
+  { key: 'create_deal',      label: 'Create Deal / Opportunity', icon: '💰' },
+  { key: 'update_deal',      label: 'Update Deal Stage',      icon: '📊' },
+  { key: 'create_note',      label: 'Create Note',            icon: '📝' },
+  { key: 'list_contacts',    label: 'List Contacts',          icon: '👥' },
+  { key: 'search_companies', label: 'Search Companies',       icon: '🏢' },
+  { key: 'create_company',   label: 'Create Company',         icon: '🏗️' },
+  { key: 'custom',           label: 'Custom Action',          icon: '⚡' },
+];
+
+// Social Hub
+const SOCIAL_PLATFORMS = [
+  { key: 'facebook',  label: 'Facebook',          icon: '📘' },
+  { key: 'instagram', label: 'Instagram',         icon: '📸' },
+  { key: 'tiktok',    label: 'TikTok',            icon: '🎵' },
+  { key: 'youtube',   label: 'YouTube',           icon: '▶️'  },
+  { key: 'linkedin',  label: 'LinkedIn',          icon: '💼' },
+  { key: 'pinterest', label: 'Pinterest',         icon: '📌' },
+  { key: 'twitter',   label: 'Twitter / X',       icon: '🐦' },
+  { key: 'gmb',       label: 'Google Business',   icon: '📍' },
+];
+const SOCIAL_ACTIONS = [
+  { key: 'create_post',    label: 'Create & Publish Post',    icon: '📢' },
+  { key: 'schedule_post',  label: 'Schedule Post',            icon: '📅' },
+  { key: 'reply_comment',  label: 'Reply to Comment',         icon: '💬' },
+  { key: 'send_dm',        label: 'Send Direct Message',      icon: '✉️' },
+  { key: 'get_analytics',  label: 'Get Post Analytics',       icon: '📊' },
+  { key: 'list_posts',     label: 'List Recent Posts',        icon: '📋' },
+  { key: 'custom',         label: 'Custom Action',            icon: '⚡' },
+];
+
+// Payment Hub
+const PAYMENT_GATEWAYS = [
+  { key: 'stripe',       label: 'Stripe',         icon: '💳' },
+  { key: 'paypal',       label: 'PayPal',         icon: '🔵' },
+  { key: 'square',       label: 'Square',         icon: '⬛' },
+  { key: 'authorizenet', label: 'Authorize.net',  icon: '🔐' },
+];
+const PAYMENT_ACTIONS = [
+  { key: 'create_payment_link', label: 'Create Payment Link',    icon: '🔗' },
+  { key: 'create_invoice',      label: 'Create Invoice',         icon: '🧾' },
+  { key: 'charge_customer',     label: 'Charge Customer',        icon: '💰' },
+  { key: 'check_subscription',  label: 'Check Subscription',     icon: '🔄' },
+  { key: 'list_transactions',   label: 'List Transactions',      icon: '📋' },
+  { key: 'refund_payment',      label: 'Refund Payment',         icon: '↩️' },
+  { key: 'create_coupon',       label: 'Create Coupon / Discount', icon: '🎟️' },
+  { key: 'get_customer',        label: 'Get Customer Details',   icon: '👤' },
+  { key: 'custom',              label: 'Custom Action',          icon: '⚡' },
+];
 
 // ─── Config → instruction ─────────────────────────────────────────────────────
 
@@ -149,6 +222,20 @@ For each message output:
 Arc: Day 0 = Welcome, Day 1 = Quick win, Day 3 = Education, Day 7 = Social proof, Day 14 = Objections, Day 21 = Soft offer, Day 30 = Strong CTA.
 Output the full sequence as a JSON array and then a human-readable summary of each message.`;
     }
+    case 'crm_action': {
+      const crmLabel = CRM_ACTIONS.find(a => a.key === config.crmAction)?.label || config.crmAction;
+      return `${node?.toolLabel || 'CRM'}: ${crmLabel}.${ctx} ${config.crmDetail || ''}`;
+    }
+    case 'social_hub': {
+      const platforms = (config.platforms || []).map(p => SOCIAL_PLATFORMS.find(x => x.key === p)?.label || p).join(', ') || 'all connected platforms';
+      const actionLabel = SOCIAL_ACTIONS.find(a => a.key === config.action)?.label || config.action;
+      return `Social Hub — ${actionLabel} on ${platforms}.${ctx} ${config.detail || ''}`;
+    }
+    case 'payment_hub': {
+      const gw = PAYMENT_GATEWAYS.find(g => g.key === config.gateway)?.label || config.gateway || 'Payment Gateway';
+      const actionLabel = PAYMENT_ACTIONS.find(a => a.key === config.paymentAction)?.label || config.paymentAction;
+      return `${gw}: ${actionLabel || 'process payment'}.${ctx} ${config.detail || ''}`;
+    }
     case 'custom':
     default:
       return config?.customInstruction || '(no instruction set)';
@@ -185,7 +272,7 @@ function buildGraphPrompt(nodes, edges, context) {
     const inEdges  = edges.filter(e => e.toNodeId === node.id);
     const mappings = inEdges.flatMap(e => (e.mappings || []).map(m => `"${m.from}" → "${m.to}"`));
     const mapNote  = mappings.length ? `\n  Field inputs from previous steps: ${mappings.join(', ')}` : '';
-    const instr    = (node.tool === 'ghl' || node.tool === 'manychat') && node.config
+    const instr    = ['ghl', 'manychat', 'hubspot', 'keap', 'social_hub', 'payment_hub'].includes(node.tool) && node.config
       ? configToInstruction(node.config, context)
       : (node.instruction || `Execute ${node.label}`);
     return `STEP ${idx + 1} [${node.label}]:\n${instr}${mapNote}`;
@@ -198,11 +285,12 @@ function buildGraphPrompt(nodes, edges, context) {
 function uid() { return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
 
 function mkNode(tool, label, icon, x, y) {
-  return {
-    id: `n_${uid()}`, tool, label, icon, x, y,
-    instruction: '',
-    config: tool === 'ghl' ? { action: null } : null,
-  };
+  let config = null;
+  if (tool === 'ghl') config = { action: null };
+  else if (tool === 'hubspot' || tool === 'keap') config = { action: 'crm_action', crmAction: null };
+  else if (tool === 'social_hub') config = { action: 'social_hub', platforms: [], socialAction: null };
+  else if (tool === 'payment_hub') config = { action: 'payment_hub', gateway: null, paymentAction: null };
+  return { id: `n_${uid()}`, tool, label, icon, x, y, instruction: '', config };
 }
 
 // ─── Port position helpers ────────────────────────────────────────────────────
@@ -585,27 +673,37 @@ export default function Workflows() {
             <p className="text-xs text-gray-700 mt-0.5">Click to add</p>
           </div>
           <div className="flex flex-col gap-1 px-2 py-2">
-            {[{ key:'ghl', label:'GHL CRM', icon:'⚡', alwaysOn:true }, ...INTEGRATIONS.map(i => ({ key:i.key, label:i.label, icon:i.icon }))].map(t => {
-              const enabled = t.alwaysOn || enabledKeys.has(t.key);
-              const color   = TOOL_COLOR[t.key] || '#6366f1';
-              return (
-                <button key={t.key} onClick={() => enabled && addNode(t.key, t.label, t.icon)}
-                  title={enabled ? `Add ${t.label}` : 'Connect in Settings first'}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-left transition-all"
-                  style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', opacity: enabled ? 1 : 0.35, cursor: enabled ? 'pointer' : 'not-allowed' }}
-                  onMouseOver={e => { if (enabled) e.currentTarget.style.borderColor = `${color}60`; }}
-                  onMouseOut={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
-                >
-                  <span className="text-base flex-shrink-0">{t.icon}</span>
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium text-white truncate">{t.label}</div>
-                    <div className="text-xs" style={{ color: enabled ? color : '#4b5563' }}>
-                      {enabled ? (t.alwaysOn ? 'Always on' : '✓ Connected') : 'Not connected'}
+            {(() => {
+              const SOCIAL_KEYS_SIDEBAR = ['ghl_social_planner','social_facebook','social_instagram','social_tiktok_organic','social_youtube','social_linkedin_organic','social_pinterest','social_twitter','social_gmb'];
+              const PAYMENT_KEYS_SIDEBAR = ['stripe','paypal','square','authorizenet'];
+              const paletteTools = [
+                { key:'ghl', label:'GHL CRM', icon:'⚡', alwaysOn:true },
+                { key:'social_hub', label:'Social Hub', icon:'📱', enabled: SOCIAL_KEYS_SIDEBAR.some(k => enabledKeys.has(k)) },
+                { key:'payment_hub', label:'Payment Hub', icon:'💳', enabled: PAYMENT_KEYS_SIDEBAR.some(k => enabledKeys.has(k)) },
+                ...INTEGRATIONS.map(i => ({ key:i.key, label:i.label, icon:i.icon })),
+              ];
+              return paletteTools.map(t => {
+                const enabled = t.alwaysOn || ('enabled' in t ? t.enabled : enabledKeys.has(t.key));
+                const color   = TOOL_COLOR[t.key] || '#6366f1';
+                return (
+                  <button key={t.key} onClick={() => enabled && addNode(t.key, t.label, t.icon)}
+                    title={enabled ? `Add ${t.label}` : 'Connect in Settings first'}
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-left transition-all"
+                    style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', opacity: enabled ? 1 : 0.35, cursor: enabled ? 'pointer' : 'not-allowed' }}
+                    onMouseOver={e => { if (enabled) e.currentTarget.style.borderColor = `${color}60`; }}
+                    onMouseOut={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
+                  >
+                    <span className="text-base flex-shrink-0">{t.icon}</span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-white truncate">{t.label}</div>
+                      <div className="text-xs" style={{ color: enabled ? color : '#4b5563' }}>
+                        {enabled ? (t.alwaysOn ? 'Always on' : '✓ Connected') : 'Not connected'}
+                      </div>
                     </div>
-                  </div>
-                </button>
-              );
-            })}
+                  </button>
+                );
+              });
+            })()}
           </div>
           <div className="flex-1" />
           <Link to="/settings" className="text-xs text-center text-indigo-400 hover:text-indigo-300 py-3 block">+ Connect APIs</Link>
@@ -835,12 +933,25 @@ function CanvasNode({ node, selected, connecting, onHeaderMouseDown, onOutPort, 
 
         {/* Status line */}
         <div style={{ padding: '6px 10px', fontSize: 11, color: '#6b7280' }}>
-          {node.tool === 'ghl' && !node.config?.action && <span style={{ color: '#f59e0b' }}>⚠ Click to configure action</span>}
-          {node.tool === 'ghl' && node.config?.action && <span style={{ color: '#86efac' }}>✓ Configured</span>}
-          {node.tool === 'manychat' && !node.config?.topic && <span style={{ color: '#f59e0b' }}>⚠ Click to set topic</span>}
-          {node.tool === 'manychat' && node.config?.topic && <span style={{ color: '#60a5fa' }}>💙 {node.config.steps || 7}-msg sequence · {(node.config.channels || ['messenger']).join(', ')}</span>}
-          {node.tool !== 'ghl' && node.tool !== 'manychat' && !node.instruction && <span style={{ color: '#f59e0b' }}>⚠ Click to add instruction</span>}
-          {node.tool !== 'ghl' && node.tool !== 'manychat' && node.instruction && <span style={{ color: '#86efac', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>✓ {node.instruction.slice(0, 40)}{node.instruction.length > 40 ? '…' : ''}</span>}
+          {(() => {
+            const isConfigTool = ['ghl','manychat','hubspot','keap','social_hub','payment_hub'].includes(node.tool);
+            return (
+              <>
+                {node.tool === 'ghl' && !node.config?.action && <span style={{ color: '#f59e0b' }}>⚠ Click to configure action</span>}
+                {node.tool === 'ghl' && node.config?.action && <span style={{ color: '#86efac' }}>✓ Configured</span>}
+                {node.tool === 'manychat' && !node.config?.topic && <span style={{ color: '#f59e0b' }}>⚠ Click to set topic</span>}
+                {node.tool === 'manychat' && node.config?.topic && <span style={{ color: '#60a5fa' }}>💙 {node.config.steps || 7}-msg sequence · {(node.config.channels || ['messenger']).join(', ')}</span>}
+                {(node.tool === 'hubspot' || node.tool === 'keap') && !node.config?.crmAction && <span style={{ color: '#f59e0b' }}>⚠ Click to configure action</span>}
+                {(node.tool === 'hubspot' || node.tool === 'keap') && node.config?.crmAction && <span style={{ color: '#86efac' }}>✓ {CRM_ACTIONS.find(a=>a.key===node.config.crmAction)?.label || node.config.crmAction}</span>}
+                {node.tool === 'social_hub' && !node.config?.socialAction && <span style={{ color: '#f59e0b' }}>⚠ Click to select platform + action</span>}
+                {node.tool === 'social_hub' && node.config?.socialAction && <span style={{ color: '#a78bfa' }}>📱 {(node.config.platforms||[]).join(', ') || 'all'} · {SOCIAL_ACTIONS.find(a=>a.key===node.config.socialAction)?.label}</span>}
+                {node.tool === 'payment_hub' && !node.config?.paymentAction && <span style={{ color: '#f59e0b' }}>⚠ Click to select gateway + action</span>}
+                {node.tool === 'payment_hub' && node.config?.paymentAction && <span style={{ color: '#34d399' }}>💳 {PAYMENT_GATEWAYS.find(g=>g.key===node.config.gateway)?.label || 'Gateway'} · {PAYMENT_ACTIONS.find(a=>a.key===node.config.paymentAction)?.label}</span>}
+                {!isConfigTool && !node.instruction && <span style={{ color: '#f59e0b' }}>⚠ Click to add instruction</span>}
+                {!isConfigTool && node.instruction && <span style={{ color: '#86efac', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>✓ {node.instruction.slice(0, 40)}{node.instruction.length > 40 ? '…' : ''}</span>}
+              </>
+            );
+          })()}
         </div>
       </div>
 
@@ -878,6 +989,12 @@ function NodeConfigPanel({ node, onClose, onChange, onConfigChange, onDelete }) 
           <GHLConfigInPanel config={node.config || { action: null }} onChange={onConfigChange} color={color} />
         ) : node.tool === 'manychat' ? (
           <ManyChatConfigInPanel config={node.config || { action: 'manychat_sequence', channels: ['messenger'], steps: 7, endDay: 30 }} onChange={onConfigChange} color={color} />
+        ) : (node.tool === 'hubspot' || node.tool === 'keap') ? (
+          <CRMConfigInPanel config={node.config || { action: 'crm_action', crmAction: null }} onChange={onConfigChange} color={color} toolLabel={node.label} />
+        ) : node.tool === 'social_hub' ? (
+          <SocialHubConfigInPanel config={node.config || { action: 'social_hub', platforms: [], socialAction: null }} onChange={onConfigChange} color={color} />
+        ) : node.tool === 'payment_hub' ? (
+          <PaymentConfigInPanel config={node.config || { action: 'payment_hub', gateway: null, paymentAction: null }} onChange={onConfigChange} color={color} />
         ) : (
           <div>
             <label className="block text-xs text-gray-400 mb-2">Instruction for {node.label}</label>
@@ -1150,6 +1267,139 @@ function SubTypeConfig({ label, types, selected, selectedPages, onType, onToggle
             })}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── CRM Config In Panel ──────────────────────────────────────────────────────
+
+function CRMConfigInPanel({ config, onChange, color, toolLabel }) {
+  const set = patch => onChange({ ...config, ...patch });
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-xs text-gray-400 mb-2">{toolLabel} Action</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {CRM_ACTIONS.map(a => (
+            <button key={a.key} onClick={() => set({ crmAction: a.key })}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all text-left"
+              style={{ background: config.crmAction===a.key ? `${color}20` : 'rgba(255,255,255,0.03)', border: `1px solid ${config.crmAction===a.key ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: config.crmAction===a.key ? '#fff' : '#9ca3af' }}>
+              <span>{a.icon}</span><span>{a.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {config.crmAction && (
+        <div>
+          <p className="text-xs text-gray-400 mb-1">Details</p>
+          <textarea value={config.crmDetail||''} onChange={e => set({ crmDetail: e.target.value })}
+            placeholder={`e.g. "Search by email domain, tag as hot-lead, add to Q2 sequence"`}
+            rows={3} className="field w-full text-xs" style={{ resize:'none' }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Social Hub Config In Panel ───────────────────────────────────────────────
+
+function SocialHubConfigInPanel({ config, onChange, color }) {
+  const set = patch => onChange({ ...config, ...patch });
+  const platforms = config.platforms || [];
+
+  function togglePlatform(key) {
+    if (platforms.includes(key)) set({ platforms: platforms.filter(p => p !== key) });
+    else set({ platforms: [...platforms, key] });
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-xs text-gray-400 mb-2">Platform(s)</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {SOCIAL_PLATFORMS.map(p => {
+            const on = platforms.includes(p.key);
+            return (
+              <div key={p.key} onClick={() => togglePlatform(p.key)}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+                style={{ background: on ? `${color}20` : 'rgba(255,255,255,0.03)', border:`1px solid ${on ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: on ? '#fff' : '#9ca3af' }}>
+                <span>{p.icon}</span>
+                <span>{p.label}</span>
+                {on && <span style={{ color, fontWeight:700, marginLeft:'auto' }}>✓</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div>
+        <p className="text-xs text-gray-400 mb-2">Action</p>
+        <div className="grid grid-cols-1 gap-1">
+          {SOCIAL_ACTIONS.map(a => (
+            <div key={a.key} onClick={() => set({ socialAction: a.key })}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+              style={{ background: config.socialAction===a.key ? `${color}20` : 'rgba(255,255,255,0.03)', border:`1px solid ${config.socialAction===a.key ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: config.socialAction===a.key ? '#fff' : '#9ca3af' }}>
+              <span>{a.icon}</span>
+              <span>{a.label}</span>
+              {config.socialAction===a.key && <span style={{ color, fontWeight:700, marginLeft:'auto' }}>✓</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+      {config.socialAction && (
+        <div>
+          <p className="text-xs text-gray-400 mb-1">Details</p>
+          <textarea value={config.detail||''} onChange={e => set({ detail: e.target.value })}
+            placeholder={`e.g. "Post a short video teaser with the launch date and a CTA link"`}
+            rows={3} className="field w-full text-xs" style={{ resize:'none' }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Payment Config In Panel ──────────────────────────────────────────────────
+
+function PaymentConfigInPanel({ config, onChange, color }) {
+  const set = patch => onChange({ ...config, ...patch });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-xs text-gray-400 mb-2">Payment Gateway</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {PAYMENT_GATEWAYS.map(g => (
+            <div key={g.key} onClick={() => set({ gateway: g.key })}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+              style={{ background: config.gateway===g.key ? `${color}20` : 'rgba(255,255,255,0.03)', border:`1px solid ${config.gateway===g.key ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: config.gateway===g.key ? '#fff' : '#9ca3af' }}>
+              <span>{g.icon}</span>
+              <span>{g.label}</span>
+              {config.gateway===g.key && <span style={{ color, fontWeight:700, marginLeft:'auto' }}>✓</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="text-xs text-gray-400 mb-2">Action</p>
+        <div className="grid grid-cols-1 gap-1">
+          {PAYMENT_ACTIONS.map(a => (
+            <div key={a.key} onClick={() => set({ paymentAction: a.key })}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+              style={{ background: config.paymentAction===a.key ? `${color}20` : 'rgba(255,255,255,0.03)', border:`1px solid ${config.paymentAction===a.key ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: config.paymentAction===a.key ? '#fff' : '#9ca3af' }}>
+              <span>{a.icon}</span>
+              <span>{a.label}</span>
+              {config.paymentAction===a.key && <span style={{ color, fontWeight:700, marginLeft:'auto' }}>✓</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+      {config.paymentAction && (
+        <div>
+          <p className="text-xs text-gray-400 mb-1">Details</p>
+          <textarea value={config.detail||''} onChange={e => set({ detail: e.target.value })}
+            placeholder={`e.g. "Create a $297 payment link for the coaching program with 30-day trial"`}
+            rows={3} className="field w-full text-xs" style={{ resize:'none' }} />
+        </div>
       )}
     </div>
   );
