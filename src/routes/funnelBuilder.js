@@ -20,6 +20,7 @@ const {
   getStatus,
 } = require('../services/ghlFirebaseService');
 const { savePageData, getPageData } = require('../services/ghlPageBuilder');
+const agentStore                    = require('../services/agentStore');
 
 router.use(authenticate);
 
@@ -80,6 +81,7 @@ router.post('/generate', async (req, res) => {
     audience,
     extraContext,
     colorScheme,
+    agentId,       // optional: saved agent to use as persona
   } = req.body;
 
   if (!pageId) {
@@ -115,6 +117,16 @@ router.post('/generate', async (req, res) => {
     console.warn(`[FunnelBuilder] Could not fetch page context for ${pageId}:`, err.message);
   }
 
+  // Step 2b: Load selected agent (optional)
+  let selectedAgent = null;
+  if (agentId) {
+    try {
+      selectedAgent = await agentStore.getAgent(req.locationId, agentId);
+    } catch (err) {
+      console.warn(`[FunnelBuilder] Could not load agent ${agentId}:`, err.message);
+    }
+  }
+
   // Step 3: Build Claude prompt
   const pageLabel    = pageType || 'Sales Page';
   const colors       = colorScheme || 'modern, professional — use white, dark navy, and gold accents';
@@ -122,7 +134,11 @@ router.post('/generate', async (req, res) => {
     ? `\nExisting page context (use as reference for any brand/funnel details):\n${JSON.stringify(pageContext, null, 2).slice(0, 1500)}`
     : '';
 
-  const systemPrompt = `You are an expert GoHighLevel funnel designer and copywriter. Your job is to generate complete, production-ready native GHL page JSON that follows the exact GoHighLevel page builder schema.
+  const agentIntro = selectedAgent
+    ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\nYour training and instructions:\n${selectedAgent.instructions}\n\n---\n\n`
+    : '';
+
+  const systemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer and copywriter. Your job is to generate complete, production-ready native GHL page JSON that follows the exact GoHighLevel page builder schema.
 
 RULES:
 1. Respond with ONLY valid JSON — no markdown, no code fences, no explanation text.
@@ -294,12 +310,13 @@ Remember: output ONLY the JSON object. No markdown, no explanation.`;
     : null;
 
   res.json({
-    success:     true,
+    success:      true,
     pageId,
     previewUrl,
     sectionsCount: pageJson.sections.length,
-    message:     `Page generated (${pageJson.sections.length} sections) and saved to GHL successfully.`,
-    ghlResponse: saveResult,
+    agentUsed:    selectedAgent ? { id: selectedAgent.id, name: selectedAgent.name, emoji: selectedAgent.emoji } : null,
+    message:      `Page generated (${pageJson.sections.length} sections) and saved to GHL successfully.`,
+    ghlResponse:  saveResult,
   });
 });
 

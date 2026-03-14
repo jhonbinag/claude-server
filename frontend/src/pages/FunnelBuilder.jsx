@@ -75,7 +75,11 @@ export default function FunnelBuilder() {
   const [generating,    setGenerating]    = useState(false);
   const [result,        setResult]        = useState(null);
 
-  // ── load Firebase connection status ─────────────────────────────────────────
+  // Agent selector
+  const [agents,        setAgents]        = useState([]);
+  const [selectedAgent, setSelectedAgent] = useState('');
+
+  // ── load Firebase connection status + saved agents ───────────────────────────
 
   const loadStatus = useCallback(async () => {
     if (!apiKey) return;
@@ -88,6 +92,13 @@ export default function FunnelBuilder() {
   }, [apiKey]);
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  useEffect(() => {
+    if (!apiKey) return;
+    api.getWithKey('/agent/agents', apiKey)
+      .then(d => { if (d.success) setAgents(d.data || []); })
+      .catch(() => {});
+  }, [apiKey]);
 
   // ── handlers ─────────────────────────────────────────────────────────────────
 
@@ -141,6 +152,7 @@ export default function FunnelBuilder() {
         audience:    audience.trim() || undefined,
         colorScheme,
         extraContext: extraContext.trim() || undefined,
+        agentId:     selectedAgent || undefined,
       }, apiKey);
 
       if (d.success) {
@@ -364,6 +376,33 @@ export default function FunnelBuilder() {
                 )}
               </div>
 
+              {/* Agent selector */}
+              {agents.length > 0 && (
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    AI Agent Persona <span className="text-gray-600">(optional — applies agent's persona to generation)</span>
+                  </label>
+                  <select
+                    value={selectedAgent}
+                    onChange={e => setSelectedAgent(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">— Default (no persona) —</option>
+                    {agents.map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.emoji || '🤖'} {a.name}{a.role ? ` · ${a.role}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedAgent && (() => {
+                    const ag = agents.find(a => a.id === selectedAgent);
+                    return ag?.persona ? (
+                      <p className="text-xs text-gray-600 mt-1 truncate">{ag.persona}</p>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+
               {/* Extra context */}
               <div>
                 <label className="block text-xs text-gray-400 mb-1">Extra Context <span className="text-gray-600">(optional)</span></label>
@@ -413,6 +452,12 @@ export default function FunnelBuilder() {
                     <span className="text-gray-400">Page ID</span>
                     <code className="text-indigo-400">{result.pageId}</code>
                   </div>
+                  {result.agentUsed && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-400">Agent used</span>
+                      <span className="text-white">{result.agentUsed.emoji} {result.agentUsed.name}</span>
+                    </div>
+                  )}
                   {result.previewUrl && (
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-gray-400">Preview</span>
