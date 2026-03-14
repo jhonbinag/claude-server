@@ -11,6 +11,7 @@ import SocialPlanner  from './pages/SocialPlanner';
 import AdLibrary      from './pages/AdLibrary';
 import ManyChatPage   from './pages/ManyChat';
 import GHLAgent       from './pages/GHLAgent';
+import FunnelBuilder  from './pages/FunnelBuilder';
 
 export default function App() {
   return (
@@ -27,7 +28,8 @@ export default function App() {
         <Route path="/social"        element={<SocialPlanner />} />
         <Route path="/ad-library"    element={<AdLibrary />} />
         <Route path="/manychat"      element={<ManyChatPage />} />
-        <Route path="/ghl-agent"     element={<GHLAgent />} />
+        <Route path="/ghl-agent"       element={<GHLAgent />} />
+        <Route path="/funnel-builder"  element={<FunnelBuilder />} />
         <Route path="*"              element={<Navigate to="/" replace />} />
       </Routes>
     </AppProvider>

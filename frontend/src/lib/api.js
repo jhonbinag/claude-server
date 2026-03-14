@@ -19,6 +19,7 @@ export const api = {
   get:        (path)           => request('GET',    path),
   post:       (path, body)     => request('POST',   path, body),
   del:        (path)           => request('DELETE', path),
-  getWithKey: (path, locId)    => request('GET',    path, null, locId),
-  postWithKey:(path, body, locId) => request('POST', path, body, locId),
+  getWithKey:    (path, locId)         => request('GET',    path, null, locId),
+  postWithKey:   (path, body, locId)   => request('POST',   path, body, locId),
+  deleteWithKey: (path, locId)         => request('DELETE', path, null, locId),
 };

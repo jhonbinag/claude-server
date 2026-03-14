@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 const NAV = [
   { to: '/',                 label: 'Dashboard',  icon: '🏠' },
   { to: '/agents',           label: 'Agents',     icon: '🤖' },
+  { to: '/funnel-builder',   label: 'Builder',    icon: '🏗️' },
   { to: '/workflows',        label: 'Workflows',  icon: '🔀' },
   { to: '/ads-generator',    label: 'Bulk Ads',   icon: '🎯' },
   { to: '/ad-library',       label: 'Ad Library', icon: '📊' },

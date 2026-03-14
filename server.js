@@ -24,6 +24,7 @@ let manychatRoutes;   try { manychatRoutes   = require('./src/routes/manychat');
 let promptRoutes;     try { promptRoutes     = require('./src/routes/prompts');     } catch (e) { _errors.prompts    = e.message; }
 let cronRoutes;       try { cronRoutes       = require('./src/routes/cron');         } catch (e) { _errors.cron       = e.message; }
 let agentRoutes;      try { agentRoutes      = require('./src/routes/agent');        } catch (e) { _errors.agent      = e.message; }
+let funnelBuilderRoutes; try { funnelBuilderRoutes = require('./src/routes/funnelBuilder'); } catch (e) { _errors.funnelBuilder = e.message; }
 let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui          = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
@@ -102,7 +103,8 @@ if (socialAuthRoutes)  app.use('/social-auth', socialAuthRoutes);
 if (manychatRoutes)    app.use('/manychat',    manychatRoutes);
 if (promptRoutes)      app.use('/prompts',     promptRoutes);
 if (cronRoutes)        app.use('/cron',        cronRoutes);
-if (agentRoutes)       app.use('/agent',       agentRoutes);
+if (agentRoutes)          app.use('/agent',          agentRoutes);
+if (funnelBuilderRoutes)  app.use('/funnel-builder', funnelBuilderRoutes);
 if (uiRoute)         app.use('/',           uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────
