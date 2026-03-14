@@ -3,24 +3,42 @@
  *
  * Mounts at /agent
  *
- * GET    /agent/agents            — list agents for location
- * POST   /agent/agents            — create agent
- * PUT    /agent/agents/:id        — update agent
- * DELETE /agent/agents/:id        — delete agent
- * POST   /agent/agents/:id/execute — generate brief + trigger GHL Agent Studio webhook
- * POST   /agent/generate          — standalone brief generator (no agent needed)
+ * GET    /agent/agents/ghl        — list GHL Agent Studio agents for location (proxy)
+ * GET    /agent/agents            — list saved agent definitions
+ * POST   /agent/agents            — create agent definition
+ * PUT    /agent/agents/:id        — update agent definition
+ * DELETE /agent/agents/:id        — delete agent definition
+ * POST   /agent/agents/:id/execute — generate brief + execute via GHL Agent Studio API
+ * POST   /agent/generate          — standalone brief generator (no saved agent)
  */
 
 const express      = require('express');
 const router       = express.Router();
-const axios        = require('axios');
 const authenticate = require('../middleware/authenticate');
 const agentStore   = require('../services/agentStore');
+const ghlClient    = require('../services/ghlClient');
 const Anthropic    = require('@anthropic-ai/sdk');
 
 router.use(authenticate);
 
-// ── List agents ───────────────────────────────────────────────────────────────
+// ── List GHL Agent Studio agents (direct GHL v2 API) ─────────────────────────
+// Proxies GET /agent-studio/agent?locationId= so the frontend can populate
+// the agent picker without needing a separate GHL API call from the browser.
+
+router.get('/agents/ghl', async (req, res) => {
+  try {
+    const data = await ghlClient.ghlRequest(
+      req.locationId, 'GET', '/agent-studio/agent',
+      null, { locationId: req.locationId, limit: 100 }
+    );
+    res.json({ success: true, data: data.agents || data.data || data || [] });
+  } catch (err) {
+    console.error('[Agent] list GHL agents error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── List saved agent definitions ──────────────────────────────────────────────
 
 router.get('/agents', async (req, res) => {
   try {
@@ -31,17 +49,17 @@ router.get('/agents', async (req, res) => {
   }
 });
 
-// ── Create agent ──────────────────────────────────────────────────────────────
+// ── Create agent definition ───────────────────────────────────────────────────
 
 router.post('/agents', async (req, res) => {
-  const { name, emoji, role, persona, instructions, webhookUrl, allowedTools } = req.body;
+  const { name, emoji, role, persona, instructions, ghlAgentId } = req.body;
   if (!name || !instructions) {
     return res.status(400).json({ success: false, error: '"name" and "instructions" are required.' });
   }
   try {
     const agent = await agentStore.saveAgent(req.locationId, {
       name, emoji: emoji || '🤖', role: role || 'custom',
-      persona, instructions, webhookUrl, allowedTools: allowedTools || [],
+      persona, instructions, ghlAgentId: ghlAgentId || null,
     });
     res.json({ success: true, data: agent });
   } catch (err) {
@@ -49,7 +67,7 @@ router.post('/agents', async (req, res) => {
   }
 });
 
-// ── Update agent ──────────────────────────────────────────────────────────────
+// ── Update agent definition ───────────────────────────────────────────────────
 
 router.put('/agents/:id', async (req, res) => {
   try {
@@ -62,7 +80,7 @@ router.put('/agents/:id', async (req, res) => {
   }
 });
 
-// ── Delete agent ──────────────────────────────────────────────────────────────
+// ── Delete agent definition ───────────────────────────────────────────────────
 
 router.delete('/agents/:id', async (req, res) => {
   try {
@@ -74,11 +92,12 @@ router.delete('/agents/:id', async (req, res) => {
 });
 
 // ── Execute agent ─────────────────────────────────────────────────────────────
-// Generates a task brief using the agent's persona + instructions as context,
-// then sends it to the agent's configured GHL webhook.
+// 1. Build task description from request body
+// 2. Generate a structured execution brief via Claude (agent persona as system prompt)
+// 3. Execute the GHL Agent Studio agent via POST /agent-studio/agent/:ghlAgentId/execute
 
 router.post('/agents/:id/execute', async (req, res) => {
-  const { task, niche, offer, audience, funnelType, pages, extraContext } = req.body;
+  const { task, niche, offer, audience, funnelType, pages, extraContext, executionId } = req.body;
   if (!task && !niche) {
     return res.status(400).json({ success: false, error: 'Provide "task" or "niche" + "offer".' });
   }
@@ -87,8 +106,8 @@ router.post('/agents/:id/execute', async (req, res) => {
     const agent = await agentStore.getAgent(req.locationId, req.params.id);
     if (!agent) return res.status(404).json({ success: false, error: 'Agent not found.' });
 
-    if (!agent.webhookUrl) {
-      return res.status(400).json({ success: false, error: 'This agent has no GHL webhook URL configured.' });
+    if (!agent.ghlAgentId) {
+      return res.status(400).json({ success: false, error: 'This agent has no GHL Agent Studio agent linked.' });
     }
 
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
@@ -110,34 +129,39 @@ router.post('/agents/:id/execute', async (req, res) => {
 Your core instructions and training:
 ${agent.instructions}
 
-Your job is to generate a complete, detailed execution brief that GHL Agent Studio will follow step-by-step to complete the requested task inside GoHighLevel. Be extremely specific — include actual copy, headlines, CTAs, color suggestions, and step-by-step build instructions. The GHL agent must be able to execute this without any follow-up questions.`;
+Your job is to generate a complete, detailed execution brief that the GHL Agent Studio agent will follow step-by-step to complete the requested task inside GoHighLevel. Be extremely specific — include actual copy, headlines, CTAs, color suggestions, and step-by-step build instructions. The GHL agent must be able to execute this without any follow-up questions.`;
 
     const client   = new Anthropic({ apiKey: anthropicKey });
     const response = await client.messages.create({
-      model:     'claude-sonnet-4-6',
+      model:      'claude-sonnet-4-6',
       max_tokens: 2048,
-      system:    systemPrompt,
-      messages:  [{ role: 'user', content: `Complete this task inside GHL:\n\n${taskDescription}` }],
+      system:     systemPrompt,
+      messages:   [{ role: 'user', content: `Complete this task inside GHL:\n\n${taskDescription}` }],
     });
 
     const brief = response.content[0]?.text?.trim() || '';
 
-    // Send to GHL Agent Studio webhook
-    await axios.post(agent.webhookUrl, {
-      agent:      agent.name,
-      agentRole:  agent.role,
-      brief,
-      task:       taskDescription,
+    // Execute via GHL Agent Studio v2 API
+    // POST /agent-studio/agent/:agentId/execute
+    const execBody = {
       locationId: req.locationId,
-      source:     'hltools-agents',
-      timestamp:  new Date().toISOString(),
-    }, {
-      headers:        { 'Content-Type': 'application/json' },
-      timeout:        15000,
-      validateStatus: () => true,
-    });
+      message:    brief,
+      ...(executionId && { executionId }),
+    };
 
-    res.json({ success: true, brief, message: `Agent "${agent.name}" triggered in GHL Agent Studio.` });
+    const ghlResponse = await ghlClient.ghlRequest(
+      req.locationId, 'POST',
+      `/agent-studio/agent/${agent.ghlAgentId}/execute`,
+      execBody
+    );
+
+    res.json({
+      success:     true,
+      brief,
+      executionId: ghlResponse.executionId || null,
+      ghlResponse,
+      message:     `Agent "${agent.name}" executed in GHL Agent Studio.`,
+    });
   } catch (err) {
     console.error('[Agent] execute error:', err.message);
     res.status(500).json({ success: false, error: err.message });
@@ -176,27 +200,6 @@ Write as direct instructions to the GHL agent. Include actual copy text. Be extr
       messages: [{ role: 'user', content: prompt }],
     });
     res.json({ success: true, brief: response.content[0]?.text?.trim() || '' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Standalone execute (no saved agent) ──────────────────────────────────────
-
-router.post('/execute', async (req, res) => {
-  const { brief, metadata } = req.body;
-  if (!brief) return res.status(400).json({ error: '"brief" is required.' });
-
-  const toolRegistry = require('../tools/toolRegistry');
-  const webhookUrl   = (await toolRegistry.getToolConfig(req.locationId))?.ghl_agent?.webhookUrl;
-  if (!webhookUrl) return res.status(400).json({ error: 'GHL Agent webhook not configured in Settings.' });
-
-  try {
-    await axios.post(webhookUrl, {
-      prompt: brief, locationId: req.locationId,
-      source: 'hltools', timestamp: new Date().toISOString(), ...(metadata || {}),
-    }, { headers: { 'Content-Type': 'application/json' }, timeout: 15000, validateStatus: () => true });
-    res.json({ success: true, message: 'Agent triggered successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

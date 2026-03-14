@@ -2,7 +2,8 @@
  * Agents.jsx — Agent Studio Manager
  *
  * Create, edit, delete, and execute custom AI agents connected to GHL Agent Studio.
- * Each agent has its own persona, instructions, and webhook URL.
+ * Each agent definition links to a real GHL Agent Studio agent via its ghlAgentId.
+ * Execution calls POST /agent-studio/agent/:ghlAgentId/execute directly via GHL v2 API.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -122,7 +123,7 @@ const ROLES = [
 const EMOJIS = ['🤖', '🚀', '🌐', '✍️', '📊', '📱', '🎯', '⚡', '🧠', '💡', '🔥', '🎨', '📈', '🛠️'];
 
 function blank() {
-  return { name: '', emoji: '🤖', role: 'custom', persona: '', instructions: '', webhookUrl: '' };
+  return { name: '', emoji: '🤖', role: 'custom', persona: '', instructions: '', ghlAgentId: '' };
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -131,25 +132,27 @@ export default function Agents() {
   const { isAuthenticated, isAuthLoading, locationId } = useApp();
 
   const [agents,        setAgents]        = useState([]);
+  const [ghlAgents,     setGhlAgents]     = useState([]);   // from GHL Agent Studio
   const [loading,       setLoading]       = useState(true);
+  const [ghlLoading,    setGhlLoading]    = useState(false);
   const [error,         setError]         = useState(null);
 
   // Modal state
   const [modal,         setModal]         = useState(null); // null | 'create' | 'edit' | 'execute' | 'templates'
-  const [editTarget,    setEditTarget]    = useState(null); // agent being edited
+  const [editTarget,    setEditTarget]    = useState(null);
   const [form,          setForm]          = useState(blank());
   const [saving,        setSaving]        = useState(false);
 
-  // Execute panel state
+  // Execute panel
   const [execAgent,     setExecAgent]     = useState(null);
   const [execTask,      setExecTask]      = useState('');
   const [execNiche,     setExecNiche]     = useState('');
   const [execOffer,     setExecOffer]     = useState('');
   const [execAudience,  setExecAudience]  = useState('');
   const [execExtra,     setExecExtra]     = useState('');
-  const [execMode,      setExecMode]      = useState('task'); // 'task' | 'form'
+  const [execMode,      setExecMode]      = useState('task');
   const [executing,     setExecuting]     = useState(false);
-  const [execResult,    setExecResult]    = useState(null); // { brief, status: 'ok'|'err', msg }
+  const [execResult,    setExecResult]    = useState(null);
 
   // ── API helpers ─────────────────────────────────────────────────────────────
 
@@ -173,8 +176,24 @@ export default function Agents() {
     }
   }
 
+  async function loadGhlAgents() {
+    setGhlLoading(true);
+    try {
+      const res  = await fetch('/agent/agents/ghl', { headers: headers() });
+      const data = await res.json();
+      if (data.success) setGhlAgents(data.data || []);
+    } catch (_) {
+      // non-fatal — GHL agents list is optional for the picker
+    } finally {
+      setGhlLoading(false);
+    }
+  }
+
   useEffect(() => {
-    if (isAuthenticated) loadAgents();
+    if (isAuthenticated) {
+      loadAgents();
+      loadGhlAgents();
+    }
   }, [isAuthenticated]); // eslint-disable-line
 
   async function saveAgent() {
@@ -210,8 +229,8 @@ export default function Agents() {
 
   async function executeAgent() {
     if (!execAgent) return;
-    const hasTask = execMode === 'task' ? execTask.trim() : (execNiche.trim() && execOffer.trim());
-    if (!hasTask) return;
+    const hasInput = execMode === 'task' ? execTask.trim() : (execNiche.trim() && execOffer.trim());
+    if (!hasInput) return;
 
     setExecuting(true);
     setExecResult(null);
@@ -225,7 +244,7 @@ export default function Agents() {
       });
       const data = await res.json();
       if (data.success) {
-        setExecResult({ brief: data.brief, status: 'ok', msg: data.message });
+        setExecResult({ brief: data.brief, status: 'ok', msg: data.message, ghlResponse: data.ghlResponse });
       } else {
         setExecResult({ brief: '', status: 'err', msg: data.error || 'Execution failed.' });
       }
@@ -249,7 +268,7 @@ export default function Agents() {
     setForm({
       name: agent.name, emoji: agent.emoji, role: agent.role,
       persona: agent.persona || '', instructions: agent.instructions,
-      webhookUrl: agent.webhookUrl || '',
+      ghlAgentId: agent.ghlAgentId || '',
     });
     setModal('edit');
   }
@@ -278,7 +297,13 @@ export default function Agents() {
     setExecResult(null);
   }
 
-  // ── Render guards ───────────────────────────────────────────────────────────
+  // GHL agent name lookup helper
+  function ghlAgentName(id) {
+    const a = ghlAgents.find(g => g.id === id || g._id === id);
+    return a ? (a.name || a.title || id) : id;
+  }
+
+  // ── Auth guards ─────────────────────────────────────────────────────────────
 
   if (isAuthLoading) return <Spinner />;
   if (!isAuthenticated) return (
@@ -291,7 +316,7 @@ export default function Agents() {
 
   return (
     <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
-      <Header icon="🤖" title="Agent Studio" subtitle="Create and manage GHL agents" />
+      <Header icon="🤖" title="Agent Studio" subtitle="Manage AI agents connected to GHL Agent Studio" />
 
       <div className="flex-1 overflow-y-auto p-5" style={{ minHeight: 0 }}>
 
@@ -300,17 +325,35 @@ export default function Agents() {
           <div className="flex-1">
             <h2 className="text-white font-semibold text-sm">Your Agents</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Each agent has its own persona and is connected to a GHL Agent Studio webhook.
+              Each agent has its own persona and links to a GHL Agent Studio agent via the v2 API.
             </p>
           </div>
-          <button onClick={() => setModal('templates')}
-            className="btn-ghost text-xs px-3 py-1.5">
+          <button onClick={() => setModal('templates')} className="btn-ghost text-xs px-3 py-1.5">
             📋 Templates
           </button>
           <button onClick={openCreate} className="btn-primary text-xs px-4 py-1.5">
             + New Agent
           </button>
         </div>
+
+        {/* GHL Agent Studio info banner */}
+        {ghlAgents.length === 0 && !ghlLoading && (
+          <div className="rounded-xl p-3 mb-4 text-xs flex items-start gap-2"
+            style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)', color: '#a5b4fc' }}>
+            <span className="flex-shrink-0 mt-0.5">ℹ️</span>
+            <span>
+              No GHL Agent Studio agents found for this location. Create agents in GHL → AI Agents → Agent Studio first, then link them here.
+            </span>
+          </div>
+        )}
+
+        {ghlAgents.length > 0 && (
+          <div className="rounded-xl p-3 mb-4 text-xs flex items-center gap-2"
+            style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.15)', color: '#4ade80' }}>
+            <span>✅</span>
+            <span>{ghlAgents.length} GHL Agent Studio agent{ghlAgents.length !== 1 ? 's' : ''} found — ready to link</span>
+          </div>
+        )}
 
         {/* Error */}
         {error && (
@@ -334,7 +377,7 @@ export default function Agents() {
             <div>
               <p className="text-white font-semibold">No agents yet</p>
               <p className="text-gray-500 text-xs mt-1">
-                Create an agent with a persona and GHL webhook to get started.
+                Create an agent with persona + training, then link it to a GHL Agent Studio agent.
               </p>
             </div>
             <div className="flex gap-3">
@@ -355,6 +398,7 @@ export default function Agents() {
               <AgentCard
                 key={agent.id}
                 agent={agent}
+                ghlAgentName={agent.ghlAgentId ? ghlAgentName(agent.ghlAgentId) : null}
                 onEdit={() => openEdit(agent)}
                 onDelete={() => deleteAgent(agent)}
                 onExecute={() => openExecute(agent)}
@@ -368,7 +412,7 @@ export default function Agents() {
       {modal === 'templates' && (
         <Modal title="Agent Templates" onClose={closeModal} wide>
           <p className="text-xs text-gray-500 mb-4">
-            Start from a pre-built agent configuration. You can customize it after selecting.
+            Start from a pre-built configuration. You can customize it after selecting.
           </p>
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
             {TEMPLATES.map(tpl => (
@@ -398,7 +442,7 @@ export default function Agents() {
         <Modal title={modal === 'edit' ? `Edit: ${editTarget?.name}` : 'New Agent'} onClose={closeModal} wide>
           <div className="flex flex-col gap-4">
 
-            {/* Name + Emoji row */}
+            {/* Name + Emoji + Role */}
             <div className="flex gap-3">
               <div style={{ width: 72 }}>
                 <label className="text-xs text-gray-400 block mb-1">Emoji</label>
@@ -421,11 +465,47 @@ export default function Agents() {
               </div>
             </div>
 
+            {/* GHL Agent Studio link */}
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">
+                Link to GHL Agent Studio Agent
+                <span className="text-gray-600 ml-1">— executes via POST /agent-studio/agent/:id/execute</span>
+              </label>
+              {ghlLoading ? (
+                <div className="field text-xs text-gray-500">Loading GHL agents…</div>
+              ) : ghlAgents.length > 0 ? (
+                <select
+                  value={form.ghlAgentId}
+                  onChange={e => setForm(f => ({ ...f, ghlAgentId: e.target.value }))}
+                  className="field text-xs w-full"
+                >
+                  <option value="">— Select a GHL Agent Studio agent —</option>
+                  {ghlAgents.map(a => (
+                    <option key={a.id || a._id} value={a.id || a._id}>
+                      {a.name || a.title || a.id || a._id}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div>
+                  <input
+                    value={form.ghlAgentId}
+                    onChange={e => setForm(f => ({ ...f, ghlAgentId: e.target.value }))}
+                    placeholder="GHL Agent ID (e.g. 686abc123…)"
+                    className="field text-xs w-full font-mono"
+                  />
+                  <p className="text-xs text-gray-600 mt-1">
+                    No agents found via API. Enter the agent ID manually, or create agents in GHL → AI Agents → Agent Studio.
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* Persona */}
             <div>
               <label className="text-xs text-gray-400 block mb-1">
                 Persona / Identity
-                <span className="text-gray-600 ml-1">— how Claude thinks of itself when generating briefs</span>
+                <span className="text-gray-600 ml-1">— how Claude thinks when generating the brief</span>
               </label>
               <textarea value={form.persona} onChange={e => setForm(f => ({ ...f, persona: e.target.value }))}
                 placeholder="You are an expert GHL funnel strategist with 10+ years building high-converting funnels for 7-figure businesses..."
@@ -436,24 +516,11 @@ export default function Agents() {
             <div>
               <label className="text-xs text-gray-400 block mb-1">
                 Agent Instructions *
-                <span className="text-gray-600 ml-1">— training and rules for this agent</span>
+                <span className="text-gray-600 ml-1">— training rules sent as the brief to GHL Agent Studio</span>
               </label>
               <textarea value={form.instructions} onChange={e => setForm(f => ({ ...f, instructions: e.target.value }))}
                 placeholder="Step-by-step instructions this agent follows when given a task. Be specific — include GHL-specific actions, copy rules, output format..."
                 className="field text-xs w-full resize-none" rows={8} />
-            </div>
-
-            {/* Webhook */}
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">
-                GHL Agent Studio Webhook URL
-                <span className="text-gray-600 ml-1">— the inbound webhook trigger in your GHL workflow</span>
-              </label>
-              <input value={form.webhookUrl} onChange={e => setForm(f => ({ ...f, webhookUrl: e.target.value }))}
-                placeholder="https://backend.leadconnectorhq.com/hooks/..." className="field text-xs w-full font-mono" />
-              <p className="text-xs text-gray-600 mt-1">
-                In GHL: Automation → Workflows → New → Trigger: Inbound Webhook → copy the webhook URL here.
-              </p>
             </div>
 
             {/* Actions */}
@@ -480,6 +547,18 @@ export default function Agents() {
       {modal === 'execute' && execAgent && (
         <Modal title={`Execute: ${execAgent.emoji} ${execAgent.name}`} onClose={closeModal} wide>
           <div className="flex flex-col gap-4">
+
+            {/* GHL agent indicator */}
+            {execAgent.ghlAgentId && (
+              <div className="flex items-center gap-2 text-xs"
+                style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.15)', borderRadius: 8, padding: '8px 12px', color: '#4ade80' }}>
+                <span>✅</span>
+                <span>
+                  Linked to GHL agent: <strong>{ghlAgentName(execAgent.ghlAgentId)}</strong>
+                  <span className="text-gray-600 ml-1">({execAgent.ghlAgentId})</span>
+                </span>
+              </div>
+            )}
 
             {/* Mode toggle */}
             <div className="flex gap-2">
@@ -535,11 +614,11 @@ export default function Agents() {
               </div>
             )}
 
-            {/* Webhook warning */}
-            {!execAgent.webhookUrl && (
+            {/* No GHL agent linked warning */}
+            {!execAgent.ghlAgentId && (
               <div className="rounded-xl p-3 text-xs"
                 style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#fbbf24' }}>
-                ⚠️ This agent has no webhook URL configured. Edit the agent to add a GHL Agent Studio webhook before executing.
+                ⚠️ No GHL Agent Studio agent linked. Edit this agent and select a GHL agent to enable execution.
               </div>
             )}
 
@@ -560,8 +639,7 @@ export default function Agents() {
                   )}
                 </div>
                 {execResult.brief && (
-                  <div className="p-3 max-h-64 overflow-y-auto"
-                    style={{ background: 'rgba(0,0,0,0.3)' }}>
+                  <div className="p-3 max-h-56 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.3)' }}>
                     <pre className="text-xs text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">
                       {execResult.brief}
                     </pre>
@@ -575,7 +653,7 @@ export default function Agents() {
               <button onClick={closeModal} className="btn-ghost text-sm px-4 py-2">Close</button>
               <button
                 onClick={executeAgent}
-                disabled={executing || !execAgent.webhookUrl || (execMode === 'task' ? !execTask.trim() : (!execNiche.trim() || !execOffer.trim()))}
+                disabled={executing || !execAgent.ghlAgentId || (execMode === 'task' ? !execTask.trim() : (!execNiche.trim() || !execOffer.trim()))}
                 className="btn-primary text-sm px-6 py-2"
               >
                 {executing ? (
@@ -583,7 +661,7 @@ export default function Agents() {
                     <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     Executing…
                   </span>
-                ) : `🚀 Execute ${execAgent.name}`}
+                ) : `🚀 Execute in GHL Agent Studio`}
               </button>
             </div>
           </div>
@@ -595,12 +673,11 @@ export default function Agents() {
 
 // ── AgentCard ─────────────────────────────────────────────────────────────────
 
-function AgentCard({ agent, onEdit, onDelete, onExecute }) {
+function AgentCard({ agent, ghlAgentName, onEdit, onDelete, onExecute }) {
   return (
     <div className="rounded-xl flex flex-col"
       style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
 
-      {/* Header */}
       <div className="p-4 flex items-start gap-3">
         <span className="text-3xl flex-shrink-0">{agent.emoji}</span>
         <div className="flex-1 min-w-0">
@@ -612,25 +689,25 @@ function AgentCard({ agent, onEdit, onDelete, onExecute }) {
         </div>
       </div>
 
-      {/* Persona preview */}
       {agent.persona && (
         <div className="px-4 pb-3">
           <p className="text-xs text-gray-500 leading-relaxed line-clamp-2">{agent.persona}</p>
         </div>
       )}
 
-      {/* Webhook status */}
+      {/* GHL link status */}
       <div className="px-4 pb-3">
         <div className="flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-            style={{ background: agent.webhookUrl ? '#4ade80' : '#6b7280' }} />
-          <span className="text-xs" style={{ color: agent.webhookUrl ? '#4ade80' : '#6b7280' }}>
-            {agent.webhookUrl ? 'Webhook configured' : 'No webhook'}
+            style={{ background: agent.ghlAgentId ? '#4ade80' : '#6b7280' }} />
+          <span className="text-xs truncate" style={{ color: agent.ghlAgentId ? '#4ade80' : '#6b7280' }}>
+            {agent.ghlAgentId
+              ? `GHL: ${ghlAgentName || agent.ghlAgentId}`
+              : 'No GHL agent linked'}
           </span>
         </div>
       </div>
 
-      {/* Actions */}
       <div className="mt-auto p-3 pt-0 flex gap-2">
         <button onClick={onExecute}
           className="flex-1 text-xs py-2 rounded-lg font-medium transition-all"
@@ -652,7 +729,7 @@ function AgentCard({ agent, onEdit, onDelete, onExecute }) {
   );
 }
 
-// ── Modal wrapper ─────────────────────────────────────────────────────────────
+// ── Modal ─────────────────────────────────────────────────────────────────────
 
 function Modal({ title, onClose, children, wide }) {
   return (
@@ -667,15 +744,11 @@ function Modal({ title, onClose, children, wide }) {
           border: '1px solid rgba(255,255,255,0.1)',
           boxShadow: '0 25px 60px rgba(0,0,0,0.6)',
         }}>
-
-        {/* Modal header */}
         <div className="flex items-center gap-3 px-5 py-4 flex-shrink-0"
           style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
           <h3 className="text-white font-semibold text-sm flex-1">{title}</h3>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-lg leading-none">×</button>
         </div>
-
-        {/* Modal body */}
         <div className="overflow-y-auto p-5 flex-1">
           {children}
         </div>
