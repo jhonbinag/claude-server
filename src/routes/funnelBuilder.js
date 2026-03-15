@@ -26,57 +26,72 @@ const https                         = require('https');
 
 router.use(authenticate);
 
+// ── Probe GHL backend for a Firebase custom token ────────────────────────────
+// Try candidate paths in order; return first one that yields a token field.
+
+function probeCustomToken(accessToken, locationId) {
+  const candidates = [
+    // Observed in GHL network traffic — try most likely first
+    { hostname: 'backend.leadconnectorhq.com', path: `/user/firebase-custom-token?locationId=${encodeURIComponent(locationId)}` },
+    { hostname: 'backend.leadconnectorhq.com', path: `/user/customToken?locationId=${encodeURIComponent(locationId)}` },
+    { hostname: 'backend.leadconnectorhq.com', path: `/firebase/customToken?locationId=${encodeURIComponent(locationId)}` },
+    { hostname: 'services.leadconnectorhq.com', path: `/oauth/firebase-token?locationId=${encodeURIComponent(locationId)}` },
+  ];
+
+  const tryNext = (i) => new Promise((resolve, reject) => {
+    if (i >= candidates.length) {
+      return reject(new Error('All Firebase token endpoints exhausted — none returned a token.'));
+    }
+    const { hostname, path } = candidates[i];
+    const req2 = https.request(
+      {
+        hostname,
+        path,
+        method:  'GET',
+        headers: {
+          Authorization:  `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          channel:        'APP',
+          source:         'WEB_USER',
+          version:        '2021-07-28',
+        },
+      },
+      (resp) => {
+        let d = '';
+        resp.on('data', c => d += c);
+        resp.on('end', () => {
+          console.log(`[FunnelBuilder] probe ${hostname}${path} → ${resp.statusCode}: ${d.slice(0, 300)}`);
+          try {
+            const parsed = JSON.parse(d);
+            const token = parsed.token || parsed.customToken || parsed.firebaseToken
+                       || parsed.firebase_token || parsed.firebaseCustomToken;
+            if (token && resp.statusCode < 400) resolve(token);
+            else tryNext(i + 1).then(resolve).catch(reject);
+          } catch {
+            tryNext(i + 1).then(resolve).catch(reject);
+          }
+        });
+      }
+    );
+    req2.on('error', () => tryNext(i + 1).then(resolve).catch(reject));
+    req2.end();
+  });
+
+  return tryNext(0);
+}
+
 // ── POST /auto-connect — get Firebase token using stored GHL OAuth token ───────
-// GHL's frontend calls backend.leadconnectorhq.com/user/customToken with the
-// OAuth Bearer token to get a Firebase custom token. We do the same automatically
-// so users never need to copy anything from DevTools.
 
 router.post('/auto-connect', async (req, res) => {
   try {
-    // Already connected? Return early
+    // Already connected and fresh? Return early
     const existing = await getStatus(req.locationId);
     if (existing.connected && existing.expiresAt > Date.now() + 60_000) {
       return res.json({ success: true, alreadyConnected: true, expiresAt: existing.expiresAt });
     }
 
-    // Get the stored GHL OAuth access token for this location
     const accessToken = await ghlClient.getValidAccessToken(req.locationId);
-
-    // Call GHL's internal endpoint to get a Firebase custom token
-    const customToken = await new Promise((resolve, reject) => {
-      const path = `/user/customToken?locationId=${encodeURIComponent(req.locationId)}`;
-      const req2 = https.request(
-        {
-          hostname: 'backend.leadconnectorhq.com',
-          path,
-          method:  'GET',
-          headers: {
-            Authorization:  `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            channel:        'APP',
-            source:         'WEB_USER',
-            version:        '2021-07-28',
-          },
-        },
-        (resp) => {
-          let d = '';
-          resp.on('data', c => d += c);
-          resp.on('end', () => {
-            try {
-              const parsed = JSON.parse(d);
-              // Response may be { token } or { customToken } or { firebaseToken }
-              const token = parsed.token || parsed.customToken || parsed.firebaseToken;
-              if (token) resolve(token);
-              else reject(new Error(`GHL customToken endpoint returned: ${d.slice(0, 200)}`));
-            } catch (e) {
-              reject(new Error(`Could not parse GHL response: ${d.slice(0, 200)}`));
-            }
-          });
-        }
-      );
-      req2.on('error', reject);
-      req2.end();
-    });
+    const customToken = await probeCustomToken(accessToken, req.locationId);
 
     const record = await connectFirebase(req.locationId, customToken);
     console.log(`[FunnelBuilder] Auto-connected Firebase for location ${req.locationId}`);
@@ -91,7 +106,7 @@ router.post('/auto-connect', async (req, res) => {
     res.status(400).json({
       success: false,
       error:   err.message,
-      hint:    'Auto-connect failed. Use POST /funnel-builder/connect with your refreshedToken from GHL localStorage as a fallback.',
+      hint:    'Auto-connect failed. Paste your refreshedToken manually in the Funnel Builder page.',
     });
   }
 });
