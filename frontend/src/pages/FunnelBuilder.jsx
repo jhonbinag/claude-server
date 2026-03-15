@@ -222,35 +222,54 @@ export default function FunnelBuilder() {
                   <p className="text-xs text-gray-500">Checking connection…</p>
                 ) : (
                   <>
-                    <p className="text-xs text-gray-400 mb-2">
-                      Run this one-liner in your GHL browser console to copy the token automatically:
-                    </p>
-                    {/* Console snippet */}
-                    <div className="flex items-center gap-2 mb-3">
-                      <code
-                        className="flex-1 text-xs px-3 py-2 rounded-lg select-all"
-                        style={{ background: '#0d1117', color: '#7ee787', border: '1px solid rgba(255,255,255,0.08)', fontFamily: 'monospace' }}
-                      >
-                        copy(localStorage.getItem('refreshedToken'))
-                      </code>
-                      <button
-                        type="button"
-                        onClick={() => { navigator.clipboard.writeText("copy(localStorage.getItem('refreshedToken'))"); toast(setToastState, 'Snippet copied!'); }}
-                        className="text-xs px-3 py-2 rounded-lg flex-shrink-0"
-                        style={{ background: 'rgba(255,255,255,0.06)', color: '#9ca3af', border: '1px solid rgba(255,255,255,0.08)' }}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-600 mb-3">
-                      Open GHL → F12 → Console tab → paste &amp; run → your token is now in clipboard → paste below.
-                    </p>
+                    {/* Bookmarklet */}
+                    {(() => {
+                      const serverUrl = window.location.origin;
+                      const locId = locationId || '';
+                      const bm = `javascript:(function(){` +
+                        `var t=localStorage.getItem('refreshedToken');` +
+                        `if(!t){alert('refreshedToken not found — open a GHL funnel or website page first.');return;}` +
+                        `fetch('${serverUrl}/funnel-builder/connect',{` +
+                          `method:'POST',` +
+                          `headers:{'Content-Type':'application/json','x-location-id':'${locId}'},` +
+                          `body:JSON.stringify({refreshedToken:t})` +
+                        `}).then(r=>r.json()).then(d=>{` +
+                          `if(d.success)alert('✅ Page Builder connected! Go back to your app.');` +
+                          `else alert('❌ '+(d.error||'Connect failed'));` +
+                        `}).catch(e=>alert('❌ '+e.message));` +
+                      `})();`;
+                      return (
+                        <div className="mb-4">
+                          <p className="text-xs text-gray-400 mb-2">
+                            Drag this button to your bookmarks bar. Then go to GHL and click it — done.
+                          </p>
+                          <div className="flex items-center gap-3">
+                            <a
+                              href={bm}
+                              draggable
+                              onClick={e => e.preventDefault()}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold cursor-grab active:cursor-grabbing select-none"
+                              style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', border: '2px dashed rgba(165,180,252,0.4)', textDecoration: 'none' }}
+                            >
+                              🔑 Connect GHL Page Builder
+                            </a>
+                            <span className="text-xs text-gray-600">← drag to bookmarks bar</span>
+                          </div>
+                          <p className="text-xs text-gray-600 mt-2">
+                            Click it while on <code className="text-gray-400">app.gohighlevel.com</code> — it reads the token and connects automatically.
+                          </p>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Manual fallback */}
+                    <p className="text-xs text-gray-600 mb-2">Or paste the token manually:</p>
                     <form onSubmit={handleConnect} className="flex gap-2">
                       <input
                         type="password"
                         value={token}
                         onChange={e => setToken(e.target.value)}
-                        placeholder="Paste token here…"
+                        placeholder="Paste refreshedToken from GHL…"
                         className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
                       />
                       <button
