@@ -85,16 +85,6 @@ export default function FunnelBuilder() {
     if (!apiKey) return;
     setFbLoading(true);
     try {
-      // Try auto-connect first (uses stored GHL OAuth token)
-      const auto = await api.postWithKey('/funnel-builder/auto-connect', {}, apiKey);
-      if (auto.success) {
-        setFbStatus({ connected: true, expiresAt: auto.expiresAt });
-        setFbLoading(false);
-        return;
-      }
-    } catch {}
-    // Fallback: check current status
-    try {
       const d = await api.getWithKey('/funnel-builder/status', apiKey);
       if (d.success) setFbStatus(d);
     } catch {}
@@ -229,23 +219,38 @@ export default function FunnelBuilder() {
             {!fbStatus?.connected && (
               <>
                 {fbLoading ? (
-                  <p className="text-xs text-gray-500">Connecting automatically…</p>
+                  <p className="text-xs text-gray-500">Checking connection…</p>
                 ) : (
                   <>
-                    <p className="text-xs text-gray-400 mb-3">
-                      Auto-connect failed. Paste your <code className="text-indigo-400">refreshedToken</code> from GHL manually as a fallback:
+                    <p className="text-xs text-gray-400 mb-2">
+                      Run this one-liner in your GHL browser console to copy the token automatically:
                     </p>
-                    <ol className="text-xs text-gray-500 mb-3 pl-4 list-decimal space-y-1">
-                      <li>Open GHL → any Funnel/Website page</li>
-                      <li>DevTools → Application → Local Storage → <code className="text-indigo-400">app.gohighlevel.com</code></li>
-                      <li>Copy the value of key <code className="text-indigo-400">refreshedToken</code></li>
-                    </ol>
+                    {/* Console snippet */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <code
+                        className="flex-1 text-xs px-3 py-2 rounded-lg select-all"
+                        style={{ background: '#0d1117', color: '#7ee787', border: '1px solid rgba(255,255,255,0.08)', fontFamily: 'monospace' }}
+                      >
+                        copy(localStorage.getItem('refreshedToken'))
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => { navigator.clipboard.writeText("copy(localStorage.getItem('refreshedToken'))"); toast(setToastState, 'Snippet copied!'); }}
+                        className="text-xs px-3 py-2 rounded-lg flex-shrink-0"
+                        style={{ background: 'rgba(255,255,255,0.06)', color: '#9ca3af', border: '1px solid rgba(255,255,255,0.08)' }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-3">
+                      Open GHL → F12 → Console tab → paste &amp; run → your token is now in clipboard → paste below.
+                    </p>
                     <form onSubmit={handleConnect} className="flex gap-2">
                       <input
                         type="password"
                         value={token}
                         onChange={e => setToken(e.target.value)}
-                        placeholder="Paste refreshedToken from GHL localStorage…"
+                        placeholder="Paste token here…"
                         className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
                       />
                       <button

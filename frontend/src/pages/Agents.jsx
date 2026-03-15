@@ -219,10 +219,10 @@ export default function Agents() {
     if (isAuthenticated) {
       loadAgents();
       loadGhlAgents();
-      // Auto-connect Firebase page-builder using stored GHL OAuth token
-      fetch('/funnel-builder/auto-connect', { method: 'POST', headers: headers() })
+      // Check Firebase page-builder connection status
+      fetch('/funnel-builder/status', { headers: headers() })
         .then(r => r.json())
-        .then(d => { if (d.success) setFbConnected(true); })
+        .then(d => { if (d.connected) setFbConnected(true); })
         .catch(() => {});
     }
   }, [isAuthenticated]); // eslint-disable-line
@@ -687,9 +687,12 @@ export default function Agents() {
                 {!fbConnected ? (
                   <div className="rounded-xl p-3 text-xs"
                     style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#fbbf24' }}>
-                    ⚠️ Page Builder not connected. Go to{' '}
-                    <a href="/ui/funnel-builder" className="underline hover:text-yellow-200">🏗️ Funnel Builder</a>
-                    {' '}and paste your GHL <code>refreshedToken</code> first.
+                    ⚠️ Page Builder not connected. In GHL, open F12 → Console and run:{' '}
+                    <code className="mx-1 px-1.5 py-0.5 rounded" style={{ background: '#0d1117', color: '#7ee787' }}>
+                      copy(localStorage.getItem('refreshedToken'))
+                    </code>
+                    {' '}then paste in{' '}
+                    <a href="/ui/funnel-builder" className="underline hover:text-yellow-200">🏗️ Funnel Builder</a>.
                   </div>
                 ) : (
                   <div className="rounded-xl p-2 px-3 text-xs flex items-center gap-2"
