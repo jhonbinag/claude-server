@@ -34,7 +34,8 @@ router.get('/agents/ghl', async (req, res) => {
     res.json({ success: true, data: data.agents || data.data || data || [] });
   } catch (err) {
     console.error('[Agent] list GHL agents error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    // Return empty array — Agent Studio may not be enabled on this plan/location
+    res.json({ success: true, data: [], warning: err.message });
   }
 });
 
