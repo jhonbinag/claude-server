@@ -85,6 +85,16 @@ export default function FunnelBuilder() {
     if (!apiKey) return;
     setFbLoading(true);
     try {
+      // Try auto-connect first (uses stored GHL OAuth token)
+      const auto = await api.postWithKey('/funnel-builder/auto-connect', {}, apiKey);
+      if (auto.success) {
+        setFbStatus({ connected: true, expiresAt: auto.expiresAt });
+        setFbLoading(false);
+        return;
+      }
+    } catch {}
+    // Fallback: check current status
+    try {
       const d = await api.getWithKey('/funnel-builder/status', apiKey);
       if (d.success) setFbStatus(d);
     } catch {}
@@ -218,32 +228,37 @@ export default function FunnelBuilder() {
 
             {!fbStatus?.connected && (
               <>
-                <p className="text-xs text-gray-400 mb-3 leading-relaxed">
-                  To build native GHL pages, we need your Firebase page-builder token. Here's how to get it:
-                </p>
-                <ol className="text-xs text-gray-400 mb-4 space-y-1 pl-4 list-decimal leading-relaxed">
-                  <li>Open GoHighLevel and navigate to any Funnel or Website page</li>
-                  <li>Open DevTools → Application → Local Storage → <code className="text-indigo-400">app.gohighlevel.com</code></li>
-                  <li>Find the key <code className="text-indigo-400">refreshedToken</code> and copy its value</li>
-                  <li>Paste it below — it starts with <code className="text-gray-300">eyJ…</code></li>
-                </ol>
-                <form onSubmit={handleConnect} className="flex gap-2">
-                  <input
-                    type="password"
-                    value={token}
-                    onChange={e => setToken(e.target.value)}
-                    placeholder="Paste refreshedToken from GHL localStorage…"
-                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={connecting || !token.trim()}
-                    className="px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-                    style={{ background: '#4f46e5', color: '#fff', opacity: connecting || !token.trim() ? 0.5 : 1 }}
-                  >
-                    {connecting ? 'Connecting…' : 'Connect'}
-                  </button>
-                </form>
+                {fbLoading ? (
+                  <p className="text-xs text-gray-500">Connecting automatically…</p>
+                ) : (
+                  <>
+                    <p className="text-xs text-gray-400 mb-3">
+                      Auto-connect failed. Paste your <code className="text-indigo-400">refreshedToken</code> from GHL manually as a fallback:
+                    </p>
+                    <ol className="text-xs text-gray-500 mb-3 pl-4 list-decimal space-y-1">
+                      <li>Open GHL → any Funnel/Website page</li>
+                      <li>DevTools → Application → Local Storage → <code className="text-indigo-400">app.gohighlevel.com</code></li>
+                      <li>Copy the value of key <code className="text-indigo-400">refreshedToken</code></li>
+                    </ol>
+                    <form onSubmit={handleConnect} className="flex gap-2">
+                      <input
+                        type="password"
+                        value={token}
+                        onChange={e => setToken(e.target.value)}
+                        placeholder="Paste refreshedToken from GHL localStorage…"
+                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+                      />
+                      <button
+                        type="submit"
+                        disabled={connecting || !token.trim()}
+                        className="px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                        style={{ background: '#4f46e5', color: '#fff', opacity: connecting || !token.trim() ? 0.5 : 1 }}
+                      >
+                        {connecting ? 'Connecting…' : 'Connect'}
+                      </button>
+                    </form>
+                  </>
+                )}
               </>
             )}
 

@@ -219,10 +219,10 @@ export default function Agents() {
     if (isAuthenticated) {
       loadAgents();
       loadGhlAgents();
-      // Check Firebase page-builder connection status
-      fetch('/funnel-builder/status', { headers: headers() })
+      // Auto-connect Firebase page-builder using stored GHL OAuth token
+      fetch('/funnel-builder/auto-connect', { method: 'POST', headers: headers() })
         .then(r => r.json())
-        .then(d => { if (d.connected) setFbConnected(true); })
+        .then(d => { if (d.success) setFbConnected(true); })
         .catch(() => {});
     }
   }, [isAuthenticated]); // eslint-disable-line

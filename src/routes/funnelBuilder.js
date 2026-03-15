@@ -21,8 +21,80 @@ const {
 } = require('../services/ghlFirebaseService');
 const { savePageData, getPageData } = require('../services/ghlPageBuilder');
 const agentStore                    = require('../services/agentStore');
+const ghlClient                     = require('../services/ghlClient');
+const https                         = require('https');
 
 router.use(authenticate);
+
+// ── POST /auto-connect — get Firebase token using stored GHL OAuth token ───────
+// GHL's frontend calls backend.leadconnectorhq.com/user/customToken with the
+// OAuth Bearer token to get a Firebase custom token. We do the same automatically
+// so users never need to copy anything from DevTools.
+
+router.post('/auto-connect', async (req, res) => {
+  try {
+    // Already connected? Return early
+    const existing = await getStatus(req.locationId);
+    if (existing.connected && existing.expiresAt > Date.now() + 60_000) {
+      return res.json({ success: true, alreadyConnected: true, expiresAt: existing.expiresAt });
+    }
+
+    // Get the stored GHL OAuth access token for this location
+    const accessToken = await ghlClient.getValidAccessToken(req.locationId);
+
+    // Call GHL's internal endpoint to get a Firebase custom token
+    const customToken = await new Promise((resolve, reject) => {
+      const path = `/user/customToken?locationId=${encodeURIComponent(req.locationId)}`;
+      const req2 = https.request(
+        {
+          hostname: 'backend.leadconnectorhq.com',
+          path,
+          method:  'GET',
+          headers: {
+            Authorization:  `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            channel:        'APP',
+            source:         'WEB_USER',
+            version:        '2021-07-28',
+          },
+        },
+        (resp) => {
+          let d = '';
+          resp.on('data', c => d += c);
+          resp.on('end', () => {
+            try {
+              const parsed = JSON.parse(d);
+              // Response may be { token } or { customToken } or { firebaseToken }
+              const token = parsed.token || parsed.customToken || parsed.firebaseToken;
+              if (token) resolve(token);
+              else reject(new Error(`GHL customToken endpoint returned: ${d.slice(0, 200)}`));
+            } catch (e) {
+              reject(new Error(`Could not parse GHL response: ${d.slice(0, 200)}`));
+            }
+          });
+        }
+      );
+      req2.on('error', reject);
+      req2.end();
+    });
+
+    const record = await connectFirebase(req.locationId, customToken);
+    console.log(`[FunnelBuilder] Auto-connected Firebase for location ${req.locationId}`);
+
+    res.json({
+      success:   true,
+      message:   'Firebase auto-connected using GHL OAuth token.',
+      expiresAt: record.expiresAt,
+    });
+  } catch (err) {
+    console.error('[FunnelBuilder] auto-connect error:', err.message);
+    res.status(400).json({
+      success: false,
+      error:   err.message,
+      hint:    'Auto-connect failed. Use POST /funnel-builder/connect with your refreshedToken from GHL localStorage as a fallback.',
+    });
+  }
+});
 
 // ── POST /connect — exchange refreshedToken for Firebase tokens ───────────────
 
