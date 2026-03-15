@@ -120,6 +120,21 @@ const ROLES = [
   'crm-manager', 'social-media', 'lead-gen', 'custom',
 ];
 
+const PAGE_TYPES = [
+  'Sales Page', 'Opt-in / Lead Capture Page', 'Thank You Page',
+  'Webinar Registration Page', 'Order Page', 'Upsell Page',
+  'VSL Page', 'Home Page', 'About Page', 'Product Page',
+];
+
+const COLOR_PRESETS = [
+  { label: 'Navy & Gold',     value: 'dark navy (#0F172A) background with gold (#F59E0B) accents and white text' },
+  { label: 'Bold Blue',       value: 'bright blue (#1D4ED8) accents on white, dark text' },
+  { label: 'Dark & Modern',   value: 'charcoal (#111827) background, white text, emerald (#10B981) CTAs' },
+  { label: 'Clean White',     value: 'clean white background, dark gray text (#111827), indigo (#6366F1) accents' },
+  { label: 'Luxury Black',    value: 'pure black background, white text, gold (#D97706) CTAs' },
+  { label: 'High Energy Red', value: 'white background, bold red (#DC2626) CTAs, dark text' },
+];
+
 const EMOJIS = ['🤖', '🚀', '🌐', '✍️', '📊', '📱', '🎯', '⚡', '🧠', '💡', '🔥', '🎨', '📈', '🛠️'];
 
 function blank() {
@@ -137,22 +152,33 @@ export default function Agents() {
   const [ghlLoading,    setGhlLoading]    = useState(false);
   const [error,         setError]         = useState(null);
 
+  // Firebase page-builder connection status
+  const [fbConnected,   setFbConnected]   = useState(false);
+
   // Modal state
   const [modal,         setModal]         = useState(null); // null | 'create' | 'edit' | 'execute' | 'templates'
   const [editTarget,    setEditTarget]    = useState(null);
   const [form,          setForm]          = useState(blank());
   const [saving,        setSaving]        = useState(false);
 
-  // Execute panel
+  // Execute panel — shared fields
   const [execAgent,     setExecAgent]     = useState(null);
+  const [execMode,      setExecMode]      = useState('task'); // 'task' | 'form' | 'build-page'
+  const [executing,     setExecuting]     = useState(false);
+  const [execResult,    setExecResult]    = useState(null);
+
+  // Execute — brief/studio fields
   const [execTask,      setExecTask]      = useState('');
   const [execNiche,     setExecNiche]     = useState('');
   const [execOffer,     setExecOffer]     = useState('');
   const [execAudience,  setExecAudience]  = useState('');
   const [execExtra,     setExecExtra]     = useState('');
-  const [execMode,      setExecMode]      = useState('task');
-  const [executing,     setExecuting]     = useState(false);
-  const [execResult,    setExecResult]    = useState(null);
+
+  // Execute — build-page fields
+  const [execPageId,    setExecPageId]    = useState('');
+  const [execFunnelId,  setExecFunnelId]  = useState('');
+  const [execPageType,  setExecPageType]  = useState(PAGE_TYPES[0]);
+  const [execColor,     setExecColor]     = useState(COLOR_PRESETS[0].value);
 
   // ── API helpers ─────────────────────────────────────────────────────────────
 
@@ -193,6 +219,11 @@ export default function Agents() {
     if (isAuthenticated) {
       loadAgents();
       loadGhlAgents();
+      // Check Firebase page-builder connection status
+      fetch('/funnel-builder/status', { headers: headers() })
+        .then(r => r.json())
+        .then(d => { if (d.connected) setFbConnected(true); })
+        .catch(() => {});
     }
   }, [isAuthenticated]); // eslint-disable-line
 
@@ -229,12 +260,39 @@ export default function Agents() {
 
   async function executeAgent() {
     if (!execAgent) return;
-    const hasInput = execMode === 'task' ? execTask.trim() : (execNiche.trim() && execOffer.trim());
-    if (!hasInput) return;
-
     setExecuting(true);
     setExecResult(null);
+
     try {
+      // ── Build Native Page mode ───────────────────────────────────────────────
+      if (execMode === 'build-page') {
+        const body = {
+          pageId:      execPageId.trim(),
+          funnelId:    execFunnelId.trim() || undefined,
+          pageType:    execPageType,
+          niche:       execNiche.trim(),
+          offer:       execOffer.trim(),
+          audience:    execAudience.trim() || undefined,
+          colorScheme: execColor,
+          extraContext: execExtra.trim() || undefined,
+          agentId:     execAgent.id,
+        };
+        const res  = await fetch('/funnel-builder/generate', {
+          method: 'POST', headers: headers(), body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setExecResult({ type: 'page', status: 'ok', sectionsCount: data.sectionsCount, pageId: data.pageId, previewUrl: data.previewUrl, msg: data.message });
+        } else {
+          setExecResult({ type: 'page', status: 'err', msg: data.error || 'Page generation failed.' });
+        }
+        return;
+      }
+
+      // ── Brief → GHL Agent Studio mode ───────────────────────────────────────
+      const hasInput = execMode === 'task' ? execTask.trim() : (execNiche.trim() && execOffer.trim());
+      if (!hasInput) return;
+
       const body = execMode === 'task'
         ? { task: execTask }
         : { niche: execNiche, offer: execOffer, audience: execAudience, extraContext: execExtra };
@@ -244,12 +302,12 @@ export default function Agents() {
       });
       const data = await res.json();
       if (data.success) {
-        setExecResult({ brief: data.brief, status: 'ok', msg: data.message, ghlResponse: data.ghlResponse });
+        setExecResult({ type: 'brief', brief: data.brief, status: 'ok', msg: data.message, ghlResponse: data.ghlResponse });
       } else {
-        setExecResult({ brief: '', status: 'err', msg: data.error || 'Execution failed.' });
+        setExecResult({ type: 'brief', brief: '', status: 'err', msg: data.error || 'Execution failed.' });
       }
     } catch (e) {
-      setExecResult({ brief: '', status: 'err', msg: e.message });
+      setExecResult({ status: 'err', msg: e.message });
     } finally {
       setExecuting(false);
     }
@@ -281,6 +339,10 @@ export default function Agents() {
     setExecAudience('');
     setExecExtra('');
     setExecMode('task');
+    setExecPageId('');
+    setExecFunnelId('');
+    setExecPageType(PAGE_TYPES[0]);
+    setExecColor(COLOR_PRESETS[0].value);
     setExecResult(null);
     setModal('execute');
   }
@@ -561,32 +623,35 @@ export default function Agents() {
             )}
 
             {/* Mode toggle */}
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {[
-                { key: 'task', label: '📝 Free-form task' },
-                { key: 'form', label: '📋 Structured form' },
+                { key: 'task',       label: '📝 Free-form task' },
+                { key: 'form',       label: '📋 Structured form' },
+                { key: 'build-page', label: '🏗️ Build Native Page' },
               ].map(({ key, label }) => (
-                <button key={key} onClick={() => setExecMode(key)}
+                <button key={key} onClick={() => { setExecMode(key); setExecResult(null); }}
                   className="text-xs px-3 py-1.5 rounded-lg transition-all"
                   style={{
-                    background: execMode === key ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.04)',
-                    border: execMode === key ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                    color: execMode === key ? '#a5b4fc' : '#6b7280',
+                    background: execMode === key ? (key === 'build-page' ? 'rgba(16,185,129,0.2)' : 'rgba(99,102,241,0.25)') : 'rgba(255,255,255,0.04)',
+                    border:     execMode === key ? (key === 'build-page' ? '1px solid rgba(16,185,129,0.5)' : '1px solid rgba(99,102,241,0.5)') : '1px solid rgba(255,255,255,0.08)',
+                    color:      execMode === key ? (key === 'build-page' ? '#6ee7b7' : '#a5b4fc') : '#6b7280',
                   }}>
                   {label}
                 </button>
               ))}
             </div>
 
-            {/* Task input */}
-            {execMode === 'task' ? (
+            {/* ── Brief modes (task / form) ──────────────────────────────── */}
+            {execMode === 'task' && (
               <div>
                 <label className="text-xs text-gray-400 block mb-1">Task Description</label>
                 <textarea value={execTask} onChange={e => setExecTask(e.target.value)}
-                  placeholder={`Describe what you want ${execAgent.name} to do inside GHL...\n\ne.g. "Build a complete sales funnel for a fitness coaching program targeting busy moms aged 30-45. Offer: 12-week body transformation for $997. Include opt-in, sales, order, upsell, and thank you pages."`}
+                  placeholder={`Describe what you want ${execAgent.name} to do inside GHL...\n\ne.g. "Build a complete sales funnel for a fitness coaching program targeting busy moms aged 30-45. Offer: 12-week body transformation for $997."`}
                   className="field text-xs w-full resize-none" rows={6} />
               </div>
-            ) : (
+            )}
+
+            {execMode === 'form' && (
               <div className="flex flex-col gap-3">
                 <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
                   <div>
@@ -614,8 +679,92 @@ export default function Agents() {
               </div>
             )}
 
-            {/* No GHL agent linked warning */}
-            {!execAgent.ghlAgentId && (
+            {/* ── Build Native Page mode ────────────────────────────────── */}
+            {execMode === 'build-page' && (
+              <div className="flex flex-col gap-3">
+
+                {/* Firebase status check */}
+                {!fbConnected ? (
+                  <div className="rounded-xl p-3 text-xs"
+                    style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#fbbf24' }}>
+                    ⚠️ Page Builder not connected. Go to{' '}
+                    <a href="/ui/funnel-builder" className="underline hover:text-yellow-200">🏗️ Funnel Builder</a>
+                    {' '}and paste your GHL <code>refreshedToken</code> first.
+                  </div>
+                ) : (
+                  <div className="rounded-xl p-2 px-3 text-xs flex items-center gap-2"
+                    style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', color: '#6ee7b7' }}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                    Page Builder connected · {execAgent.emoji} {execAgent.name} persona will guide generation
+                  </div>
+                )}
+
+                {/* Page identifiers */}
+                <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">GHL Page ID <span className="text-red-400">*</span></label>
+                    <input value={execPageId} onChange={e => setExecPageId(e.target.value)}
+                      placeholder="e.g. YbcohnneHGj8YGoDIY4k"
+                      className="field text-xs w-full font-mono" />
+                    <p className="text-xs text-gray-600 mt-0.5">From GHL page URL → last ID segment</p>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Funnel ID <span className="text-gray-600">(optional)</span></label>
+                    <input value={execFunnelId} onChange={e => setExecFunnelId(e.target.value)}
+                      placeholder="For preview link"
+                      className="field text-xs w-full font-mono" />
+                  </div>
+                </div>
+
+                {/* Page type */}
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Page Type</label>
+                  <select value={execPageType} onChange={e => setExecPageType(e.target.value)} className="field text-xs w-full">
+                    {PAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+
+                {/* Niche + Offer */}
+                <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Business / Niche <span className="text-red-400">*</span></label>
+                    <input value={execNiche} onChange={e => setExecNiche(e.target.value)}
+                      placeholder="e.g. fitness coaching" className="field text-xs w-full" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Offer <span className="text-red-400">*</span></label>
+                    <input value={execOffer} onChange={e => setExecOffer(e.target.value)}
+                      placeholder="e.g. 12-week program $997" className="field text-xs w-full" />
+                  </div>
+                </div>
+
+                {/* Audience + Color */}
+                <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Target Audience</label>
+                    <input value={execAudience} onChange={e => setExecAudience(e.target.value)}
+                      placeholder="e.g. busy moms 30-45" className="field text-xs w-full" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Color Scheme</label>
+                    <select value={execColor} onChange={e => setExecColor(e.target.value)} className="field text-xs w-full">
+                      {COLOR_PRESETS.map(p => <option key={p.label} value={p.value}>{p.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Extra context */}
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Extra Context</label>
+                  <textarea value={execExtra} onChange={e => setExecExtra(e.target.value)}
+                    placeholder="Brand voice, testimonials, specific hooks, price anchoring notes..."
+                    className="field text-xs w-full resize-none" rows={2} />
+                </div>
+              </div>
+            )}
+
+            {/* No GHL agent linked warning (brief modes only) */}
+            {execMode !== 'build-page' && !execAgent.ghlAgentId && (
               <div className="rounded-xl p-3 text-xs"
                 style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#fbbf24' }}>
                 ⚠️ No GHL Agent Studio agent linked. Edit this agent and select a GHL agent to enable execution.
@@ -633,16 +782,42 @@ export default function Agents() {
                     style={{ color: execResult.status === 'ok' ? '#4ade80' : '#f87171' }}>
                     {execResult.msg}
                   </p>
-                  {execResult.status === 'ok' && execResult.brief && (
+                  {execResult.status === 'ok' && execResult.type === 'brief' && execResult.brief && (
                     <button onClick={() => navigator.clipboard.writeText(execResult.brief)}
                       className="btn-ghost text-xs px-2 py-1">📋 Copy Brief</button>
                   )}
                 </div>
-                {execResult.brief && (
+
+                {/* Brief result */}
+                {execResult.type === 'brief' && execResult.brief && (
                   <div className="p-3 max-h-56 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.3)' }}>
                     <pre className="text-xs text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">
                       {execResult.brief}
                     </pre>
+                  </div>
+                )}
+
+                {/* Build-page result */}
+                {execResult.type === 'page' && execResult.status === 'ok' && (
+                  <div className="p-3 flex flex-col gap-1.5" style={{ background: 'rgba(0,0,0,0.3)' }}>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Sections saved</span>
+                      <span className="text-white font-semibold">{execResult.sectionsCount}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">Page ID</span>
+                      <code className="text-emerald-400">{execResult.pageId}</code>
+                    </div>
+                    {execResult.previewUrl && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">Preview</span>
+                        <a href={execResult.previewUrl} target="_blank" rel="noreferrer"
+                          className="text-indigo-400 hover:text-indigo-300 underline">
+                          Open in GHL →
+                        </a>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-600 mt-1">Open the page in GHL's builder — your content is there as native elements.</p>
                   </div>
                 )}
               </div>
@@ -653,15 +828,24 @@ export default function Agents() {
               <button onClick={closeModal} className="btn-ghost text-sm px-4 py-2">Close</button>
               <button
                 onClick={executeAgent}
-                disabled={executing || !execAgent.ghlAgentId || (execMode === 'task' ? !execTask.trim() : (!execNiche.trim() || !execOffer.trim()))}
+                disabled={
+                  executing ||
+                  (execMode === 'build-page' && (!fbConnected || !execPageId.trim() || !execNiche.trim() || !execOffer.trim())) ||
+                  (execMode === 'task'  && (!execAgent.ghlAgentId || !execTask.trim())) ||
+                  (execMode === 'form'  && (!execAgent.ghlAgentId || !execNiche.trim() || !execOffer.trim()))
+                }
                 className="btn-primary text-sm px-6 py-2"
+                style={ execMode === 'build-page' ? { background: 'linear-gradient(135deg,#10b981,#059669)' } : {} }
               >
                 {executing ? (
                   <span className="flex items-center gap-2">
                     <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Executing…
+                    {execMode === 'build-page' ? 'Generating & saving…' : 'Executing…'}
                   </span>
-                ) : `🚀 Execute in GHL Agent Studio`}
+                ) : execMode === 'build-page'
+                  ? '🏗️ Generate & Push to GHL'
+                  : '🚀 Execute in GHL Agent Studio'
+                }
               </button>
             </div>
           </div>
