@@ -52,7 +52,7 @@ const COLOR_PRESETS = [
 // ── component ─────────────────────────────────────────────────────────────────
 
 export default function FunnelBuilder() {
-  const { isAuthenticated, isAuthLoading, apiKey, locationId } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, locationId } = useApp(); // eslint-disable-line no-unused-vars
 
   const [toastState,    setToastState]    = useState(null);
   const [fbStatus,      setFbStatus]      = useState(null);   // { connected, expiresAt }
@@ -171,10 +171,10 @@ export default function FunnelBuilder() {
   // ── render ───────────────────────────────────────────────────────────────────
 
   if (isAuthLoading) return <Spinner />;
+  if (!isAuthenticated) return <AuthGate icon="🏗️" title="Native Funnel Builder" />;
 
   return (
-    <AuthGate>
-      <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
+    <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
         <Header icon="🏗️" title="Native Funnel Builder" subtitle="AI-powered GHL page generation" />
 
         {/* Toast */}
@@ -556,6 +556,5 @@ export default function FunnelBuilder() {
 
         </div>
       </div>
-    </AuthGate>
   );
 }
