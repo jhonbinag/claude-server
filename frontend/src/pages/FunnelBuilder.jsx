@@ -10,7 +10,7 @@
  *   3. Generate → Claude writes native page JSON → saved to GHL
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp }  from '../context/AppContext';
 import AuthGate    from '../components/AuthGate';
 import Header      from '../components/Header';
@@ -55,14 +55,17 @@ export default function FunnelBuilder() {
   const { isAuthenticated, isAuthLoading, apiKey, locationId } = useApp(); // eslint-disable-line no-unused-vars
 
   const [toastState,    setToastState]    = useState(null);
-  const [fbStatus,      setFbStatus]      = useState(null);   // { connected, expiresAt }
+  const [fbStatus,      setFbStatus]      = useState(null);
   const [fbLoading,     setFbLoading]     = useState(true);
+
+  // Tab: 'text' | 'design'
+  const [genMode,       setGenMode]       = useState('text');
 
   // Connect panel
   const [token,         setToken]         = useState('');
   const [connecting,    setConnecting]    = useState(false);
 
-  // Generate form
+  // Generate form (text mode)
   const [pageId,        setPageId]        = useState('');
   const [funnelId,      setFunnelId]      = useState('');
   const [pageType,      setPageType]      = useState(PAGE_TYPES[0]);
@@ -74,6 +77,17 @@ export default function FunnelBuilder() {
   const [extraContext,  setExtraContext]  = useState('');
   const [generating,    setGenerating]    = useState(false);
   const [result,        setResult]        = useState(null);
+
+  // Design upload mode
+  const [designFile,    setDesignFile]    = useState(null);   // File object
+  const [designPreview, setDesignPreview] = useState(null);   // object URL
+  const [designPageId,  setDesignPageId]  = useState('');
+  const [designFunnelId,setDesignFunnelId]= useState('');
+  const [designContext, setDesignContext] = useState('');
+  const [designAgent,   setDesignAgent]   = useState('');
+  const [designDragging,setDesignDragging]= useState(false);
+  const [analyzing,     setAnalyzing]     = useState(false);
+  const fileInputRef                      = useRef(null);
 
   // Agent selector
   const [agents,        setAgents]        = useState([]);
@@ -130,6 +144,56 @@ export default function FunnelBuilder() {
     } catch (err) {
       toast(setToastState, err.message, 'error');
     }
+  }
+
+  function handleDesignFile(file) {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
+      toast(setToastState, 'Only PNG, JPG, WEBP, or GIF images are accepted.', 'error');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast(setToastState, 'Image must be under 10 MB.', 'error');
+      return;
+    }
+    setDesignFile(file);
+    if (designPreview) URL.revokeObjectURL(designPreview);
+    setDesignPreview(URL.createObjectURL(file));
+    setResult(null);
+  }
+
+  async function handleAnalyzeDesign(e) {
+    e.preventDefault();
+    if (!designFile)         { toast(setToastState, 'Upload a design image first.', 'error'); return; }
+    if (!designPageId.trim()) { toast(setToastState, 'Page ID is required.', 'error'); return; }
+
+    const formData = new FormData();
+    formData.append('image', designFile);
+    formData.append('pageId', designPageId.trim());
+    if (designFunnelId.trim()) formData.append('funnelId', designFunnelId.trim());
+    if (designContext.trim())  formData.append('extraContext', designContext.trim());
+    if (designAgent)           formData.append('agentId', designAgent);
+
+    setAnalyzing(true);
+    setResult(null);
+    try {
+      const resp = await fetch(`/funnel-builder/generate-from-design`, {
+        method:  'POST',
+        headers: { 'x-api-key': apiKey },
+        body:    formData,
+      });
+      const d = await resp.json();
+      if (d.success) {
+        setResult(d);
+        toast(setToastState, `Design analyzed (${d.sectionsCount} sections) and saved to GHL!`);
+      } else {
+        toast(setToastState, d.error || 'Analysis failed.', 'error');
+        if (d.pageJson) setResult({ pageJson: d.pageJson, failed: true });
+      }
+    } catch (err) {
+      toast(setToastState, err.message || 'Analysis failed.', 'error');
+    }
+    setAnalyzing(false);
   }
 
   async function handleGenerate(e) {
@@ -298,11 +362,180 @@ export default function FunnelBuilder() {
             className="glass rounded-xl p-5 mb-5 transition-all"
             style={{ opacity: fbStatus?.connected ? 1 : 0.45, pointerEvents: fbStatus?.connected ? 'auto' : 'none' }}
           >
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center"
-                style={{ background: '#1e3a5f' }}>2</span>
-              <h2 className="text-sm font-semibold text-white">Generate Native Page</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center"
+                  style={{ background: '#1e3a5f' }}>2</span>
+                <h2 className="text-sm font-semibold text-white">Generate Native Page</h2>
+              </div>
+              {/* Mode tabs */}
+              <div className="flex rounded-lg overflow-hidden border border-gray-700">
+                {[
+                  { key: 'text',   label: '✍️ From Brief' },
+                  { key: 'design', label: '🎨 From Design' },
+                ].map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setGenMode(key)}
+                    className="px-3 py-1.5 text-xs font-medium transition-all"
+                    style={{
+                      background: genMode === key ? '#4f46e5' : 'transparent',
+                      color: genMode === key ? '#fff' : '#9ca3af',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {/* ── Design Upload Mode ────────────────────────────────────── */}
+            {genMode === 'design' && (
+              <form onSubmit={handleAnalyzeDesign} className="space-y-4">
+                <p className="text-xs text-gray-400">
+                  Screenshot your Figma design (or any page design) and upload it. Claude Vision will analyze the layout and recreate it as native GHL elements.
+                </p>
+
+                {/* Drop zone */}
+                <div
+                  onDragOver={e => { e.preventDefault(); setDesignDragging(true); }}
+                  onDragLeave={() => setDesignDragging(false)}
+                  onDrop={e => { e.preventDefault(); setDesignDragging(false); handleDesignFile(e.dataTransfer.files[0]); }}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="relative rounded-xl border-2 border-dashed transition-all cursor-pointer overflow-hidden"
+                  style={{
+                    borderColor: designDragging ? '#6366f1' : designPreview ? '#374151' : '#374151',
+                    background:  designDragging ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)',
+                    minHeight:   designPreview ? 'auto' : 120,
+                  }}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={e => handleDesignFile(e.target.files[0])}
+                  />
+                  {designPreview ? (
+                    <div className="relative">
+                      <img
+                        src={designPreview}
+                        alt="Design preview"
+                        className="w-full rounded-xl object-contain max-h-96"
+                      />
+                      <div className="absolute inset-0 bg-black/0 hover:bg-black/40 transition-all rounded-xl flex items-center justify-center opacity-0 hover:opacity-100">
+                        <span className="text-white text-xs font-medium bg-black/60 px-3 py-1.5 rounded-lg">
+                          Click to replace
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-2 py-8">
+                      <span className="text-3xl">🖼️</span>
+                      <p className="text-xs text-gray-400 text-center">
+                        Drag & drop your Figma screenshot here<br />
+                        <span className="text-gray-600">or click to browse · PNG, JPG, WEBP up to 10 MB</span>
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {designFile && (
+                  <p className="text-xs text-gray-500">
+                    {designFile.name} · {(designFile.size / 1024).toFixed(0)} KB
+                    <button
+                      type="button"
+                      onClick={() => { setDesignFile(null); setDesignPreview(null); }}
+                      className="ml-2 text-red-400 hover:text-red-300"
+                    >
+                      Remove
+                    </button>
+                  </p>
+                )}
+
+                {/* Page identifiers */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                      GHL Page ID <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      value={designPageId}
+                      onChange={e => setDesignPageId(e.target.value)}
+                      placeholder="e.g. YbcohnneHGj8YGoDIY4k"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+                    />
+                    <p className="text-xs text-gray-600 mt-1">From GHL → Funnels → Page URL → last segment</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Funnel ID <span className="text-gray-600">(optional)</span>
+                    </label>
+                    <input
+                      value={designFunnelId}
+                      onChange={e => setDesignFunnelId(e.target.value)}
+                      placeholder="e.g. abc123xyz"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Agent selector */}
+                {agents.length > 0 && (
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                      AI Agent Persona <span className="text-gray-600">(optional)</span>
+                    </label>
+                    <select
+                      value={designAgent}
+                      onChange={e => setDesignAgent(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="">— Default (no persona) —</option>
+                      {agents.map(a => (
+                        <option key={a.id} value={a.id}>{a.emoji || '🤖'} {a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Extra context */}
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Design Notes <span className="text-gray-600">(optional — describe the design, brand, or anything not obvious from the screenshot)</span>
+                  </label>
+                  <textarea
+                    value={designContext}
+                    onChange={e => setDesignContext(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. This is a fitness coaching sales page. The blue is #1D4ED8. Replace placeholder images with fitness imagery."
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={analyzing || !designFile}
+                  className="w-full py-3 rounded-xl text-sm font-bold transition-all"
+                  style={{
+                    background: analyzing ? 'rgba(99,102,241,0.3)' : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                    color: '#fff',
+                    opacity: analyzing || !designFile ? 0.7 : 1,
+                  }}
+                >
+                  {analyzing ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                      Analyzing design with Claude Vision…
+                    </span>
+                  ) : '🎨 Analyze Design & Save to GHL'}
+                </button>
+              </form>
+            )}
+
+            {/* ── Text Brief Mode ──────────────────────────────────────── */}
+            {genMode === 'text' && (
 
             <form onSubmit={handleGenerate} className="space-y-4">
 
@@ -472,6 +705,8 @@ export default function FunnelBuilder() {
                 ) : '🏗️ Generate & Save Native Page'}
               </button>
             </form>
+            )}
+
           </section>
 
           {/* ── Result ──────────────────────────────────────────────────── */}
