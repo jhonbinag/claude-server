@@ -61,11 +61,26 @@ const config = {
   // ── Admin Access ──────────────────────────────────────────────────────────
   // Separate API key for the /admin/* routes. Never share with sub-accounts.
   adminApiKey: process.env.ADMIN_API_KEY || null,
+
+  // ── Chroma Vector DB (RAG knowledge base for agents) ──────────────────────
+  chroma: {
+    apiKey:   process.env.CHROMA_API_KEY   || null,
+    tenant:   process.env.CHROMA_TENANT    || null,
+    database: process.env.CHROMA_DATABASE  || null,
+  },
+  jinaApiKey: process.env.JINA_API_KEY || null,
 };
 
 // ── Derived flags ──────────────────────────────────────────────────────────────
 
 const encKeyValid = config.toolEncryptionKey && config.toolEncryptionKey.length === 64;
+
+config.isChromaEnabled = !!(
+  config.chroma.apiKey &&
+  config.chroma.tenant &&
+  config.chroma.database &&
+  config.jinaApiKey
+);
 
 config.isFirebaseEnabled = !!(
   config.firebase.projectId   &&

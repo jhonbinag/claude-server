@@ -22,6 +22,7 @@ const {
 const { savePageData, getPageData } = require('../services/ghlPageBuilder');
 const agentStore                    = require('../services/agentStore');
 const ghlClient                     = require('../services/ghlClient');
+const chroma                        = require('../services/chromaService');
 const https                         = require('https');
 
 router.use(authenticate);
@@ -214,6 +215,20 @@ router.post('/generate', async (req, res) => {
     }
   }
 
+  // Step 2c: RAG context from agent knowledge base (optional)
+  let ragContext = '';
+  if (agentId && chroma.isEnabled()) {
+    try {
+      const ragQuery = `${niche} ${offer} ${audience || ''} ${extraContext || ''}`.trim();
+      const chunks   = await chroma.queryKnowledge(req.locationId, agentId, ragQuery, 5);
+      if (chunks.length > 0) {
+        ragContext = `\n\nRelevant knowledge base context for this agent:\n${chunks.map((c, i) => `[${i + 1}] ${c.text}`).join('\n\n')}`;
+      }
+    } catch (e) {
+      console.warn('[FunnelBuilder] RAG query failed:', e.message);
+    }
+  }
+
   // Step 3: Build Claude prompt
   const pageLabel    = pageType || 'Sales Page';
   const colors       = colorScheme || 'modern, professional — use white, dark navy, and gold accents';
@@ -222,7 +237,7 @@ router.post('/generate', async (req, res) => {
     : '';
 
   const agentIntro = selectedAgent
-    ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\nYour training and instructions:\n${selectedAgent.instructions}\n\n---\n\n`
+    ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\nYour training and instructions:\n${selectedAgent.instructions}${ragContext}\n\n---\n\n`
     : '';
 
   const systemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer and copywriter. Your job is to generate complete, production-ready native GHL page JSON that follows the exact GoHighLevel page builder schema.

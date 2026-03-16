@@ -158,6 +158,7 @@ export default function Agents() {
   // Modal state
   const [modal,         setModal]         = useState(null); // null | 'create' | 'edit' | 'execute' | 'templates'
   const [editTarget,    setEditTarget]    = useState(null);
+  const [editTab,       setEditTab]       = useState('config'); // 'config' | 'kb'
   const [form,          setForm]          = useState(blank());
   const [saving,        setSaving]        = useState(false);
 
@@ -323,6 +324,7 @@ export default function Agents() {
 
   function openEdit(agent) {
     setEditTarget(agent);
+    setEditTab('config');
     setForm({
       name: agent.name, emoji: agent.emoji, role: agent.role,
       persona: agent.persona || '', instructions: agent.instructions,
@@ -502,6 +504,33 @@ export default function Agents() {
       {/* ── Create / Edit modal ──────────────────────────────────────────────── */}
       {(modal === 'create' || modal === 'edit') && (
         <Modal title={modal === 'edit' ? `Edit: ${editTarget?.name}` : 'New Agent'} onClose={closeModal} wide>
+          {/* Tab switcher — only in edit mode */}
+          {modal === 'edit' && (
+            <div className="flex gap-2 mb-5 border-b pb-3" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+              {[
+                { key: 'config', label: '⚙️ Agent Config' },
+                { key: 'kb',     label: '📚 Knowledge Base' },
+              ].map(({ key, label }) => (
+                <button key={key} onClick={() => setEditTab(key)}
+                  className="text-xs px-3 py-1.5 rounded-lg transition-all"
+                  style={{
+                    background: editTab === key ? 'rgba(99,102,241,0.2)' : 'transparent',
+                    border:     editTab === key ? '1px solid rgba(99,102,241,0.4)' : '1px solid transparent',
+                    color:      editTab === key ? '#a5b4fc' : '#6b7280',
+                  }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Knowledge Base tab */}
+          {modal === 'edit' && editTab === 'kb' && (
+            <KnowledgeBasePanel agentId={editTarget.id} locationId={locationId} headers={headers} />
+          )}
+
+          {/* Agent Config tab */}
+          {(modal === 'create' || editTab === 'config') && (
           <div className="flex flex-col gap-4">
 
             {/* Name + Emoji + Role */}
@@ -602,6 +631,7 @@ export default function Agents() {
               </button>
             </div>
           </div>
+          )}
         </Modal>
       )}
 
@@ -912,6 +942,254 @@ function AgentCard({ agent, ghlAgentName, onEdit, onDelete, onExecute }) {
           🗑️
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── KnowledgeBasePanel ────────────────────────────────────────────────────────
+
+function KnowledgeBasePanel({ agentId, locationId, headers }) {
+  const [status,    setStatus]    = useState(null);   // { enabled, chunks, docs }
+  const [docs,      setDocs]      = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [adding,    setAdding]    = useState(false);
+  const [addMode,   setAddMode]   = useState('text'); // 'text' | 'url'
+  const [addText,   setAddText]   = useState('');
+  const [addUrl,    setAddUrl]    = useState('');
+  const [addLabel,  setAddLabel]  = useState('');
+  const [addErr,    setAddErr]    = useState('');
+  const [addOk,     setAddOk]     = useState('');
+  const [query,     setQuery]     = useState('');
+  const [queryRes,  setQueryRes]  = useState(null);
+  const [querying,  setQuerying]  = useState(false);
+  const [deleting,  setDeleting]  = useState(null); // docId being deleted
+
+  const h = () => ({ 'Content-Type': 'application/json', 'x-location-id': locationId });
+
+  async function loadStatus() {
+    try {
+      const r = await fetch(`/knowledge/${agentId}/status`, { headers: h() });
+      const d = await r.json();
+      setStatus(d);
+    } catch (_) {}
+  }
+
+  async function loadDocs() {
+    try {
+      const r = await fetch(`/knowledge/${agentId}/docs`, { headers: h() });
+      const d = await r.json();
+      if (d.success) setDocs(d.data || []);
+    } catch (_) {}
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadStatus();
+    loadDocs();
+  }, [agentId]); // eslint-disable-line
+
+  async function handleAdd() {
+    setAddErr('');
+    setAddOk('');
+    if (addMode === 'text' && !addText.trim()) { setAddErr('Enter some text first.'); return; }
+    if (addMode === 'url'  && !addUrl.trim())  { setAddErr('Enter a URL first.'); return; }
+    setAdding(true);
+    try {
+      const body = addMode === 'text'
+        ? { text: addText.trim(), sourceLabel: addLabel.trim() || 'manual' }
+        : { url:  addUrl.trim(),  sourceLabel: addLabel.trim() || addUrl.trim() };
+      const r = await fetch(`/knowledge/${agentId}/docs`, {
+        method: 'POST', headers: h(), body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setAddOk(`Added ${d.chunks} chunk${d.chunks !== 1 ? 's' : ''}.`);
+        setAddText('');
+        setAddUrl('');
+        setAddLabel('');
+        await loadStatus();
+        await loadDocs();
+      } else {
+        setAddErr(d.error || 'Failed to add.');
+      }
+    } catch (e) {
+      setAddErr(e.message);
+    }
+    setAdding(false);
+  }
+
+  async function handleDelete(docId) {
+    setDeleting(docId);
+    try {
+      const r = await fetch(`/knowledge/${agentId}/docs/${docId}`, { method: 'DELETE', headers: h() });
+      const d = await r.json();
+      if (d.success) {
+        setDocs(prev => prev.filter(doc => doc.docId !== docId));
+        await loadStatus();
+      }
+    } catch (_) {}
+    setDeleting(null);
+  }
+
+  async function handleQuery() {
+    if (!query.trim()) return;
+    setQuerying(true);
+    setQueryRes(null);
+    try {
+      const r = await fetch(`/knowledge/${agentId}/query`, {
+        method: 'POST', headers: h(), body: JSON.stringify({ query: query.trim(), k: 3 }),
+      });
+      const d = await r.json();
+      if (d.success) setQueryRes(d.data);
+      else setQueryRes([]);
+    } catch (_) { setQueryRes([]); }
+    setQuerying(false);
+  }
+
+  if (status && !status.enabled) {
+    return (
+      <div className="rounded-xl p-5 text-center" style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)' }}>
+        <p className="text-sm text-indigo-300 font-semibold mb-2">📚 Knowledge Base — Not Configured</p>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          To enable RAG for this agent, set these environment variables on your server:<br />
+          <code className="text-indigo-400">CHROMA_API_KEY</code>, <code className="text-indigo-400">CHROMA_TENANT</code>,{' '}
+          <code className="text-indigo-400">CHROMA_DATABASE</code>, <code className="text-indigo-400">JINA_API_KEY</code>
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Stats */}
+      {status && (
+        <div className="flex gap-3">
+          {[
+            { label: 'Documents', value: status.docs ?? '–' },
+            { label: 'Chunks',    value: status.chunks ?? '–' },
+            { label: 'Status',    value: status.enabled ? 'Active' : 'Off' },
+          ].map(s => (
+            <div key={s.label} className="flex-1 rounded-xl p-3 text-center"
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <p className="text-lg font-bold text-white">{s.value}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add document */}
+      <div className="rounded-xl p-4 flex flex-col gap-3"
+        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-white">Add to Knowledge Base</p>
+          <div className="flex gap-1">
+            {['text', 'url'].map(m => (
+              <button key={m} onClick={() => { setAddMode(m); setAddErr(''); setAddOk(''); }}
+                className="text-xs px-2.5 py-1 rounded-lg transition-all"
+                style={{
+                  background: addMode === m ? 'rgba(99,102,241,0.2)' : 'transparent',
+                  color:      addMode === m ? '#a5b4fc' : '#6b7280',
+                  border:     '1px solid ' + (addMode === m ? 'rgba(99,102,241,0.4)' : 'transparent'),
+                }}>
+                {m === 'text' ? '📝 Text' : '🔗 URL'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {addMode === 'text' ? (
+          <textarea value={addText} onChange={e => setAddText(e.target.value)}
+            placeholder="Paste any knowledge text — product info, brand guide, FAQs, SOPs, testimonials..."
+            className="field text-xs w-full resize-none" rows={5} />
+        ) : (
+          <input value={addUrl} onChange={e => setAddUrl(e.target.value)}
+            placeholder="https://your-website.com/page  (Jina Reader will fetch & clean the text)"
+            className="field text-xs w-full font-mono" />
+        )}
+
+        <input value={addLabel} onChange={e => setAddLabel(e.target.value)}
+          placeholder="Source label (optional) — e.g. Brand Guide, FAQ, Case Study"
+          className="field text-xs w-full" />
+
+        {addErr && <p className="text-xs text-red-400">{addErr}</p>}
+        {addOk  && <p className="text-xs text-emerald-400">✅ {addOk}</p>}
+
+        <button onClick={handleAdd} disabled={adding}
+          className="btn-primary text-xs py-2 self-start px-5">
+          {adding ? (
+            <span className="flex items-center gap-2">
+              <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              {addMode === 'url' ? 'Fetching & indexing…' : 'Indexing…'}
+            </span>
+          ) : '+ Add Document'}
+        </button>
+      </div>
+
+      {/* Document list */}
+      {loading ? (
+        <div className="flex justify-center py-6">
+          <div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+        </div>
+      ) : docs.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-gray-500">Documents ({docs.length})</p>
+          {docs.map(doc => (
+            <div key={doc.docId} className="flex items-center gap-3 rounded-xl px-3 py-2.5"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-white font-medium truncate">{doc.sourceLabel}</p>
+                {doc.url && <p className="text-xs text-gray-600 truncate">{doc.url}</p>}
+                <p className="text-xs text-gray-600">{doc.chunks} chunk{doc.chunks !== 1 ? 's' : ''} · {new Date(doc.addedAt).toLocaleDateString()}</p>
+              </div>
+              <button onClick={() => handleDelete(doc.docId)}
+                disabled={deleting === doc.docId}
+                className="text-xs px-2 py-1 rounded-lg flex-shrink-0 transition-all"
+                style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.15)' }}>
+                {deleting === doc.docId ? '…' : '🗑️'}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-gray-600 text-center py-4">No documents yet. Add text or a URL above to build this agent's knowledge base.</p>
+      )}
+
+      {/* Query preview */}
+      {docs.length > 0 && (
+        <div className="rounded-xl p-4 flex flex-col gap-3"
+          style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <p className="text-xs font-semibold text-gray-400">🔍 Test RAG Search</p>
+          <div className="flex gap-2">
+            <input value={query} onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleQuery()}
+              placeholder="Enter a query to see what the agent retrieves..."
+              className="field text-xs flex-1" />
+            <button onClick={handleQuery} disabled={querying || !query.trim()}
+              className="btn-ghost text-xs px-3 py-1.5">
+              {querying ? '…' : 'Search'}
+            </button>
+          </div>
+          {queryRes && (
+            <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
+              {queryRes.length === 0
+                ? <p className="text-xs text-gray-600">No results found.</p>
+                : queryRes.map((r, i) => (
+                  <div key={i} className="rounded-lg p-2.5" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                    <div className="flex justify-between mb-1">
+                      <span className="text-xs text-gray-500">{r.sourceLabel}</span>
+                      <span className="text-xs" style={{ color: r.score > 0.7 ? '#4ade80' : '#f59e0b' }}>
+                        {(r.score * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-300 leading-relaxed line-clamp-3">{r.text}</p>
+                  </div>
+                ))
+              }
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -18,6 +18,7 @@ const authenticate = require('../middleware/authenticate');
 const agentStore   = require('../services/agentStore');
 const ghlClient    = require('../services/ghlClient');
 const Anthropic    = require('@anthropic-ai/sdk');
+const chroma       = require('../services/chromaService');
 
 router.use(authenticate);
 
@@ -86,6 +87,10 @@ router.put('/agents/:id', async (req, res) => {
 router.delete('/agents/:id', async (req, res) => {
   try {
     await agentStore.deleteAgent(req.locationId, req.params.id);
+    // Best-effort cleanup of Chroma collection
+    if (chroma.isEnabled()) {
+      chroma.deleteCollection(req.locationId, req.params.id).catch(() => {});
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -124,11 +129,24 @@ router.post('/agents/:id/execute', async (req, res) => {
       extraContext  && `Extra context: ${extraContext}`,
     ].filter(Boolean).join('\n');
 
+    // Optional RAG context from Chroma knowledge base
+    let ragContext = '';
+    if (chroma.isEnabled()) {
+      try {
+        const chunks = await chroma.queryKnowledge(req.locationId, req.params.id, taskDescription, 5);
+        if (chunks.length > 0) {
+          ragContext = `\n\nRelevant knowledge base context:\n${chunks.map((c, i) => `[${i + 1}] ${c.text}`).join('\n\n')}`;
+        }
+      } catch (e) {
+        console.warn('[Agent] RAG query failed:', e.message);
+      }
+    }
+
     // Generate a structured execution brief using the agent's persona
     const systemPrompt = `You are ${agent.name}. ${agent.persona || ''}
 
 Your core instructions and training:
-${agent.instructions}
+${agent.instructions}${ragContext}
 
 Your job is to generate a complete, detailed execution brief that the GHL Agent Studio agent will follow step-by-step to complete the requested task inside GoHighLevel. Be extremely specific — include actual copy, headlines, CTAs, color suggestions, and step-by-step build instructions. The GHL agent must be able to execute this without any follow-up questions.`;
 
