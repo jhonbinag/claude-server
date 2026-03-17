@@ -13,56 +13,12 @@ const express      = require('express');
 const router       = express.Router();
 
 // Repair truncated JSON: close open strings, fill dangling keys, close brackets
-// Add missing commas between adjacent JSON values outside strings.
-// Handles: `} {`, `} [`, `] {`, `"val" "key"`, etc.
-function fixMissingCommas(str) {
-  let result = '';
-  let inString = false;
-  let escape = false;
-  let lastNonSpace = '';
-  for (let i = 0; i < str.length; i++) {
-    const ch = str[i];
-    if (escape)                  { escape = false; result += ch; lastNonSpace = ch; continue; }
-    if (ch === '\\' && inString) { escape = true;  result += ch; lastNonSpace = ch; continue; }
-    if (ch === '"')              { inString = !inString; result += ch; lastNonSpace = ch; continue; }
-    if (inString)                { result += ch; continue; }
-    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') { result += ch; continue; }
-    // If the current char starts a new value AND the previous non-space ended a value → insert comma
-    const startsValue = ch === '{' || ch === '[' || ch === '"' || (ch >= '0' && ch <= '9') || ch === 't' || ch === 'f' || ch === 'n';
-    const endedValue  = lastNonSpace === '}' || lastNonSpace === ']' || lastNonSpace === '"' || (lastNonSpace >= '0' && lastNonSpace <= '9');
-    if (startsValue && endedValue) result += ',';
-    result += ch;
-    lastNonSpace = ch;
-  }
-  return result;
-}
-
-function repairJson(str) {
-  const stack = [];
-  let inString = false;
-  let escape   = false;
-  for (const ch of str) {
-    if (escape)                        { escape = false; continue; }
-    if (ch === '\\' && inString)       { escape = true;  continue; }
-    if (ch === '"')                    { inString = !inString; continue; }
-    if (inString)                      continue;
-    if (ch === '{' || ch === '[')      stack.push(ch === '{' ? '}' : ']');
-    else if (ch === '}' || ch === ']') stack.pop();
-  }
-  let out = str.trimEnd();
-  if (inString) out += '"';
-  if (/[{,]\s*"[^"]*"\s*$/.test(out) && stack.length && stack[stack.length - 1] === '}') out += ': null';
-  out = out.replace(/,\s*$/, '');
-  if (/:\s*$/.test(out)) out += 'null';
-  return out + stack.reverse().join('');
-}
+const { jsonrepair } = require('jsonrepair');
 
 function parseJsonSafe(raw) {
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
   try { return JSON.parse(cleaned); } catch { /* fall through */ }
-  const withCommas = fixMissingCommas(cleaned);
-  try { return JSON.parse(withCommas); } catch { /* fall through */ }
-  return JSON.parse(repairJson(withCommas));
+  return JSON.parse(jsonrepair(cleaned));
 }
 const multer       = require('multer');
 const aiService    = require('../services/aiService');
