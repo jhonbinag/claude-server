@@ -342,6 +342,34 @@ function sanitizeSchema(schema) {
   return out;
 }
 
+// Minimal schema for Groq — strip descriptions and nested detail to save tokens
+function stripSchemaForGroq(schema) {
+  if (!schema || typeof schema !== 'object') return { type: 'string' };
+  const out = { type: schema.type || 'object' };
+  if (schema.properties) {
+    out.properties = {};
+    for (const [k, v] of Object.entries(schema.properties)) {
+      const prop = { type: v.type || 'string' };
+      if (v.enum) prop.enum = v.enum;
+      if (v.type === 'array') prop.items = { type: v.items?.type || 'string' };
+      out.properties[k] = prop;
+    }
+  }
+  if (Array.isArray(schema.required)) out.required = schema.required;
+  return out;
+}
+
+function toGroqFunctions(tools) {
+  return tools.slice(0, 12).map(t => ({
+    type: 'function',
+    function: {
+      name:        t.name,
+      description: t.description.split('.')[0].slice(0, 80), // first sentence, max 80 chars
+      parameters:  stripSchemaForGroq(t.input_schema),
+    },
+  }));
+}
+
 // Convert Anthropic input_schema tools → Gemini functionDeclarations
 function toGeminiFunctions(tools) {
   return tools.map(t => ({
@@ -541,15 +569,14 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
     toolRegistry.getEnabledIntegrations(locationId),
   ]);
 
-  // For Groq: use shorter prompt and limit tool count to stay within TPM budget
+  // For Groq: use shorter prompt and stripped tools to stay within 6K TPM budget
   const systemPrompt = isGroq
     ? buildShortSystemPrompt(locationId, companyId, enabledIntegrations)
     : buildSystemPrompt(locationId, companyId, enabledIntegrations);
 
-  // Groq: cap at 20 tools to reduce prompt token overhead; prioritise core GHL tools
-  const toolList     = isGroq ? tools.slice(0, 20) : tools;
-  const openAITools  = toOpenAIFunctions(toolList);
-  const maxTokens    = isGroq ? 2048 : 4096;
+  // Groq: use stripped/minimal tool schemas (12 tools max, no descriptions, flat schema)
+  const openAITools  = isGroq ? toGroqFunctions(tools) : toOpenAIFunctions(tools);
+  const maxTokens    = isGroq ? 1024 : 4096;
 
   const messages = [
     { role: 'system', content: systemPrompt },
