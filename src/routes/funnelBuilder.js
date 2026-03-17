@@ -178,6 +178,51 @@ router.delete('/connect', async (req, res) => {
   }
 });
 
+// ── GET /inspect-page — read raw Firestore doc + sub-collections for a page ──
+// Usage: GET /funnel-builder/inspect-page?pageId=xxx
+// Returns the raw Firestore document + tries to read sub-collection docs so
+// we can see exactly where GHL stores page sections.
+
+router.get('/inspect-page', async (req, res) => {
+  const { pageId } = req.query;
+  if (!pageId) return res.status(400).json({ error: '"pageId" query param required' });
+
+  let idToken;
+  try { idToken = await getFirebaseToken(req.locationId); }
+  catch (err) { return res.status(400).json({ error: 'Firebase not connected', detail: err.message }); }
+
+  const https       = require('https');
+  const projectId   = 'highlevel-backend';
+  const authHeader  = { 'Authorization': `Bearer ${idToken}` };
+
+  const get = (hostname, path) => new Promise((resolve) => {
+    const req2 = https.request({ hostname, path, method: 'GET', headers: authHeader }, (r) => {
+      let d = ''; r.on('data', c => d += c); r.on('end', () => {
+        try { resolve({ status: r.statusCode, data: JSON.parse(d) }); }
+        catch { resolve({ status: r.statusCode, data: d }); }
+      });
+    });
+    req2.on('error', e => resolve({ status: 0, error: e.message }));
+    req2.end();
+  });
+
+  const base = `/v1/projects/${projectId}/databases/(default)/documents`;
+
+  const [mainDoc, subSections, subContent, rtdb] = await Promise.all([
+    get('firestore.googleapis.com', `${base}/funnel_pages/${pageId}`),
+    get('firestore.googleapis.com', `${base}/funnel_pages/${pageId}/sections?pageSize=5`),
+    get('firestore.googleapis.com', `${base}/funnel_pages/${pageId}/content?pageSize=5`),
+    get(`${projectId}-default-rtdb.firebaseio.com`, `/funnel_pages/${pageId}.json?shallow=true`),
+  ]);
+
+  res.json({
+    mainDoc:     { status: mainDoc.status,     fields: mainDoc.data?.fields ? Object.keys(mainDoc.data.fields) : mainDoc.data },
+    subSections: { status: subSections.status, data: subSections.data },
+    subContent:  { status: subContent.status,  data: subContent.data },
+    rtdb:        { status: rtdb.status,        data: rtdb.data },
+  });
+});
+
 // ── GET /status — check whether Firebase token exists + expiry ────────────────
 
 router.get('/status', async (req, res) => {
