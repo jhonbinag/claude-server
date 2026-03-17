@@ -400,8 +400,10 @@ export default function FunnelBuilder() {
                       const serverUrl = window.location.origin;
                       const locId = locationId || '';
                       const bm = `javascript:(function(){` +
-                        `var t=localStorage.getItem('refreshedToken');` +
-                        `if(!t){alert('refreshedToken not found — open a GHL funnel or website page first.');return;}` +
+                        `var fbKey=Object.keys(localStorage).find(function(k){return k.startsWith('firebase:authUser:');});` +
+                        `var fbUser=fbKey?JSON.parse(localStorage.getItem(fbKey)||'null'):null;` +
+                        `var t=(fbUser&&fbUser.stsTokenManager&&fbUser.stsTokenManager.accessToken)||localStorage.getItem('refreshedToken');` +
+                        `if(!t){alert('Firebase token not found — open GHL and make sure you are logged in.');return;}` +
                         `fetch('${serverUrl}/funnel-builder/connect',{` +
                           `method:'POST',` +
                           `headers:{'Content-Type':'application/json','x-location-id':'${locId}'},` +
