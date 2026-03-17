@@ -122,6 +122,13 @@ export default function FunnelBuilder() {
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
+  // Re-check status whenever the user switches back to this tab (e.g. after running the console snippet in GHL)
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') loadStatus(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadStatus]);
+
   useEffect(() => {
     if (!apiKey) return;
     api.getWithKey('/agent/agents', apiKey)
@@ -495,7 +502,15 @@ export default function FunnelBuilder() {
                           <p className="text-xs text-gray-400 mt-2">
                             <strong className="text-gray-300">Step 2</strong> — Go to <code className="text-green-400">app.gohighlevel.com</code>, open DevTools (F12), paste into the <strong>Console</strong> tab and press Enter.
                           </p>
-                          <p className="text-xs text-gray-500 mt-1">You'll see a ✅ popup when connected.</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            You'll see a ✅ popup when connected. Then{' '}
+                            <button
+                              type="button"
+                              onClick={loadStatus}
+                              className="text-indigo-400 underline hover:text-indigo-300"
+                            >click here to refresh</button>
+                            {' '}or switch back to this tab — it checks automatically.
+                          </p>
                         </div>
                       );
                     })()}
