@@ -457,13 +457,20 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   if (!funnelId) throw new Error(`Page ${pageId} missing funnelId — provide funnelId in the request or open the page in GHL builder first.`);
 
   // Convert AI output → GHL's native hierarchical format
-  const ghlSections = convertSectionsToGHL(aiSections);
-  console.log(`[GHLPageBuilder] Built ${ghlSections.length} sections (GHL hierarchical format)`);
+  const allSections = convertSectionsToGHL(aiSections);
+  // Drop sections with no elements — GHL can crash on empty columns
+  const ghlSections = allSections.filter(s => {
+    const col = s.children?.[0]?.children?.[0];
+    return (col?.children || []).length > 0;
+  });
+  if (allSections.length !== ghlSections.length) {
+    console.warn(`[GHLPageBuilder] Dropped ${allSections.length - ghlSections.length} empty section(s)`);
+  }
+  console.log(`[GHLPageBuilder] Built ${ghlSections.length} sections with content`);
 
   // Storage file — matches GHL's native AI format exactly
   const storageFile = { sections: ghlSections };
-  const firstSection = ghlSections[0];
-  const firstElement = firstSection?.children?.[0]?.children?.[0]?.children?.[0];
+  const firstElement = ghlSections[0]?.children?.[0]?.children?.[0]?.children?.[0];
   console.log(`[GHLPageBuilder] Sample element: ${JSON.stringify(firstElement).slice(0, 300)}`);
 
   // Upload to Firebase Storage
@@ -486,13 +493,12 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   });
   const updatedVH = { arrayValue: { values: [newVHEntry, ...(existingVH || []).slice(0, 29)] } };
 
-  // Update Firestore — sections use same hierarchical format as Storage
+  // Update Firestore — only URL fields + metadata; Storage file is source of truth for sections
   const newVersion = (currentVersion || 1) + 1;
   const fsResult   = await patchFirestoreDoc(idToken, projectId, pageId, {
     page_data_url:          toFirestoreValue(storagePath),
     page_data_download_url: toFirestoreValue(newDownloadUrl),
     versionHistory:         updatedVH,
-    sections:               toFirestoreValue(ghlSections),
     version:                toFirestoreValue(newVersion),
     date_updated:           { timestampValue: new Date().toISOString() },
   });
