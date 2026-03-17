@@ -360,11 +360,11 @@ function stripSchemaForGroq(schema) {
 }
 
 function toGroqFunctions(tools) {
-  return tools.slice(0, 12).map(t => ({
+  return tools.slice(0, 8).map(t => ({
     type: 'function',
     function: {
       name:        t.name,
-      description: t.description.split('.')[0].slice(0, 80), // first sentence, max 80 chars
+      description: t.description.split('.')[0].slice(0, 60),
       parameters:  stripSchemaForGroq(t.input_schema),
     },
   }));
@@ -519,7 +519,14 @@ function toOpenAIFunctions(tools) {
   }));
 }
 
-function openAIPost(hostname, apiKey, body, retries = 3) {
+// Parse "Please try again in X.Xs" from Groq 429 message → ms
+function parseGroqRetryAfter(message = '', retryAfterHeader) {
+  if (retryAfterHeader) return Math.ceil(parseFloat(retryAfterHeader)) * 1000 + 500;
+  const m = message.match(/try again in ([\d.]+)s/i);
+  return m ? Math.ceil(parseFloat(m[1])) * 1000 + 500 : 8000;
+}
+
+function openAIPost(hostname, apiKey, body, retries = 4) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = https.request(
@@ -536,12 +543,11 @@ function openAIPost(hostname, apiKey, body, retries = 3) {
           try {
             const parsed = JSON.parse(d);
             if (resp.statusCode === 429 && retries > 0) {
-              const wait = (4 - retries) * 5000;
-              console.warn(`[Groq] 429 — retrying in ${wait / 1000}s`);
+              const wait = parseGroqRetryAfter(parsed?.error?.message, resp.headers?.['retry-after']);
+              console.warn(`[Groq] 429 — retrying in ${wait / 1000}s (${retries} left)`);
               await new Promise(r => setTimeout(r, wait));
               openAIPost(hostname, apiKey, body, retries - 1).then(resolve).catch(reject);
             } else if (resp.statusCode === 400 && parsed?.error?.code === 'tool_use_failed' && retries > 0) {
-              // Model generated malformed tool call — retry without tools so it responds in text
               console.warn('[Groq] tool_use_failed — retrying without tool definitions');
               const bodyNoTools = { ...body, tools: undefined, tool_choice: undefined };
               openAIPost(hostname, apiKey, bodyNoTools, 0).then(resolve).catch(reject);
@@ -616,6 +622,9 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
       emit({ type: 'done', message: finalText, turns, toolCallCount });
       return { result: finalText, turns, toolCallCount };
     }
+
+    // For Groq: small pause between turns to spread across the TPM sliding window
+    if (isGroq) await new Promise(r => setTimeout(r, 3000));
 
     // Execute tool calls
     for (const tc of toolCalls) {
