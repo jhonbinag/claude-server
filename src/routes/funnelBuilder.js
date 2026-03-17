@@ -216,10 +216,20 @@ router.get('/inspect-page', async (req, res) => {
   ]);
 
   res.json({
-    mainDoc:     { status: mainDoc.status,     fields: mainDoc.data?.fields ? Object.keys(mainDoc.data.fields) : mainDoc.data },
+    mainDoc:     {
+      status: mainDoc.status,
+      // Show ALL field names present in the doc (tells us what fields GHL stores)
+      fields: mainDoc.data?.fields ? Object.keys(mainDoc.data.fields) : mainDoc.data,
+      // Show the raw sections field if it exists
+      sectionsPresent: !!mainDoc.data?.fields?.sections,
+      rawSectionsSample: mainDoc.data?.fields?.sections
+        ? JSON.stringify(mainDoc.data.fields.sections).slice(0, 500)
+        : null,
+    },
     subSections: { status: subSections.status, data: subSections.data },
     subContent:  { status: subContent.status,  data: subContent.data },
     rtdb:        { status: rtdb.status,        data: rtdb.data },
+    // Also try reading from backend API GET (different from POST)
   });
 });
 
