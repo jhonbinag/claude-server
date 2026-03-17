@@ -78,6 +78,7 @@ export default function FunnelBuilder() {
   const [generating,    setGenerating]    = useState(false);
   const [genSteps,      setGenSteps]      = useState([]);
   const [result,        setResult]        = useState(null);
+  const stepsRef = useRef(null);
 
   // Design upload mode
   const [designFile,    setDesignFile]    = useState(null);   // File object
@@ -208,6 +209,7 @@ export default function FunnelBuilder() {
     setGenerating(true);
     setResult(null);
     setGenSteps([{ text: 'Sending request to AI…', status: 'running' }]);
+    setTimeout(() => stepsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
     try {
       setGenSteps(s => [...s.slice(0,-1), { text: 'AI generating page JSON…', status: 'running' }]);
       const d = await api.postWithKey('/funnel-builder/generate', {
@@ -715,19 +717,23 @@ export default function FunnelBuilder() {
                 ) : '🏗️ Generate & Save Native Page'}
               </button>
 
-              {/* Processing steps */}
-              {genSteps.length > 0 && (
-                <div className="mt-3 rounded-xl p-3 space-y-1.5 text-xs" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                  {genSteps.map((step, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      {step.status === 'running' && <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
-                      {step.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
-                      {step.status === 'error'   && <span className="text-red-400 flex-shrink-0">✗</span>}
-                      <span style={{ color: step.status === 'error' ? '#f87171' : step.status === 'done' ? '#6ee7b7' : '#a5b4fc' }}>{step.text}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* Processing steps — always visible */}
+              <div ref={stepsRef} className="mt-3 rounded-xl p-3 text-xs" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.07)', minHeight: 40 }}>
+                {genSteps.length === 0 ? (
+                  <span className="text-gray-600">Processing steps will appear here when you click Generate…</span>
+                ) : (
+                  <div className="space-y-1.5">
+                    {genSteps.map((step, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        {step.status === 'running' && <span className="animate-spin inline-block w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
+                        {step.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
+                        {step.status === 'error'   && <span className="text-red-400 flex-shrink-0">✗</span>}
+                        <span style={{ color: step.status === 'error' ? '#f87171' : step.status === 'done' ? '#6ee7b7' : '#a5b4fc' }}>{step.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </form>
             )}
 
