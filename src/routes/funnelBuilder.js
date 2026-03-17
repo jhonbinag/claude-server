@@ -343,6 +343,9 @@ router.post('/generate', async (req, res) => {
   if (!niche || !offer) {
     return res.status(400).json({ success: false, error: '"niche" and "offer" are required.' });
   }
+  if (!funnelId && !pageId) {
+    return res.status(400).json({ success: false, error: '"funnelId" is required (pageId is auto-detected from funnelId).' });
+  }
 
   if (!aiService.getProvider()) {
     return res.status(503).json({ success: false, error: 'No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.' });
@@ -360,14 +363,34 @@ router.post('/generate', async (req, res) => {
     });
   }
 
+  // Step 1b: Auto-detect pageId from funnelId if not provided
+  let resolvedPageId = pageId;
+  if (!resolvedPageId && funnelId) {
+    try {
+      const result = await ghlClient.ghlRequest(req.locationId, 'GET', '/funnels/page', null, {
+        locationId: req.locationId, funnelId, limit: 20, offset: '0',
+      });
+      const pages = result?.funnelPages || result?.pages || result?.pageList || result?.list || result?.data
+                 || (Array.isArray(result) ? result : []);
+      if (!pages.length) {
+        return res.status(400).json({ success: false, error: 'No pages found in this funnel. Add a page in GHL first.' });
+      }
+      pages.sort((a, b) => (a.stepOrder || 0) - (b.stepOrder || 0));
+      resolvedPageId = pages[0].id || pages[0]._id;
+      console.log(`[FunnelBuilder] Auto-detected pageId: ${resolvedPageId} (first page in funnel ${funnelId})`);
+    } catch (err) {
+      return res.status(502).json({ success: false, error: `Failed to list funnel pages: ${err.message}` });
+    }
+  }
+
   // Step 2: Optionally fetch existing page context
   let pageContext = null;
   try {
-    pageContext = await getPageData(req.locationId, pageId);
+    pageContext = await getPageData(req.locationId, resolvedPageId);
   } catch (err) {
     // Non-fatal — 404 is normal for new pages, log only unexpected errors
     if (!err.message.includes('404')) {
-      console.warn(`[FunnelBuilder] Could not fetch page context for ${pageId}:`, err.message);
+      console.warn(`[FunnelBuilder] Could not fetch page context for ${resolvedPageId}:`, err.message);
     }
   }
 
@@ -494,7 +517,7 @@ Output ONLY the JSON object. No markdown, no explanation.`;
   // Step 5: Save to GHL backend
   let saveResult;
   try {
-    saveResult = await saveWithFunnelHint(req.locationId, pageId, pageJson, funnelId);
+    saveResult = await saveWithFunnelHint(req.locationId, resolvedPageId, pageJson, funnelId);
   } catch (err) {
     console.error('[FunnelBuilder] savePageData error:', err.message);
     return res.status(500).json({
@@ -508,12 +531,12 @@ Output ONLY the JSON object. No markdown, no explanation.`;
 
   // Step 6: Build preview URL
   const previewUrl = funnelId
-    ? `https://app.gohighlevel.com/v2/preview/${funnelId}/${pageId}`
+    ? `https://app.gohighlevel.com/v2/preview/${funnelId}/${resolvedPageId}`
     : null;
 
   res.json({
     success:      true,
-    pageId,
+    pageId:       resolvedPageId,
     previewUrl,
     sectionsCount: pageJson.sections.length,
     agentUsed:    selectedAgent ? { id: selectedAgent.id, name: selectedAgent.name, emoji: selectedAgent.emoji } : null,
