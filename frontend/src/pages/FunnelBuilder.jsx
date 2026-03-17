@@ -480,23 +480,29 @@ export default function FunnelBuilder() {
                       const locId = locationId || '';
                       const snippet =
 `(async()=>{
-  const post=t=>fetch('${serverUrl}/funnel-builder/connect',{method:'POST',headers:{'Content-Type':'application/json','x-location-id':'${locId}'},body:JSON.stringify({refreshedToken:t})}).then(r=>r.json()).then(d=>{if(d.success)alert('✅ Connected! Go back to your app.');else alert('❌ '+(d.error||'Failed: '+JSON.stringify(d)));});
-  // Helper: extract best token from a Firebase auth record (refresh token preferred — never expires)
-  const best=stm=>{if(!stm)return null;return stm.refreshToken||stm.accessToken||null;};
-  // 1st: GHL custom token — carries Storage + Firestore custom claims
-  const rt=localStorage.getItem('refreshedToken');
-  if(rt){console.log('Using GHL refreshedToken');return post(rt);}
-  // 2nd: IndexedDB auth state (Firebase v9+) — prefer refreshToken over accessToken
+  const SERVER='${serverUrl}',LOC='${locId}';
+  const post=(t,src)=>{console.log('[GHL Connect] Trying token from:',src,'length:',t.length,'prefix:',t.slice(0,30));return fetch(SERVER+'/funnel-builder/connect',{method:'POST',headers:{'Content-Type':'application/json','x-location-id':LOC},body:JSON.stringify({refreshedToken:t})}).then(r=>r.json()).then(d=>{console.log('[GHL Connect] Server response:',d);if(d.success)alert('✅ Connected! Go back to your app.');else alert('❌ '+(d.error||JSON.stringify(d)));});};
+  // 1st: Firebase refresh token from IndexedDB (Firebase v9+ — never expires, best option)
   try{
     const db=await new Promise((res,rej)=>{const r=indexedDB.open('firebaseLocalStorageDb');r.onsuccess=e=>res(e.target.result);r.onerror=()=>rej(r.error);});
-    const idbToken=await new Promise((res,rej)=>{const tx=db.transaction('firebaseLocalStorage','readonly');const req=tx.objectStore('firebaseLocalStorage').getAll();req.onsuccess=e=>{const rec=e.target.result.find(r=>r&&r.value&&r.value.stsTokenManager);res(best(rec?.value?.stsTokenManager)||null);};req.onerror=()=>res(null);});
-    if(idbToken){console.log('Using IndexedDB token');return post(idbToken);}
-  }catch(e){console.warn('IndexedDB read failed',e);}
-  // 3rd: localStorage auth state (Firebase v8) — prefer refreshToken over accessToken
+    const rows=await new Promise((res,rej)=>{const tx=db.transaction('firebaseLocalStorage','readonly');const req=tx.objectStore('firebaseLocalStorage').getAll();req.onsuccess=e=>res(e.target.result||[]);req.onerror=()=>res([]);});
+    console.log('[GHL Connect] IndexedDB rows:',rows.length);
+    const stm=rows.find(r=>r?.value?.stsTokenManager)?.value?.stsTokenManager;
+    console.log('[GHL Connect] IndexedDB stsTokenManager:',stm?{hasRefresh:!!stm.refreshToken,hasAccess:!!stm.accessToken,exp:stm.expirationTime}:'not found');
+    if(stm?.refreshToken){return post(stm.refreshToken,'IndexedDB refreshToken');}
+    if(stm?.accessToken){return post(stm.accessToken,'IndexedDB accessToken');}
+  }catch(e){console.warn('[GHL Connect] IndexedDB failed:',e);}
+  // 2nd: Firebase auth from localStorage (Firebase v8)
   const lsKey=Object.keys(localStorage).find(k=>k.startsWith('firebase:authUser:'));
-  const lsToken=lsKey?best(JSON.parse(localStorage.getItem(lsKey)||'null')?.stsTokenManager):null;
-  if(lsToken){console.log('Using localStorage token');return post(lsToken);}
-  alert('No Firebase token found. Make sure you are logged in to GHL and try again.');
+  const lsStm=lsKey?JSON.parse(localStorage.getItem(lsKey)||'null')?.stsTokenManager:null;
+  console.log('[GHL Connect] localStorage stsTokenManager:',lsStm?{hasRefresh:!!lsStm.refreshToken,hasAccess:!!lsStm.accessToken}:'not found');
+  if(lsStm?.refreshToken){return post(lsStm.refreshToken,'localStorage refreshToken');}
+  if(lsStm?.accessToken){return post(lsStm.accessToken,'localStorage accessToken');}
+  // 3rd: GHL refreshedToken (last resort — may be expired)
+  const rt=localStorage.getItem('refreshedToken');
+  console.log('[GHL Connect] refreshedToken:',rt?'found (length '+rt.length+')':'not found');
+  if(rt){return post(rt,'GHL refreshedToken');}
+  alert('❌ No Firebase token found. Make sure you are logged in to GHL first.');
 })();`;
                       return (
                         <div className="mb-4">
