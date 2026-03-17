@@ -30,6 +30,7 @@ const {
   getStatus,
 } = require('../services/ghlFirebaseService');
 const { savePageData, getPageData } = require('../services/ghlPageBuilder');
+const { buildPageHtml }             = require('../tools/ghlTools');
 const agentStore                    = require('../services/agentStore');
 const ghlClient                     = require('../services/ghlClient');
 const chroma                        = require('../services/chromaService');
@@ -655,18 +656,24 @@ router.post('/generate-funnel', async (req, res) => {
     const agentIntro = agentInfo ? `You are ${agentInfo.name}. ${agentInfo.persona || ''}\n${agentInfo.instructions}\n\n---\n\n` : '';
     const isGroqLocal = isGroq;
 
-    const groqSysPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
-Root: {"sections":[...]}. IDs: type-XXXXXXXX. Styles: {"value":X,"unit":"px"} or {"value":"#HEX"}.
-Elements: heading(tag h1/h2/h3), sub-heading, paragraph(text as <p>html</p>), button(link,text), bulletList(items:[{text}],icon:{name:"check",unicode:"f00c",fontFamily:"Font Awesome 5 Free"}), image(src,alt).
-Section: {"id":"section-X","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-X","type":"row","children":[{"id":"column-X","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}`;
+    const systemPrompt = `${agentIntro}You are a GHL funnel page content generator. Output ONLY a valid JSON array of sections. No explanation, no markdown.
 
-    const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. Generate production-ready native GHL page JSON. Output ONLY valid JSON. Root: {"sections":[...]}. Follow GHL schema with {"value":X,"unit":"px"} style format. Include mobileStyles with ~60% desktop values.`;
+Each section: { "bgColor": "#hex", "padding": "60px 40px", "elements": [...] }
+Element types:
+- headline: { "type":"headline", "text":"...", "level":"h1"|"h2"|"h3", "color":"#hex", "align":"center"|"left" }
+- subheadline: { "type":"subheadline", "text":"...", "color":"#hex", "align":"center" }
+- text: { "type":"text", "text":"...", "color":"#hex", "align":"left" }
+- button: { "type":"button", "text":"...", "href":"#", "bgColor":"#hex", "color":"#fff", "size":"large", "align":"center" }
+- bullets: { "type":"bullets", "items":["benefit 1","benefit 2",...], "color":"#hex", "checkColor":"#hex" }
+- testimonial: { "type":"testimonial", "quote":"...", "author":"Name", "role":"Title" }
+- form: { "type":"form", "fields":["firstName","email"], "submitText":"...", "submitBgColor":"#hex" }
+- divider: { "type":"divider" }
 
-    const systemPrompt = isGroqLocal ? groqSysPrompt : fullSysPrompt;
+Output format: [{ "bgColor":"...", "padding":"...", "elements":[...] }, ...]`;
 
     const sectionsNote = isGroqLocal
-      ? `Build 3 sections: Hero (H1 + subheading + CTA), Benefits (4 bullet points), CTA (headline + button). Keep copy short.`
-      : `Build a complete ${pageType} with all relevant sections: hero, benefits, social proof, CTA, and any page-type specific sections.`;
+      ? `Build 3 sections: Hero (headline + subheadline + button), Benefits (bullets), CTA (headline + button). Keep copy concise.`
+      : `Build a complete ${pageType} with all relevant sections: hero, benefits/features, social proof (testimonials), and CTA.`;
 
     const userPrompt = `Generate a native GHL ${pageType} JSON (step ${i + 1} of ${pages.length} in a funnel).
 Page name: "${page.name}"
@@ -679,24 +686,30 @@ ${extraContext ? `Extra context: ${extraContext}` : ''}
 ${sectionsNote}
 Output ONLY the JSON object.`;
 
-    let pageJson;
+    let sections;
     try {
-      const raw = (await aiService.generate(systemPrompt, userPrompt, { maxTokens: 4096 })).trim();
-      console.log(`[FunnelBuilder] AI raw output for "${page.name}" (first 500 chars):`, raw.slice(0, 500));
-      pageJson  = parseJsonSafe(raw);
-      console.log(`[FunnelBuilder] Parsed JSON for "${page.name}" — sections: ${pageJson?.sections?.length}, first section keys: ${JSON.stringify(Object.keys(pageJson?.sections?.[0] || {}))}`);
-      if (!pageJson.sections) throw new Error('Missing sections array');
+      const raw  = (await aiService.generate(systemPrompt, userPrompt, { maxTokens: 4096 })).trim();
+      const parsed = parseJsonSafe(raw);
+      // AI may return { sections: [...] } or [...] directly
+      sections = Array.isArray(parsed) ? parsed : (parsed?.sections || parsed?.pages || []);
+      if (!sections.length) throw new Error('No sections in AI response');
+      console.log(`[FunnelBuilder] "${page.name}" — ${sections.length} sections, first bgColor: ${sections[0]?.bgColor}`);
     } catch (err) {
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `AI generation failed: ${err.message}` });
       results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
-      if (isGroq) await new Promise(r => setTimeout(r, 5000)); // pace for Groq
+      if (isGroqLocal) await new Promise(r => setTimeout(r, 5000));
       continue;
     }
 
     try {
-      await savePageData(req.locationId, page.id, pageJson);
-      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length });
-      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length });
+      const html = buildPageHtml(sections);
+      await ghlClient.ghlRequest(req.locationId, 'PUT', `/funnels/page/${page.id}`, {
+        locationId: req.locationId,
+        name:       page.name,
+        content:    html,
+      }, null);
+      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: sections.length });
+      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: sections.length });
     } catch (err) {
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
       results.push({ pageId: page.id, name: page.name, success: false, error: err.message });

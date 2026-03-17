@@ -1118,4 +1118,4 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
   }
 }
 
-module.exports = { getToolDefinitions: () => TOOL_DEFINITIONS, executeGhlTool };
+module.exports = { getToolDefinitions: () => TOOL_DEFINITIONS, executeGhlTool, buildPageHtml };
