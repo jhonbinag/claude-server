@@ -692,10 +692,27 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   const { funnelId, version: currentVersion, downloadUrl: currentDownloadUrl, versionHistory: existingVH } = docInfo;
   if (!funnelId) throw new Error(`Page ${pageId} missing funnelId — provide funnelId in the request or open the page in GHL builder first.`);
 
-  // Download existing file to preserve settings/general if available
+  // Download existing file to preserve trackingCode/popups if available
   let existingFile = null;
   if (currentDownloadUrl) {
     try { existingFile = await downloadStorageFile(currentDownloadUrl); } catch { /* ignore */ }
+  }
+
+  // Normalize settings — unwrap old double-nested format ({ settings: { typography } } → { typography })
+  // and validate that typography.colors exists; fall back to PAGE_SETTINGS if anything looks wrong
+  function normalizeSettings(s) {
+    if (!s) return PAGE_SETTINGS;
+    const unwrapped = s.settings || s;          // unwrap { settings: {...} } if present
+    if (!unwrapped.typography?.colors) return PAGE_SETTINGS;
+    return unwrapped;
+  }
+
+  // Normalize general — unwrap old double-nested format ({ general: { colors } } → { colors })
+  function normalizeGeneral(g) {
+    if (!g) return PAGE_GENERAL;
+    const unwrapped = g.general || g;           // unwrap { general: {...} } if present
+    if (!Array.isArray(unwrapped.colors)) return PAGE_GENERAL;
+    return unwrapped;
   }
 
   // Convert to GHL flat elements format (what the builder renders from Storage)
@@ -705,8 +722,8 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   // Build complete page file matching GHL's expected structure
   const pageFile = {
     sections:        storageSections,
-    settings:        existingFile?.settings  || PAGE_SETTINGS,
-    general:         existingFile?.general   || PAGE_GENERAL,
+    settings:        normalizeSettings(existingFile?.settings),
+    general:         normalizeGeneral(existingFile?.general),
     pageStyles:      existingFile?.pageStyles || PAGE_STYLES,
     trackingCode:    existingFile?.trackingCode    || '',
     fontsForPreview: existingFile?.fontsForPreview || [],
