@@ -38,6 +38,17 @@ const PAGE_TYPES = [
   'Product Page',
 ];
 
+const FUNNEL_TYPES = [
+  { key: 'lead_gen',          emoji: '🧲', label: 'Lead Gen',          desc: 'Capture leads',                    pages: ['Opt-in Page', 'Thank You Page'] },
+  { key: 'sales',             emoji: '💰', label: 'Sales Funnel',       desc: 'Opt-in → Sales → Order',           pages: ['Opt-in Page', 'Sales Page', 'Order Page', 'Thank You Page'] },
+  { key: 'vsl',               emoji: '🎥', label: 'VSL Funnel',         desc: 'Video sales letter',               pages: ['VSL Page', 'Order Page', 'Thank You Page'] },
+  { key: 'webinar',           emoji: '📡', label: 'Webinar Funnel',     desc: 'Register → Attend → Convert',      pages: ['Registration Page', 'Confirmation Page', 'Webinar Replay Page', 'Thank You Page'] },
+  { key: 'tripwire',          emoji: '⚡', label: 'Tripwire Funnel',    desc: 'Low-cost offer + upsell',          pages: ['Opt-in Page', 'Sales Page', 'Upsell Page', 'Thank You Page'] },
+  { key: 'product_launch',    emoji: '🚀', label: 'Product Launch',     desc: 'Full launch with upsell/downsell', pages: ['Opt-in Page', 'Sales Page', 'Upsell Page', 'Downsell Page', 'Thank You Page'] },
+  { key: 'application',       emoji: '📋', label: 'Application Funnel', desc: 'Qualify before sales call',        pages: ['Opt-in Page', 'Application Page', 'Thank You Page'] },
+  { key: 'free_shipping',     emoji: '📦', label: 'Free + Shipping',    desc: 'Free offer with shipping upsell',  pages: ['Sales Page', 'Order Page', 'Upsell Page', 'Thank You Page'] },
+];
+
 const COLOR_PRESETS = [
   { label: 'Navy & Gold',      value: 'dark navy (#0F172A) background with gold (#F59E0B) accents and white text' },
   { label: 'Bold Blue',        value: 'bright blue (#1D4ED8) accents on white, dark text' },
@@ -82,6 +93,7 @@ export default function FunnelBuilder() {
 
   // Full funnel mode
   const [fullFunnelId,  setFullFunnelId]  = useState('');
+  const [funnelType,    setFunnelType]    = useState('');
   const [funnelPages,   setFunnelPages]   = useState([]); // [{ id, name, pageType, status, sectionsCount, error }]
   const [funnelRunning, setFunnelRunning] = useState(false);
 
@@ -252,6 +264,7 @@ export default function FunnelBuilder() {
   // ── Full Funnel Generator ─────────────────────────────────────────────────
   async function handleGenerateFunnel(e) {
     e.preventDefault();
+    if (!funnelType)          { toast(setToastState, 'Please select a funnel type.', 'error'); return; }
     if (!fullFunnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
 
     setFunnelRunning(true);
@@ -264,6 +277,7 @@ export default function FunnelBuilder() {
         headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
         body:    JSON.stringify({
           funnelId:    fullFunnelId.trim(),
+          funnelType:  funnelType || undefined,
           niche:       niche.trim(),
           offer:       offer.trim(),
           audience:    audience.trim() || undefined,
@@ -620,7 +634,43 @@ export default function FunnelBuilder() {
             {/* ── Full Funnel Mode ─────────────────────────────────────── */}
             {genMode === 'funnel' && (
               <form onSubmit={handleGenerateFunnel} className="space-y-4">
-                <p className="text-xs text-gray-400">Enter your Funnel ID — the AI will list all pages and generate native GHL content for each one automatically.</p>
+                <p className="text-xs text-gray-400">Select a funnel type, enter your Funnel ID, and AI will generate all pages automatically. If the funnel is empty, standard pages will be created for you.</p>
+
+                {/* Funnel type grid */}
+                <div>
+                  <label className="block text-xs text-gray-400 mb-2">Funnel Type <span className="text-red-400">*</span></label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {FUNNEL_TYPES.map(ft => (
+                      <button
+                        key={ft.key}
+                        type="button"
+                        onClick={() => setFunnelType(ft.key)}
+                        className="text-left rounded-lg p-2.5 transition-all"
+                        style={{
+                          background: funnelType === ft.key ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.04)',
+                          border: `1px solid ${funnelType === ft.key ? 'rgba(99,102,241,0.7)' : 'rgba(255,255,255,0.08)'}`,
+                        }}
+                      >
+                        <div className="text-base mb-0.5">{ft.emoji} <span className="text-xs font-semibold text-white">{ft.label}</span></div>
+                        <div className="text-xs text-gray-500">{ft.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Page preview */}
+                  {funnelType && (() => {
+                    const ft = FUNNEL_TYPES.find(f => f.key === funnelType);
+                    return ft ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {ft.pages.map((p, i) => (
+                          <span key={i} className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)' }}>
+                            {i + 1}. {p}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
 
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">GHL Funnel ID <span className="text-red-400">*</span></label>

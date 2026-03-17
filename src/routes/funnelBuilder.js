@@ -568,8 +568,19 @@ function inferPageType(name = '') {
   return 'Sales Page';
 }
 
+const FUNNEL_TYPE_PAGES = {
+  lead_gen:       [{ name: 'Opt-in Page',        url: 'opt-in',       stepOrder: 1 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 2 }],
+  sales:          [{ name: 'Opt-in Page',        url: 'opt-in',       stepOrder: 1 }, { name: 'Sales Page',          url: 'sales',        stepOrder: 2 }, { name: 'Order Page',          url: 'order',        stepOrder: 3 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4 }],
+  vsl:            [{ name: 'VSL Page',           url: 'watch',        stepOrder: 1 }, { name: 'Order Page',          url: 'order',        stepOrder: 2 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 3 }],
+  webinar:        [{ name: 'Registration Page',  url: 'register',     stepOrder: 1 }, { name: 'Confirmation Page',   url: 'confirmation', stepOrder: 2 }, { name: 'Webinar Replay Page', url: 'replay',       stepOrder: 3 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4 }],
+  tripwire:       [{ name: 'Opt-in Page',        url: 'opt-in',       stepOrder: 1 }, { name: 'Sales Page',          url: 'sales',        stepOrder: 2 }, { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4 }],
+  product_launch: [{ name: 'Opt-in Page',        url: 'opt-in',       stepOrder: 1 }, { name: 'Sales Page',          url: 'sales',        stepOrder: 2 }, { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3 }, { name: 'Downsell Page',       url: 'downsell',     stepOrder: 4 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 5 }],
+  application:    [{ name: 'Opt-in Page',        url: 'opt-in',       stepOrder: 1 }, { name: 'Application Page',    url: 'apply',        stepOrder: 2 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 3 }],
+  free_shipping:  [{ name: 'Sales Page',         url: 'free-offer',   stepOrder: 1 }, { name: 'Order Page',          url: 'order',        stepOrder: 2 }, { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4 }],
+};
+
 router.post('/generate-funnel', async (req, res) => {
-  const { funnelId, audience, colorScheme, extraContext, agentId } = req.body;
+  const { funnelId, funnelType, audience, colorScheme, extraContext, agentId } = req.body;
   const niche = req.body.niche || 'this business';
   const offer = req.body.offer || 'their offer';
 
@@ -596,13 +607,9 @@ router.post('/generate-funnel', async (req, res) => {
     return res.status(502).json({ success: false, error: `Failed to list funnel pages: ${err.message}` });
   }
 
-  // If funnel has no pages yet, auto-create a standard set
+  // If funnel has no pages yet, auto-create based on funnel type
   if (!Array.isArray(pages) || pages.length === 0) {
-    const defaults = [
-      { name: 'Opt-in Page',   url: 'opt-in',    stepOrder: 1 },
-      { name: 'Sales Page',    url: 'sales',      stepOrder: 2 },
-      { name: 'Thank You Page',url: 'thank-you',  stepOrder: 3 },
-    ];
+    const defaults = FUNNEL_TYPE_PAGES[funnelType] || FUNNEL_TYPE_PAGES.sales;
     pages = [];
     for (const p of defaults) {
       try {
