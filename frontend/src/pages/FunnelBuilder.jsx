@@ -466,18 +466,19 @@ export default function FunnelBuilder() {
                       const snippet =
 `(async()=>{
   const post=t=>fetch('${serverUrl}/funnel-builder/connect',{method:'POST',headers:{'Content-Type':'application/json','x-location-id':'${locId}'},body:JSON.stringify({refreshedToken:t})}).then(r=>r.json()).then(d=>{if(d.success)alert('✅ Connected! Go back to your app.');else alert('❌ '+(d.error||'Failed: '+JSON.stringify(d)));});
-  // Try localStorage first (Firebase v8)
-  const lsKey=Object.keys(localStorage).find(k=>k.startsWith('firebase:authUser:'));
-  const lsUser=lsKey?JSON.parse(localStorage.getItem(lsKey)||'null'):null;
-  const lsToken=lsUser?.stsTokenManager?.accessToken;
-  if(lsToken){console.log('Using localStorage token');return post(lsToken);}
-  // Try IndexedDB (Firebase v9+)
-  const db=await new Promise((res,rej)=>{const r=indexedDB.open('firebaseLocalStorageDb');r.onsuccess=e=>res(e.target.result);r.onerror=()=>rej(r.error);});
-  const idbToken=await new Promise((res,rej)=>{const tx=db.transaction('firebaseLocalStorage','readonly');const req=tx.objectStore('firebaseLocalStorage').getAll();req.onsuccess=e=>{const rec=e.target.result.find(r=>r&&r.value&&r.value.stsTokenManager);res(rec?.value?.stsTokenManager?.accessToken||null);};req.onerror=()=>res(null);});
-  if(idbToken){console.log('Using IndexedDB token');return post(idbToken);}
-  // Fallback: refreshedToken from localStorage
+  // 1st: GHL custom token — carries Storage + Firestore custom claims
   const rt=localStorage.getItem('refreshedToken');
-  if(rt){console.log('Using refreshedToken');return post(rt);}
+  if(rt){console.log('Using GHL refreshedToken');return post(rt);}
+  // 2nd: IndexedDB auth state (Firebase v9+)
+  try{
+    const db=await new Promise((res,rej)=>{const r=indexedDB.open('firebaseLocalStorageDb');r.onsuccess=e=>res(e.target.result);r.onerror=()=>rej(r.error);});
+    const idbToken=await new Promise((res,rej)=>{const tx=db.transaction('firebaseLocalStorage','readonly');const req=tx.objectStore('firebaseLocalStorage').getAll();req.onsuccess=e=>{const rec=e.target.result.find(r=>r&&r.value&&r.value.stsTokenManager);res(rec?.value?.stsTokenManager?.accessToken||null);};req.onerror=()=>res(null);});
+    if(idbToken){console.log('Using IndexedDB token');return post(idbToken);}
+  }catch(e){console.warn('IndexedDB read failed',e);}
+  // 3rd: localStorage auth state (Firebase v8)
+  const lsKey=Object.keys(localStorage).find(k=>k.startsWith('firebase:authUser:'));
+  const lsToken=lsKey?JSON.parse(localStorage.getItem(lsKey)||'null')?.stsTokenManager?.accessToken:null;
+  if(lsToken){console.log('Using localStorage token');return post(lsToken);}
   alert('No Firebase token found. Make sure you are logged in to GHL and try again.');
 })();`;
                       return (
@@ -525,7 +526,10 @@ export default function FunnelBuilder() {
 
             {fbStatus?.connected && (
               <p className="text-xs text-gray-400">
-                Firebase page-builder token is active. Token auto-refreshes before expiry — you only need to reconnect if it stops working.
+                {fbStatus.canRefresh
+                  ? 'Firebase token is active and will auto-refresh before expiry.'
+                  : <span>Firebase token is active but <strong className="text-yellow-400">cannot auto-refresh</strong> — it will expire in ~1 hour. Re-run the snippet to get a long-lived token (make sure <code className="text-green-400">refreshedToken</code> exists in GHL localStorage).</span>
+                }
               </p>
             )}
           </section>

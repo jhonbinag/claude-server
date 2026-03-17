@@ -165,9 +165,15 @@ async function connectFirebase(locationId, ghlToken) {
   let idToken, expiresAt;
 
   if (kind === 'idToken') {
+    // Store idToken as-is but do NOT set customToken — an idToken cannot be
+    // re-exchanged for a fresh one, so on expiry we must ask user to reconnect.
     const payload = decodeJwtPayload(ghlToken);
     idToken   = ghlToken;
     expiresAt = payload?.exp ? payload.exp * 1000 : Date.now() + 3600 * 1000;
+    const record = { idToken, customToken: null, expiresAt };
+    await storeRecord(locationId, record);
+    console.log(`[GHLFirebase] Connected ${locationId} via idToken, expires ${new Date(expiresAt).toISOString()} (no auto-refresh — reconnect when expired)`);
+    return record;
 
   } else if (kind === 'customToken') {
     const result = await httpsPost(SIGN_IN_URL, { token: ghlToken, returnSecureToken: true });
@@ -230,8 +236,8 @@ async function getFirebaseToken(locationId) {
     }
   }
 
-  // Legacy records without stored customToken — throw asking user to reconnect
-  throw new Error('Firebase session expired. Please use the bookmarklet to reconnect.');
+  // No customToken stored (connected via idToken) — must reconnect
+  throw new Error('Firebase session expired. Please run the console snippet again in GHL to reconnect.');
 }
 
 /**
@@ -253,10 +259,10 @@ async function disconnectFirebase(locationId) {
 async function getStatus(locationId) {
   const record = await loadRecord(locationId);
   if (!record) return { connected: false, expiresAt: null };
-  // Treat as disconnected if token is expired AND no customToken for re-exchange
-  const expired = record.expiresAt && record.expiresAt < Date.now();
-  if (expired && !record.customToken) return { connected: false, expiresAt: record.expiresAt };
-  return { connected: true, expiresAt: record.expiresAt };
+  const expired    = record.expiresAt && record.expiresAt < Date.now();
+  const canRefresh = !!record.customToken; // customToken present → auto-refresh capable
+  if (expired && !canRefresh) return { connected: false, expiresAt: record.expiresAt };
+  return { connected: true, expiresAt: record.expiresAt, canRefresh };
 }
 
 module.exports = { connectFirebase, getFirebaseToken, disconnectFirebase, getStatus };
