@@ -323,6 +323,7 @@ router.post('/generate', async (req, res) => {
   // Step 3: Build Claude prompt
   const pageLabel    = pageType || 'Sales Page';
   const colors       = colorScheme || 'modern, professional — use white, dark navy, and gold accents';
+  const imgKeyword   = (niche || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
   const contextBlock = pageContext
     ? `\nExisting page context (use as reference for any brand/funnel details):\n${JSON.stringify(pageContext, null, 2).slice(0, 1500)}`
     : '';
@@ -369,7 +370,7 @@ SCHEMA:
 {"id":"paragraph-X","type":"paragraph","text":"<p>Body copy.</p>","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.7}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
 {"id":"button-X","type":"button","text":"CTA","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFFFFF"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
 {"id":"bulletList-X","type":"bulletList","items":[{"text":"Benefit 1"},{"text":"Benefit 2"},{"text":"Benefit 3"}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
-{"id":"image-X","type":"image","src":"https://placehold.co/800x450/1D4ED8/FFFFFF?text=Image","alt":"Image","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
+{"id":"image-X","type":"image","src":"https://picsum.photos/seed/${imgKeyword}/800/450","alt":"${imgKeyword}","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
 ]}]}]}]}`;
 
   const systemPrompt = isGroq ? groqSystemPrompt : fullSystemPrompt;
@@ -527,7 +528,7 @@ SCHEMA:
 {"id":"paragraph-{8chars}","type":"paragraph","text":"<p>Body copy</p>","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
 {"id":"button-{8chars}","type":"button","text":"CTA","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFF"},"fontSize":{"value":18,"unit":"px"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
 {"id":"bulletList-{8chars}","type":"bulletList","items":[{"text":"Item 1"}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
-{"id":"image-{8chars}","type":"image","src":"https://placehold.co/800x450/1D4ED8/FFF?text=Image","alt":"Image","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
+{"id":"image-{8chars}","type":"image","src":"https://picsum.photos/seed/design/800/450","alt":"Image","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
 ]}]}]}]}`;
 
   // SSE setup
@@ -679,9 +680,10 @@ router.post('/generate-funnel', async (req, res) => {
     send('page_start', { index: i, pageId: page.id, name: page.name, pageType });
 
     // Build prompts (reuse existing logic)
-    const colors   = colorScheme || 'modern, professional — white, dark navy, and gold accents';
-    const agentIntro = agentInfo ? `You are ${agentInfo.name}. ${agentInfo.persona || ''}\n${agentInfo.instructions}\n\n---\n\n` : '';
+    const colors      = colorScheme || 'modern, professional — white, dark navy, and gold accents';
+    const agentIntro  = agentInfo ? `You are ${agentInfo.name}. ${agentInfo.persona || ''}\n${agentInfo.instructions}\n\n---\n\n` : '';
     const isGroqLocal = isGroq;
+    const imgKw       = (niche || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
 
     const randId = () => Math.random().toString(36).slice(2, 10);
     const groqSysPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
@@ -689,7 +691,7 @@ Root: {"sections":[...]}. IDs MUST be unique per element using format {type}-{8 
 Elements (use EXACTLY these type names): headline(tag h1/h2/h3), sub-headline, paragraph(text as <p>html</p>), button(link,text), bulletList(items:[{text}],icon:{name:"check",unicode:"f00c",fontFamily:"Font Awesome 5 Free"}), image(src,alt).
 Section: {"id":"section-${randId()}","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-${randId()}","type":"row","children":[{"id":"column-${randId()}","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}`;
 
-    const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. Generate production-ready native GHL page JSON. Output ONLY valid JSON. Root: {"sections":[...]}. Follow GHL schema with {"value":X,"unit":"px"} style format. Include mobileStyles with ~60% desktop values.`;
+    const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. Generate production-ready native GHL page JSON. Output ONLY valid JSON. Root: {"sections":[...]}. Follow GHL schema with {"value":X,"unit":"px"} style format. Include mobileStyles with ~60% desktop values. For image elements use src "https://picsum.photos/seed/${imgKw}/800/450".`;
 
     const systemPrompt = isGroqLocal ? groqSysPrompt : fullSysPrompt;
 
