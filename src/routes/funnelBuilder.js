@@ -721,7 +721,7 @@ router.get('/list-pages', async (req, res) => {
     const result = await ghlClient.ghlRequest(req.locationId, 'GET', '/funnels/page', null, {
       locationId: req.locationId,
       funnelId,
-      limit: 50,
+      limit: 20,
       offset: '0',
     });
     const pages = result?.funnelPages || result?.pages || result?.pageList || result?.list || result?.data
