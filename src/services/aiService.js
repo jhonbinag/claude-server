@@ -44,7 +44,17 @@ function requireProvider() {
 
 // ── HTTPS helper ──────────────────────────────────────────────────────────────
 
-function httpsPost(hostname, path, headers, body, retries = 3) {
+function parseRetryAfterMs(message = '', headers = {}) {
+  const hdr = headers['retry-after'];
+  if (hdr) return Math.ceil(parseFloat(hdr)) * 1000 + 300;
+  const sec = message.match(/try again in ([\d.]+)s/i);
+  if (sec) return Math.ceil(parseFloat(sec[1])) * 1000 + 300;
+  const ms  = message.match(/try again in (\d+)ms/i);
+  if (ms)  return parseInt(ms[1], 10) + 300;
+  return 10000;
+}
+
+function httpsPost(hostname, path, headers, body, retries = 4) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = https.request(
@@ -56,9 +66,8 @@ function httpsPost(hostname, path, headers, body, retries = 3) {
           try {
             const parsed = JSON.parse(d);
             if (resp.statusCode === 429 && retries > 0) {
-              // Rate limited — wait and retry with backoff
-              const wait = (4 - retries) * 5000; // 5s, 10s, 15s
-              console.warn(`[aiService] 429 from ${hostname} — retrying in ${wait / 1000}s (${retries} left)`);
+              const wait = parseRetryAfterMs(parsed?.error?.message || '', resp.headers);
+              console.warn(`[aiService] 429 from ${hostname} — retrying in ${wait}ms (${retries} left)`);
               await new Promise(r => setTimeout(r, wait));
               httpsPost(hostname, path, headers, body, retries - 1).then(resolve).catch(reject);
             } else if (resp.statusCode >= 400) {
@@ -242,12 +251,14 @@ async function googleGenerateWithVision(system, userText, imageBase64, mimeType,
 async function generate(system, userText, opts = {}) {
   const provider = requireProvider();
   const model    = opts.model || provider.model;
+  // Groq free tier: cap output to 1500 tokens to leave room for input within TPM window
+  const maxTokens = provider.name === 'groq' ? Math.min(opts.maxTokens || 1500, 1500) : (opts.maxTokens || 4096);
 
   switch (provider.name) {
-    case 'anthropic': return anthropicGenerate(system, userText, { ...opts, model });
-    case 'openai':    return openaiGenerate(system, userText, { ...opts, model });
-    case 'groq':      return groqGenerate(system, userText, { ...opts, model });
-    case 'google':    return googleGenerate(system, userText, { ...opts, model });
+    case 'anthropic': return anthropicGenerate(system, userText, { ...opts, model, maxTokens });
+    case 'openai':    return openaiGenerate(system, userText, { ...opts, model, maxTokens });
+    case 'groq':      return groqGenerate(system, userText, { ...opts, model, maxTokens });
+    case 'google':    return googleGenerate(system, userText, { ...opts, model, maxTokens });
   }
 }
 

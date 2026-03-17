@@ -376,11 +376,10 @@ Remember: output ONLY the JSON object. No markdown, no explanation.`;
       throw new Error('Claude response missing "sections" array.');
     }
   } catch (err) {
-    console.error('[FunnelBuilder] Claude generation error:', err.message);
+    console.error('[FunnelBuilder] AI generation error:', err.message);
     return res.status(500).json({
       success: false,
-      error:   'Failed to generate page JSON.',
-      detail:  err.message,
+      error:   'Failed to generate page JSON: ' + err.message,
     });
   }
 
