@@ -7,7 +7,9 @@
  *  1. User provides a `refreshedToken` (Firebase custom token) from GHL localStorage
  *  2. Exchange it via identitytoolkit.googleapis.com → idToken + refreshToken
  *  3. Store both in Redis with expiry tracking
- *  4. Auto-refresh idToken using securetoken.googleapis.com when near expiry
+ *  4. On expiry: re-auth via GHL OAuth → probeCustomToken → signInWithCustomToken
+ *     (securetoken.googleapis.com refresh is NOT used because it strips GHL custom
+ *      claims that Firestore security rules require)
  *
  * Redis key: hltools:fb:{locationId}
  * Value: JSON { idToken, refreshToken, expiresAt }
@@ -15,6 +17,7 @@
  */
 
 const https = require('https');
+const ghlClient = require('./ghlClient');
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
@@ -114,6 +117,38 @@ async function loadRecord(locationId) {
   return raw ? JSON.parse(raw) : null;
 }
 
+// ── GHL custom token probe (used for re-auth on expiry) ──────────────────────
+function probeGhlCustomToken(accessToken, locationId) {
+  const candidates = [
+    { hostname: 'backend.leadconnectorhq.com', path: `/user/firebase-custom-token?locationId=${encodeURIComponent(locationId)}` },
+    { hostname: 'backend.leadconnectorhq.com', path: `/user/customToken?locationId=${encodeURIComponent(locationId)}` },
+    { hostname: 'backend.leadconnectorhq.com', path: `/firebase/customToken?locationId=${encodeURIComponent(locationId)}` },
+    { hostname: 'services.leadconnectorhq.com', path: `/oauth/firebase-token?locationId=${encodeURIComponent(locationId)}` },
+  ];
+  const tryNext = (i) => new Promise((resolve, reject) => {
+    if (i >= candidates.length) return reject(new Error('All GHL custom token endpoints exhausted.'));
+    const { hostname, path } = candidates[i];
+    const req = https.request(
+      { hostname, path, method: 'GET', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', channel: 'APP', source: 'WEB_USER', version: '2021-07-28' } },
+      (res) => {
+        let d = '';
+        res.on('data', c => d += c);
+        res.on('end', () => {
+          try {
+            const p = JSON.parse(d);
+            const token = p.token || p.customToken || p.firebaseToken || p.firebase_token || p.firebaseCustomToken;
+            if (token && res.statusCode < 400) resolve(token);
+            else tryNext(i + 1).then(resolve).catch(reject);
+          } catch { tryNext(i + 1).then(resolve).catch(reject); }
+        });
+      }
+    );
+    req.on('error', () => tryNext(i + 1).then(resolve).catch(reject));
+    req.end();
+  });
+  return tryNext(0);
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -161,23 +196,27 @@ async function getFirebaseToken(locationId) {
     return record.idToken;
   }
 
-  // Refresh using the refresh token
-  console.log(`[GHLFirebase] Refreshing token for location ${locationId}`);
-  const body   = `grant_type=refresh_token&refresh_token=${encodeURIComponent(record.refreshToken)}`;
-  const result = await httpsPost(REFRESH_URL, body, 'application/x-www-form-urlencoded');
-
-  if (result.status !== 200 || !result.data.id_token) {
-    const msg = result.data?.error?.message || JSON.stringify(result.data);
-    throw new Error(`Firebase token refresh failed: ${msg}`);
+  // Re-auth via GHL OAuth → fresh custom token → signInWithCustomToken
+  // (securetoken.googleapis.com refresh strips GHL custom claims → Firestore 403)
+  console.log(`[GHLFirebase] Token near expiry for ${locationId}, re-authing via GHL OAuth`);
+  try {
+    const accessToken = await ghlClient.getValidAccessToken(locationId);
+    const customToken = await probeGhlCustomToken(accessToken, locationId);
+    return (await connectFirebase(locationId, customToken)).idToken;
+  } catch (err) {
+    console.warn(`[GHLFirebase] GHL re-auth failed (${err.message}), falling back to securetoken refresh`);
+    // Fall back to securetoken refresh as last resort
+    const body   = `grant_type=refresh_token&refresh_token=${encodeURIComponent(record.refreshToken)}`;
+    const result = await httpsPost(REFRESH_URL, body, 'application/x-www-form-urlencoded');
+    if (result.status !== 200 || !result.data.id_token) {
+      const msg = result.data?.error?.message || JSON.stringify(result.data);
+      throw new Error(`Firebase token refresh failed: ${msg}`);
+    }
+    const { id_token: idToken, refresh_token: newRefreshToken, expires_in: expiresIn } = result.data;
+    const expiresAt = Date.now() + (parseInt(expiresIn, 10) || 3600) * 1000;
+    await storeRecord(locationId, { idToken, refreshToken: newRefreshToken || record.refreshToken, expiresAt });
+    return idToken;
   }
-
-  const { id_token: idToken, refresh_token: newRefreshToken, expires_in: expiresIn } = result.data;
-  const expiresAt = Date.now() + (parseInt(expiresIn, 10) || 3600) * 1000;
-
-  const updated = { idToken, refreshToken: newRefreshToken || record.refreshToken, expiresAt };
-  await storeRecord(locationId, updated);
-
-  return idToken;
 }
 
 /**
