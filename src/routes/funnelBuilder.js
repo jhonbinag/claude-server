@@ -280,11 +280,11 @@ router.post('/generate', async (req, res) => {
   // Groq compact schema — no mobileStyles, minimal style props to save tokens
   const groqSystemPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
 Root: {"sections":[...]}
-IDs: type-XXXXXXXX (8 random chars). Styles use {"value":X,"unit":"px"} or {"value":"#HEX"} format.
+IDs MUST be unique using format {elementType}-{8 random alphanumeric chars}. Generate truly random chars — NEVER use sequential numbers like 0001, 12345. Styles use {"value":X,"unit":"px"} or {"value":"#HEX"} format.
 
 Element types (use EXACTLY these type names):
-- headline: {"id":"headline-X","type":"headline","tag":"h1","text":"...","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{}}
-- sub-headline: {"id":"sub-headline-X","type":"sub-headline","text":"...","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{}}
+- headline: {"id":"headline-a1b2c3d4","type":"headline","tag":"h1","text":"...","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{}}
+- sub-headline: {"id":"sub-headline-e5f6g7h8","type":"sub-headline","text":"...","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{}}
 - paragraph: {"id":"paragraph-X","type":"paragraph","text":"<p>...</p>","styles":{"color":{"value":"#555"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
 - button: {"id":"button-X","type":"button","text":"...","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#fff"},"fontSize":{"value":16,"unit":"px"},"paddingTop":{"value":14,"unit":"px"},"paddingBottom":{"value":14,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
 - bulletList: {"id":"bulletList-X","type":"bulletList","items":[{"text":"..."}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
@@ -668,10 +668,11 @@ router.post('/generate-funnel', async (req, res) => {
     const agentIntro = agentInfo ? `You are ${agentInfo.name}. ${agentInfo.persona || ''}\n${agentInfo.instructions}\n\n---\n\n` : '';
     const isGroqLocal = isGroq;
 
+    const randId = () => Math.random().toString(36).slice(2, 10);
     const groqSysPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
-Root: {"sections":[...]}. IDs: type-XXXXXXXX. Styles: {"value":X,"unit":"px"} or {"value":"#HEX"}.
+Root: {"sections":[...]}. IDs MUST be unique per element using format {type}-{8 random alphanumeric chars}, e.g. section-${randId()}, row-${randId()}, column-${randId()}, headline-${randId()}. NEVER reuse IDs. Styles: {"value":X,"unit":"px"} or {"value":"#HEX"}.
 Elements (use EXACTLY these type names): headline(tag h1/h2/h3), sub-headline, paragraph(text as <p>html</p>), button(link,text), bulletList(items:[{text}],icon:{name:"check",unicode:"f00c",fontFamily:"Font Awesome 5 Free"}), image(src,alt).
-Section: {"id":"section-X","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-X","type":"row","children":[{"id":"column-X","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}`;
+Section: {"id":"section-${randId()}","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-${randId()}","type":"row","children":[{"id":"column-${randId()}","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}`;
 
     const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. Generate production-ready native GHL page JSON. Output ONLY valid JSON. Root: {"sections":[...]}. Follow GHL schema with {"value":X,"unit":"px"} style format. Include mobileStyles with ~60% desktop values.`;
 
