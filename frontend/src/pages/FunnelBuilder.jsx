@@ -437,9 +437,11 @@ export default function FunnelBuilder() {
               </h2>
               {fbStatus?.connected && (
                 <span className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-green-400" />
-                  <span className="text-xs text-green-400">Connected</span>
-                  {fbStatus.expiresAt && (
+                  <span className={`w-2 h-2 rounded-full ${fbStatus.expired ? 'bg-yellow-400' : 'bg-green-400'}`} />
+                  <span className={`text-xs ${fbStatus.expired ? 'text-yellow-400' : 'text-green-400'}`}>
+                    {fbStatus.expired ? 'Token expired' : 'Connected'}
+                  </span>
+                  {fbStatus.expiresAt && !fbStatus.expired && (
                     <span className="text-xs text-gray-500 ml-1">
                       · expires {new Date(fbStatus.expiresAt).toLocaleString()}
                     </span>
@@ -460,6 +462,12 @@ export default function FunnelBuilder() {
               )}
             </div>
 
+            {fbStatus?.connected && fbStatus?.expired && (
+              <p className="text-xs text-yellow-400 mb-3">
+                Your Firebase session expired. Run the snippet again in GHL to reconnect with a fresh token.
+              </p>
+            )}
+
             {!fbStatus?.connected && (
               <>
                 {fbLoading ? (
@@ -473,18 +481,20 @@ export default function FunnelBuilder() {
                       const snippet =
 `(async()=>{
   const post=t=>fetch('${serverUrl}/funnel-builder/connect',{method:'POST',headers:{'Content-Type':'application/json','x-location-id':'${locId}'},body:JSON.stringify({refreshedToken:t})}).then(r=>r.json()).then(d=>{if(d.success)alert('✅ Connected! Go back to your app.');else alert('❌ '+(d.error||'Failed: '+JSON.stringify(d)));});
+  // Helper: extract best token from a Firebase auth record (refresh token preferred — never expires)
+  const best=stm=>{if(!stm)return null;return stm.refreshToken||stm.accessToken||null;};
   // 1st: GHL custom token — carries Storage + Firestore custom claims
   const rt=localStorage.getItem('refreshedToken');
   if(rt){console.log('Using GHL refreshedToken');return post(rt);}
-  // 2nd: IndexedDB auth state (Firebase v9+)
+  // 2nd: IndexedDB auth state (Firebase v9+) — prefer refreshToken over accessToken
   try{
     const db=await new Promise((res,rej)=>{const r=indexedDB.open('firebaseLocalStorageDb');r.onsuccess=e=>res(e.target.result);r.onerror=()=>rej(r.error);});
-    const idbToken=await new Promise((res,rej)=>{const tx=db.transaction('firebaseLocalStorage','readonly');const req=tx.objectStore('firebaseLocalStorage').getAll();req.onsuccess=e=>{const rec=e.target.result.find(r=>r&&r.value&&r.value.stsTokenManager);res(rec?.value?.stsTokenManager?.accessToken||null);};req.onerror=()=>res(null);});
+    const idbToken=await new Promise((res,rej)=>{const tx=db.transaction('firebaseLocalStorage','readonly');const req=tx.objectStore('firebaseLocalStorage').getAll();req.onsuccess=e=>{const rec=e.target.result.find(r=>r&&r.value&&r.value.stsTokenManager);res(best(rec?.value?.stsTokenManager)||null);};req.onerror=()=>res(null);});
     if(idbToken){console.log('Using IndexedDB token');return post(idbToken);}
   }catch(e){console.warn('IndexedDB read failed',e);}
-  // 3rd: localStorage auth state (Firebase v8)
+  // 3rd: localStorage auth state (Firebase v8) — prefer refreshToken over accessToken
   const lsKey=Object.keys(localStorage).find(k=>k.startsWith('firebase:authUser:'));
-  const lsToken=lsKey?JSON.parse(localStorage.getItem(lsKey)||'null')?.stsTokenManager?.accessToken:null;
+  const lsToken=lsKey?best(JSON.parse(localStorage.getItem(lsKey)||'null')?.stsTokenManager):null;
   if(lsToken){console.log('Using localStorage token');return post(lsToken);}
   alert('No Firebase token found. Make sure you are logged in to GHL and try again.');
 })();`;

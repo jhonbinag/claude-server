@@ -272,7 +272,7 @@ async function getStatus(locationId) {
   if (!record) return { connected: false, expiresAt: null };
   const expired    = record.expiresAt && record.expiresAt < Date.now();
   const canRefresh = !!record.customToken; // customToken present → auto-refresh capable
-  if (expired && !canRefresh) return { connected: false, expiresAt: record.expiresAt };
+  if (expired && !canRefresh) return { connected: true, expired: true, expiresAt: record.expiresAt, canRefresh: false };
   return { connected: true, expiresAt: record.expiresAt, canRefresh };
 }
 
