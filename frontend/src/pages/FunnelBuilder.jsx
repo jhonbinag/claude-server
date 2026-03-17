@@ -225,9 +225,10 @@ export default function FunnelBuilder() {
 
   async function handleGenerate(e) {
     e.preventDefault();
-    if (!pageId.trim()) { toast(setToastState, 'Page ID is required.', 'error'); return; }
-    if (!niche.trim())  { toast(setToastState, 'Niche / Business is required.', 'error'); return; }
-    if (!offer.trim())  { toast(setToastState, 'Offer is required.', 'error'); return; }
+    if (!pageId.trim())   { toast(setToastState, 'Page ID is required.', 'error'); return; }
+    if (!funnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
+    if (!niche.trim())    { toast(setToastState, 'Niche / Business is required.', 'error'); return; }
+    if (!offer.trim())    { toast(setToastState, 'Offer is required.', 'error'); return; }
 
     const colorScheme = colorPreset || customColor || COLOR_PRESETS[0].value;
 
@@ -799,7 +800,8 @@ export default function FunnelBuilder() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">
-                    Funnel ID <span className="text-gray-600">(optional — for preview link)</span>
+                    Funnel ID <span className="text-red-400">*</span>
+                      <span className="text-gray-600 ml-1">— from GHL URL: /funnels/<strong className="text-gray-400">THIS_ID</strong>/steps/...</span>
                   </label>
                   <input
                     value={funnelId}
