@@ -801,8 +801,24 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
     case 'get_contact':
       return call('GET', `/contacts/${input.contactId}`);
 
-    case 'create_contact':
+    case 'create_contact': {
+      // Dedup check: search by email first, then phone, before creating
+      const dedupQuery = input.email || input.phone;
+      if (dedupQuery) {
+        const existing = await call('GET', '/contacts/', null, { locationId, query: dedupQuery, limit: 1 });
+        const contacts = existing?.contacts || existing?.data || [];
+        if (contacts.length > 0) {
+          const c = contacts[0];
+          return {
+            alreadyExists: true,
+            message: `Contact already exists — not duplicated. Using existing contact.`,
+            contact: c,
+            contactId: c.id,
+          };
+        }
+      }
       return call('POST', '/contacts/', { locationId, ...input });
+    }
 
     case 'update_contact': {
       const { contactId, ...fields } = input;

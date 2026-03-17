@@ -47,7 +47,8 @@ ${integrationList}
 Today: ${new Date().toISOString().split('T')[0]}
 
 Use the available tools to complete the user's request. Always:
-- Search for contacts before updating or messaging them
+- Search for a contact by email or phone BEFORE calling create_contact — never duplicate
+- If create_contact returns alreadyExists:true, use that contactId directly
 - Confirm before bulk sends (SMS/email to many contacts)
 - Use DRAFT status for social posts
 - Report what was created/done at the end
@@ -184,6 +185,7 @@ ${hasFacebook ? '- Use facebook_create_campaign to set up the Facebook campaign\
 - **Always be proactive**: if the user asks for X, also create Y and Z if they obviously belong together (e.g. blog post + social posts + email = one campaign).
 - **Never stop at planning**: execute all steps using the available tools — don't just list what could be done.
 - **Confirm before bulk/destructive operations** (mass SMS, deleting records, large batch jobs).
+- **Never duplicate contacts**: before `create_contact`, search by email/phone first. If `create_contact` returns `alreadyExists: true`, use the returned contactId and skip creation.
 - **Verify before messaging**: check the contact exists before sending SMS/email.
 - **Professional quality**: all generated copy and images should be polished, on-brand, and ready to use.
 - **Show your work**: after each major step, briefly note what was created and its GHL ID/URL.
