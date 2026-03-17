@@ -682,7 +682,9 @@ Output ONLY the JSON object.`;
     let pageJson;
     try {
       const raw = (await aiService.generate(systemPrompt, userPrompt, { maxTokens: 4096 })).trim();
+      console.log(`[FunnelBuilder] AI raw output for "${page.name}" (first 500 chars):`, raw.slice(0, 500));
       pageJson  = parseJsonSafe(raw);
+      console.log(`[FunnelBuilder] Parsed JSON for "${page.name}" — sections: ${pageJson?.sections?.length}, first section keys: ${JSON.stringify(Object.keys(pageJson?.sections?.[0] || {}))}`);
       if (!pageJson.sections) throw new Error('Missing sections array');
     } catch (err) {
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `AI generation failed: ${err.message}` });
