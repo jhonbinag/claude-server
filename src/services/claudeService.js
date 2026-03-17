@@ -359,8 +359,20 @@ function stripSchemaForGroq(schema) {
   return out;
 }
 
+// Priority tools for Groq — covers the most common CRM tasks within token budget
+const GROQ_PRIORITY_TOOLS = [
+  'search_contacts', 'get_contact', 'create_contact', 'update_contact',
+  'send_sms', 'send_email', 'add_contact_tags', 'list_pipelines',
+  'search_opportunities', 'create_opportunity', 'add_contact_to_workflow', 'list_workflows',
+];
+
 function toGroqFunctions(tools) {
-  return tools.slice(0, 8).map(t => ({
+  const byName = Object.fromEntries(tools.map(t => [t.name, t]));
+  const picked = GROQ_PRIORITY_TOOLS.map(n => byName[n]).filter(Boolean);
+  // Fill remaining slots up to 12 with any other tools not already included
+  const extra  = tools.filter(t => !GROQ_PRIORITY_TOOLS.includes(t.name));
+  const final  = [...picked, ...extra].slice(0, 12);
+  return final.map(t => ({
     type: 'function',
     function: {
       name:        t.name,

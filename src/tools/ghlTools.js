@@ -87,7 +87,7 @@ const TOOL_DEFINITIONS = [
 
   {
     name: 'update_contact',
-    description: 'Update an existing contact in GHL. Only provide the fields you want to change. If you only have a name or email, use search_contacts first to get the contactId, then call this tool.',
+    description: 'Update an existing contact in GHL. Fields: firstName, lastName, email, phone (E.164), tags (array), companyName, source. Use search_contacts first to get the contactId.',
     input_schema: {
       type: 'object',
       properties: {
@@ -201,6 +201,16 @@ const TOOL_DEFINITIONS = [
   },
 
   // ─── Opportunities / CRM ───────────────────────────────────────────────────
+
+  {
+    name: 'list_pipelines',
+    description: 'List all pipelines and their stages in GHL. Call this before create_opportunity to get valid pipelineId and pipelineStageId values.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
 
   {
     name: 'search_opportunities',
@@ -864,6 +874,9 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
     }
 
     // ── Opportunities ─────────────────────────────────────────────────────────
+
+    case 'list_pipelines':
+      return call('GET', '/opportunities/pipelines', null, { locationId });
 
     case 'search_opportunities':
       return call('GET', '/opportunities/search', null, {
