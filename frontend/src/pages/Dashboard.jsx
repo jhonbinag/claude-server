@@ -1059,9 +1059,19 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-            <p className="text-xs text-gray-600 mt-1.5 hidden sm:block">
-              Enter to run · Shift+Enter for new line · {voiceSupported ? '🎤 Click mic or ' : ''}Claude chains tool calls automatically
-            </p>
+            <div className="flex items-center justify-between mt-1.5">
+              <p className="text-xs text-gray-600 hidden sm:block">
+                Enter to run · Shift+Enter for new line · {voiceSupported ? '🎤 Click mic or ' : ''}AI chains tool calls automatically
+              </p>
+              <button
+                type="button"
+                onClick={() => { setTask('/'); setSlashOpen(true); setSlashFilter(''); setTimeout(() => textareaRef.current?.focus(), 0); }}
+                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1 ml-auto"
+                title="Browse slash commands"
+              >
+                <code className="font-mono">/</code> Commands
+              </button>
+            </div>
           </div>
         </main>
       </div>
