@@ -48,24 +48,9 @@ const ghlClient                     = require('../services/ghlClient');
 const chroma                        = require('../services/chromaService');
 const https                         = require('https');
 
-// ── savePageData with automatic Firebase reconnect on 403 ────────────────────
-async function saveWithAutoReconnect(locationId, pageId, pageJson) {
-  try {
-    return await savePageData(locationId, pageId, pageJson);
-  } catch (err) {
-    if (!err.message.includes('403')) throw err;
-    // Token lost Firestore permissions — get a fresh one via GHL OAuth
-    console.warn(`[FunnelBuilder] 403 on savePageData, attempting Firebase auto-reconnect for ${locationId}`);
-    try {
-      const accessToken = await ghlClient.getValidAccessToken(locationId);
-      const customToken = await probeCustomToken(accessToken, locationId);
-      await connectFirebase(locationId, customToken);
-      console.log(`[FunnelBuilder] Auto-reconnected Firebase, retrying save`);
-    } catch (reconnErr) {
-      throw new Error(`Firebase permission denied and auto-reconnect failed: ${reconnErr.message}`);
-    }
-    return await savePageData(locationId, pageId, pageJson);
-  }
+// ── savePageData wrapper — passes funnelId hint so Firestore read is non-fatal
+function saveWithFunnelHint(locationId, pageId, pageJson, funnelId) {
+  return savePageData(locationId, pageId, pageJson, funnelId ? { funnelId } : {});
 }
 
 // Multer: store in memory (we only need the buffer for base64)
@@ -436,24 +421,15 @@ Output ONLY the JSON object. No markdown, no explanation.`;
   // Step 5: Save to GHL backend
   let saveResult;
   try {
-    saveResult = await saveWithAutoReconnect(req.locationId, pageId, pageJson);
+    saveResult = await saveWithFunnelHint(req.locationId, pageId, pageJson, funnelId);
   } catch (err) {
     console.error('[FunnelBuilder] savePageData error:', err.message);
-
-    // If it was a 401, give a helpful message about reconnecting
-    if (err.message.includes('401')) {
-      return res.status(401).json({
-        success: false,
-        error:   'Firebase token rejected by GHL. Please reconnect via POST /funnel-builder/connect.',
-        detail:  err.message,
-      });
-    }
-
     return res.status(500).json({
       success: false,
       error:   'Page JSON generated but failed to save to GHL.',
       detail:  err.message,
-      pageJson, // return the generated JSON so the client can retry or inspect it
+      hint:    err.message.includes('403') ? 'Firebase token expired. Use the bookmarklet to reconnect.' : undefined,
+      pageJson,
     });
   }
 
@@ -607,20 +583,14 @@ SCHEMA:
   // Step 6: Save to GHL
   let saveResult;
   try {
-    saveResult = await saveWithAutoReconnect(req.locationId, pageId, pageJson);
+    saveResult = await saveWithFunnelHint(req.locationId, pageId, pageJson, funnelId);
   } catch (err) {
     console.error('[FunnelBuilder] savePageData error:', err.message);
-    if (err.message.includes('401')) {
-      return res.status(401).json({
-        success: false,
-        error:   'Firebase token rejected by GHL. Please reconnect.',
-        pageJson,
-      });
-    }
     return res.status(500).json({
       success: false,
       error:   'Page JSON generated but failed to save to GHL.',
       detail:  err.message,
+      hint:    err.message.includes('403') ? 'Firebase token expired. Use the bookmarklet to reconnect.' : undefined,
       pageJson,
     });
   }
@@ -795,7 +765,7 @@ Output ONLY the JSON object.`;
     }
 
     try {
-      await saveWithAutoReconnect(req.locationId, page.id, pageJson);
+      await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId);
 
       send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length });
       results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length });

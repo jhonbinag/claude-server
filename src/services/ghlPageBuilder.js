@@ -626,7 +626,7 @@ function convertSectionsToFirestore(aiSections) {
  * @param {string} pageId
  * @param {object} sectionsJson  { sections: [...] }
  */
-async function savePageData(locationId, pageId, sectionsJson) {
+async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   const aiSections = sectionsJson?.sections || [];
   console.log(`[GHLPageBuilder] Saving page ${pageId} — ${aiSections.length} AI sections`);
 
@@ -634,15 +634,21 @@ async function savePageData(locationId, pageId, sectionsJson) {
   const projectId = getProjectIdFromToken(idToken);
 
   // Read Firestore for funnelId and current state
-  let docInfo;
+  // Non-fatal when funnelId is supplied via hints (e.g. passed from route body)
+  let docInfo = { funnelId: hints.funnelId, version: 1, downloadUrl: null, versionHistory: [], updatedBy: locationId };
   try {
-    docInfo = await readFirestoreDoc(idToken, projectId, pageId);
+    const fetched = await readFirestoreDoc(idToken, projectId, pageId);
+    docInfo = { ...docInfo, ...fetched };
   } catch (e) {
-    throw new Error(`Cannot read Firestore doc for page ${pageId}: ${e.message}`);
+    if (hints.funnelId) {
+      console.warn(`[GHLPageBuilder] Firestore read failed (${e.message.slice(0, 80)}), using hint funnelId: ${hints.funnelId}`);
+    } else {
+      throw new Error(`Cannot read Firestore doc for page ${pageId}: ${e.message} — pass funnelId in the request or reconnect Firebase.`);
+    }
   }
 
   const { funnelId, version: currentVersion, downloadUrl: currentDownloadUrl, versionHistory: existingVH } = docInfo;
-  if (!funnelId) throw new Error(`Page ${pageId} missing funnelId — open the page in GHL builder first.`);
+  if (!funnelId) throw new Error(`Page ${pageId} missing funnelId — provide funnelId in the request or open the page in GHL builder first.`);
 
   // Download existing file to preserve settings/general if available
   let existingFile = null;
