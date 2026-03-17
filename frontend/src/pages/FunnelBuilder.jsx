@@ -641,7 +641,7 @@ export default function FunnelBuilder() {
             {/* ── Full Funnel Mode ─────────────────────────────────────── */}
             {genMode === 'funnel' && (
               <form onSubmit={handleGenerateFunnel} className="space-y-4">
-                <p className="text-xs text-gray-400">Select a funnel type, enter your Funnel ID, and AI will generate all pages automatically. If the funnel is empty, standard pages will be created for you.</p>
+                <p className="text-xs text-gray-400">Select a funnel type and enter your Funnel ID. <span className="text-yellow-400 font-medium">Before generating: open each page in GHL's native builder at least once</span> — this initializes the page so native elements will display correctly.</p>
 
                 {/* Funnel type grid */}
                 <div>
@@ -725,7 +725,7 @@ export default function FunnelBuilder() {
                 {needsPages && (
                   <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)' }}>
                     <p className="text-xs font-semibold text-yellow-400">⚠️ This funnel has no pages yet</p>
-                    <p className="text-xs text-gray-400">Go to <strong className="text-white">GHL → Funnels → open your funnel</strong> and add these pages, then click Generate again:</p>
+                    <p className="text-xs text-gray-400">Go to <strong className="text-white">GHL → Funnels → open your funnel</strong>, add these pages, then <strong className="text-white">open each page in the native builder once</strong> to initialize it. Then click Generate again:</p>
                     <div className="space-y-1 mt-1">
                       {needsPages.map((p, i) => (
                         <div key={i} className="flex items-center gap-2 text-xs">
