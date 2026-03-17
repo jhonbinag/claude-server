@@ -3,15 +3,16 @@
  *
  * Saves native GHL page sections via TWO writes:
  *
- *  1. Firebase Storage — flat elements format with metaData (what GHL builder RENDERS from)
- *     - sections[].{ id, metaData, elements[], sequence, pageId, funnelId, locationId, general }
- *     - Top-level: { sections, settings, general, pageStyles, trackingCode, fontsForPreview, popups, popupsList }
- *     - pageStyles contains CSS variable definitions required for rendering
+ *  1. Firebase Storage — GHL hierarchical format (what GHL builder reads)
+ *     { sections: [{ id, type, name, allowRowMaxWidth, styles, mobileStyles, children }] }
+ *     children: rows → columns → elements (heading/sub-heading/paragraph/button/bulletList/image/divider)
  *
- *  2. Firestore funnel_pages/{pageId} — update page_data_url, page_data_download_url, sections (hierarchical), version
+ *  2. Firestore funnel_pages/{pageId} — page_data_url, page_data_download_url,
+ *     sections (same hierarchical format), versionHistory, version
  *
- * Discovery: GHL reads page content from Firebase Storage (flat elements format).
- * The Firestore `sections` field uses a simplified hierarchical format for the builder UI sidebar.
+ * Discovery (2026-03-18): GHL's native AI stores the SAME hierarchical format
+ * in Firebase Storage as in Firestore. No flat elements array. No metaData.
+ * No general field. Element types: "heading", "sub-heading" (not "headline"/"sub-headline").
  */
 
 const https  = require('https');
@@ -96,7 +97,6 @@ async function readFirestoreDoc(idToken, projectId, pageId) {
   if (res.status >= 400) throw new Error(`Firestore GET failed (${res.status}): ${res.raw.slice(0, 200)}`);
   const f = res.data.fields || {};
 
-  // Decode versionHistory array (raw Firestore wire format)
   const vhValues = f.versionHistory?.arrayValue?.values || [];
 
   return {
@@ -104,7 +104,7 @@ async function readFirestoreDoc(idToken, projectId, pageId) {
     locationId:     f.location_id?.stringValue,
     version:        parseInt(f.version?.integerValue || '1', 10),
     downloadUrl:    f.page_data_download_url?.stringValue,
-    versionHistory: vhValues, // raw Firestore arrayValue values[]
+    versionHistory: vhValues,
     updatedBy:      f.updated_by?.stringValue,
   };
 }
@@ -120,13 +120,6 @@ async function patchFirestoreDoc(idToken, projectId, pageId, fields) {
 }
 
 // ── Firebase Storage helpers ──────────────────────────────────────────────────
-
-async function downloadStorageFile(url) {
-  const u   = new URL(url);
-  const res = await httpsRequest(u.hostname, 'GET', u.pathname + u.search, {}, null);
-  if (res.status >= 400) throw new Error(`Storage download failed (${res.status})`);
-  return typeof res.data === 'object' ? res.data : JSON.parse(res.raw);
-}
 
 async function uploadToStorage(idToken, funnelId, pageId, pageData) {
   const fileName    = `page-data-${uuidv4()}`;
@@ -147,450 +140,216 @@ async function uploadToStorage(idToken, funnelId, pageId, pageData) {
   return { storagePath, downloadUrl };
 }
 
-// ── GHL flat elements format builders ─────────────────────────────────────────
+// ── GHL element builder (hierarchical format matching GHL's native AI) ─────────
 
-const DEFAULT_BG_IMAGE = {
-  value: { mediaType: 'image', url: '', opacity: '1', options: 'bgCover', svgCode: '', videoUrl: '', videoThumbnail: '', videoLoop: true },
-};
-const DEFAULT_VISIBILITY = { value: { hideDesktop: false, hideMobile: false } };
+function buildGhlElement(el) {
+  const rawColor  = el.styles?.color?.value || el.styles?.color || '#000000';
+  const rawBg     = el.styles?.backgroundColor?.value || el.styles?.backgroundColor || 'transparent';
+  const textAlign = el.styles?.textAlign?.value || 'left';
 
-function buildSection(secId, rowId, styles = {}) {
-  const bgColor = styles.backgroundColor?.value || 'var(--transparent)';
-  const padTop  = styles.paddingTop?.value  || 60;
-  const padBot  = styles.paddingBottom?.value || 60;
-  return {
-    id: secId,
-    type: 'section',
-    child: [rowId],
-    class: {
-      width:        { value: 'fullSection' },
-      borders:      { value: 'noBorder' },
-      borderRadius: { value: 'radius0' },
-      radiusEdge:   { value: 'none' },
-    },
-    styles: {
-      boxShadow:       { value: 'none' },
-      paddingLeft:     { unit: 'px', value: 0 },
-      paddingRight:    { value: 0, unit: 'px' },
-      paddingBottom:   { unit: 'px', value: padBot },
-      paddingTop:      { unit: 'px', value: padTop },
-      marginTop:       { unit: 'px', value: 0 },
-      marginBottom:    { unit: 'px', value: 0 },
-      marginLeft:      { unit: 'px', value: 0 },
-      marginRight:     { unit: 'px', value: 0 },
-      backgroundColor: { value: bgColor },
-      background:      { value: 'none' },
-      backdropFilter:  { value: 'none' },
-      borderColor:     { value: 'var(--black)' },
-      borderWidth:     { value: '0', unit: 'px' },
-      borderStyle:     { value: 'solid' },
-    },
-    extra: {
-      sticky:          { value: 'noneSticky' },
-      visibility:      DEFAULT_VISIBILITY,
-      bgImage:         DEFAULT_BG_IMAGE,
-      allowRowMaxWidth:{ value: false },
-      customClass:     { value: [] },
-      elementScreenshot: { value: [] },
-    },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
-    meta:         'section',
-    tagName:      'c-section',
-    title:        'Section',
-    mobileStyles: {},
-    mobileWrapper:{},
-    general:      ELEMENT_GENERAL,
-  };
+  switch (el.type) {
+    case 'headline':
+    case 'heading': {
+      const tag    = el.tag || 'h1';
+      const fSize  = el.styles?.fontSize?.value  || (tag === 'h1' ? 52 : tag === 'h2' ? 36 : 28);
+      const mSize  = el.mobileStyles?.fontSize?.value || (tag === 'h1' ? 32 : tag === 'h2' ? 26 : 22);
+      return {
+        id:   `heading-${randomId()}`,
+        type: 'heading',
+        text: el.text || '',
+        tag,
+        styles: {
+          color:         { value: rawColor },
+          fontSize:      { value: fSize, unit: 'px' },
+          lineHeight:    { value: 1.2, unit: 'em' },
+          textAlign:     { value: el.styles?.textAlign?.value || 'center' },
+          marginTop:     { value: 0,  unit: 'px' },
+          marginRight:   { value: 0,  unit: 'px' },
+          marginBottom:  { value: 20, unit: 'px' },
+          marginLeft:    { value: 0,  unit: 'px' },
+          typography:    { value: 'var(--headlinefont)' },
+          linkTextColor: { value: rawColor },
+        },
+        mobileStyles: {
+          fontSize:     { value: mSize, unit: 'px' },
+          marginBottom: { value: 16,    unit: 'px' },
+        },
+      };
+    }
+
+    case 'sub-headline':
+    case 'sub-heading': {
+      const fSize = el.styles?.fontSize?.value || 20;
+      return {
+        id:   `sub-heading-${randomId()}`,
+        type: 'sub-heading',
+        text: el.text || '',
+        styles: {
+          color:         { value: rawColor },
+          fontSize:      { value: fSize, unit: 'px' },
+          lineHeight:    { value: 1.4, unit: 'em' },
+          textAlign:     { value: el.styles?.textAlign?.value || 'center' },
+          marginTop:     { value: 0,  unit: 'px' },
+          marginRight:   { value: 0,  unit: 'px' },
+          marginBottom:  { value: 12, unit: 'px' },
+          marginLeft:    { value: 0,  unit: 'px' },
+          typography:    { value: 'var(--contentfont)' },
+          linkTextColor: { value: rawColor },
+        },
+        mobileStyles: {
+          fontSize:     { value: el.mobileStyles?.fontSize?.value || Math.max(fSize - 2, 14), unit: 'px' },
+          marginBottom: { value: 10, unit: 'px' },
+        },
+      };
+    }
+
+    case 'paragraph': {
+      const fSize = el.styles?.fontSize?.value || 16;
+      return {
+        id:   `paragraph-${randomId()}`,
+        type: 'paragraph',
+        text: el.text || '',
+        styles: {
+          color:         { value: rawColor },
+          fontSize:      { value: fSize, unit: 'px' },
+          lineHeight:    { value: 1.6, unit: 'em' },
+          textAlign:     { value: textAlign },
+          marginTop:     { value: 0,  unit: 'px' },
+          marginRight:   { value: 0,  unit: 'px' },
+          marginBottom:  { value: 20, unit: 'px' },
+          marginLeft:    { value: 0,  unit: 'px' },
+          typography:    { value: 'var(--contentfont)' },
+          linkTextColor: { value: rawColor },
+        },
+        mobileStyles: {
+          fontSize:     { value: el.mobileStyles?.fontSize?.value || Math.max(fSize - 2, 14), unit: 'px' },
+          marginBottom: { value: 16, unit: 'px' },
+        },
+      };
+    }
+
+    case 'button': {
+      const btnColor = el.styles?.color?.value         || el.styles?.color         || '#FFFFFF';
+      const btnBg    = el.styles?.backgroundColor?.value || el.styles?.backgroundColor || '#1D4ED8';
+      const fSize    = el.styles?.fontSize?.value || 16;
+      return {
+        id:   `button-${randomId()}`,
+        type: 'button',
+        text: el.text || 'Click Here',
+        link: el.link || '#',
+        styles: {
+          backgroundColor: { value: btnBg },
+          color:           { value: btnColor },
+          fontSize:        { value: fSize, unit: 'px' },
+          fontWeight:      { value: '700' },
+          lineHeight:      { value: 1.2, unit: 'em' },
+          textAlign:       { value: 'center' },
+          paddingTop:      { value: el.styles?.paddingTop?.value    || 14, unit: 'px' },
+          paddingRight:    { value: el.styles?.paddingRight?.value  || 32, unit: 'px' },
+          paddingBottom:   { value: el.styles?.paddingBottom?.value || 14, unit: 'px' },
+          paddingLeft:     { value: el.styles?.paddingLeft?.value   || 32, unit: 'px' },
+          borderRadius:    { value: el.styles?.borderRadius?.value  || 8,  unit: 'px' },
+          marginTop:       { value: 10, unit: 'px' },
+          marginRight:     { value: 0,  unit: 'px' },
+          marginBottom:    { value: 10, unit: 'px' },
+          marginLeft:      { value: 0,  unit: 'px' },
+        },
+        mobileStyles: {
+          fontSize:     { value: el.mobileStyles?.fontSize?.value || Math.max(fSize - 1, 14), unit: 'px' },
+          paddingTop:   { value: 12, unit: 'px' },
+          paddingBottom:{ value: 12, unit: 'px' },
+        },
+      };
+    }
+
+    case 'bulletList': {
+      const fSize = el.styles?.fontSize?.value || 16;
+      const items = (el.items || []).map(i => (typeof i === 'string' ? i : (i.text || String(i))));
+      return {
+        id:    `bulletList-${randomId()}`,
+        type:  'bulletList',
+        items,
+        icon:  el.icon || { name: 'check', unicode: 'f00c', fontFamily: 'Font Awesome 5 Free' },
+        styles: {
+          color:         { value: rawColor },
+          iconColor:     { value: el.styles?.iconColor?.value || '#22C55E' },
+          fontSize:      { value: fSize, unit: 'px' },
+          lineHeight:    { value: 1.7, unit: 'em' },
+          textAlign:     { value: textAlign },
+          marginTop:     { value: 0,  unit: 'px' },
+          marginRight:   { value: 0,  unit: 'px' },
+          marginBottom:  { value: 20, unit: 'px' },
+          marginLeft:    { value: 0,  unit: 'px' },
+          typography:    { value: 'var(--contentfont)' },
+          linkTextColor: { value: rawColor },
+        },
+        mobileStyles: {
+          fontSize:     { value: el.mobileStyles?.fontSize?.value || Math.max(fSize - 1, 14), unit: 'px' },
+          marginBottom: { value: 16, unit: 'px' },
+        },
+      };
+    }
+
+    case 'image':
+      return {
+        id:   `image-${randomId()}`,
+        type: 'image',
+        src:  el.src || '',
+        alt:  el.alt || '',
+        styles: {
+          width:         { value: 100, unit: '%' },
+          borderRadius:  { value: el.styles?.borderRadius?.value || 0, unit: 'px' },
+          marginTop:     { value: 0, unit: 'px' },
+          marginRight:   { value: 0, unit: 'px' },
+          marginBottom:  { value: 0, unit: 'px' },
+          marginLeft:    { value: 0, unit: 'px' },
+        },
+        mobileStyles: {},
+      };
+
+    case 'divider':
+      return {
+        id:   `divider-${randomId()}`,
+        type: 'divider',
+        styles: {
+          borderTopWidth: { value: 1, unit: 'px' },
+          borderTopStyle: { value: 'solid' },
+          borderTopColor: { value: el.styles?.borderTopColor?.value || '#E5E7EB' },
+          marginTop:      { value: 10, unit: 'px' },
+          marginRight:    { value: 0,  unit: 'px' },
+          marginBottom:   { value: 20, unit: 'px' },
+          marginLeft:     { value: 0,  unit: 'px' },
+        },
+        mobileStyles: {},
+      };
+
+    default:
+      return {
+        id:   `paragraph-${randomId()}`,
+        type: 'paragraph',
+        text: el.text || '',
+        styles: {
+          color:         { value: '#374151' },
+          fontSize:      { value: 16, unit: 'px' },
+          lineHeight:    { value: 1.6, unit: 'em' },
+          textAlign:     { value: 'left' },
+          marginBottom:  { value: 16, unit: 'px' },
+          typography:    { value: 'var(--contentfont)' },
+          linkTextColor: { value: '#374151' },
+        },
+        mobileStyles: { fontSize: { value: 15, unit: 'px' } },
+      };
+  }
 }
 
-function buildRow(rowId, colIds) {
-  return {
-    id: rowId, type: 'row', child: colIds,
-    class: {
-      alignRow:     { value: 'row-align-center' },
-      borders:      { value: 'noBorder' },
-      borderRadius: { value: 'radius0' },
-      radiusEdge:   { value: 'none' },
-    },
-    styles: {
-      boxShadow:       { value: 'none' },
-      paddingLeft:     { value: 20, unit: 'px' },
-      paddingRight:    { value: 20, unit: 'px' },
-      paddingTop:      { value: 10, unit: 'px' },
-      paddingBottom:   { value: 10, unit: 'px' },
-      backgroundColor: { value: 'var(--transparent)' },
-      background:      { value: 'none' },
-      backdropFilter:  { value: 'none' },
-      borderColor:     { value: 'var(--black)' },
-      borderWidth:     { value: '0', unit: 'px' },
-      borderStyle:     { value: 'solid' },
-    },
-    extra: {
-      visibility: DEFAULT_VISIBILITY,
-      bgImage:    DEFAULT_BG_IMAGE,
-      rowWidth:   { value: 1170, unit: 'px' },
-      customClass:{ value: [] },
-    },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: '', value: 'auto' }, marginRight: { unit: '', value: 'auto' } },
-    tagName:      'c-row',
-    meta:         'row',
-    mobileStyles: {},
-    mobileWrapper:{},
-    title:        '1 Column Row',
-    general:      ELEMENT_GENERAL,
-  };
-}
+// ── Convert AI sections → GHL hierarchical format ─────────────────────────────
+// This format is used for BOTH Firebase Storage file AND Firestore sections field.
 
-function buildCol(colId, childIds) {
-  return {
-    id: colId, type: 'col', child: childIds,
-    class: {
-      borders:      { value: 'noBorder' },
-      borderRadius: { value: 'radius0' },
-      radiusEdge:   { value: 'none' },
-    },
-    styles: {
-      boxShadow:       { value: 'none' },
-      paddingLeft:     { value: 15, unit: 'px' },
-      paddingRight:    { value: 15, unit: 'px' },
-      paddingTop:      { value: 10, unit: 'px' },
-      paddingBottom:   { value: 10, unit: 'px' },
-      backgroundColor: { value: 'var(--transparent)' },
-      background:      { value: 'none' },
-      backdropFilter:  { value: 'none' },
-      width:           { value: 100, unit: '%' },
-      borderColor:     { value: 'var(--black)' },
-      borderWidth:     { value: '0', unit: 'px' },
-      borderStyle:     { value: 'solid' },
-    },
-    extra: {
-      visibility:                  DEFAULT_VISIBILITY,
-      bgImage:                     DEFAULT_BG_IMAGE,
-      columnLayout:                { value: 'column' },
-      justifyContentColumnLayout:  { value: 'center' },
-      alignContentColumnLayout:    { value: 'inherit' },
-      forceColumnLayoutForMobile:  { value: true },
-      customClass:                 { value: [] },
-      elementVersion:              { value: 2 },
-    },
-    wrapper:      { marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 }, marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 } },
-    tagName:      'c-column',
-    meta:         'col',
-    mobileStyles: {},
-    mobileWrapper:{},
-    title:        '1st Column',
-    noOfColumns:  1,
-    general:      ELEMENT_GENERAL,
-  };
-}
-
-// Shared styles block for c-heading / c-sub-heading / c-paragraph (GHL new element format)
-function buildTextStyles(overrides = {}) {
-  return {
-    backgroundColor:      { value: 'var(--transparent)' },
-    color:                { value: 'var(--black)' },
-    boldTextColor:        { value: 'var(--black)' },
-    italicTextColor:      { value: 'var(--text-color)' },
-    underlineTextColor:   { value: 'var(--text-color)' },
-    linkTextColor:        { value: 'var(--link-color)' },
-    iconColor:            { value: 'var(--text-color)' },
-    fontFamily:           { value: '' },
-    fontWeight:           { value: 'normal' },
-    paddingLeft:          { unit: 'px', value: 0 },
-    paddingRight:         { unit: 'px', value: 0 },
-    paddingTop:           { unit: 'px', value: 0 },
-    paddingBottom:        { unit: 'px', value: 0 },
-    opacity:              { value: '1' },
-    textShadow:           { value: '0px 0px 0px rgba(0,0,0,0)' },
-    borderColor:          { value: 'var(--black)' },
-    borderWidth:          { value: '2', unit: 'px' },
-    borderStyle:          { value: 'solid' },
-    lineHeight:           { value: 1.3, unit: 'em' },
-    textTransform:        { value: '' },
-    letterSpacing:        { value: '0', unit: 'px' },
-    textAlign:            { value: 'center' },
-    ...overrides,
-  };
-}
-
-function buildTextClass() {
-  return {
-    boxShadow:    { value: 'none' },
-    borders:      { value: 'noBorder' },
-    borderRadius: { value: 'radius0' },
-    radiusEdge:   { value: 'none' },
-  };
-}
-
-function buildHeadline(id, text, tag = 'h1') {
-  const deskSize = tag === 'h1' ? 48 : tag === 'h2' ? 36 : 28;
-  const mobSize  = tag === 'h1' ? 32 : 24;
-  const rawId    = id.replace(/^heading-/, '');
-  return {
-    id,
-    type:      'element',
-    child:     [],
-    meta:      'heading',
-    tagName:   'c-heading',
-    title:     'Headline',
-    tag,
-    customCss: [],
-    class:     buildTextClass(),
-    styles:    buildTextStyles({ fontWeight: { value: '700' }, textAlign: { value: 'center' } }),
-    extra: {
-      nodeId:          { value: `cheading-${rawId}` },
-      visibility:      DEFAULT_VISIBILITY,
-      text:            { value: `<${tag}>${text}</${tag}>` },
-      desktopFontSize: { value: deskSize, unit: 'px' },
-      mobileFontSize:  { value: mobSize,  unit: 'px' },
-      typography:      { value: 'var(--headlinefont)' },
-      icon:            { value: { name: '', unicode: '', fontFamily: '' } },
-      customClass:     { value: [] },
-    },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '20' } },
-    mobileStyles: {},
-    mobileWrapper:{},
-    general:      ELEMENT_GENERAL,
-  };
-}
-
-function buildSubHeadline(id, text) {
-  const rawId = id.replace(/^sub-headline-/, '').replace(/^sub-heading-/, '');
-  return {
-    id,
-    type:         'element',
-    child:        [],
-    meta:         'sub-heading',
-    tagName:      'c-sub-heading',
-    title:        'Sub Headline',
-    tag:          'h3',
-    customCss:    [],
-    mobileStyles: {},
-    mobileWrapper:{},
-    class:        buildTextClass(),
-    styles:       buildTextStyles({ textAlign: { value: 'center' } }),
-    extra: {
-      nodeId:          { value: `csub-heading-${rawId}` },
-      visibility:      DEFAULT_VISIBILITY,
-      text:            { value: `<h3>${text}</h3>` },
-      desktopFontSize: { value: 23, unit: 'px' },
-      mobileFontSize:  { value: 20, unit: 'px' },
-      typography:      { value: 'var(--headlinefont)' },
-      icon:            { value: { name: '', unicode: '', fontFamily: '' } },
-      customClass:     { value: [] },
-    },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
-    general:      ELEMENT_GENERAL,
-  };
-}
-
-function buildParagraph(id, text) {
-  const html  = text.startsWith('<') ? text : `<p>${text}</p>`;
-  const rawId = id.replace(/^paragraph-/, '');
-  return {
-    id,
-    type:      'element',
-    child:     [],
-    meta:      'paragraph',
-    tagName:   'c-paragraph',
-    title:     'Paragraph',
-    tag:       'p',
-    customCss: [],
-    class:     buildTextClass(),
-    styles:    buildTextStyles({ textAlign: { value: 'left' } }),
-    extra: {
-      nodeId:          { value: `cparagraph-${rawId}` },
-      visibility:      DEFAULT_VISIBILITY,
-      text:            { value: html },
-      desktopFontSize: { value: 16, unit: 'px' },
-      mobileFontSize:  { value: 14, unit: 'px' },
-      typography:      { value: 'var(--contentfont)' },
-      icon:            { value: { name: '', unicode: '', fontFamily: '' } },
-      customClass:     { value: [] },
-    },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '15' } },
-    mobileStyles: {},
-    mobileWrapper:{},
-    general:      ELEMENT_GENERAL,
-  };
-}
-
-function buildButton(id, text, link = '#', elStyles = {}) {
-  // Unwrap AI-generated style values that may already be in { value: "..." } object form
-  const colorVal = typeof elStyles.color === 'string' ? elStyles.color : (elStyles.color?.value || 'var(--white)');
-  const bgVal    = typeof elStyles.backgroundColor === 'string' ? elStyles.backgroundColor : (elStyles.backgroundColor?.value || 'var(--primary)');
-  return {
-    id, type: 'button', child: [],
-    class: {
-      align:        { value: 'center' },
-      borders:      { value: 'noBorder' },
-      borderRadius: { value: 'radius0' },
-      radiusEdge:   { value: 'none' },
-    },
-    styles: {
-      fontSize:        { value: 16, unit: 'px' },
-      fontWeight:      { value: '700' },
-      lineHeight:      { value: 1.2 },
-      color:           { value: colorVal },
-      backgroundColor: { value: bgVal },
-      paddingTop:      { value: 14, unit: 'px' },
-      paddingBottom:   { value: 14, unit: 'px' },
-      paddingLeft:     { value: 32, unit: 'px' },
-      paddingRight:    { value: 32, unit: 'px' },
-      borderRadius:    { value: 6, unit: 'px' },
-      borderWidth:     { value: '0', unit: 'px' },
-      borderStyle:     { value: 'solid' },
-      borderColor:     { value: 'var(--black)' },
-    },
-    extra: {
-      visibility:  DEFAULT_VISIBILITY,
-      customClass: { value: [] },
-      content:     { value: text },
-      link:        { value: { type: 'url', value: link, target: '_self' } },
-    },
-    wrapper:      { marginTop: { unit: 'px', value: 10 }, marginBottom: { unit: 'px', value: 10 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
-    tagName:      'c-button',
-    meta:         'button',
-    title:        'Button',
-    mobileStyles: {},
-    mobileWrapper:{},
-    general:      ELEMENT_GENERAL,
-  };
-}
-
-function buildBulletList(id, items) {
-  const html  = '<ul>' + items.map(i => `<li>${i.text || i}</li>`).join('') + '</ul>';
-  const rawId = id.replace(/^bulletList-/, '').replace(/^list-/, '');
-  return {
-    id,
-    type:      'element',
-    child:     [],
-    meta:      'paragraph',
-    tagName:   'c-paragraph',
-    title:     'Paragraph',
-    tag:       'p',
-    customCss: [],
-    class:     buildTextClass(),
-    styles:    buildTextStyles({ textAlign: { value: 'left' } }),
-    extra: {
-      nodeId:          { value: `cparagraph-${rawId}` },
-      visibility:      DEFAULT_VISIBILITY,
-      text:            { value: html },
-      desktopFontSize: { value: 16, unit: 'px' },
-      mobileFontSize:  { value: 14, unit: 'px' },
-      typography:      { value: 'var(--contentfont)' },
-      icon:            { value: { name: '', unicode: '', fontFamily: '' } },
-      customClass:     { value: [] },
-    },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '15' } },
-    mobileStyles: {},
-    mobileWrapper:{},
-    general:      ELEMENT_GENERAL,
-  };
-}
-
-function buildImage(id, src, alt = '') {
-  const rawId = id.replace(/^image-/, '');
-  return {
-    id,
-    type:      'element',
-    child:     [],
-    meta:      'image',
-    tagName:   'c-image',
-    title:     'Image',
-    customCss: [],
-    class: {
-      borders:      { value: 'noBorder' },
-      borderRadius: { value: 'radius0' },
-      radiusEdge:   { value: 'none' },
-      align:        { value: 'center' },
-    },
-    styles: {
-      width:           { value: 100,  unit: '%' },
-      maxWidth:        { value: 100,  unit: '%' },
-      paddingTop:      { value: 0,    unit: 'px' },
-      paddingBottom:   { value: 0,    unit: 'px' },
-      paddingLeft:     { value: 0,    unit: 'px' },
-      paddingRight:    { value: 0,    unit: 'px' },
-      opacity:         { value: '1' },
-      borderColor:     { value: 'var(--black)' },
-      borderWidth:     { value: '0', unit: 'px' },
-      borderStyle:     { value: 'solid' },
-    },
-    extra: {
-      nodeId:      { value: `cimage-${rawId}` },
-      visibility:  DEFAULT_VISIBILITY,
-      src:         { value: src || '' },
-      alt:         { value: alt || '' },
-      link:        { value: { type: 'url', value: '', target: '_self' } },
-      customClass: { value: [] },
-    },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: '', value: 'auto' }, marginRight: { unit: '', value: 'auto' } },
-    mobileStyles: {},
-    mobileWrapper:{},
-    general:      ELEMENT_GENERAL,
-  };
-}
-
-// ── Top-level GHL Storage file structure ──────────────────────────────────────
-
-const PAGE_STYLES = `:root{ --transparent: transparent;\n--primary: #37ca37;\n--secondary: #188bf6;\n--white: #ffffff;\n--gray: #cbd5e0;\n--black: #000000;\n--red: #e93d3d;\n--orange: #f6ad55;\n--yellow: #faf089;\n--green: #9ae6b4;\n--teal: #81e6d9;\n--malibu: #63b3ed;\n--indigo: #757BBD;\n--purple: #d6bcfa;\n--pink: #fbb6ce;\n--inter: Inter,sans-serif;\n}`;
-
-// These objects match the shape of existingFile.settings / existingFile.general
-// (no outer wrapper — pageFile.settings = { typography:{...} }, not { settings:{...} })
-const PAGE_SETTINGS = {
-  typography: {
-    fonts: {
-      headlineFont: { id: 'headlinefont', text: 'Headline Font', value: { text: 'Inter', value: 'var(--inter)' } },
-      contentFont:  { id: 'contentfont',  text: 'Content Font',  value: { text: 'Inter', value: 'var(--inter)' } },
-    },
-    colors: {
-      textColor:       { id: 'textcolor',       text: 'Text Color',       value: { text: 'Black', value: 'var(--black)' } },
-      backgroundColor: { id: 'backgroundcolor', text: 'Background Color', value: { text: 'Transparent', value: 'var(--transparent)' } },
-    },
-  },
-};
-
-const PAGE_GENERAL = {
-  colors: [
-    { label: 'Transparent', value: 'transparent' },
-    { label: 'Primary',     value: '#37ca37' },
-    { label: 'Secondary',   value: '#188bf6' },
-    { label: 'White',       value: '#ffffff' },
-    { label: 'Gray',        value: '#cbd5e0' },
-    { label: 'Black',       value: '#000000' },
-  ],
-  rootVars:        { '--transparent': 'transparent', '--black': '#000000', '--primary': '#37ca37', '--secondary': '#188bf6', '--white': '#ffffff' },
-  fontsForPreview: [],
-  customFonts:     [],
-  sectionStyles:   '',
-};
-
-// Element-level general — required on every element (section, row, col, content)
-// so GHL's backend/frontend never gets undefined.colors when iterating elements.
-const ELEMENT_GENERAL = {
-  colors:         [
-    { label: 'Transparent', value: 'transparent' },
-    { label: 'Black',       value: '#000000' },
-  ],
-  fontsForPreview: [],
-  rootVars:        { '--transparent': 'transparent', '--black': '#000000' },
-  sectionStyles:   '',
-  customFonts:     [],
-};
-
-// Alias for the section container level (same shape)
-const SECTION_GENERAL = ELEMENT_GENERAL;
-
-// ── Convert AI sections → GHL flat elements format (for Firebase Storage) ─────
-
-function convertSectionsToGhlStorage(aiSections, pageId, funnelId, locationId) {
+function convertSectionsToGHL(aiSections) {
   return aiSections.map((aiSection, idx) => {
     const secId = aiSection.id || `section-${randomId()}`;
-    const rowId = `row-${randomId()}`;
-    const colId = `col-${randomId()}`;
 
-    // Flatten content elements
+    // Flatten content items from nested AI format
     const kids = aiSection.children || [];
     let contentItems = [];
     if (kids.length > 0 && kids[0].type === 'row') {
@@ -600,85 +359,55 @@ function convertSectionsToGhlStorage(aiSections, pageId, funnelId, locationId) {
       contentItems = kids.filter(k => !['row', 'column'].includes(k.type));
     }
 
-    // Build content elements
-    const contentEls = [];
-    const contentIds = [];
-    for (const el of contentItems) {
-      const elId = el.id || `${el.type}-${randomId()}`;
-      let built;
-      switch (el.type) {
-        case 'headline':    built = buildHeadline(elId, el.text || '', el.tag || 'h1'); break;
-        case 'sub-headline':built = buildSubHeadline(elId, el.text || ''); break;
-        case 'paragraph':   built = buildParagraph(elId, el.text || ''); break;
-        case 'button':      built = buildButton(elId, el.text || 'Click Here', el.link || '#', el.styles || {}); break;
-        case 'bulletList':  built = buildBulletList(elId, el.items || []); break;
-        case 'image':       built = buildImage(elId, el.src || '', el.alt || ''); break;
-        default:            built = buildParagraph(elId, el.text || '');
-      }
-      contentEls.push(built);
-      contentIds.push(elId);
-    }
+    const ghlElements = contentItems.map(buildGhlElement);
 
-    // Build the metaData section descriptor
-    const sectionMeta = buildSection(secId, rowId, aiSection.styles || {});
+    const bgColor = aiSection.styles?.backgroundColor?.value || aiSection.styles?.backgroundColor || '#FFFFFF';
+    const padTop  = aiSection.styles?.paddingTop?.value  || 80;
+    const padBot  = aiSection.styles?.paddingBottom?.value || 80;
 
     return {
-      id:         secId,
-      metaData:   sectionMeta,
-      elements:   [
-        buildRow(rowId, [colId]),
-        buildCol(colId, contentIds),
-        ...contentEls,
-      ],
-      sequence:   idx,
-      pageId,
-      funnelId,
-      locationId,
-      general:    SECTION_GENERAL,
-    };
-  });
-}
-
-// ── Convert AI sections → GHL Firestore hierarchical format (for sections field) ──
-
-function convertSectionsToFirestore(aiSections) {
-  return aiSections.map(aiSection => {
-    const secId = aiSection.id || `section-${randomId()}`;
-    const kids  = aiSection.children || [];
-    let contentItems = [];
-    if (kids.length > 0 && kids[0].type === 'row') {
-      const col = (kids[0].children || [])[0];
-      contentItems = col?.children || [];
-    } else {
-      contentItems = kids.filter(k => !['row', 'column'].includes(k.type));
-    }
-
-    const ghlEls = contentItems.map(el => {
-      const elId = el.id || `${el.type}-${randomId()}`;
-      switch (el.type) {
-        case 'headline':    return { id: elId, type: 'headline',     tag: el.tag || 'h1', text: el.text || '', styles: { color: {} }, mobileStyles: {}, general: ELEMENT_GENERAL };
-        case 'sub-headline':return { id: elId, type: 'sub-headline', text: el.text || '',                                                               general: ELEMENT_GENERAL };
-        case 'paragraph':   return { id: elId, type: 'paragraph',    text: el.text || '',                                                               general: ELEMENT_GENERAL };
-        case 'button':      return { id: elId, type: 'button', text: el.text || 'Click Here', link: el.link || '#',
-                                     styles: { backgroundColor: { value: el.styles?.backgroundColor || '#000000' }, color: { value: el.styles?.color || '#ffffff' }, paddingLeft: { value: 25, unit: 'px' }, paddingRight: { value: 25, unit: 'px' }, borderRadius: {} }, mobileStyles: {}, general: ELEMENT_GENERAL };
-        case 'bulletList':  return { id: elId, type: 'bulletList', text: '<ul>' + (el.items||[]).map(i=>`<li>${i.text||i}</li>`).join('') + '</ul>',    general: ELEMENT_GENERAL };
-        case 'image':       return { id: elId, type: 'image', src: el.src || '', alt: el.alt || '', styles: { width: { value: 100, unit: '%' } }, mobileStyles: {}, general: ELEMENT_GENERAL };
-        default:            return { id: elId, type: 'paragraph', text: el.text || '',                                                                  general: ELEMENT_GENERAL };
-      }
-    });
-
-    return {
-      id:   secId, type: 'section',
+      id:              secId,
+      type:            'section',
+      name:            aiSection.name || `section-${idx + 1}`,
+      allowRowMaxWidth: false,
       styles: {
-        paddingTop:      { value: aiSection.styles?.paddingTop?.value      || 80,  unit: 'px' },
-        paddingBottom:   { value: aiSection.styles?.paddingBottom?.value   || 80,  unit: 'px' },
-        paddingLeft:     { value: 20, unit: 'px' },
-        paddingRight:    { value: 20, unit: 'px' },
-        backgroundColor: { value: aiSection.styles?.backgroundColor?.value || '#ffffff' },
+        backgroundColor: { value: bgColor },
+        paddingTop:      { value: padTop, unit: 'px' },
+        paddingRight:    { value: 20,     unit: 'px' },
+        paddingBottom:   { value: padBot, unit: 'px' },
+        paddingLeft:     { value: 20,     unit: 'px' },
       },
-      mobileStyles: {},
-      general: ELEMENT_GENERAL,
-      children: [{ id: `row-${randomId()}`, type: 'row', general: ELEMENT_GENERAL, children: [{ id: `column-${randomId()}`, type: 'column', width: 12, styles: { textAlign: { value: 'center' } }, mobileStyles: {}, general: ELEMENT_GENERAL, children: ghlEls }] }],
+      mobileStyles: {
+        paddingTop:    { value: Math.round(padTop / 2), unit: 'px' },
+        paddingRight:  { value: 15, unit: 'px' },
+        paddingBottom: { value: Math.round(padBot / 2), unit: 'px' },
+        paddingLeft:   { value: 15, unit: 'px' },
+      },
+      children: [{
+        id:   `row-${randomId()}`,
+        type: 'row',
+        children: [{
+          id:     `column-${randomId()}`,
+          type:   'column',
+          width:  12,
+          styles: {
+            textAlign:                  { value: 'center' },
+            forceColumnLayoutForMobile: { value: false },
+            marginTop:                  { value: 0,      unit: 'px' },
+            marginRight:                { value: 'auto', unit: ''   },
+            marginBottom:               { value: 0,      unit: 'px' },
+            marginLeft:                 { value: 'auto', unit: ''   },
+            justifyContentColumnLayout: { value: 'flex-start' },
+          },
+          mobileStyles: {
+            marginTop:    { value: 0,      unit: 'px' },
+            marginRight:  { value: 'auto', unit: ''   },
+            marginBottom: { value: 0,      unit: 'px' },
+            marginLeft:   { value: 'auto', unit: ''   },
+          },
+          children: ghlElements,
+        }],
+      }],
     };
   });
 }
@@ -691,6 +420,7 @@ function convertSectionsToFirestore(aiSections) {
  * @param {string} locationId
  * @param {string} pageId
  * @param {object} sectionsJson  { sections: [...] }
+ * @param {object} hints         { funnelId? }
  */
 async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   const aiSections = sectionsJson?.sections || [];
@@ -700,7 +430,6 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   const projectId = getProjectIdFromToken(idToken);
 
   // Read Firestore for funnelId and current state
-  // Non-fatal when funnelId is supplied via hints (e.g. passed from route body)
   let docInfo = { funnelId: hints.funnelId, version: 1, downloadUrl: null, versionHistory: [], updatedBy: locationId };
   try {
     const fetched = await readFirestoreDoc(idToken, projectId, pageId);
@@ -713,53 +442,21 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
     }
   }
 
-  const { funnelId, version: currentVersion, downloadUrl: currentDownloadUrl, versionHistory: existingVH } = docInfo;
+  const { funnelId, version: currentVersion, versionHistory: existingVH } = docInfo;
   if (!funnelId) throw new Error(`Page ${pageId} missing funnelId — provide funnelId in the request or open the page in GHL builder first.`);
 
-  // Download existing file to preserve trackingCode/popups if available
-  let existingFile = null;
-  if (currentDownloadUrl) {
-    try { existingFile = await downloadStorageFile(currentDownloadUrl); } catch { /* ignore */ }
-  }
+  // Convert AI output → GHL's native hierarchical format
+  const ghlSections = convertSectionsToGHL(aiSections);
+  console.log(`[GHLPageBuilder] Built ${ghlSections.length} sections (GHL hierarchical format)`);
 
-  // Normalize settings — unwrap old double-nested format ({ settings: { typography } } → { typography })
-  // and validate that typography.colors exists; fall back to PAGE_SETTINGS if anything looks wrong
-  function normalizeSettings(s) {
-    if (!s) return PAGE_SETTINGS;
-    const unwrapped = s.settings || s;          // unwrap { settings: {...} } if present
-    if (!unwrapped.typography?.colors) return PAGE_SETTINGS;
-    return unwrapped;
-  }
-
-  // Normalize general — unwrap old double-nested format ({ general: { colors } } → { colors })
-  function normalizeGeneral(g) {
-    if (!g) return PAGE_GENERAL;
-    const unwrapped = g.general || g;           // unwrap { general: {...} } if present
-    if (!Array.isArray(unwrapped.colors)) return PAGE_GENERAL;
-    return unwrapped;
-  }
-
-  // Convert to GHL flat elements format (what the builder renders from Storage)
-  const storageSections = convertSectionsToGhlStorage(aiSections, pageId, funnelId, locationId);
-  console.log(`[GHLPageBuilder] Built ${storageSections.length} sections (flat elements format)`);
-
-  // Build complete page file matching GHL's expected structure
-  const pageFile = {
-    sections:        storageSections,
-    settings:        normalizeSettings(existingFile?.settings),
-    general:         normalizeGeneral(existingFile?.general),
-    pageStyles:      existingFile?.pageStyles || PAGE_STYLES,
-    trackingCode:    existingFile?.trackingCode    || '',
-    fontsForPreview: existingFile?.fontsForPreview || [],
-    popups:          existingFile?.popups          || [],
-    popupsList:      existingFile?.popupsList      || [],
-  };
+  // Storage file — matches GHL's native AI format exactly
+  const storageFile = { sections: ghlSections };
 
   // Upload to Firebase Storage
-  const { storagePath, downloadUrl: newDownloadUrl } = await uploadToStorage(idToken, funnelId, pageId, pageFile);
+  const { storagePath, downloadUrl: newDownloadUrl } = await uploadToStorage(idToken, funnelId, pageId, storageFile);
   console.log(`[GHLPageBuilder] Uploaded to ${storagePath}`);
 
-  // Build new versionHistory entry (prepend — GHL renders from versionHistory[0])
+  // Build versionHistory entry
   const newVHEntry = toFirestoreValue({
     version_id:         uuidv4(),
     page_download_path: storagePath,
@@ -773,22 +470,19 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
       blogMeta: { selectedBlogCategories: [], categoryNavigationList: [] },
     },
   });
-  // Prepend our entry — keep at most 30 existing entries after ours
   const updatedVH = { arrayValue: { values: [newVHEntry, ...(existingVH || []).slice(0, 29)] } };
 
-  // Convert to Firestore hierarchical format (for builder sections sidebar)
-  const firestoreSections = convertSectionsToFirestore(aiSections);
-
-  // Update Firestore with new Storage URL + versionHistory + sections + version
+  // Update Firestore — sections use same hierarchical format as Storage
   const newVersion = (currentVersion || 1) + 1;
   const fsResult   = await patchFirestoreDoc(idToken, projectId, pageId, {
     page_data_url:          toFirestoreValue(storagePath),
     page_data_download_url: toFirestoreValue(newDownloadUrl),
     versionHistory:         updatedVH,
-    sections:               toFirestoreValue(firestoreSections),
+    sections:               toFirestoreValue(ghlSections),
     version:                toFirestoreValue(newVersion),
     date_updated:           { timestampValue: new Date().toISOString() },
   });
+
   console.log(`[GHLPageBuilder] Firestore updated → ${fsResult.status}`);
 
   if (fsResult.status >= 400) {
@@ -801,15 +495,15 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
       firestoreOk:      false,
       firestoreStatus:  fsResult.status,
       firestoreError:   fsErr,
-      firestoreWarning: `Firestore update failed (${fsResult.status}): ${fsErr} — the page JSON was uploaded to Storage but GHL's editor won't show it until Firestore is updated. Reconnect Firebase and regenerate.`,
+      firestoreWarning: `Firestore update failed (${fsResult.status}): ${fsErr} — page uploaded to Storage but GHL won't show it until Firestore is updated. Reconnect Firebase and regenerate.`,
       storagePath,
       downloadUrl:  newDownloadUrl,
-      sections:     storageSections.length,
+      sections:     ghlSections.length,
       version:      newVersion,
     };
   }
 
-  return { success: true, firestoreOk: true, storagePath, downloadUrl: newDownloadUrl, sections: storageSections.length, version: newVersion };
+  return { success: true, firestoreOk: true, storagePath, downloadUrl: newDownloadUrl, sections: ghlSections.length, version: newVersion };
 }
 
 function buildBackendHeaders(idToken) {
