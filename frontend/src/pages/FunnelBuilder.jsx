@@ -58,7 +58,7 @@ export default function FunnelBuilder() {
   const [fbStatus,      setFbStatus]      = useState(null);
   const [fbLoading,     setFbLoading]     = useState(true);
 
-  // Tab: 'text' | 'design'
+  // Tab: 'text' | 'design' | 'funnel'
   const [genMode,       setGenMode]       = useState('text');
 
   // Connect panel
@@ -79,6 +79,11 @@ export default function FunnelBuilder() {
   const [genSteps,      setGenSteps]      = useState([]);
   const [result,        setResult]        = useState(null);
   const stepsRef = useRef(null);
+
+  // Full funnel mode
+  const [fullFunnelId,  setFullFunnelId]  = useState('');
+  const [funnelPages,   setFunnelPages]   = useState([]); // [{ id, name, pageType, status, sectionsCount, error }]
+  const [funnelRunning, setFunnelRunning] = useState(false);
 
   // Design upload mode
   const [designFile,    setDesignFile]    = useState(null);   // File object
@@ -244,6 +249,68 @@ export default function FunnelBuilder() {
     setGenerating(false);
   }
 
+  // ── Full Funnel Generator ─────────────────────────────────────────────────
+  async function handleGenerateFunnel(e) {
+    e.preventDefault();
+    if (!fullFunnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
+    if (!niche.trim())        { toast(setToastState, 'Niche is required.', 'error'); return; }
+    if (!offer.trim())        { toast(setToastState, 'Offer is required.', 'error'); return; }
+
+    setFunnelRunning(true);
+    setFunnelPages([]);
+    const colorScheme = colorPreset || customColor || COLOR_PRESETS[0].value;
+
+    try {
+      const res = await fetch('/funnel-builder/generate-funnel', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+        body:    JSON.stringify({
+          funnelId:    fullFunnelId.trim(),
+          niche:       niche.trim(),
+          offer:       offer.trim(),
+          audience:    audience.trim() || undefined,
+          colorScheme,
+          extraContext: extraContext.trim() || undefined,
+          agentId:     selectedAgent || undefined,
+        }),
+      });
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let   buf     = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        for (const part of parts) {
+          const eventLine = part.match(/^event: (.+)$/m)?.[1];
+          const dataLine  = part.match(/^data: (.+)$/m)?.[1];
+          if (!eventLine || !dataLine) continue;
+          try {
+            const d = JSON.parse(dataLine);
+            if (eventLine === 'start') {
+              setFunnelPages(d.pages.map(p => ({ ...p, status: 'pending' })));
+            } else if (eventLine === 'page_start') {
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'running', pageType: d.pageType } : p));
+            } else if (eventLine === 'page_done') {
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'done', sectionsCount: d.sectionsCount, pageType: d.pageType } : p));
+            } else if (eventLine === 'page_error') {
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
+            } else if (eventLine === 'complete') {
+              toast(setToastState, `Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      toast(setToastState, err.message || 'Funnel generation failed.', 'error');
+    }
+    setFunnelRunning(false);
+  }
+
   // ── render ───────────────────────────────────────────────────────────────────
 
   if (isAuthLoading) return <Spinner />;
@@ -385,6 +452,7 @@ export default function FunnelBuilder() {
                 {[
                   { key: 'text',   label: '✍️ From Brief' },
                   { key: 'design', label: '🎨 From Design' },
+                  { key: 'funnel', label: '🚀 Full Funnel' },
                 ].map(({ key, label }) => (
                   <button
                     key={key}
@@ -543,6 +611,70 @@ export default function FunnelBuilder() {
                     </span>
                   ) : '🎨 Analyze Design & Save to GHL'}
                 </button>
+              </form>
+            )}
+
+            {/* ── Full Funnel Mode ─────────────────────────────────────── */}
+            {genMode === 'funnel' && (
+              <form onSubmit={handleGenerateFunnel} className="space-y-4">
+                <p className="text-xs text-gray-400">Enter your Funnel ID and brief — the AI will list all pages in the funnel and generate native GHL content for each one automatically.</p>
+
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">GHL Funnel ID <span className="text-red-400">*</span></label>
+                  <input value={fullFunnelId} onChange={e => setFullFunnelId(e.target.value)} placeholder="e.g. abc123xyz" className="field w-full text-sm" />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Niche / Business <span className="text-red-400">*</span></label>
+                    <input value={niche} onChange={e => setNiche(e.target.value)} placeholder="e.g. Online fitness coaching" className="field w-full text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Offer <span className="text-red-400">*</span></label>
+                    <input value={offer} onChange={e => setOffer(e.target.value)} placeholder="e.g. 12-week transformation program" className="field w-full text-sm" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Target Audience</label>
+                    <input value={audience} onChange={e => setAudience(e.target.value)} placeholder="e.g. Busy moms 30-50" className="field w-full text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Color Scheme</label>
+                    <select value={colorPreset} onChange={e => setColorPreset(e.target.value)} className="field w-full text-sm">
+                      {COLOR_PRESETS.map(p => <option key={p.label} value={p.value}>{p.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <button type="submit" disabled={funnelRunning} className="w-full py-3 rounded-xl text-sm font-bold transition-all"
+                  style={{ background: funnelRunning ? 'rgba(99,102,241,0.3)' : 'linear-gradient(135deg, #6366f1, #4f46e5)', color: '#fff', opacity: funnelRunning ? 0.7 : 1 }}>
+                  {funnelRunning
+                    ? <span className="flex items-center justify-center gap-2"><span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Generating all pages…</span>
+                    : '🚀 Generate All Funnel Pages'}
+                </button>
+
+                {/* Per-page progress */}
+                {funnelPages.length > 0 && (
+                  <div className="rounded-xl p-3 space-y-2 text-xs" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                    <p className="text-gray-400 font-medium mb-2">Pages ({funnelPages.filter(p => p.status === 'done').length}/{funnelPages.length} done)</p>
+                    {funnelPages.map((p, i) => (
+                      <div key={p.id} className="flex items-center gap-2">
+                        {p.status === 'pending' && <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />}
+                        {p.status === 'running' && <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
+                        {p.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
+                        {p.status === 'error'   && <span className="text-red-400 flex-shrink-0">✗</span>}
+                        <span style={{ color: p.status === 'error' ? '#f87171' : p.status === 'done' ? '#6ee7b7' : p.status === 'running' ? '#a5b4fc' : '#6b7280' }}>
+                          {i + 1}. {p.name}
+                          {p.pageType && p.status !== 'pending' && <span className="ml-1 opacity-60">({p.pageType})</span>}
+                          {p.status === 'done'  && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
+                          {p.status === 'error' && <span className="ml-1 opacity-60">— {p.error}</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </form>
             )}
 

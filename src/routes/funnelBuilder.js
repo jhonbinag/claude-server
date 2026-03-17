@@ -578,4 +578,134 @@ SCHEMA:
   });
 });
 
+// ── POST /generate-funnel — list all funnel pages then generate each ──────────
+
+// Infer page type from page name
+function inferPageType(name = '') {
+  const n = name.toLowerCase();
+  if (/opt.?in|lead|capture|sign.?up|subscribe/.test(n))  return 'Opt-in / Lead Capture Page';
+  if (/thank|thanks|confirm|success|welcome/.test(n))      return 'Thank You Page';
+  if (/upsell|oto|one.time|bump/.test(n))                  return 'Upsell Page';
+  if (/downsell|down.sell/.test(n))                        return 'Downsell Page';
+  if (/order|checkout|payment|buy/.test(n))                return 'Order Page';
+  if (/webinar|registration|register/.test(n))             return 'Webinar Registration Page';
+  if (/vsl|video.?sales/.test(n))                          return 'VSL Page';
+  return 'Sales Page';
+}
+
+router.post('/generate-funnel', async (req, res) => {
+  const { funnelId, niche, offer, audience, colorScheme, extraContext, agentId } = req.body;
+
+  if (!funnelId) return res.status(400).json({ success: false, error: '"funnelId" is required.' });
+  if (!niche || !offer) return res.status(400).json({ success: false, error: '"niche" and "offer" are required.' });
+  if (!aiService.getProvider()) return res.status(503).json({ success: false, error: 'No AI provider configured.' });
+
+  // Ensure Firebase connected
+  try { await getFirebaseToken(req.locationId); } catch (err) {
+    return res.status(400).json({ success: false, error: 'Firebase not connected. Connect first.', detail: err.message });
+  }
+
+  // List pages in the funnel
+  let pages;
+  try {
+    const result = await ghlClient.ghlRequest(req.locationId, 'GET', '/funnels/page', null, {
+      locationId: req.locationId,
+      funnelId,
+      limit: 20,
+    });
+    pages = result?.funnelPages || result?.pages || result?.data || [];
+    if (!Array.isArray(pages) || pages.length === 0) {
+      return res.status(404).json({ success: false, error: 'No pages found in this funnel. Check the funnelId.' });
+    }
+  } catch (err) {
+    return res.status(502).json({ success: false, error: `Failed to list funnel pages: ${err.message}` });
+  }
+
+  // Sort by stepOrder
+  pages.sort((a, b) => (a.stepOrder || 0) - (b.stepOrder || 0));
+
+  // Set up SSE so UI gets live per-page progress
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  send('start', { total: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name, stepOrder: p.stepOrder })) });
+
+  const provider  = aiService.getProvider();
+  const isGroq    = provider?.name === 'groq';
+  const results   = [];
+
+  let agentInfo = null;
+  if (agentId) {
+    try { agentInfo = await agentStore.getAgent(req.locationId, agentId); } catch {}
+  }
+
+  for (let i = 0; i < pages.length; i++) {
+    const page     = pages[i];
+    const pageType = inferPageType(page.name || '');
+    send('page_start', { index: i, pageId: page.id, name: page.name, pageType });
+
+    // Build prompts (reuse existing logic)
+    const colors   = colorScheme || 'modern, professional — white, dark navy, and gold accents';
+    const agentIntro = agentInfo ? `You are ${agentInfo.name}. ${agentInfo.persona || ''}\n${agentInfo.instructions}\n\n---\n\n` : '';
+    const isGroqLocal = isGroq;
+
+    const groqSysPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
+Root: {"sections":[...]}. IDs: type-XXXXXXXX. Styles: {"value":X,"unit":"px"} or {"value":"#HEX"}.
+Elements: heading(tag h1/h2/h3), sub-heading, paragraph(text as <p>html</p>), button(link,text), bulletList(items:[{text}],icon:{name:"check",unicode:"f00c",fontFamily:"Font Awesome 5 Free"}), image(src,alt).
+Section: {"id":"section-X","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-X","type":"row","children":[{"id":"column-X","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}`;
+
+    const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. Generate production-ready native GHL page JSON. Output ONLY valid JSON. Root: {"sections":[...]}. Follow GHL schema with {"value":X,"unit":"px"} style format. Include mobileStyles with ~60% desktop values.`;
+
+    const systemPrompt = isGroqLocal ? groqSysPrompt : fullSysPrompt;
+
+    const sectionsNote = isGroqLocal
+      ? `Build 3 sections: Hero (H1 + subheading + CTA), Benefits (4 bullet points), CTA (headline + button). Keep copy short.`
+      : `Build a complete ${pageType} with all relevant sections: hero, benefits, social proof, CTA, and any page-type specific sections.`;
+
+    const userPrompt = `Generate a native GHL ${pageType} JSON (step ${i + 1} of ${pages.length} in a funnel).
+Page name: "${page.name}"
+Niche: ${niche}
+Offer: ${offer}
+Audience: ${audience || 'General prospects'}
+Color scheme: ${colors}
+${extraContext ? `Extra context: ${extraContext}` : ''}
+
+${sectionsNote}
+Output ONLY the JSON object.`;
+
+    let pageJson;
+    try {
+      const raw = (await aiService.generate(systemPrompt, userPrompt, { maxTokens: 4096 })).trim();
+      pageJson  = parseJsonSafe(raw);
+      if (!pageJson.sections) throw new Error('Missing sections array');
+    } catch (err) {
+      send('page_error', { index: i, pageId: page.id, name: page.name, error: `AI generation failed: ${err.message}` });
+      results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
+      if (isGroq) await new Promise(r => setTimeout(r, 5000)); // pace for Groq
+      continue;
+    }
+
+    try {
+      await savePageData(req.locationId, page.id, pageJson);
+      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length });
+      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length });
+    } catch (err) {
+      send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
+      results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
+    }
+
+    // Pace between pages for Groq TPM
+    if (isGroq && i < pages.length - 1) await new Promise(r => setTimeout(r, 8000));
+  }
+
+  const succeeded = results.filter(r => r.success).length;
+  send('complete', { total: pages.length, succeeded, failed: pages.length - succeeded, results });
+  res.end();
+});
+
 module.exports = router;
