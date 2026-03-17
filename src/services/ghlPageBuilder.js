@@ -391,6 +391,9 @@ function buildParagraph(id, text) {
 }
 
 function buildButton(id, text, link = '#', elStyles = {}) {
+  // Unwrap AI-generated style values that may already be in { value: "..." } object form
+  const colorVal = typeof elStyles.color === 'string' ? elStyles.color : (elStyles.color?.value || 'var(--white)');
+  const bgVal    = typeof elStyles.backgroundColor === 'string' ? elStyles.backgroundColor : (elStyles.backgroundColor?.value || 'var(--primary)');
   return {
     id, type: 'button', child: [],
     class: {
@@ -403,8 +406,8 @@ function buildButton(id, text, link = '#', elStyles = {}) {
       fontSize:        { value: 16, unit: 'px' },
       fontWeight:      { value: '700' },
       lineHeight:      { value: 1.2 },
-      color:           { value: elStyles.color || 'var(--white)' },
-      backgroundColor: { value: elStyles.backgroundColor || 'var(--primary)' },
+      color:           { value: colorVal },
+      backgroundColor: { value: bgVal },
       paddingTop:      { value: 14, unit: 'px' },
       paddingBottom:   { value: 14, unit: 'px' },
       paddingLeft:     { value: 32, unit: 'px' },
