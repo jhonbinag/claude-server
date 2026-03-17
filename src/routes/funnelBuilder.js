@@ -265,9 +265,6 @@ router.post('/generate', async (req, res) => {
     agentId,       // optional: saved agent to use as persona
   } = req.body;
 
-  if (!pageId) {
-    return res.status(400).json({ success: false, error: '"pageId" is required.' });
-  }
   if (!niche || !offer) {
     return res.status(400).json({ success: false, error: '"niche" and "offer" are required.' });
   }
@@ -452,163 +449,136 @@ Output ONLY the JSON object. No markdown, no explanation.`;
 // ── POST /generate-from-design — analyze Figma screenshot → GHL native page ──
 
 router.post('/generate-from-design', upload.single('image'), async (req, res) => {
-  const {
-    pageId,
-    funnelId,
-    agentId,
-    extraContext,
-  } = req.body;
+  const { funnelId, agentId, extraContext } = req.body;
 
   if (!req.file) {
     return res.status(400).json({ success: false, error: 'An image file is required (field: "image").' });
   }
-  if (!pageId) {
-    return res.status(400).json({ success: false, error: '"pageId" is required.' });
+  if (!funnelId) {
+    return res.status(400).json({ success: false, error: '"funnelId" is required.' });
   }
-
   if (!aiService.getProvider()) {
     return res.status(503).json({ success: false, error: 'No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.' });
   }
 
-  // Step 1: Ensure Firebase is connected
-  let idToken;
-  try {
-    idToken = await getFirebaseToken(req.locationId);
-  } catch (err) {
-    return res.status(400).json({
-      success: false,
-      error:   'Firebase not connected. Call POST /funnel-builder/connect first.',
-      detail:  err.message,
-    });
+  // Ensure Firebase connected
+  try { await getFirebaseToken(req.locationId); } catch (err) {
+    return res.status(400).json({ success: false, error: 'Firebase not connected. Call POST /funnel-builder/connect first.', detail: err.message });
   }
 
-  // Step 2: Load optional agent persona
+  // Load agent + RAG context
   let selectedAgent = null;
   if (agentId) {
     try { selectedAgent = await agentStore.getAgent(req.locationId, agentId); } catch {}
   }
-
-  // Step 3: RAG context if agent has knowledge base
   let ragContext = '';
   if (agentId && chroma.isEnabled()) {
     try {
       const chunks = await chroma.queryKnowledge(req.locationId, agentId, extraContext || 'page design conversion', 5);
-      if (chunks.length > 0) {
-        ragContext = `\n\nRelevant knowledge base context:\n${chunks.map((c, i) => `[${i + 1}] ${c.text}`).join('\n\n')}`;
-      }
+      if (chunks.length > 0) ragContext = `\n\nRelevant knowledge base context:\n${chunks.map((c, i) => `[${i + 1}] ${c.text}`).join('\n\n')}`;
     } catch {}
   }
 
-  // Step 4: Convert image to base64
-  const imageBase64  = req.file.buffer.toString('base64');
-  const imageMediaType = req.file.mimetype; // e.g. image/png
+  // Get pages from funnel
+  let pages;
+  try {
+    const result = await ghlClient.ghlRequest(req.locationId, 'GET', '/funnels/page', null, {
+      locationId: req.locationId, funnelId, limit: 20, offset: '0',
+    });
+    pages = result?.funnelPages || result?.pages || result?.pageList || result?.list || result?.data
+         || (Array.isArray(result) ? result : []);
+  } catch (err) {
+    return res.status(502).json({ success: false, error: `Failed to list funnel pages: ${err.message}` });
+  }
+
+  if (!Array.isArray(pages) || pages.length === 0) {
+    return res.status(400).json({ success: false, needsPages: true, error: 'This funnel has no pages yet. Add pages in GHL first.' });
+  }
+
+  pages.sort((a, b) => (a.stepOrder || 0) - (b.stepOrder || 0));
+  pages = pages.map(p => ({ ...p, id: p.id || p._id }));
+
+  const imageBase64    = req.file.buffer.toString('base64');
+  const imageMediaType = req.file.mimetype;
 
   const agentIntro = selectedAgent
     ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\n${selectedAgent.instructions}${ragContext}\n\n---\n\n`
     : '';
 
-  const systemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. You will be given a screenshot of a Figma (or other design tool) page layout. Your job is to faithfully reconstruct it as a complete, production-ready native GHL page JSON.
+  const systemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. You will be given a screenshot of a page design. Faithfully reconstruct it as a complete, production-ready native GHL page JSON.
 
 RULES:
 1. Respond with ONLY valid JSON — no markdown, no code fences, no explanation.
 2. Root object: { "sections": [ ... ] }
-3. Match the visual layout as closely as possible: section order, column structure, content hierarchy, colors, fonts.
-4. Extract ALL text content visible in the design — headlines, subheadings, paragraphs, button labels, list items.
-5. Match colors from the design as closely as possible using hex codes.
-6. All IDs: type-XXXXXXXX (8 random alphanumeric chars), e.g. "section-a1b2c3d4".
-7. Mobile styles should reduce padding/font sizes (~50-60% of desktop values).
-8. If the design contains placeholder images, keep them as image elements with placehold.co URLs matching the approximate dimensions and colors.
+3. Match the visual layout: section order, column structure, content hierarchy, colors, fonts.
+4. Extract ALL text content visible in the design.
+5. Match colors using hex codes.
+6. All IDs: type-XXXXXXXX (8 random alphanumeric chars).
+7. Mobile styles reduce padding/font sizes to ~60% of desktop values.
 
 SCHEMA:
-{
-  "sections": [{
-    "id": "section-{8chars}", "type": "section", "name": "section-name",
-    "allowRowMaxWidth": false,
-    "styles": {
-      "backgroundColor": {"value": "#HEXCOLOR"},
-      "paddingTop": {"value": 80, "unit": "px"}, "paddingBottom": {"value": 80, "unit": "px"},
-      "paddingLeft": {"value": 20, "unit": "px"}, "paddingRight": {"value": 20, "unit": "px"}
-    },
-    "mobileStyles": {"paddingTop": {"value": 40, "unit": "px"}, "paddingBottom": {"value": 40, "unit": "px"}},
-    "children": [{
-      "id": "row-{8chars}", "type": "row",
-      "children": [{
-        "id": "column-{8chars}", "type": "column", "width": 12,
-        "styles": {"textAlign": {"value": "center"}}, "mobileStyles": {},
-        "children": [
-          {"id": "headline-{8chars}", "type": "headline", "text": "Headline", "tag": "h1",
-           "styles": {"color": {"value":"#111827"}, "fontSize": {"value":52,"unit":"px"}, "fontWeight": {"value":"700"}, "lineHeight": {"value":1.2}},
-           "mobileStyles": {"fontSize": {"value":32,"unit":"px"}}},
-          {"id": "sub-headline-{8chars}", "type": "sub-headline", "text": "Subheadline",
-           "styles": {"color": {"value":"#374151"}, "fontSize": {"value":24,"unit":"px"}, "fontWeight": {"value":"500"}},
-           "mobileStyles": {"fontSize": {"value":18,"unit":"px"}}},
-          {"id": "paragraph-{8chars}", "type": "paragraph", "text": "<p>Body copy</p>",
-           "styles": {"color": {"value":"#4B5563"}, "fontSize": {"value":18,"unit":"px"}, "lineHeight": {"value":1.7}},
-           "mobileStyles": {"fontSize": {"value":16,"unit":"px"}}},
-          {"id": "button-{8chars}", "type": "button", "text": "CTA Text", "link": "#",
-           "styles": {"backgroundColor": {"value":"#1D4ED8"}, "color": {"value":"#FFFFFF"},
-             "fontSize": {"value":18,"unit":"px"}, "fontWeight": {"value":"700"},
-             "paddingTop": {"value":16,"unit":"px"}, "paddingBottom": {"value":16,"unit":"px"},
-             "paddingLeft": {"value":40,"unit":"px"}, "paddingRight": {"value":40,"unit":"px"},
-             "borderRadius": {"value":8,"unit":"px"}},
-           "mobileStyles": {"fontSize": {"value":16,"unit":"px"}}},
-          {"id": "bulletList-{8chars}", "type": "bulletList",
-           "items": [{"text": "Item 1"}, {"text": "Item 2"}],
-           "icon": {"name": "check", "unicode": "f00c", "fontFamily": "Font Awesome 5 Free"},
-           "styles": {"color": {"value":"#111827"}, "fontSize": {"value":18,"unit":"px"}},
-           "mobileStyles": {"fontSize": {"value":16,"unit":"px"}}},
-          {"id": "image-{8chars}", "type": "image", "src": "https://placehold.co/800x450/1D4ED8/FFFFFF?text=Image", "alt": "Design image",
-           "styles": {"width": {"value":100,"unit":"%"}, "borderRadius": {"value":8,"unit":"px"}},
-           "mobileStyles": {}}
-        ]
-      }]
-    }]
-  }]
-}`;
+{"sections":[{"id":"section-{8chars}","type":"section","name":"section-name","allowRowMaxWidth":false,
+"styles":{"backgroundColor":{"value":"#HEX"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},
+"mobileStyles":{"paddingTop":{"value":40,"unit":"px"},"paddingBottom":{"value":40,"unit":"px"}},
+"children":[{"id":"row-{8chars}","type":"row","children":[{"id":"column-{8chars}","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},
+"children":[
+{"id":"headline-{8chars}","type":"headline","text":"Headline","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
+{"id":"sub-headline-{8chars}","type":"sub-headline","text":"Subheadline","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
+{"id":"paragraph-{8chars}","type":"paragraph","text":"<p>Body copy</p>","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"button-{8chars}","type":"button","text":"CTA","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFF"},"fontSize":{"value":18,"unit":"px"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"bulletList-{8chars}","type":"bulletList","items":[{"text":"Item 1"}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"image-{8chars}","type":"image","src":"https://placehold.co/800x450/1D4ED8/FFF?text=Image","alt":"Image","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
+]}]}]}]}`;
 
-  // Step 5: Call AI Vision
-  let pageJson;
-  try {
-    const visionText = `Analyze this design screenshot and reconstruct it as a complete native GHL page JSON. Preserve the visual layout, section order, all text content, colors, and hierarchy faithfully.${extraContext ? `\n\nAdditional context from user: ${extraContext}` : ''}\n\nOutput ONLY the JSON object, nothing else.`;
-    const rawText = (await aiService.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
-    pageJson = parseJsonSafe(rawText);
-    if (!pageJson.sections || !Array.isArray(pageJson.sections)) {
-      throw new Error('AI response missing "sections" array.');
+  // SSE setup
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  send('start', { total: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name, stepOrder: p.stepOrder })) });
+
+  const results = [];
+
+  for (let i = 0; i < pages.length; i++) {
+    const page     = pages[i];
+    const pageType = inferPageType(page.name || '');
+    send('page_start', { index: i, pageId: page.id, name: page.name, pageType });
+
+    let pageJson, genError;
+    try {
+      const visionText = `Analyze this design screenshot and reconstruct it as a native GHL ${pageType} JSON (page ${i + 1} of ${pages.length}: "${page.name}"). Preserve the layout, section order, all text, colors, and hierarchy.${extraContext ? `\n\nUser notes: ${extraContext}` : ''}\n\nOutput ONLY the JSON object.`;
+      const rawText = (await aiService.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
+      pageJson = parseJsonSafe(rawText);
+      if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('AI response missing "sections" array.');
+    } catch (err) {
+      genError = err;
+      console.error(`[FunnelBuilder] Vision error for "${page.name}":`, err.message);
     }
-  } catch (err) {
-    console.error('[FunnelBuilder] Vision generation error:', err.message);
-    return res.status(500).json({ success: false, error: 'Failed to analyze design.', detail: err.message });
+
+    if (genError) {
+      send('page_error', { index: i, pageId: page.id, name: page.name, error: `AI generation failed: ${genError.message}` });
+      results.push({ pageId: page.id, name: page.name, success: false, error: genError.message });
+      continue;
+    }
+
+    try {
+      await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId);
+      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length });
+      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length });
+    } catch (err) {
+      console.error(`[FunnelBuilder] Save error for "${page.name}":`, err.message);
+      send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
+      results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
+    }
   }
 
-  // Step 6: Save to GHL
-  let saveResult;
-  try {
-    saveResult = await saveWithFunnelHint(req.locationId, pageId, pageJson, funnelId);
-  } catch (err) {
-    console.error('[FunnelBuilder] savePageData error:', err.message);
-    return res.status(500).json({
-      success: false,
-      error:   'Page JSON generated but failed to save to GHL.',
-      detail:  err.message,
-      hint:    err.message.includes('403') ? 'Firebase token expired. Use the bookmarklet to reconnect.' : undefined,
-      pageJson,
-    });
-  }
-
-  const previewUrl = funnelId
-    ? `https://app.gohighlevel.com/v2/preview/${funnelId}/${pageId}`
-    : null;
-
-  res.json({
-    success:       true,
-    pageId,
-    previewUrl,
-    sectionsCount: pageJson.sections.length,
-    agentUsed:     selectedAgent ? { id: selectedAgent.id, name: selectedAgent.name, emoji: selectedAgent.emoji } : null,
-    message:       `Design analyzed (${pageJson.sections.length} sections) and saved to GHL successfully.`,
-    ghlResponse:   saveResult,
-    pageJson,
-  });
+  const succeeded = results.filter(r => r.success).length;
+  send('complete', { total: pages.length, succeeded, failed: pages.length - succeeded, results });
+  res.end();
 });
 
 // ── POST /generate-funnel — list all funnel pages then generate each ──────────

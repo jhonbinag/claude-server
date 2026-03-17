@@ -77,9 +77,7 @@ export default function FunnelBuilder() {
   const [connecting,    setConnecting]    = useState(false);
 
   // Generate form (text mode)
-  const [pageId,        setPageId]        = useState('');
   const [funnelId,      setFunnelId]      = useState('');
-  const [pageType,      setPageType]      = useState(PAGE_TYPES[0]);
   const [niche,         setNiche]         = useState('');
   const [offer,         setOffer]         = useState('');
   const [audience,      setAudience]      = useState('');
@@ -87,9 +85,7 @@ export default function FunnelBuilder() {
   const [customColor,   setCustomColor]   = useState('');
   const [extraContext,  setExtraContext]  = useState('');
   const [generating,    setGenerating]    = useState(false);
-  const [genSteps,      setGenSteps]      = useState([]);
   const [result,        setResult]        = useState(null);
-  const stepsRef = useRef(null);
 
   // Full funnel mode
   const [fullFunnelId,  setFullFunnelId]  = useState('');
@@ -101,7 +97,6 @@ export default function FunnelBuilder() {
   // Design upload mode
   const [designFile,    setDesignFile]    = useState(null);   // File object
   const [designPreview, setDesignPreview] = useState(null);   // object URL
-  const [designPageId,  setDesignPageId]  = useState('');
   const [designFunnelId,setDesignFunnelId]= useState('');
   const [designContext, setDesignContext] = useState('');
   const [designAgent,   setDesignAgent]   = useState('');
@@ -184,16 +179,14 @@ export default function FunnelBuilder() {
 
   async function handleAnalyzeDesign(e) {
     e.preventDefault();
-    if (!designFile)              { toast(setToastState, 'Upload a design image first.', 'error'); return; }
-    if (!designPageId.trim())     { toast(setToastState, 'Page ID is required.', 'error'); return; }
-    if (!designFunnelId.trim())   { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
+    if (!designFile)            { toast(setToastState, 'Upload a design image first.', 'error'); return; }
+    if (!designFunnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
 
     const formData = new FormData();
     formData.append('image', designFile);
-    formData.append('pageId', designPageId.trim());
     formData.append('funnelId', designFunnelId.trim());
-    if (designContext.trim())  formData.append('extraContext', designContext.trim());
-    if (designAgent)           formData.append('agentId', designAgent);
+    if (designContext.trim()) formData.append('extraContext', designContext.trim());
+    if (designAgent)          formData.append('agentId', designAgent);
 
     const locId = locationId || localStorage.getItem('gtm_location_id') || '';
     if (!locId) {
@@ -202,20 +195,56 @@ export default function FunnelBuilder() {
     }
 
     setAnalyzing(true);
+    setFunnelPages([]);
+    setNeedsPages(null);
     setResult(null);
+
     try {
       const resp = await fetch(`/funnel-builder/generate-from-design`, {
         method:  'POST',
         headers: { 'x-location-id': locId },
         body:    formData,
       });
-      const d = await resp.json();
-      if (d.success) {
-        setResult(d);
-        toast(setToastState, `Design analyzed (${d.sectionsCount} sections) and saved to GHL!`);
-      } else {
-        toast(setToastState, d.error || 'Analysis failed.', 'error');
-        if (d.pageJson) setResult({ pageJson: d.pageJson, failed: true });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        if (errData.needsPages) {
+          toast(setToastState, errData.error || 'No pages in this funnel.', 'error');
+          setAnalyzing(false);
+          return;
+        }
+        throw new Error(errData.error || `Server error ${resp.status}`);
+      }
+
+      const reader  = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let   buf     = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        for (const part of parts) {
+          const eventLine = part.match(/^event: (.+)$/m)?.[1];
+          const dataLine  = part.match(/^data: (.+)$/m)?.[1];
+          if (!eventLine || !dataLine) continue;
+          try {
+            const d = JSON.parse(dataLine);
+            if (eventLine === 'start') {
+              setFunnelPages(d.pages.map(p => ({ ...p, status: 'pending' })));
+            } else if (eventLine === 'page_start') {
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'running', pageType: d.pageType } : p));
+            } else if (eventLine === 'page_done') {
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'done', sectionsCount: d.sectionsCount, pageType: d.pageType } : p));
+            } else if (eventLine === 'page_error') {
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
+            } else if (eventLine === 'complete') {
+              toast(setToastState, `Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
+            }
+          } catch {}
+        }
       }
     } catch (err) {
       toast(setToastState, err.message || 'Analysis failed.', 'error');
@@ -225,7 +254,6 @@ export default function FunnelBuilder() {
 
   async function handleGenerate(e) {
     e.preventDefault();
-    if (!pageId.trim())   { toast(setToastState, 'Page ID is required.', 'error'); return; }
     if (!funnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
     if (!niche.trim())    { toast(setToastState, 'Niche / Business is required.', 'error'); return; }
     if (!offer.trim())    { toast(setToastState, 'Offer is required.', 'error'); return; }
@@ -233,38 +261,66 @@ export default function FunnelBuilder() {
     const colorScheme = colorPreset || customColor || COLOR_PRESETS[0].value;
 
     setGenerating(true);
+    setFunnelPages([]);
+    setNeedsPages(null);
     setResult(null);
-    setGenSteps([{ text: 'Sending request to AI…', status: 'running' }]);
-    setTimeout(() => stepsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
-    try {
-      setGenSteps(s => [...s.slice(0,-1), { text: 'AI generating page JSON…', status: 'running' }]);
-      const d = await api.postWithKey('/funnel-builder/generate', {
-        pageId:      pageId.trim(),
-        funnelId:    funnelId.trim() || undefined,
-        pageType,
-        niche:       niche.trim(),
-        offer:       offer.trim(),
-        audience:    audience.trim() || undefined,
-        colorScheme,
-        extraContext: extraContext.trim() || undefined,
-        agentId:     selectedAgent || undefined,
-      }, apiKey);
 
-      if (d.success) {
-        setGenSteps(s => [
-          ...s.slice(0,-1),
-          { text: `✓ Page JSON generated (${d.sectionsCount} sections)`, status: 'done' },
-          { text: '✓ Saved to GHL successfully', status: 'done' },
-        ]);
-        setResult(d);
-        toast(setToastState, `Page generated (${d.sectionsCount} sections) and saved to GHL!`);
-      } else {
-        setGenSteps(s => [...s.slice(0,-1), { text: `✗ ${d.error || 'Generation failed'}`, status: 'error' }]);
-        toast(setToastState, d.error || 'Generation failed.', 'error');
-        if (d.pageJson) setResult({ pageJson: d.pageJson, failed: true });
+    try {
+      const res = await fetch('/funnel-builder/generate-funnel', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
+        body:    JSON.stringify({
+          funnelId:    funnelId.trim(),
+          niche:       niche.trim(),
+          offer:       offer.trim(),
+          audience:    audience.trim() || undefined,
+          colorScheme,
+          extraContext: extraContext.trim() || undefined,
+          agentId:     selectedAgent || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        if (errData.needsPages && errData.pagesToCreate) {
+          setNeedsPages(errData.pagesToCreate);
+          setGenerating(false);
+          return;
+        }
+        throw new Error(errData.error || `Server error ${res.status}`);
+      }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let   buf     = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        for (const part of parts) {
+          const eventLine = part.match(/^event: (.+)$/m)?.[1];
+          const dataLine  = part.match(/^data: (.+)$/m)?.[1];
+          if (!eventLine || !dataLine) continue;
+          try {
+            const d = JSON.parse(dataLine);
+            if (eventLine === 'start') {
+              setFunnelPages(d.pages.map(p => ({ ...p, status: 'pending' })));
+            } else if (eventLine === 'page_start') {
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'running', pageType: d.pageType } : p));
+            } else if (eventLine === 'page_done') {
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'done', sectionsCount: d.sectionsCount, pageType: d.pageType } : p));
+            } else if (eventLine === 'page_error') {
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
+            } else if (eventLine === 'complete') {
+              toast(setToastState, `Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
+            }
+          } catch {}
+        }
       }
     } catch (err) {
-      setGenSteps(s => [...s.slice(0,-1), { text: `✗ ${err.message || 'Generation failed'}`, status: 'error' }]);
       toast(setToastState, err.message || 'Generation failed.', 'error');
     }
     setGenerating(false);
@@ -572,32 +628,19 @@ export default function FunnelBuilder() {
                   </p>
                 )}
 
-                {/* Page identifiers */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">
-                      GHL Page ID <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      value={designPageId}
-                      onChange={e => setDesignPageId(e.target.value)}
-                      placeholder="e.g. YbcohnneHGj8YGoDIY4k"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
-                    />
-                    <p className="text-xs text-gray-600 mt-1">From GHL → Funnels → Page URL → last segment</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">
-                      Funnel ID <span className="text-red-400">*</span>
-                      <span className="text-gray-600 ml-1">— from GHL URL: /funnels/<strong className="text-gray-400">THIS_ID</strong>/...</span>
-                    </label>
-                    <input
-                      value={designFunnelId}
-                      onChange={e => setDesignFunnelId(e.target.value)}
-                      placeholder="e.g. abc123xyz"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
+                {/* Funnel ID */}
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Funnel ID <span className="text-red-400">*</span>
+                    <span className="text-gray-600 ml-1">— from GHL URL: /funnels/<strong className="text-gray-400">THIS_ID</strong>/steps/...</span>
+                  </label>
+                  <input
+                    value={designFunnelId}
+                    onChange={e => setDesignFunnelId(e.target.value)}
+                    placeholder="e.g. abc123xyz"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+                  />
+                  <p className="text-xs text-gray-600 mt-1">AI will apply this design to all pages in the funnel.</p>
                 </div>
 
                 {/* Agent selector */}
@@ -648,8 +691,29 @@ export default function FunnelBuilder() {
                       <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
                       Analyzing design with Claude Vision…
                     </span>
-                  ) : '🎨 Analyze Design & Save to GHL'}
+                  ) : '🎨 Analyze Design & Save All Pages'}
                 </button>
+
+                {/* Per-page progress */}
+                {funnelPages.length > 0 && (
+                  <div className="rounded-xl p-3 space-y-2 text-xs" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                    <p className="text-gray-400 font-medium mb-2">Pages ({funnelPages.filter(p => p.status === 'done').length}/{funnelPages.length} done)</p>
+                    {funnelPages.map((p, i) => (
+                      <div key={p.id} className="flex items-center gap-2">
+                        {p.status === 'pending' && <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />}
+                        {p.status === 'running' && <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
+                        {p.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
+                        {p.status === 'error'   && <span className="text-red-400 flex-shrink-0">✗</span>}
+                        <span style={{ color: p.status === 'error' ? '#f87171' : p.status === 'done' ? '#6ee7b7' : p.status === 'running' ? '#a5b4fc' : '#6b7280' }}>
+                          {i + 1}. {p.name}
+                          {p.pageType && p.status !== 'pending' && <span className="ml-1 opacity-60">({p.pageType})</span>}
+                          {p.status === 'done'  && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
+                          {p.status === 'error' && <span className="ml-1 opacity-60">— {p.error}</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </form>
             )}
 
@@ -781,47 +845,19 @@ export default function FunnelBuilder() {
 
             <form onSubmit={handleGenerate} className="space-y-4">
 
-              {/* Page identifiers */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">
-                    GHL Page ID <span className="text-red-400">*</span>
-                    <span className="ml-1 text-gray-600">(from page URL or API)</span>
-                  </label>
-                  <input
-                    value={pageId}
-                    onChange={e => setPageId(e.target.value)}
-                    placeholder="e.g. YbcohnneHGj8YGoDIY4k"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
-                  />
-                  <p className="text-xs text-gray-600 mt-1">
-                    Copy from: GHL → Funnels → Page → URL → last segment after /page/
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">
-                    Funnel ID <span className="text-red-400">*</span>
-                      <span className="text-gray-600 ml-1">— from GHL URL: /funnels/<strong className="text-gray-400">THIS_ID</strong>/steps/...</span>
-                  </label>
-                  <input
-                    value={funnelId}
-                    onChange={e => setFunnelId(e.target.value)}
-                    placeholder="e.g. abc123xyz"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              {/* Page type */}
+              {/* Funnel ID */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Page Type</label>
-                <select
-                  value={pageType}
-                  onChange={e => setPageType(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                >
-                  {PAGE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Funnel ID <span className="text-red-400">*</span>
+                  <span className="text-gray-600 ml-1">— from GHL URL: /funnels/<strong className="text-gray-400">THIS_ID</strong>/steps/...</span>
+                </label>
+                <input
+                  value={funnelId}
+                  onChange={e => setFunnelId(e.target.value)}
+                  placeholder="e.g. abc123xyz"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+                />
+                <p className="text-xs text-gray-600 mt-1">AI will auto-generate all pages in this funnel from your brief.</p>
               </div>
 
               {/* Niche + offer */}
@@ -943,28 +979,39 @@ export default function FunnelBuilder() {
                 {generating ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                    Generating & saving to GHL…
+                    Generating all pages…
                   </span>
-                ) : '🏗️ Generate & Save Native Page'}
+                ) : '🏗️ Generate All Funnel Pages'}
               </button>
 
-              {/* Processing steps — always visible */}
-              <div ref={stepsRef} className="mt-3 rounded-xl p-3 text-xs" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.07)', minHeight: 40 }}>
-                {genSteps.length === 0 ? (
-                  <span className="text-gray-600">Processing steps will appear here when you click Generate…</span>
-                ) : (
-                  <div className="space-y-1.5">
-                    {genSteps.map((step, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        {step.status === 'running' && <span className="animate-spin inline-block w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
-                        {step.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
-                        {step.status === 'error'   && <span className="text-red-400 flex-shrink-0">✗</span>}
-                        <span style={{ color: step.status === 'error' ? '#f87171' : step.status === 'done' ? '#6ee7b7' : '#a5b4fc' }}>{step.text}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {/* Needs pages instruction */}
+              {needsPages && (
+                <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)' }}>
+                  <p className="text-xs font-semibold text-yellow-400">⚠️ This funnel has no pages yet</p>
+                  <p className="text-xs text-gray-400">Go to <strong className="text-white">GHL → Funnels → open your funnel</strong>, add pages, then <strong className="text-white">open each in the native builder once</strong> to initialize it. Then click Generate again.</p>
+                </div>
+              )}
+
+              {/* Per-page progress */}
+              {funnelPages.length > 0 && (
+                <div className="rounded-xl p-3 space-y-2 text-xs" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <p className="text-gray-400 font-medium mb-2">Pages ({funnelPages.filter(p => p.status === 'done').length}/{funnelPages.length} done)</p>
+                  {funnelPages.map((p, i) => (
+                    <div key={p.id} className="flex items-center gap-2">
+                      {p.status === 'pending' && <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />}
+                      {p.status === 'running' && <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
+                      {p.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
+                      {p.status === 'error'   && <span className="text-red-400 flex-shrink-0">✗</span>}
+                      <span style={{ color: p.status === 'error' ? '#f87171' : p.status === 'done' ? '#6ee7b7' : p.status === 'running' ? '#a5b4fc' : '#6b7280' }}>
+                        {i + 1}. {p.name}
+                        {p.pageType && p.status !== 'pending' && <span className="ml-1 opacity-60">({p.pageType})</span>}
+                        {p.status === 'done'  && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
+                        {p.status === 'error' && <span className="ml-1 opacity-60">— {p.error}</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </form>
             )}
 
