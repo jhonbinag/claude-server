@@ -194,12 +194,18 @@ export default function FunnelBuilder() {
     if (designContext.trim())  formData.append('extraContext', designContext.trim());
     if (designAgent)           formData.append('agentId', designAgent);
 
+    const locId = locationId || localStorage.getItem('gtm_location_id') || '';
+    if (!locId) {
+      toast(setToastState, 'Location ID not found. Please refresh the page.', 'error');
+      return;
+    }
+
     setAnalyzing(true);
     setResult(null);
     try {
       const resp = await fetch(`/funnel-builder/generate-from-design`, {
         method:  'POST',
-        headers: { 'x-location-id': locationId },
+        headers: { 'x-location-id': locId },
         body:    formData,
       });
       const d = await resp.json();
