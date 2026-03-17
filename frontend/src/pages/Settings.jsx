@@ -48,7 +48,7 @@ function openOAuthPopup(platform, locationId) {
 }
 
 export default function Settings() {
-  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, locationId, refreshStatus, integrations } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, aiProvider, locationId, refreshStatus, integrations } = useApp();
 
   const [toast,       setToast]       = useState(null);
   const [testResults, setTestResults] = useState({});
@@ -352,15 +352,19 @@ export default function Settings() {
                   style={{ background: 'rgba(99,102,241,0.15)' }}>🤖</div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-white text-sm">Claude Opus 4.6</span>
+                    <span className="font-semibold text-white text-sm">
+                      {aiProvider === 'google' ? 'Gemini 2.0 Flash' : aiProvider === 'openai' ? 'GPT-4o-mini' : 'Claude Opus 4.6'}
+                    </span>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${claudeReady ? 'badge-on' : 'badge-off'}`}>
                       {claudeReady ? 'Active' : 'Key required'}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">
                     {claudeReady
-                      ? 'Your Anthropic API key is active. Claude is ready.'
-                      : 'Enter your Anthropic API key to activate Claude AI.'}
+                      ? aiProvider === 'google' ? 'Google Gemini 2.0 Flash is active (free tier).'
+                        : aiProvider === 'openai' ? 'OpenAI GPT-4o-mini is active.'
+                        : 'Anthropic Claude is active.'
+                      : 'Enter an API key to activate AI features (Anthropic, OpenAI, or Google Gemini).'}
                   </p>
                 </div>
               </div>

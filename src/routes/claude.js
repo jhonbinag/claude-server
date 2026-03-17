@@ -285,29 +285,39 @@ router.get('/status', async (req, res) => {
     const configs = await registry.loadToolConfigs(req.locationId);
     const tools   = await registry.getTools(req.locationId);
 
+    const aiService = require('../services/aiService');
+    const provider  = aiService.getProvider();
+
     let hasKey = !!(configs.anthropic?.apiKey || config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY);
 
-    // If the cache/load returned no anthropic key but Firebase is enabled,
-    // do a direct DB check so a transient cache failure never falsely shows
-    // the location as disconnected when the key actually exists in the database.
+    // Also ready if any other AI provider is configured
+    if (!hasKey) hasKey = !!provider;
+
+    // If no key found yet and Firebase is enabled, do a direct DB check
     if (!hasKey && config.isFirebaseEnabled && firebaseSvc.isEnabled()) {
       try {
         const direct = await firebaseSvc.getToolConfig(req.locationId);
         if (direct.anthropic?.apiKey) {
           hasKey = true;
-          // Repair the cache entry so subsequent calls don't need this fallback
           const toolTokenService = require('../services/toolTokenService');
           const merged = { ...configs, anthropic: direct.anthropic };
           await toolTokenService.setCachedToolConfig(req.locationId, merged).catch(() => {});
         }
-      } catch { /* non-fatal — trust cache result */ }
+      } catch { /* non-fatal */ }
     }
+
+    const modelName = provider
+      ? provider.name === 'anthropic' ? 'claude-opus-4-6'
+        : provider.name === 'openai'  ? 'gpt-4o-mini'
+        : 'gemini-2.0-flash'
+      : 'not configured';
 
     res.json({
       success:      true,
       locationId:   req.locationId,
       claudeReady:  hasKey,
-      model:        'claude-opus-4-6',
+      provider:     provider?.name || null,
+      model:        modelName,
       enabledTools: tools.map((t) => t.name),
     });
   } catch (err) {

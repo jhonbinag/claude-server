@@ -32,6 +32,7 @@ export function AppProvider({ children }) {
     return locId ? localStorage.getItem(`claude_ready_${locId}`) === '1' : false;
   });
   const [enabledTools,       setEnabledTools]       = useState([]);
+  const [aiProvider,         setAiProvider]         = useState(null); // 'anthropic' | 'openai' | 'google' | null
   const [integrations,       setIntegrations]       = useState([]);
   const [integrationsLoaded, setIntegrationsLoaded] = useState(false);
 
@@ -57,12 +58,12 @@ export function AppProvider({ children }) {
         // Only update React state when the server confirms ready.
         // If ready===false (e.g. transient cache miss), keep whatever state was
         // initialised from localStorage — avoids flickering to "Key required".
+        if (data.provider) setAiProvider(data.provider);
         if (ready) {
           setClaudeReady(true);
           setEnabledTools(data.enabledTools || []);
           localStorage.setItem(`claude_ready_${locId}`, '1');
         } else {
-          // Still update tools list even if ready is false; just don't wipe claudeReady.
           setEnabledTools(data.enabledTools || []);
         }
       }
@@ -144,6 +145,7 @@ export function AppProvider({ children }) {
       isAuthenticated,
       isAuthLoading,
       claudeReady,
+      aiProvider,
       enabledTools,
       integrations,
       integrationsLoaded,
