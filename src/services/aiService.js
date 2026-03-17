@@ -25,7 +25,7 @@ function getProvider() {
     return { name: 'openai', model: 'gpt-4o-mini', visionModel: 'gpt-4o' };
   }
   if (process.env.GOOGLE_API_KEY) {
-    return { name: 'google', model: 'gemini-2.0-flash', visionModel: 'gemini-2.0-flash' };
+    return { name: 'google', model: 'gemini-1.5-flash', visionModel: 'gemini-1.5-flash' };
   }
   return null;
 }
@@ -38,7 +38,7 @@ function requireProvider() {
 
 // ── HTTPS helper ──────────────────────────────────────────────────────────────
 
-function httpsPost(hostname, path, headers, body) {
+function httpsPost(hostname, path, headers, body, retries = 3) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = https.request(
@@ -46,10 +46,16 @@ function httpsPost(hostname, path, headers, body) {
       (resp) => {
         let d = '';
         resp.on('data', c => d += c);
-        resp.on('end', () => {
+        resp.on('end', async () => {
           try {
             const parsed = JSON.parse(d);
-            if (resp.statusCode >= 400) {
+            if (resp.statusCode === 429 && retries > 0) {
+              // Rate limited — wait and retry with backoff
+              const wait = (4 - retries) * 15000; // 15s, 30s, 45s
+              console.warn(`[aiService] 429 from ${hostname} — retrying in ${wait / 1000}s (${retries} left)`);
+              await new Promise(r => setTimeout(r, wait));
+              httpsPost(hostname, path, headers, body, retries - 1).then(resolve).catch(reject);
+            } else if (resp.statusCode >= 400) {
               reject(new Error(`${hostname} returned ${resp.statusCode}: ${JSON.stringify(parsed).slice(0, 300)}`));
             } else {
               resolve(parsed);
