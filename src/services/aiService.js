@@ -27,7 +27,7 @@ function getProvider() {
   }
   if (process.env.GROQ_API_KEY) {
     const m = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
-    return { name: 'groq', model: m, visionModel: 'llama-3.2-11b-vision-preview' };
+    return { name: 'groq', model: m, visionModel: 'meta-llama/llama-4-scout-17b-16e-instruct' };
   }
   if (process.env.GOOGLE_API_KEY) {
     const m = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
