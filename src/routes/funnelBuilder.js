@@ -12,21 +12,22 @@
 const express      = require('express');
 const router       = express.Router();
 
-// Repair truncated JSON by closing any unclosed brackets/braces
+// Repair truncated JSON: close open strings, remove trailing commas, close brackets
 function repairJson(str) {
   const stack = [];
   let inString = false;
   let escape   = false;
   for (const ch of str) {
-    if (escape)                      { escape = false; continue; }
-    if (ch === '\\' && inString)     { escape = true;  continue; }
-    if (ch === '"')                  { inString = !inString; continue; }
-    if (inString)                    continue;
-    if (ch === '{' || ch === '[')    stack.push(ch === '{' ? '}' : ']');
+    if (escape)                        { escape = false; continue; }
+    if (ch === '\\' && inString)       { escape = true;  continue; }
+    if (ch === '"')                    { inString = !inString; continue; }
+    if (inString)                      continue;
+    if (ch === '{' || ch === '[')      stack.push(ch === '{' ? '}' : ']');
     else if (ch === '}' || ch === ']') stack.pop();
   }
   let out = str.trimEnd();
-  if (out.endsWith(',')) out = out.slice(0, -1); // remove trailing comma
+  if (inString) out += '"';           // close unterminated string
+  out = out.replace(/,\s*$/, '');     // remove trailing comma
   return out + stack.reverse().join('');
 }
 

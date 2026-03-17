@@ -131,9 +131,7 @@ async function savePageData(locationId, pageId, sectionsJson) {
 async function getPageData(locationId, pageId) {
   const idToken = await getFirebaseToken(locationId);
   const headers = buildBackendHeaders(idToken);
-  // Remove Content-Type for GET requests
-  delete headers['Content-Type'];
-  headers['Content-Type'] = undefined;
+  delete headers['Content-Type']; // GET requests must not have Content-Type
 
   const path   = `/funnel-ai/copilot/page-data/${pageId}?locationId=${encodeURIComponent(locationId)}`;
   const result = await backendRequest('GET', path, headers, null);
