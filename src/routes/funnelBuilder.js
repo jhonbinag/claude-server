@@ -16,9 +16,21 @@ const router       = express.Router();
 const { jsonrepair } = require('jsonrepair');
 
 function parseJsonSafe(raw) {
-  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  // Strip markdown code fences
+  let cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+  // Extract JSON object — from first { to last } (handles leading/trailing text)
+  const start = cleaned.indexOf('{');
+  const end   = cleaned.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    cleaned = cleaned.slice(start, end + 1);
+  }
+
   try { return JSON.parse(cleaned); } catch { /* fall through */ }
-  return JSON.parse(jsonrepair(cleaned));
+  try { return JSON.parse(jsonrepair(cleaned)); } catch { /* fall through */ }
+
+  // Last resort: jsonrepair on the original stripped text
+  return JSON.parse(jsonrepair(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()));
 }
 const multer       = require('multer');
 const aiService    = require('../services/aiService');
@@ -681,15 +693,28 @@ ${sectionsNote}
 Output ONLY the JSON object.`;
 
     let pageJson;
-    try {
-      const raw = (await aiService.generate(systemPrompt, userPrompt, { maxTokens: 4096 })).trim();
-      pageJson  = parseJsonSafe(raw);
-      if (!pageJson.sections) throw new Error('Missing sections array');
-      console.log(`[FunnelBuilder] "${page.name}" — ${pageJson.sections.length} sections`);
-    } catch (err) {
-      send('page_error', { index: i, pageId: page.id, name: page.name, error: `AI generation failed: ${err.message}` });
-      results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
-      if (isGroqLocal) await new Promise(r => setTimeout(r, 5000));
+    let genError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        if (attempt > 1) {
+          console.log(`[FunnelBuilder] Retry attempt ${attempt} for "${page.name}"`);
+          await new Promise(r => setTimeout(r, isGroqLocal ? 5000 : 1000));
+        }
+        const retryNote = attempt > 1 ? '\n\nIMPORTANT: Your previous response had invalid JSON. Output ONLY a raw JSON object, no text before or after, no code fences, no comments.' : '';
+        const raw = (await aiService.generate(systemPrompt, userPrompt + retryNote, { maxTokens: 4096 })).trim();
+        pageJson  = parseJsonSafe(raw);
+        if (!pageJson.sections) throw new Error('Missing sections array');
+        console.log(`[FunnelBuilder] "${page.name}" — ${pageJson.sections.length} sections (attempt ${attempt})`);
+        genError = null;
+        break;
+      } catch (err) {
+        genError = err;
+        console.warn(`[FunnelBuilder] "${page.name}" attempt ${attempt} failed: ${err.message}`);
+      }
+    }
+    if (genError) {
+      send('page_error', { index: i, pageId: page.id, name: page.name, error: `AI generation failed: ${genError.message}` });
+      results.push({ pageId: page.id, name: page.name, success: false, error: genError.message });
       continue;
     }
 
