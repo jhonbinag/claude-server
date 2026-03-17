@@ -270,9 +270,9 @@ router.post('/generate', async (req, res) => {
 Root: {"sections":[...]}
 IDs: type-XXXXXXXX (8 random chars). Styles use {"value":X,"unit":"px"} or {"value":"#HEX"} format.
 
-Element types:
-- heading: {"id":"heading-X","type":"heading","tag":"h1","text":"...","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{}}
-- sub-heading: {"id":"sub-heading-X","type":"sub-heading","text":"...","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{}}
+Element types (use EXACTLY these type names):
+- headline: {"id":"headline-X","type":"headline","tag":"h1","text":"...","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{}}
+- sub-headline: {"id":"sub-headline-X","type":"sub-headline","text":"...","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{}}
 - paragraph: {"id":"paragraph-X","type":"paragraph","text":"<p>...</p>","styles":{"color":{"value":"#555"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
 - button: {"id":"button-X","type":"button","text":"...","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#fff"},"fontSize":{"value":16,"unit":"px"},"paddingTop":{"value":14,"unit":"px"},"paddingBottom":{"value":14,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
 - bulletList: {"id":"bulletList-X","type":"bulletList","items":[{"text":"..."}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
@@ -295,8 +295,8 @@ SCHEMA:
 "children":[{"id":"row-X","type":"row","children":[{"id":"column-X","type":"column","width":12,
 "styles":{"textAlign":{"value":"center"}},"mobileStyles":{},
 "children":[
-{"id":"heading-X","type":"heading","text":"Headline","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
-{"id":"sub-heading-X","type":"sub-heading","text":"Subheadline","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"},"fontWeight":{"value":"500"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
+{"id":"headline-X","type":"headline","text":"Headline","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
+{"id":"sub-headline-X","type":"sub-headline","text":"Subheadline","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"},"fontWeight":{"value":"500"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
 {"id":"paragraph-X","type":"paragraph","text":"<p>Body copy.</p>","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.7}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
 {"id":"button-X","type":"button","text":"CTA","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFFFFF"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
 {"id":"bulletList-X","type":"bulletList","items":[{"text":"Benefit 1"},{"text":"Benefit 2"},{"text":"Benefit 3"}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
@@ -368,6 +368,15 @@ Output ONLY the JSON object. No markdown, no explanation.`;
       detail:  err.message,
       pageJson, // return the generated JSON so the client can retry or inspect it
     });
+  }
+
+  // Step 5b: Readback verification — confirm sections are stored
+  try {
+    const readback = await getPageData(req.locationId, pageId);
+    const storedSections = readback?.data?._data?.sections || readback?.sections || readback?.data?.sections;
+    console.log(`[FunnelBuilder] Readback for page ${pageId} — storedSections: ${storedSections?.length ?? 'NOT FOUND'}, keys: ${JSON.stringify(Object.keys(readback?.data?._data || readback?.data || readback || {}))}`);
+  } catch (e) {
+    console.warn(`[FunnelBuilder] Readback failed (non-fatal): ${e.message}`);
   }
 
   // Step 6: Build preview URL
@@ -473,10 +482,10 @@ SCHEMA:
         "id": "column-{8chars}", "type": "column", "width": 12,
         "styles": {"textAlign": {"value": "center"}}, "mobileStyles": {},
         "children": [
-          {"id": "heading-{8chars}", "type": "heading", "text": "Headline", "tag": "h1",
+          {"id": "headline-{8chars}", "type": "headline", "text": "Headline", "tag": "h1",
            "styles": {"color": {"value":"#111827"}, "fontSize": {"value":52,"unit":"px"}, "fontWeight": {"value":"700"}, "lineHeight": {"value":1.2}},
            "mobileStyles": {"fontSize": {"value":32,"unit":"px"}}},
-          {"id": "sub-heading-{8chars}", "type": "sub-heading", "text": "Subheadline",
+          {"id": "sub-headline-{8chars}", "type": "sub-headline", "text": "Subheadline",
            "styles": {"color": {"value":"#374151"}, "fontSize": {"value":24,"unit":"px"}, "fontWeight": {"value":"500"}},
            "mobileStyles": {"fontSize": {"value":18,"unit":"px"}}},
           {"id": "paragraph-{8chars}", "type": "paragraph", "text": "<p>Body copy</p>",
@@ -658,7 +667,7 @@ router.post('/generate-funnel', async (req, res) => {
 
     const groqSysPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
 Root: {"sections":[...]}. IDs: type-XXXXXXXX. Styles: {"value":X,"unit":"px"} or {"value":"#HEX"}.
-Elements: heading(tag h1/h2/h3), sub-heading, paragraph(text as <p>html</p>), button(link,text), bulletList(items:[{text}],icon:{name:"check",unicode:"f00c",fontFamily:"Font Awesome 5 Free"}), image(src,alt).
+Elements (use EXACTLY these type names): headline(tag h1/h2/h3), sub-headline, paragraph(text as <p>html</p>), button(link,text), bulletList(items:[{text}],icon:{name:"check",unicode:"f00c",fontFamily:"Font Awesome 5 Free"}), image(src,alt).
 Section: {"id":"section-X","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-X","type":"row","children":[{"id":"column-X","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}`;
 
     const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. Generate production-ready native GHL page JSON. Output ONLY valid JSON. Root: {"sections":[...]}. Follow GHL schema with {"value":X,"unit":"px"} style format. Include mobileStyles with ~60% desktop values.`;
@@ -695,8 +704,20 @@ Output ONLY the JSON object.`;
 
     try {
       await savePageData(req.locationId, page.id, pageJson);
-      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length });
-      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length });
+
+      // Readback to verify sections are actually stored in Firestore
+      let storedCount = null;
+      try {
+        const readback = await getPageData(req.locationId, page.id);
+        const stored = readback?.data?._data?.sections || readback?.sections || readback?.data?.sections;
+        storedCount = stored?.length ?? null;
+        console.log(`[FunnelBuilder] Readback "${page.name}" — storedSections: ${storedCount ?? 'NOT FOUND'}, topKeys: ${JSON.stringify(Object.keys(readback || {}))}`);
+      } catch (e) {
+        console.warn(`[FunnelBuilder] Readback failed for "${page.name}": ${e.message}`);
+      }
+
+      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, storedCount });
+      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length, storedCount });
     } catch (err) {
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
       results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
