@@ -199,6 +199,7 @@ function buildSection(secId, rowId, styles = {}) {
     title:        'Section',
     mobileStyles: {},
     mobileWrapper:{},
+    general:      ELEMENT_GENERAL,
   };
 }
 
@@ -236,6 +237,7 @@ function buildRow(rowId, colIds) {
     mobileStyles: {},
     mobileWrapper:{},
     title:        '1 Column Row',
+    general:      ELEMENT_GENERAL,
   };
 }
 
@@ -278,6 +280,7 @@ function buildCol(colId, childIds) {
     mobileWrapper:{},
     title:        '1st Column',
     noOfColumns:  1,
+    general:      ELEMENT_GENERAL,
   };
 }
 
@@ -548,16 +551,21 @@ const PAGE_GENERAL = {
   rootVars: { '--transparent': 'transparent', '--black': '#000000', '--primary': '#37ca37', '--secondary': '#188bf6', '--white': '#ffffff' },
 };
 
-const SECTION_GENERAL = {
-  colors: [
+// Element-level general — required on every element (section, row, col, content)
+// so GHL's backend/frontend never gets undefined.colors when iterating elements.
+const ELEMENT_GENERAL = {
+  colors:         [
     { label: 'Transparent', value: 'transparent' },
-    { label: 'Black', value: '#000000' },
+    { label: 'Black',       value: '#000000' },
   ],
   fontsForPreview: [],
-  rootVars: { '--transparent': 'transparent', '--black': '#000000' },
-  sectionStyles: '',
-  customFonts: [],
+  rootVars:        { '--transparent': 'transparent', '--black': '#000000' },
+  sectionStyles:   '',
+  customFonts:     [],
 };
+
+// Alias for the section container level (same shape)
+const SECTION_GENERAL = ELEMENT_GENERAL;
 
 // ── Convert AI sections → GHL flat elements format (for Firebase Storage) ─────
 
@@ -768,11 +776,10 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   console.log(`[GHLPageBuilder] Firestore updated → ${fsResult.status}`);
 
   if (fsResult.status >= 400) {
-    // Storage upload succeeded but Firestore metadata update failed.
-    // The page data IS saved to Storage — GHL just won't see it until Firestore is updated.
-    // This typically means the Firebase token lacks Firestore write permissions.
-    // Reconnect using the console snippet (refreshedToken) and regenerate to fix.
-    console.warn(`[GHLPageBuilder] Firestore PATCH failed (${fsResult.status}) — page saved to Storage but GHL won't reload it until Firestore is updated. Token may lack write claims.`);
+    const fsErr = typeof fsResult.data === 'object'
+      ? (fsResult.data?.error?.message || fsResult.data?.error?.status || JSON.stringify(fsResult.data).slice(0, 300))
+      : String(fsResult.raw || '').slice(0, 300);
+    console.warn(`[GHLPageBuilder] Firestore PATCH failed (${fsResult.status}): ${fsErr}`);
     return {
       success:      true,
       firestoreWarning: `Firestore update failed (${fsResult.status}) — reconnect via the console snippet and regenerate so GHL picks up the new content.`,
