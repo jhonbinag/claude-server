@@ -26,7 +26,7 @@ function getProvider() {
     return { name: 'openai', model: 'gpt-4o-mini', visionModel: 'gpt-4o' };
   }
   if (process.env.GROQ_API_KEY) {
-    const m = process.env.GROQ_MODEL || 'llama3-groq-8b-8192-tool-use';
+    const m = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
     return { name: 'groq', model: m, visionModel: 'llama-3.2-11b-vision-preview' };
   }
   if (process.env.GOOGLE_API_KEY) {

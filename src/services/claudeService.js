@@ -36,6 +36,24 @@ async function getClientForLocation(locationId) {
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
 
+// Short prompt for small-context / high-token-cost providers (Groq)
+function buildShortSystemPrompt(locationId, companyId, enabledIntegrations = []) {
+  const integrationList = enabledIntegrations.length
+    ? `Connected integrations: ${enabledIntegrations.join(', ')}`
+    : 'No external integrations connected.';
+
+  return `You are a GTM AI assistant with full access to a GHL (GoHighLevel) sub-account (locationId: ${locationId}).
+${integrationList}
+Today: ${new Date().toISOString().split('T')[0]}
+
+Use the available tools to complete the user's request. Always:
+- Search for contacts before updating or messaging them
+- Confirm before bulk sends (SMS/email to many contacts)
+- Use DRAFT status for social posts
+- Report what was created/done at the end
+`;
+}
+
 // enabledIntegrations is pre-fetched before the loop and passed in to avoid
 // one Firestore/Redis read per Claude turn (could be up to MAX_TURNS reads).
 function buildSystemPrompt(locationId, companyId, enabledIntegrations = []) {
@@ -515,16 +533,25 @@ function openAIPost(hostname, apiKey, body, retries = 3) {
 }
 
 async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegrations, onEvent }, hostname, apiKey, model) {
-  const emit = onEvent || (() => {});
+  const emit    = onEvent || (() => {});
+  const isGroq  = hostname === 'api.groq.com';
 
   const [tools, enabledIntegrations] = await Promise.all([
     toolRegistry.getTools(locationId, allowedIntegrations ?? null),
     toolRegistry.getEnabledIntegrations(locationId),
   ]);
 
-  const systemPrompt  = buildSystemPrompt(locationId, companyId, enabledIntegrations);
-  const openAITools   = toOpenAIFunctions(tools);
-  const messages      = [
+  // For Groq: use shorter prompt and limit tool count to stay within TPM budget
+  const systemPrompt = isGroq
+    ? buildShortSystemPrompt(locationId, companyId, enabledIntegrations)
+    : buildSystemPrompt(locationId, companyId, enabledIntegrations);
+
+  // Groq: cap at 20 tools to reduce prompt token overhead; prioritise core GHL tools
+  const toolList     = isGroq ? tools.slice(0, 20) : tools;
+  const openAITools  = toOpenAIFunctions(toolList);
+  const maxTokens    = isGroq ? 2048 : 4096;
+
+  const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user',   content: task },
   ];
@@ -538,9 +565,9 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
 
     const resp = await openAIPost(hostname, apiKey, {
       model,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
       messages,
-      tools:      openAITools.length ? openAITools : undefined,
+      tools:       openAITools.length ? openAITools : undefined,
       tool_choice: openAITools.length ? 'auto' : undefined,
     });
 
@@ -601,7 +628,7 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
 async function runTask(options) {
   if (process.env.ANTHROPIC_API_KEY) return runTaskWithAnthropic(options);
   if (process.env.OPENAI_API_KEY)    return runTaskOpenAICompat(options, 'api.openai.com',   process.env.OPENAI_API_KEY, 'gpt-4o-mini');
-  if (process.env.GROQ_API_KEY)      return runTaskOpenAICompat(options, 'api.groq.com',     process.env.GROQ_API_KEY,  process.env.GROQ_MODEL || 'llama3-groq-8b-8192-tool-use');
+  if (process.env.GROQ_API_KEY)      return runTaskOpenAICompat(options, 'api.groq.com',     process.env.GROQ_API_KEY,  process.env.GROQ_MODEL || 'llama-3.1-8b-instant');
   if (process.env.GOOGLE_API_KEY)    return runTaskWithGemini(options);
   throw new Error('No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, or GOOGLE_API_KEY.');
 }
