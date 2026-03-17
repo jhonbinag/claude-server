@@ -253,6 +253,9 @@ async function disconnectFirebase(locationId) {
 async function getStatus(locationId) {
   const record = await loadRecord(locationId);
   if (!record) return { connected: false, expiresAt: null };
+  // Treat as disconnected if token is expired AND no customToken for re-exchange
+  const expired = record.expiresAt && record.expiresAt < Date.now();
+  if (expired && !record.customToken) return { connected: false, expiresAt: record.expiresAt };
   return { connected: true, expiresAt: record.expiresAt };
 }
 

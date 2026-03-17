@@ -381,7 +381,13 @@ export default function FunnelBuilder() {
                   )}
                   <button
                     onClick={handleDisconnect}
-                    className="ml-3 text-xs text-gray-500 hover:text-red-400 transition-colors"
+                    className="ml-2 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                  >
+                    Reconnect
+                  </button>
+                  <button
+                    onClick={handleDisconnect}
+                    className="ml-1 text-xs text-gray-500 hover:text-red-400 transition-colors"
                   >
                     Disconnect
                   </button>
