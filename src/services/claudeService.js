@@ -494,6 +494,11 @@ function openAIPost(hostname, apiKey, body, retries = 3) {
               console.warn(`[Groq] 429 — retrying in ${wait / 1000}s`);
               await new Promise(r => setTimeout(r, wait));
               openAIPost(hostname, apiKey, body, retries - 1).then(resolve).catch(reject);
+            } else if (resp.statusCode === 400 && parsed?.error?.code === 'tool_use_failed' && retries > 0) {
+              // Model generated malformed tool call — retry without tools so it responds in text
+              console.warn('[Groq] tool_use_failed — retrying without tool definitions');
+              const bodyNoTools = { ...body, tools: undefined, tool_choice: undefined };
+              openAIPost(hostname, apiKey, bodyNoTools, 0).then(resolve).catch(reject);
             } else if (resp.statusCode >= 400) {
               reject(new Error(`Groq ${resp.statusCode}: ${JSON.stringify(parsed).slice(0, 300)}`));
             } else {
@@ -561,7 +566,8 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
     // Execute tool calls
     for (const tc of toolCalls) {
       const name  = tc.function.name;
-      const args  = JSON.parse(tc.function.arguments || '{}');
+      let args;
+      try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
       toolCallCount++;
       emit({ type: 'tool_call', name, input: args });
 
@@ -595,7 +601,7 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
 async function runTask(options) {
   if (process.env.ANTHROPIC_API_KEY) return runTaskWithAnthropic(options);
   if (process.env.OPENAI_API_KEY)    return runTaskOpenAICompat(options, 'api.openai.com',   process.env.OPENAI_API_KEY, 'gpt-4o-mini');
-  if (process.env.GROQ_API_KEY)      return runTaskOpenAICompat(options, 'api.groq.com',     process.env.GROQ_API_KEY,  process.env.GROQ_MODEL || 'llama-3.1-8b-instant');
+  if (process.env.GROQ_API_KEY)      return runTaskOpenAICompat(options, 'api.groq.com',     process.env.GROQ_API_KEY,  process.env.GROQ_MODEL || 'llama3-groq-8b-8192-tool-use');
   if (process.env.GOOGLE_API_KEY)    return runTaskWithGemini(options);
   throw new Error('No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, or GOOGLE_API_KEY.');
 }
