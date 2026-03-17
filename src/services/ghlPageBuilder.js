@@ -347,7 +347,10 @@ function buildHeadline(id, text, tag = 'h1') {
       icon:            { value: { name: '', unicode: '', fontFamily: '' } },
       customClass:     { value: [] },
     },
-    wrapper: { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '20' } },
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '20' } },
+    mobileStyles: {},
+    mobileWrapper:{},
+    general:      ELEMENT_GENERAL,
   };
 }
 
@@ -376,7 +379,8 @@ function buildSubHeadline(id, text) {
       icon:            { value: { name: '', unicode: '', fontFamily: '' } },
       customClass:     { value: [] },
     },
-    wrapper: { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
+    general:      ELEMENT_GENERAL,
   };
 }
 
@@ -404,7 +408,10 @@ function buildParagraph(id, text) {
       icon:            { value: { name: '', unicode: '', fontFamily: '' } },
       customClass:     { value: [] },
     },
-    wrapper: { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '15' } },
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '15' } },
+    mobileStyles: {},
+    mobileWrapper:{},
+    general:      ELEMENT_GENERAL,
   };
 }
 
@@ -447,6 +454,7 @@ function buildButton(id, text, link = '#', elStyles = {}) {
     title:        'Button',
     mobileStyles: {},
     mobileWrapper:{},
+    general:      ELEMENT_GENERAL,
   };
 }
 
@@ -474,7 +482,10 @@ function buildBulletList(id, items) {
       icon:            { value: { name: '', unicode: '', fontFamily: '' } },
       customClass:     { value: [] },
     },
-    wrapper: { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '15' } },
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '15' } },
+    mobileStyles: {},
+    mobileWrapper:{},
+    general:      ELEMENT_GENERAL,
   };
 }
 
@@ -517,6 +528,7 @@ function buildImage(id, src, alt = '') {
     wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: '', value: 'auto' }, marginRight: { unit: '', value: 'auto' } },
     mobileStyles: {},
     mobileWrapper:{},
+    general:      ELEMENT_GENERAL,
   };
 }
 
@@ -548,7 +560,10 @@ const PAGE_GENERAL = {
     { label: 'Gray',        value: '#cbd5e0' },
     { label: 'Black',       value: '#000000' },
   ],
-  rootVars: { '--transparent': 'transparent', '--black': '#000000', '--primary': '#37ca37', '--secondary': '#188bf6', '--white': '#ffffff' },
+  rootVars:        { '--transparent': 'transparent', '--black': '#000000', '--primary': '#37ca37', '--secondary': '#188bf6', '--white': '#ffffff' },
+  fontsForPreview: [],
+  customFonts:     [],
+  sectionStyles:   '',
 };
 
 // Element-level general — required on every element (section, row, col, content)
