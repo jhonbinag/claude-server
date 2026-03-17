@@ -26,9 +26,14 @@ function repairJson(str) {
     else if (ch === '}' || ch === ']') stack.pop();
   }
   let out = str.trimEnd();
-  if (inString) out += '"';           // close unterminated string
-  out = out.replace(/,\s*$/, '');     // remove trailing comma
-  if (/:\s*$/.test(out)) out += 'null'; // dangling key with no value → null
+  if (inString) out += '"';                     // close unterminated string
+  // Key string with no ':' after it (truncated before the colon or value)
+  // Matches: { "key"  or  , "key"  at end of output — inside an object
+  if (/[{,]\s*"[^"]*"\s*$/.test(out) && stack.length && stack[stack.length - 1] === '}') {
+    out += ': null';
+  }
+  out = out.replace(/,\s*$/, '');               // remove trailing comma
+  if (/:\s*$/.test(out)) out += 'null';         // dangling colon with no value
   return out + stack.reverse().join('');
 }
 

@@ -76,6 +76,7 @@ export default function FunnelBuilder() {
   const [customColor,   setCustomColor]   = useState('');
   const [extraContext,  setExtraContext]  = useState('');
   const [generating,    setGenerating]    = useState(false);
+  const [genSteps,      setGenSteps]      = useState([]);
   const [result,        setResult]        = useState(null);
 
   // Design upload mode
@@ -206,7 +207,9 @@ export default function FunnelBuilder() {
 
     setGenerating(true);
     setResult(null);
+    setGenSteps([{ text: 'Sending request to AI…', status: 'running' }]);
     try {
+      setGenSteps(s => [...s.slice(0,-1), { text: 'AI generating page JSON…', status: 'running' }]);
       const d = await api.postWithKey('/funnel-builder/generate', {
         pageId:      pageId.trim(),
         funnelId:    funnelId.trim() || undefined,
@@ -220,13 +223,20 @@ export default function FunnelBuilder() {
       }, apiKey);
 
       if (d.success) {
+        setGenSteps(s => [
+          ...s.slice(0,-1),
+          { text: `✓ Page JSON generated (${d.sectionsCount} sections)`, status: 'done' },
+          { text: '✓ Saved to GHL successfully', status: 'done' },
+        ]);
         setResult(d);
         toast(setToastState, `Page generated (${d.sectionsCount} sections) and saved to GHL!`);
       } else {
+        setGenSteps(s => [...s.slice(0,-1), { text: `✗ ${d.error || 'Generation failed'}`, status: 'error' }]);
         toast(setToastState, d.error || 'Generation failed.', 'error');
         if (d.pageJson) setResult({ pageJson: d.pageJson, failed: true });
       }
     } catch (err) {
+      setGenSteps(s => [...s.slice(0,-1), { text: `✗ ${err.message || 'Generation failed'}`, status: 'error' }]);
       toast(setToastState, err.message || 'Generation failed.', 'error');
     }
     setGenerating(false);
@@ -704,6 +714,20 @@ export default function FunnelBuilder() {
                   </span>
                 ) : '🏗️ Generate & Save Native Page'}
               </button>
+
+              {/* Processing steps */}
+              {genSteps.length > 0 && (
+                <div className="mt-3 rounded-xl p-3 space-y-1.5 text-xs" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  {genSteps.map((step, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      {step.status === 'running' && <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
+                      {step.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
+                      {step.status === 'error'   && <span className="text-red-400 flex-shrink-0">✗</span>}
+                      <span style={{ color: step.status === 'error' ? '#f87171' : step.status === 'done' ? '#6ee7b7' : '#a5b4fc' }}>{step.text}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </form>
             )}
 
