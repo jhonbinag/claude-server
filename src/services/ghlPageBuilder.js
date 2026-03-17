@@ -281,112 +281,127 @@ function buildCol(colId, childIds) {
   };
 }
 
-function buildHeadline(id, text, tag = 'h1') {
+// Shared styles block for c-heading / c-sub-heading / c-paragraph (GHL new element format)
+function buildTextStyles(overrides = {}) {
   return {
-    id, type: 'headline', child: [],
-    class: {
-      textAlign:    { value: 'center' },
-      borders:      { value: 'noBorder' },
-      borderRadius: { value: 'radius0' },
-      radiusEdge:   { value: 'none' },
-    },
-    styles: {
-      fontSize:        { value: tag === 'h1' ? 48 : tag === 'h2' ? 36 : 28, unit: 'px' },
-      fontWeight:      { value: '700' },
-      color:           { value: 'var(--black)' },
-      lineHeight:      { value: 1.2 },
-      letterSpacing:   { value: 0, unit: 'px' },
-      boxShadow:       { value: 'none' },
-      background:      { value: 'none' },
-      backdropFilter:  { value: 'none' },
-      borderColor:     { value: 'var(--black)' },
-      borderWidth:     { value: '0', unit: 'px' },
-      borderStyle:     { value: 'solid' },
-    },
+    backgroundColor:      { value: 'var(--transparent)' },
+    color:                { value: 'var(--black)' },
+    boldTextColor:        { value: 'var(--black)' },
+    italicTextColor:      { value: 'var(--text-color)' },
+    underlineTextColor:   { value: 'var(--text-color)' },
+    linkTextColor:        { value: 'var(--link-color)' },
+    iconColor:            { value: 'var(--text-color)' },
+    fontFamily:           { value: '' },
+    fontWeight:           { value: 'normal' },
+    paddingLeft:          { unit: 'px', value: 0 },
+    paddingRight:         { unit: 'px', value: 0 },
+    paddingTop:           { unit: 'px', value: 0 },
+    paddingBottom:        { unit: 'px', value: 0 },
+    opacity:              { value: '1' },
+    textShadow:           { value: '0px 0px 0px rgba(0,0,0,0)' },
+    borderColor:          { value: 'var(--black)' },
+    borderWidth:          { value: '2', unit: 'px' },
+    borderStyle:          { value: 'solid' },
+    lineHeight:           { value: 1.3, unit: 'em' },
+    textTransform:        { value: '' },
+    letterSpacing:        { value: '0', unit: 'px' },
+    textAlign:            { value: 'center' },
+    ...overrides,
+  };
+}
+
+function buildTextClass() {
+  return {
+    boxShadow:    { value: 'none' },
+    borders:      { value: 'noBorder' },
+    borderRadius: { value: 'radius0' },
+    radiusEdge:   { value: 'none' },
+  };
+}
+
+function buildHeadline(id, text, tag = 'h1') {
+  const deskSize = tag === 'h1' ? 48 : tag === 'h2' ? 36 : 28;
+  const mobSize  = tag === 'h1' ? 32 : 24;
+  const rawId    = id.replace(/^heading-/, '');
+  return {
+    id,
+    type:      'element',
+    child:     [],
+    meta:      'heading',
+    tagName:   'c-heading',
+    title:     'Headline',
+    tag,
+    customCss: [],
+    class:     buildTextClass(),
+    styles:    buildTextStyles({ fontWeight: { value: '700' }, textAlign: { value: 'center' } }),
     extra: {
-      visibility:  DEFAULT_VISIBILITY,
-      customClass: { value: [] },
-      content:     { value: text },
-      tag:         { value: tag },
-      link:        { value: { type: 'none', value: '', target: '_self' } },
+      nodeId:          { value: `cheading-${rawId}` },
+      visibility:      DEFAULT_VISIBILITY,
+      text:            { value: `<${tag}>${text}</${tag}>` },
+      desktopFontSize: { value: deskSize, unit: 'px' },
+      mobileFontSize:  { value: mobSize,  unit: 'px' },
+      typography:      { value: 'var(--headlinefont)' },
+      icon:            { value: { name: '', unicode: '', fontFamily: '' } },
+      customClass:     { value: [] },
     },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 20 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
-    tagName:      'c-heading',
-    meta:         'headline',
-    title:        'Headline',
-    mobileStyles: { fontSize: { value: tag === 'h1' ? 32 : 24, unit: 'px' } },
-    mobileWrapper:{},
+    wrapper: { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '20' } },
   };
 }
 
 function buildSubHeadline(id, text) {
+  const rawId = id.replace(/^sub-headline-/, '').replace(/^sub-heading-/, '');
   return {
-    id, type: 'sub-headline', child: [],
-    class: {
-      textAlign:    { value: 'center' },
-      borders:      { value: 'noBorder' },
-      borderRadius: { value: 'radius0' },
-      radiusEdge:   { value: 'none' },
-    },
-    styles: {
-      fontSize:       { value: 22, unit: 'px' },
-      fontWeight:     { value: '500' },
-      color:          { value: 'var(--black)' },
-      lineHeight:     { value: 1.4 },
-      boxShadow:      { value: 'none' },
-      background:     { value: 'none' },
-      backdropFilter: { value: 'none' },
-      borderColor:    { value: 'var(--black)' },
-      borderWidth:    { value: '0', unit: 'px' },
-      borderStyle:    { value: 'solid' },
-    },
-    extra: {
-      visibility:  DEFAULT_VISIBILITY,
-      customClass: { value: [] },
-      content:     { value: text },
-      tag:         { value: 'h2' },
-      link:        { value: { type: 'none', value: '', target: '_self' } },
-    },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 15 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
-    tagName:      'c-heading',
-    meta:         'sub-headline',
+    id,
+    type:         'element',
+    child:        [],
+    meta:         'sub-heading',
+    tagName:      'c-sub-heading',
     title:        'Sub Headline',
-    mobileStyles: { fontSize: { value: 18, unit: 'px' } },
+    tag:          'h3',
+    customCss:    [],
+    mobileStyles: {},
     mobileWrapper:{},
+    class:        buildTextClass(),
+    styles:       buildTextStyles({ textAlign: { value: 'center' } }),
+    extra: {
+      nodeId:          { value: `csub-heading-${rawId}` },
+      visibility:      DEFAULT_VISIBILITY,
+      text:            { value: `<h3>${text}</h3>` },
+      desktopFontSize: { value: 23, unit: 'px' },
+      mobileFontSize:  { value: 20, unit: 'px' },
+      typography:      { value: 'var(--headlinefont)' },
+      icon:            { value: { name: '', unicode: '', fontFamily: '' } },
+      customClass:     { value: [] },
+    },
+    wrapper: { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
   };
 }
 
 function buildParagraph(id, text) {
-  const html = text.startsWith('<') ? text : `<p>${text}</p>`;
+  const html  = text.startsWith('<') ? text : `<p>${text}</p>`;
+  const rawId = id.replace(/^paragraph-/, '');
   return {
-    id, type: 'paragraph', child: [],
-    class: {
-      borders:      { value: 'noBorder' },
-      borderRadius: { value: 'radius0' },
-      radiusEdge:   { value: 'none' },
-    },
-    styles: {
-      fontSize:       { value: 16, unit: 'px' },
-      color:          { value: 'var(--black)' },
-      lineHeight:     { value: 1.7 },
-      boxShadow:      { value: 'none' },
-      background:     { value: 'none' },
-      backdropFilter: { value: 'none' },
-      borderColor:    { value: 'var(--black)' },
-      borderWidth:    { value: '0', unit: 'px' },
-      borderStyle:    { value: 'solid' },
-    },
+    id,
+    type:      'element',
+    child:     [],
+    meta:      'paragraph',
+    tagName:   'c-paragraph',
+    title:     'Paragraph',
+    tag:       'p',
+    customCss: [],
+    class:     buildTextClass(),
+    styles:    buildTextStyles({ textAlign: { value: 'left' } }),
     extra: {
-      visibility:  DEFAULT_VISIBILITY,
-      customClass: { value: [] },
-      content:     { value: html },
+      nodeId:          { value: `cparagraph-${rawId}` },
+      visibility:      DEFAULT_VISIBILITY,
+      text:            { value: html },
+      desktopFontSize: { value: 16, unit: 'px' },
+      mobileFontSize:  { value: 14, unit: 'px' },
+      typography:      { value: 'var(--contentfont)' },
+      icon:            { value: { name: '', unicode: '', fontFamily: '' } },
+      customClass:     { value: [] },
     },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 15 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
-    tagName:      'c-text',
-    meta:         'paragraph',
-    title:        'Paragraph',
-    mobileStyles: {},
-    mobileWrapper:{},
+    wrapper: { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '15' } },
   };
 }
 
@@ -416,9 +431,6 @@ function buildButton(id, text, link = '#', elStyles = {}) {
       borderWidth:     { value: '0', unit: 'px' },
       borderStyle:     { value: 'solid' },
       borderColor:     { value: 'var(--black)' },
-      boxShadow:       { value: 'none' },
-      background:      { value: 'none' },
-      backdropFilter:  { value: 'none' },
     },
     extra: {
       visibility:  DEFAULT_VISIBILITY,
@@ -436,36 +448,30 @@ function buildButton(id, text, link = '#', elStyles = {}) {
 }
 
 function buildBulletList(id, items) {
-  const html = '<ul>' + items.map(i => `<li>${i.text || i}</li>`).join('') + '</ul>';
+  const html  = '<ul>' + items.map(i => `<li>${i.text || i}</li>`).join('') + '</ul>';
+  const rawId = id.replace(/^bulletList-/, '').replace(/^list-/, '');
   return {
-    id, type: 'list', child: [],
-    class: {
-      borders:      { value: 'noBorder' },
-      borderRadius: { value: 'radius0' },
-      radiusEdge:   { value: 'none' },
-    },
-    styles: {
-      fontSize:       { value: 16, unit: 'px' },
-      color:          { value: 'var(--black)' },
-      lineHeight:     { value: 1.7 },
-      boxShadow:      { value: 'none' },
-      background:     { value: 'none' },
-      backdropFilter: { value: 'none' },
-      borderColor:    { value: 'var(--black)' },
-      borderWidth:    { value: '0', unit: 'px' },
-      borderStyle:    { value: 'solid' },
-    },
+    id,
+    type:      'element',
+    child:     [],
+    meta:      'paragraph',
+    tagName:   'c-paragraph',
+    title:     'Paragraph',
+    tag:       'p',
+    customCss: [],
+    class:     buildTextClass(),
+    styles:    buildTextStyles({ textAlign: { value: 'left' } }),
     extra: {
-      visibility:  DEFAULT_VISIBILITY,
-      customClass: { value: [] },
-      content:     { value: html },
+      nodeId:          { value: `cparagraph-${rawId}` },
+      visibility:      DEFAULT_VISIBILITY,
+      text:            { value: html },
+      desktopFontSize: { value: 16, unit: 'px' },
+      mobileFontSize:  { value: 14, unit: 'px' },
+      typography:      { value: 'var(--contentfont)' },
+      icon:            { value: { name: '', unicode: '', fontFamily: '' } },
+      customClass:     { value: [] },
     },
-    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 15 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
-    tagName:      'c-list',
-    meta:         'list',
-    title:        'List',
-    mobileStyles: {},
-    mobileWrapper:{},
+    wrapper: { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: '15' } },
   };
 }
 
