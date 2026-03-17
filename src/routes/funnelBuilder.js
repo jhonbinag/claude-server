@@ -698,12 +698,21 @@ router.get('/page-data', async (req, res) => {
     });
   }
 
+  // Extract key metadata fields
+  const sectionVersion = fields.section_version?.integerValue ?? fields.section_version?.stringValue ?? null;
+  const pageVersion    = fields.page_version?.integerValue    ?? fields.page_version?.stringValue    ?? null;
+  const templateType   = fields.template_type?.stringValue ?? null;
+
   res.json({
     pageId,
     firestoreFields:     Object.keys(fields),
+    section_version:     sectionVersion,
+    page_version:        pageVersion,
+    template_type:       templateType,
     downloadUrl,
     // First section from Storage file (what GHL builder actually reads)
     storageFirstSection: Array.isArray(storageFile?.sections) ? storageFile.sections[0] : storageFile,
+    storageSectionCount: Array.isArray(storageFile?.sections) ? storageFile.sections.length : null,
     // First section from Firestore sections field (decoded)
     firestoreSectionsPresent: !!sectionsRaw,
     firestoreSectionsSample:  sectionsRaw ? JSON.stringify(sectionsRaw).slice(0, 800) : null,
