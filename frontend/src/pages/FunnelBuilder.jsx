@@ -406,11 +406,22 @@ export default function FunnelBuilder() {
                       const serverUrl = window.location.origin;
                       const locId = locationId || '';
                       const snippet =
-`var fbKey=Object.keys(localStorage).find(k=>k.startsWith('firebase:authUser:'));
-var fbUser=fbKey?JSON.parse(localStorage.getItem(fbKey)||'null'):null;
-var t=(fbUser&&fbUser.stsTokenManager&&fbUser.stsTokenManager.accessToken)||localStorage.getItem('refreshedToken');
-if(!t){alert('Token not found — make sure you are logged in to GHL.');}
-else fetch('${serverUrl}/funnel-builder/connect',{method:'POST',headers:{'Content-Type':'application/json','x-location-id':'${locId}'},body:JSON.stringify({refreshedToken:t})}).then(r=>r.json()).then(d=>{if(d.success)alert('✅ Connected! Go back to your app.');else alert('❌ '+(d.error||'Failed'));});`;
+`(async()=>{
+  const post=t=>fetch('${serverUrl}/funnel-builder/connect',{method:'POST',headers:{'Content-Type':'application/json','x-location-id':'${locId}'},body:JSON.stringify({refreshedToken:t})}).then(r=>r.json()).then(d=>{if(d.success)alert('✅ Connected! Go back to your app.');else alert('❌ '+(d.error||'Failed: '+JSON.stringify(d)));});
+  // Try localStorage first (Firebase v8)
+  const lsKey=Object.keys(localStorage).find(k=>k.startsWith('firebase:authUser:'));
+  const lsUser=lsKey?JSON.parse(localStorage.getItem(lsKey)||'null'):null;
+  const lsToken=lsUser?.stsTokenManager?.accessToken;
+  if(lsToken){console.log('Using localStorage token');return post(lsToken);}
+  // Try IndexedDB (Firebase v9+)
+  const db=await new Promise((res,rej)=>{const r=indexedDB.open('firebaseLocalStorageDb');r.onsuccess=e=>res(e.target.result);r.onerror=()=>rej(r.error);});
+  const idbToken=await new Promise((res,rej)=>{const tx=db.transaction('firebaseLocalStorage','readonly');const req=tx.objectStore('firebaseLocalStorage').getAll();req.onsuccess=e=>{const rec=e.target.result.find(r=>r&&r.value&&r.value.stsTokenManager);res(rec?.value?.stsTokenManager?.accessToken||null);};req.onerror=()=>res(null);});
+  if(idbToken){console.log('Using IndexedDB token');return post(idbToken);}
+  // Fallback: refreshedToken from localStorage
+  const rt=localStorage.getItem('refreshedToken');
+  if(rt){console.log('Using refreshedToken');return post(rt);}
+  alert('No Firebase token found. Make sure you are logged in to GHL and try again.');
+})();`;
                       return (
                         <div className="mb-4">
                           <p className="text-xs text-gray-300 font-semibold mb-1">Step 1 — Copy this snippet:</p>
