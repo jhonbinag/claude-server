@@ -656,14 +656,14 @@ function convertSectionsToFirestore(aiSections) {
     const ghlEls = contentItems.map(el => {
       const elId = el.id || `${el.type}-${randomId()}`;
       switch (el.type) {
-        case 'headline':    return { id: elId, type: 'headline',     tag: el.tag || 'h1', text: el.text || '', styles: { color: {} }, mobileStyles: {} };
-        case 'sub-headline':return { id: elId, type: 'sub-headline', text: el.text || '' };
-        case 'paragraph':   return { id: elId, type: 'paragraph',    text: el.text || '' };
+        case 'headline':    return { id: elId, type: 'headline',     tag: el.tag || 'h1', text: el.text || '', styles: { color: {} }, mobileStyles: {}, general: ELEMENT_GENERAL };
+        case 'sub-headline':return { id: elId, type: 'sub-headline', text: el.text || '',                                                               general: ELEMENT_GENERAL };
+        case 'paragraph':   return { id: elId, type: 'paragraph',    text: el.text || '',                                                               general: ELEMENT_GENERAL };
         case 'button':      return { id: elId, type: 'button', text: el.text || 'Click Here', link: el.link || '#',
-                                     styles: { backgroundColor: { value: el.styles?.backgroundColor || '#000000' }, color: { value: el.styles?.color || '#ffffff' }, paddingLeft: { value: 25, unit: 'px' }, paddingRight: { value: 25, unit: 'px' }, borderRadius: {} }, mobileStyles: {} };
-        case 'bulletList':  return { id: elId, type: 'bulletList', text: '<ul>' + (el.items||[]).map(i=>`<li>${i.text||i}</li>`).join('') + '</ul>' };
-        case 'image':       return { id: elId, type: 'image', src: el.src || '', alt: el.alt || '', styles: { width: { value: 100, unit: '%' } }, mobileStyles: {} };
-        default:            return { id: elId, type: 'paragraph', text: el.text || '' };
+                                     styles: { backgroundColor: { value: el.styles?.backgroundColor || '#000000' }, color: { value: el.styles?.color || '#ffffff' }, paddingLeft: { value: 25, unit: 'px' }, paddingRight: { value: 25, unit: 'px' }, borderRadius: {} }, mobileStyles: {}, general: ELEMENT_GENERAL };
+        case 'bulletList':  return { id: elId, type: 'bulletList', text: '<ul>' + (el.items||[]).map(i=>`<li>${i.text||i}</li>`).join('') + '</ul>',    general: ELEMENT_GENERAL };
+        case 'image':       return { id: elId, type: 'image', src: el.src || '', alt: el.alt || '', styles: { width: { value: 100, unit: '%' } }, mobileStyles: {}, general: ELEMENT_GENERAL };
+        default:            return { id: elId, type: 'paragraph', text: el.text || '',                                                                  general: ELEMENT_GENERAL };
       }
     });
 
@@ -677,7 +677,8 @@ function convertSectionsToFirestore(aiSections) {
         backgroundColor: { value: aiSection.styles?.backgroundColor?.value || '#ffffff' },
       },
       mobileStyles: {},
-      children: [{ id: `row-${randomId()}`, type: 'row', children: [{ id: `column-${randomId()}`, type: 'column', width: 12, styles: { textAlign: { value: 'center' } }, mobileStyles: {}, children: ghlEls }] }],
+      general: ELEMENT_GENERAL,
+      children: [{ id: `row-${randomId()}`, type: 'row', general: ELEMENT_GENERAL, children: [{ id: `column-${randomId()}`, type: 'column', width: 12, styles: { textAlign: { value: 'center' } }, mobileStyles: {}, general: ELEMENT_GENERAL, children: ghlEls }] }],
     };
   });
 }
