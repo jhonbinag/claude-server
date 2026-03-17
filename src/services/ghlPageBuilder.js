@@ -95,11 +95,17 @@ async function readFirestoreDoc(idToken, projectId, pageId) {
   const res  = await httpsRequest(FIRESTORE_HOST, 'GET', path, { 'Authorization': `Bearer ${idToken}` }, null);
   if (res.status >= 400) throw new Error(`Firestore GET failed (${res.status}): ${res.raw.slice(0, 200)}`);
   const f = res.data.fields || {};
+
+  // Decode versionHistory array (raw Firestore wire format)
+  const vhValues = f.versionHistory?.arrayValue?.values || [];
+
   return {
-    funnelId:    f.funnel_id?.stringValue,
-    locationId:  f.location_id?.stringValue,
-    version:     parseInt(f.version?.integerValue || '1', 10),
-    downloadUrl: f.page_data_download_url?.stringValue,
+    funnelId:       f.funnel_id?.stringValue,
+    locationId:     f.location_id?.stringValue,
+    version:        parseInt(f.version?.integerValue || '1', 10),
+    downloadUrl:    f.page_data_download_url?.stringValue,
+    versionHistory: vhValues, // raw Firestore arrayValue values[]
+    updatedBy:      f.updated_by?.stringValue,
   };
 }
 
@@ -187,7 +193,7 @@ function buildSection(secId, rowId, styles = {}) {
       customClass:     { value: [] },
       elementScreenshot: { value: [] },
     },
-    wrapper:      {},
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
     meta:         'section',
     tagName:      'c-section',
     title:        'Section',
@@ -285,11 +291,17 @@ function buildHeadline(id, text, tag = 'h1') {
       radiusEdge:   { value: 'none' },
     },
     styles: {
-      fontSize:      { value: tag === 'h1' ? 48 : tag === 'h2' ? 36 : 28, unit: 'px' },
-      fontWeight:    { value: '700' },
-      color:         { value: 'var(--black)' },
-      lineHeight:    { value: 1.2 },
-      letterSpacing: { value: 0, unit: 'px' },
+      fontSize:        { value: tag === 'h1' ? 48 : tag === 'h2' ? 36 : 28, unit: 'px' },
+      fontWeight:      { value: '700' },
+      color:           { value: 'var(--black)' },
+      lineHeight:      { value: 1.2 },
+      letterSpacing:   { value: 0, unit: 'px' },
+      boxShadow:       { value: 'none' },
+      background:      { value: 'none' },
+      backdropFilter:  { value: 'none' },
+      borderColor:     { value: 'var(--black)' },
+      borderWidth:     { value: '0', unit: 'px' },
+      borderStyle:     { value: 'solid' },
     },
     extra: {
       visibility:  DEFAULT_VISIBILITY,
@@ -317,15 +329,22 @@ function buildSubHeadline(id, text) {
       radiusEdge:   { value: 'none' },
     },
     styles: {
-      fontSize:   { value: 22, unit: 'px' },
-      fontWeight: { value: '500' },
-      color:      { value: 'var(--black)' },
-      lineHeight: { value: 1.4 },
+      fontSize:       { value: 22, unit: 'px' },
+      fontWeight:     { value: '500' },
+      color:          { value: 'var(--black)' },
+      lineHeight:     { value: 1.4 },
+      boxShadow:      { value: 'none' },
+      background:     { value: 'none' },
+      backdropFilter: { value: 'none' },
+      borderColor:    { value: 'var(--black)' },
+      borderWidth:    { value: '0', unit: 'px' },
+      borderStyle:    { value: 'solid' },
     },
     extra: {
       visibility:  DEFAULT_VISIBILITY,
       customClass: { value: [] },
       content:     { value: text },
+      tag:         { value: 'h2' },
       link:        { value: { type: 'none', value: '', target: '_self' } },
     },
     wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 15 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
@@ -341,11 +360,21 @@ function buildParagraph(id, text) {
   const html = text.startsWith('<') ? text : `<p>${text}</p>`;
   return {
     id, type: 'paragraph', child: [],
-    class: {},
+    class: {
+      borders:      { value: 'noBorder' },
+      borderRadius: { value: 'radius0' },
+      radiusEdge:   { value: 'none' },
+    },
     styles: {
-      fontSize:   { value: 16, unit: 'px' },
-      color:      { value: 'var(--black)' },
-      lineHeight: { value: 1.7 },
+      fontSize:       { value: 16, unit: 'px' },
+      color:          { value: 'var(--black)' },
+      lineHeight:     { value: 1.7 },
+      boxShadow:      { value: 'none' },
+      background:     { value: 'none' },
+      backdropFilter: { value: 'none' },
+      borderColor:    { value: 'var(--black)' },
+      borderWidth:    { value: '0', unit: 'px' },
+      borderStyle:    { value: 'solid' },
     },
     extra: {
       visibility:  DEFAULT_VISIBILITY,
@@ -373,6 +402,7 @@ function buildButton(id, text, link = '#', elStyles = {}) {
     styles: {
       fontSize:        { value: 16, unit: 'px' },
       fontWeight:      { value: '700' },
+      lineHeight:      { value: 1.2 },
       color:           { value: elStyles.color || 'var(--white)' },
       backgroundColor: { value: elStyles.backgroundColor || 'var(--primary)' },
       paddingTop:      { value: 14, unit: 'px' },
@@ -383,6 +413,9 @@ function buildButton(id, text, link = '#', elStyles = {}) {
       borderWidth:     { value: '0', unit: 'px' },
       borderStyle:     { value: 'solid' },
       borderColor:     { value: 'var(--black)' },
+      boxShadow:       { value: 'none' },
+      background:      { value: 'none' },
+      backdropFilter:  { value: 'none' },
     },
     extra: {
       visibility:  DEFAULT_VISIBILITY,
@@ -403,11 +436,21 @@ function buildBulletList(id, items) {
   const html = '<ul>' + items.map(i => `<li>${i.text || i}</li>`).join('') + '</ul>';
   return {
     id, type: 'list', child: [],
-    class: {},
+    class: {
+      borders:      { value: 'noBorder' },
+      borderRadius: { value: 'radius0' },
+      radiusEdge:   { value: 'none' },
+    },
     styles: {
-      fontSize:   { value: 16, unit: 'px' },
-      color:      { value: 'var(--black)' },
-      lineHeight: { value: 1.7 },
+      fontSize:       { value: 16, unit: 'px' },
+      color:          { value: 'var(--black)' },
+      lineHeight:     { value: 1.7 },
+      boxShadow:      { value: 'none' },
+      background:     { value: 'none' },
+      backdropFilter: { value: 'none' },
+      borderColor:    { value: 'var(--black)' },
+      borderWidth:    { value: '0', unit: 'px' },
+      borderStyle:    { value: 'solid' },
     },
     extra: {
       visibility:  DEFAULT_VISIBILITY,
@@ -589,7 +632,7 @@ async function savePageData(locationId, pageId, sectionsJson) {
     throw new Error(`Cannot read Firestore doc for page ${pageId}: ${e.message}`);
   }
 
-  const { funnelId, version: currentVersion, downloadUrl: currentDownloadUrl } = docInfo;
+  const { funnelId, version: currentVersion, downloadUrl: currentDownloadUrl, versionHistory: existingVH } = docInfo;
   if (!funnelId) throw new Error(`Page ${pageId} missing funnelId — open the page in GHL builder first.`);
 
   // Download existing file to preserve settings/general if available
@@ -618,14 +661,32 @@ async function savePageData(locationId, pageId, sectionsJson) {
   const { storagePath, downloadUrl: newDownloadUrl } = await uploadToStorage(idToken, funnelId, pageId, pageFile);
   console.log(`[GHLPageBuilder] Uploaded to ${storagePath}`);
 
+  // Build new versionHistory entry (prepend — GHL renders from versionHistory[0])
+  const newVHEntry = toFirestoreValue({
+    version_id:         uuidv4(),
+    page_download_path: storagePath,
+    page_download_url:  newDownloadUrl,
+    updated_by:         docInfo.updatedBy || locationId,
+    updated_at:         new Date().toISOString(),
+    pageType:           'draft',
+    integrations: {
+      popup:           false,
+      videoBackground: false,
+      blogMeta: { selectedBlogCategories: [], categoryNavigationList: [] },
+    },
+  });
+  // Prepend our entry — keep at most 30 existing entries after ours
+  const updatedVH = { arrayValue: { values: [newVHEntry, ...(existingVH || []).slice(0, 29)] } };
+
   // Convert to Firestore hierarchical format (for builder sections sidebar)
   const firestoreSections = convertSectionsToFirestore(aiSections);
 
-  // Update Firestore with new Storage URL + sections + version
+  // Update Firestore with new Storage URL + versionHistory + sections + version
   const newVersion = (currentVersion || 1) + 1;
   const fsResult   = await patchFirestoreDoc(idToken, projectId, pageId, {
     page_data_url:          toFirestoreValue(storagePath),
     page_data_download_url: toFirestoreValue(newDownloadUrl),
+    versionHistory:         updatedVH,
     sections:               toFirestoreValue(firestoreSections),
     version:                toFirestoreValue(newVersion),
     date_updated:           { timestampValue: new Date().toISOString() },
