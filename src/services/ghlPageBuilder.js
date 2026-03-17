@@ -493,12 +493,14 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   });
   const updatedVH = { arrayValue: { values: [newVHEntry, ...(existingVH || []).slice(0, 29)] } };
 
-  // Update Firestore — only URL fields + metadata; Storage file is source of truth for sections
+  // Update Firestore — sections + URL fields. GHL editor reads sections directly from Firestore.
+  // Only write filtered ghlSections (empty sections already removed above).
   const newVersion = (currentVersion || 1) + 1;
   const fsResult   = await patchFirestoreDoc(idToken, projectId, pageId, {
     page_data_url:          toFirestoreValue(storagePath),
     page_data_download_url: toFirestoreValue(newDownloadUrl),
     versionHistory:         updatedVH,
+    sections:               toFirestoreValue(ghlSections),
     version:                toFirestoreValue(newVersion),
     date_updated:           { timestampValue: new Date().toISOString() },
   });
