@@ -118,8 +118,10 @@ async function savePageData(locationId, pageId, sectionsJson) {
     throw new Error(`GHL savePageData failed (${result.status}): ${msg}`);
   }
 
-  console.log(`[GHLPageBuilder] Saved page ${pageId} — status: ${result.status}, response: ${JSON.stringify(result.data).slice(0, 300)}`);
-  return result.data;
+  const resp = result.data;
+  const savedSections = resp?.data?._data?.sections || resp?.sections || resp?.data?.sections;
+  console.log(`[GHLPageBuilder] Saved page ${pageId} — status: ${result.status}, savedSectionsCount: ${savedSections?.length ?? 'NOT FOUND'}, _data keys: ${JSON.stringify(Object.keys(resp?.data?._data || {}))}`);
+  return resp;
 }
 
 /**
