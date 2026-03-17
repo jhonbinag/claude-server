@@ -634,9 +634,10 @@ router.post('/generate-funnel', async (req, res) => {
       limit: 20,
       offset: '0',
     });
-    pages = result?.funnelPages || result?.pages || result?.data || [];
+    console.log('[FunnelBuilder] /funnels/page response keys:', result ? Object.keys(result) : result);
+    pages = result?.funnelPages || result?.pages || result?.list || result?.data || [];
     if (!Array.isArray(pages) || pages.length === 0) {
-      return res.status(404).json({ success: false, error: 'No pages found in this funnel. Check the funnelId.' });
+      return res.status(404).json({ success: false, error: `No pages found in this funnel. Response keys: ${result ? Object.keys(result).join(', ') : 'null'}` });
     }
   } catch (err) {
     return res.status(502).json({ success: false, error: `Failed to list funnel pages: ${err.message}` });
