@@ -184,13 +184,14 @@ export default function FunnelBuilder() {
 
   async function handleAnalyzeDesign(e) {
     e.preventDefault();
-    if (!designFile)         { toast(setToastState, 'Upload a design image first.', 'error'); return; }
-    if (!designPageId.trim()) { toast(setToastState, 'Page ID is required.', 'error'); return; }
+    if (!designFile)              { toast(setToastState, 'Upload a design image first.', 'error'); return; }
+    if (!designPageId.trim())     { toast(setToastState, 'Page ID is required.', 'error'); return; }
+    if (!designFunnelId.trim())   { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
 
     const formData = new FormData();
     formData.append('image', designFile);
     formData.append('pageId', designPageId.trim());
-    if (designFunnelId.trim()) formData.append('funnelId', designFunnelId.trim());
+    formData.append('funnelId', designFunnelId.trim());
     if (designContext.trim())  formData.append('extraContext', designContext.trim());
     if (designAgent)           formData.append('agentId', designAgent);
 
@@ -586,7 +587,8 @@ export default function FunnelBuilder() {
                   </div>
                   <div>
                     <label className="block text-xs text-gray-400 mb-1">
-                      Funnel ID <span className="text-gray-600">(optional)</span>
+                      Funnel ID <span className="text-red-400">*</span>
+                      <span className="text-gray-600 ml-1">— from GHL URL: /funnels/<strong className="text-gray-400">THIS_ID</strong>/...</span>
                     </label>
                     <input
                       value={designFunnelId}
