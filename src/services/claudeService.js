@@ -531,11 +531,14 @@ function toOpenAIFunctions(tools) {
   }));
 }
 
-// Parse "Please try again in X.Xs" from Groq 429 message → ms
+// Parse "try again in X.Xs" or "try again in 470ms" from Groq 429 message → ms
 function parseGroqRetryAfter(message = '', retryAfterHeader) {
-  if (retryAfterHeader) return Math.ceil(parseFloat(retryAfterHeader)) * 1000 + 500;
-  const m = message.match(/try again in ([\d.]+)s/i);
-  return m ? Math.ceil(parseFloat(m[1])) * 1000 + 500 : 8000;
+  if (retryAfterHeader) return Math.ceil(parseFloat(retryAfterHeader)) * 1000 + 300;
+  const secMs = message.match(/try again in ([\d.]+)s/i);
+  if (secMs) return Math.ceil(parseFloat(secMs[1])) * 1000 + 300;
+  const ms = message.match(/try again in (\d+)ms/i);
+  if (ms) return parseInt(ms[1], 10) + 300;
+  return 8000;
 }
 
 function openAIPost(hostname, apiKey, body, retries = 4) {
@@ -556,7 +559,7 @@ function openAIPost(hostname, apiKey, body, retries = 4) {
             const parsed = JSON.parse(d);
             if (resp.statusCode === 429 && retries > 0) {
               const wait = parseGroqRetryAfter(parsed?.error?.message, resp.headers?.['retry-after']);
-              console.warn(`[Groq] 429 — retrying in ${wait / 1000}s (${retries} left)`);
+              console.warn(`[Groq] 429 — retrying in ${wait}ms (${retries} left)`);
               await new Promise(r => setTimeout(r, wait));
               openAIPost(hostname, apiKey, body, retries - 1).then(resolve).catch(reject);
             } else if (resp.statusCode === 400 && parsed?.error?.code === 'tool_use_failed' && retries > 0) {
@@ -566,6 +569,9 @@ function openAIPost(hostname, apiKey, body, retries = 4) {
             } else if (resp.statusCode >= 400) {
               reject(new Error(`Groq ${resp.statusCode}: ${JSON.stringify(parsed).slice(0, 300)}`));
             } else {
+              // Attach remaining-token info so the agentic loop can pace itself
+              parsed._groqRemaining = parseInt(resp.headers['x-ratelimit-remaining-tokens'] || '9999', 10);
+              parsed._groqResetMs   = parseFloat(resp.headers['x-ratelimit-reset-tokens']   || '0') * 1000;
               resolve(parsed);
             }
           } catch (e) { reject(e); }
@@ -635,8 +641,15 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
       return { result: finalText, turns, toolCallCount };
     }
 
-    // For Groq: small pause between turns to spread across the TPM sliding window
-    if (isGroq) await new Promise(r => setTimeout(r, 3000));
+    // For Groq: pace between turns based on remaining token budget.
+    // If fewer than 1500 tokens remain in the window, wait for the reset.
+    if (isGroq) {
+      const remaining = resp._groqRemaining ?? 0;
+      const resetMs   = resp._groqResetMs   ?? 0;
+      const waitMs    = remaining < 1500 ? Math.max(resetMs + 500, 5000) : 2000;
+      console.log(`[Groq] remaining tokens: ${remaining} — waiting ${waitMs}ms before next turn`);
+      await new Promise(r => setTimeout(r, waitMs));
+    }
 
     // Execute tool calls
     for (const tc of toolCalls) {
