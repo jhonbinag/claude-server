@@ -116,31 +116,70 @@ async function loadRecord(locationId) {
   return raw ? JSON.parse(raw) : null;
 }
 
+// ── Token type detection ──────────────────────────────────────────────────────
+
+/**
+ * Decode a JWT payload without verification.
+ */
+function decodeJwtPayload(token) {
+  try {
+    return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+  } catch {
+    try {
+      return JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString('utf8'));
+    } catch { return null; }
+  }
+}
+
+/**
+ * Returns true if the token is already a Firebase idToken (aud = project ID),
+ * false if it is a custom token (aud = identitytoolkit URL).
+ */
+function isFirebaseIdToken(token) {
+  const p = decodeJwtPayload(token);
+  if (!p) return false;
+  const aud = Array.isArray(p.aud) ? p.aud[0] : p.aud;
+  // Custom tokens: aud = "https://identitytoolkit.googleapis.com/..."
+  // idTokens:      aud = project ID string like "highlevel-backend"
+  return typeof aud === 'string' && !aud.includes('identitytoolkit.googleapis.com');
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Exchange a GHL custom token (from localStorage `refreshedToken`) for a
- * Firebase idToken and persist it in Redis alongside the original custom token
- * so we can re-exchange it when the idToken expires (without securetoken refresh
- * which strips GHL custom claims needed by Firestore security rules).
+ * Accept whatever token GHL stores in localStorage (`refreshedToken`).
+ * Handles two cases automatically:
+ *  - Firebase custom token → exchange via signInWithCustomToken
+ *  - Firebase idToken already → use directly
+ * Stores the original token for re-exchange on expiry.
  *
  * @param {string} locationId
- * @param {string} customToken  Firebase custom token from GHL localStorage
+ * @param {string} ghlToken  Token from GHL localStorage (custom token or idToken)
  * @returns {{ idToken, expiresAt }}
  */
-async function connectFirebase(locationId, customToken) {
-  const result = await httpsPost(SIGN_IN_URL, { token: customToken, returnSecureToken: true });
+async function connectFirebase(locationId, ghlToken) {
+  let idToken, expiresAt, storedToken;
 
-  if (result.status !== 200 || !result.data.idToken) {
-    const msg = result.data?.error?.message || JSON.stringify(result.data);
-    throw new Error(`Firebase sign-in failed: ${msg}`);
+  if (isFirebaseIdToken(ghlToken)) {
+    // Already a Firebase idToken — use directly
+    console.log(`[GHLFirebase] Received Firebase idToken directly for ${locationId}`);
+    const payload = decodeJwtPayload(ghlToken);
+    idToken     = ghlToken;
+    expiresAt   = payload?.exp ? payload.exp * 1000 : Date.now() + 3600 * 1000;
+    storedToken = ghlToken; // store as-is; on expiry user must reconnect
+  } else {
+    // Firebase custom token → exchange for idToken
+    const result = await httpsPost(SIGN_IN_URL, { token: ghlToken, returnSecureToken: true });
+    if (result.status !== 200 || !result.data.idToken) {
+      const msg = result.data?.error?.message || JSON.stringify(result.data);
+      throw new Error(`Firebase sign-in failed: ${msg}`);
+    }
+    idToken     = result.data.idToken;
+    expiresAt   = Date.now() + (parseInt(result.data.expiresIn, 10) || 3600) * 1000;
+    storedToken = ghlToken; // store custom token for re-exchange
   }
 
-  const { idToken, expiresIn } = result.data;
-  const expiresAt = Date.now() + (parseInt(expiresIn, 10) || 3600) * 1000;
-
-  // Store idToken + the original custom token for re-exchange on expiry
-  const record = { idToken, customToken, expiresAt };
+  const record = { idToken, customToken: storedToken, expiresAt };
   await storeRecord(locationId, record);
 
   console.log(`[GHLFirebase] Connected location ${locationId}, expires ${new Date(expiresAt).toISOString()}`);
