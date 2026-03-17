@@ -632,6 +632,7 @@ router.post('/generate-funnel', async (req, res) => {
       locationId: req.locationId,
       funnelId,
       limit: 20,
+      offset: 0,
     });
     pages = result?.funnelPages || result?.pages || result?.data || [];
     if (!Array.isArray(pages) || pages.length === 0) {
