@@ -677,7 +677,7 @@ function convertSectionsToFirestore(aiSections) {
         backgroundColor: { value: aiSection.styles?.backgroundColor?.value || '#ffffff' },
       },
       mobileStyles: {},
-      children: [{ children: [{ id: `column-${randomId()}`, type: 'column', width: 12, styles: { textAlign: { value: 'center' } }, mobileStyles: {}, children: ghlEls }] }],
+      children: [{ id: `row-${randomId()}`, type: 'row', children: [{ id: `column-${randomId()}`, type: 'column', width: 12, styles: { textAlign: { value: 'center' } }, mobileStyles: {}, children: ghlEls }] }],
     };
   });
 }
@@ -796,8 +796,11 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
       : String(fsResult.raw || '').slice(0, 300);
     console.warn(`[GHLPageBuilder] Firestore PATCH failed (${fsResult.status}): ${fsErr}`);
     return {
-      success:      true,
-      firestoreWarning: `Firestore update failed (${fsResult.status}) — reconnect via the console snippet and regenerate so GHL picks up the new content.`,
+      success:          true,
+      firestoreOk:      false,
+      firestoreStatus:  fsResult.status,
+      firestoreError:   fsErr,
+      firestoreWarning: `Firestore update failed (${fsResult.status}): ${fsErr} — the page JSON was uploaded to Storage but GHL's editor won't show it until Firestore is updated. Reconnect Firebase and regenerate.`,
       storagePath,
       downloadUrl:  newDownloadUrl,
       sections:     storageSections.length,
@@ -805,7 +808,7 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
     };
   }
 
-  return { success: true, storagePath, downloadUrl: newDownloadUrl, sections: storageSections.length, version: newVersion };
+  return { success: true, firestoreOk: true, storagePath, downloadUrl: newDownloadUrl, sections: storageSections.length, version: newVersion };
 }
 
 function buildBackendHeaders(idToken) {

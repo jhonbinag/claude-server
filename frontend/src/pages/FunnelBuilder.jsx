@@ -745,9 +745,12 @@ export default function FunnelBuilder() {
                           {i + 1}. {p.name}
                           {p.pageType && p.status !== 'pending' && <span className="ml-1 opacity-60">({p.pageType})</span>}
                           {(p.status === 'done' || p.status === 'warn') && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
-                          {p.status === 'warn'  && <span className="ml-1 opacity-60">— ⚠ Reconnect &amp; regenerate for GHL to display</span>}
+                          {p.status === 'warn'  && <span className="ml-1 opacity-60">— ⚠ Firestore update failed (token may lack GHL claims). Reconnect &amp; regenerate.</span>}
                           {p.status === 'error' && <span className="ml-1 opacity-60">— {p.error}</span>}
                         </span>
+                        {p.status === 'warn' && p.warning && (
+                          <div className="w-full mt-1 ml-5 text-yellow-300 opacity-70" style={{ fontSize: '10px', wordBreak: 'break-all' }}>{p.warning}</div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -871,9 +874,12 @@ export default function FunnelBuilder() {
                           {i + 1}. {p.name}
                           {p.pageType && p.status !== 'pending' && <span className="ml-1 opacity-60">({p.pageType})</span>}
                           {(p.status === 'done' || p.status === 'warn') && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
-                          {p.status === 'warn'  && <span className="ml-1 opacity-60">— ⚠ Reconnect &amp; regenerate for GHL to display</span>}
+                          {p.status === 'warn'  && <span className="ml-1 opacity-60">— ⚠ Firestore update failed (token may lack GHL claims). Reconnect &amp; regenerate.</span>}
                           {p.status === 'error' && <span className="ml-1 opacity-60">— {p.error}</span>}
                         </span>
+                        {p.status === 'warn' && p.warning && (
+                          <div className="w-full mt-1 ml-5 text-yellow-300 opacity-70" style={{ fontSize: '10px', wordBreak: 'break-all' }}>{p.warning}</div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1048,9 +1054,12 @@ export default function FunnelBuilder() {
                         {i + 1}. {p.name}
                         {p.pageType && p.status !== 'pending' && <span className="ml-1 opacity-60">({p.pageType})</span>}
                         {(p.status === 'done' || p.status === 'warn') && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
-                        {p.status === 'warn'  && <span className="ml-1 opacity-60">— ⚠ Reconnect &amp; regenerate for GHL to display</span>}
+                        {p.status === 'warn'  && <span className="ml-1 opacity-60">— ⚠ Firestore update failed (token may lack GHL claims). Reconnect &amp; regenerate.</span>}
                         {p.status === 'error' && <span className="ml-1 opacity-60">— {p.error}</span>}
                       </span>
+                      {p.status === 'warn' && p.warning && (
+                        <div className="w-full mt-1 ml-5 text-yellow-300 opacity-70" style={{ fontSize: '10px', wordBreak: 'break-all' }}>{p.warning}</div>
+                      )}
                     </div>
                   ))}
                 </div>
