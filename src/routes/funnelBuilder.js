@@ -634,7 +634,7 @@ router.post('/generate-funnel', async (req, res) => {
       limit: 20,
       offset: '0',
     });
-    console.log('[FunnelBuilder] /funnels/page response keys:', result ? Object.keys(result) : result);
+    console.log('[FunnelBuilder] /funnels/page full response:', JSON.stringify(result).slice(0, 1000));
     pages = result?.funnelPages || result?.pages || result?.list || result?.data || [];
     if (!Array.isArray(pages) || pages.length === 0) {
       return res.status(404).json({ success: false, error: `No pages found in this funnel. Response keys: ${result ? Object.keys(result).join(', ') : 'null'}` });
