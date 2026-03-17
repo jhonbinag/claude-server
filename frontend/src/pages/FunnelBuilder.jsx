@@ -253,8 +253,6 @@ export default function FunnelBuilder() {
   async function handleGenerateFunnel(e) {
     e.preventDefault();
     if (!fullFunnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
-    if (!niche.trim())        { toast(setToastState, 'Niche is required.', 'error'); return; }
-    if (!offer.trim())        { toast(setToastState, 'Offer is required.', 'error'); return; }
 
     setFunnelRunning(true);
     setFunnelPages([]);
@@ -263,7 +261,7 @@ export default function FunnelBuilder() {
     try {
       const res = await fetch('/funnel-builder/generate-funnel', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
         body:    JSON.stringify({
           funnelId:    fullFunnelId.trim(),
           niche:       niche.trim(),
@@ -617,36 +615,42 @@ export default function FunnelBuilder() {
             {/* ── Full Funnel Mode ─────────────────────────────────────── */}
             {genMode === 'funnel' && (
               <form onSubmit={handleGenerateFunnel} className="space-y-4">
-                <p className="text-xs text-gray-400">Enter your Funnel ID and brief — the AI will list all pages in the funnel and generate native GHL content for each one automatically.</p>
+                <p className="text-xs text-gray-400">Enter your Funnel ID — the AI will list all pages and generate native GHL content for each one automatically.</p>
 
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">GHL Funnel ID <span className="text-red-400">*</span></label>
                   <input value={fullFunnelId} onChange={e => setFullFunnelId(e.target.value)} placeholder="e.g. abc123xyz" className="field w-full text-sm" />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Niche / Business <span className="text-red-400">*</span></label>
-                    <input value={niche} onChange={e => setNiche(e.target.value)} placeholder="e.g. Online fitness coaching" className="field w-full text-sm" />
+                <details className="group">
+                  <summary className="cursor-pointer text-xs text-indigo-400 hover:text-indigo-300 select-none list-none flex items-center gap-1">
+                    <span className="group-open:rotate-90 transition-transform inline-block">▶</span> Advanced Options (optional)
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Niche / Business</label>
+                        <input value={niche} onChange={e => setNiche(e.target.value)} placeholder="e.g. Online fitness coaching" className="field w-full text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Offer</label>
+                        <input value={offer} onChange={e => setOffer(e.target.value)} placeholder="e.g. 12-week transformation program" className="field w-full text-sm" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Target Audience</label>
+                        <input value={audience} onChange={e => setAudience(e.target.value)} placeholder="e.g. Busy moms 30-50" className="field w-full text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Color Scheme</label>
+                        <select value={colorPreset} onChange={e => setColorPreset(e.target.value)} className="field w-full text-sm">
+                          {COLOR_PRESETS.map(p => <option key={p.label} value={p.value}>{p.label}</option>)}
+                        </select>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Offer <span className="text-red-400">*</span></label>
-                    <input value={offer} onChange={e => setOffer(e.target.value)} placeholder="e.g. 12-week transformation program" className="field w-full text-sm" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Target Audience</label>
-                    <input value={audience} onChange={e => setAudience(e.target.value)} placeholder="e.g. Busy moms 30-50" className="field w-full text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Color Scheme</label>
-                    <select value={colorPreset} onChange={e => setColorPreset(e.target.value)} className="field w-full text-sm">
-                      {COLOR_PRESETS.map(p => <option key={p.label} value={p.value}>{p.label}</option>)}
-                    </select>
-                  </div>
-                </div>
+                </details>
 
                 <button type="submit" disabled={funnelRunning} className="w-full py-3 rounded-xl text-sm font-bold transition-all"
                   style={{ background: funnelRunning ? 'rgba(99,102,241,0.3)' : 'linear-gradient(135deg, #6366f1, #4f46e5)', color: '#fff', opacity: funnelRunning ? 0.7 : 1 }}>

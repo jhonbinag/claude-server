@@ -594,10 +594,11 @@ function inferPageType(name = '') {
 }
 
 router.post('/generate-funnel', async (req, res) => {
-  const { funnelId, niche, offer, audience, colorScheme, extraContext, agentId } = req.body;
+  const { funnelId, audience, colorScheme, extraContext, agentId } = req.body;
+  const niche = req.body.niche || 'this business';
+  const offer = req.body.offer || 'their offer';
 
   if (!funnelId) return res.status(400).json({ success: false, error: '"funnelId" is required.' });
-  if (!niche || !offer) return res.status(400).json({ success: false, error: '"niche" and "offer" are required.' });
   if (!aiService.getProvider()) return res.status(503).json({ success: false, error: 'No AI provider configured.' });
 
   // Ensure Firebase connected
