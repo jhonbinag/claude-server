@@ -97,6 +97,27 @@ const QUICK_ACTIONS = [
   { label: 'Week of social content',prompt: 'List my connected social accounts, then generate a full week of social media content (7 posts, one per day) and save each as DRAFT in the Social Planner. Ask me for the brand/topic first.' },
 ];
 
+// ── Slash commands ────────────────────────────────────────────────────────────
+const SLASH_COMMANDS = [
+  { cmd: '/search_contacts',    label: 'Search Contacts',       placeholder: '/search_contacts John Smith',          task: q => `Search contacts with query: ${q}` },
+  { cmd: '/get_contact',        label: 'Get Contact',           placeholder: '/get_contact jane@email.com',          task: q => `Get full details for contact: ${q}` },
+  { cmd: '/create_contact',     label: 'Create Contact',        placeholder: '/create_contact Jane Doe jane@email.com', task: q => `Create a new contact: ${q}` },
+  { cmd: '/send_sms',           label: 'Send SMS',              placeholder: '/send_sms +1234567890 Hello!',         task: q => `Send SMS: ${q}` },
+  { cmd: '/send_email',         label: 'Send Email',            placeholder: '/send_email to@email.com Subject Body', task: q => `Send email: ${q}` },
+  { cmd: '/list_opportunities', label: 'List Opportunities',    placeholder: '/list_opportunities',                  task: () => 'List all opportunities in the pipeline' },
+  { cmd: '/create_opportunity', label: 'Create Opportunity',    placeholder: '/create_opportunity Deal Name $5000',  task: q => `Create a new opportunity: ${q}` },
+  { cmd: '/list_workflows',     label: 'List Workflows',        placeholder: '/list_workflows',                      task: () => 'List all automation workflows' },
+  { cmd: '/list_appointments',  label: 'List Appointments',     placeholder: '/list_appointments',                   task: () => 'List upcoming appointments' },
+  { cmd: '/list_calendars',     label: 'List Calendars',        placeholder: '/list_calendars',                      task: () => 'List all calendars' },
+  { cmd: '/add_tag',            label: 'Add Tag to Contact',    placeholder: '/add_tag contactId TagName',           task: q => `Add tag to contact: ${q}` },
+  { cmd: '/remove_tag',         label: 'Remove Tag',            placeholder: '/remove_tag contactId TagName',        task: q => `Remove tag from contact: ${q}` },
+  { cmd: '/list_conversations', label: 'List Conversations',    placeholder: '/list_conversations',                  task: () => 'List recent conversations' },
+  { cmd: '/list_invoices',      label: 'List Invoices',         placeholder: '/list_invoices',                       task: () => 'List all invoices' },
+  { cmd: '/list_forms',         label: 'List Forms',            placeholder: '/list_forms',                          task: () => 'List all forms' },
+  { cmd: '/create_blog_post',   label: 'Create Blog Post',      placeholder: '/create_blog_post Title about Topic',  task: q => `Create a blog post: ${q}` },
+  { cmd: '/create_social_post', label: 'Create Social Post',    placeholder: '/create_social_post My message here',  task: q => `Create a social media post: ${q}` },
+];
+
 // Accumulate streamed text into messages array
 function applyEvent(prev, evtType, data) {
   if (evtType === 'text') {
@@ -138,6 +159,9 @@ export default function Dashboard() {
   const [trainGenerated,setTrainGenerated]= useState('');     // finalized persona text
   const [trainSaveTitle,setTrainSaveTitle]= useState('');
   const { isRunning, stream, stop } = useStreamFetch();
+  const [slashOpen,   setSlashOpen]   = useState(false);
+  const [slashFilter, setSlashFilter] = useState('');
+  const textareaRef = useRef(null);
 
   const { listening, supported: voiceSupported, toggle: toggleVoice, elapsed, liveText } = useVoice(
     (transcript) => setTask(prev => (prev ? prev + ' ' + transcript : transcript))
@@ -445,7 +469,36 @@ export default function Dashboard() {
     loadLibrary();
   };
 
-  const handleSubmit = () => { run(task); };
+  function resolveSlashTask(input) {
+    const trimmed = input.trim();
+    if (!trimmed.startsWith('/')) return trimmed;
+    const spaceIdx = trimmed.indexOf(' ');
+    const cmd  = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
+    const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim();
+    const found = SLASH_COMMANDS.find(c => c.cmd === cmd);
+    return found ? found.task(args) : trimmed;
+  }
+
+  const handleSubmit = () => { run(resolveSlashTask(task)); };
+
+  function handleTaskChange(e) {
+    const val = e.target.value;
+    setTask(val);
+    if (val.startsWith('/') && !val.includes('\n')) {
+      const spaceIdx = val.indexOf(' ');
+      const typing = spaceIdx === -1 ? val.slice(1) : val.slice(1, spaceIdx);
+      setSlashFilter(typing.toLowerCase());
+      setSlashOpen(spaceIdx === -1); // close dropdown once user starts typing args
+    } else {
+      setSlashOpen(false);
+    }
+  }
+
+  function selectSlashCommand(cmd) {
+    setTask(cmd.placeholder);
+    setSlashOpen(false);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }
   const handleChip   = (p) => { setTask(p); run(p); setSidebarOpen(false); };
 
   if (isAuthLoading)    return <Spinner />;
@@ -925,11 +978,39 @@ export default function Dashboard() {
 
             <div className="flex gap-2 items-end">
               <div className="relative flex-1">
+                {/* Slash command dropdown */}
+                {slashOpen && (() => {
+                  const filtered = SLASH_COMMANDS.filter(c =>
+                    c.cmd.slice(1).includes(slashFilter) || c.label.toLowerCase().includes(slashFilter)
+                  );
+                  return filtered.length > 0 ? (
+                    <div
+                      className="absolute bottom-full mb-1 left-0 w-full rounded-xl overflow-hidden z-50"
+                      style={{ background: '#1a1a2e', border: '1px solid rgba(99,102,241,0.3)', boxShadow: '0 -8px 24px rgba(0,0,0,0.4)' }}
+                    >
+                      {filtered.slice(0, 8).map(c => (
+                        <button
+                          key={c.cmd}
+                          type="button"
+                          onMouseDown={e => { e.preventDefault(); selectSlashCommand(c); }}
+                          className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-indigo-600/20 transition-colors"
+                        >
+                          <code className="text-indigo-400 text-xs font-mono flex-shrink-0">{c.cmd}</code>
+                          <span className="text-gray-400 text-xs truncate">{c.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
                 <textarea
+                  ref={textareaRef}
                   value={task}
-                  onChange={e => setTask(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-                  placeholder={listening ? 'Listening…' : 'Describe what you want Claude to do…'}
+                  onChange={handleTaskChange}
+                  onKeyDown={e => {
+                    if (e.key === 'Escape') { setSlashOpen(false); return; }
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
+                  }}
+                  placeholder={listening ? 'Listening…' : 'Ask AI anything, or type / for commands…'}
                   rows={3}
                   className="field w-full text-sm leading-relaxed"
                   style={{ resize: 'none', paddingRight: voiceSupported ? '2.75rem' : undefined }}

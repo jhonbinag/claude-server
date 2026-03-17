@@ -533,7 +533,7 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
 
     const resp = await openAIPost(hostname, apiKey, {
       model,
-      max_tokens: 8192,
+      max_tokens: 4096,
       messages,
       tools:      openAITools.length ? openAITools : undefined,
       tool_choice: openAITools.length ? 'auto' : undefined,
