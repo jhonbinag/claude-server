@@ -658,6 +658,80 @@ SCHEMA:
   res.end();
 });
 
+// ── GET /page-data — fetch existing GHL page data from Firestore + Storage ────
+// Usage: GET /funnel-builder/page-data?pageId=xxx
+
+router.get('/page-data', async (req, res) => {
+  const { pageId } = req.query;
+  if (!pageId) return res.status(400).json({ error: '"pageId" query param required' });
+
+  let idToken;
+  try { idToken = await getFirebaseToken(req.locationId); }
+  catch (err) { return res.status(400).json({ error: 'Firebase not connected', detail: err.message }); }
+
+  const projectId = 'highlevel-backend';
+  const fsPath    = `/v1/projects/${projectId}/databases/(default)/documents/funnel_pages/${pageId}`;
+  const fsRes     = await new Promise(resolve => {
+    const req2 = https.request(
+      { hostname: 'firestore.googleapis.com', path: fsPath, method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve({ status: r.statusCode, data: JSON.parse(d) }); } catch { resolve({ status: r.statusCode, data: d }); } }); }
+    );
+    req2.on('error', e => resolve({ status: 0, error: e.message }));
+    req2.end();
+  });
+
+  if (fsRes.status >= 400) return res.status(fsRes.status).json({ error: 'Firestore read failed', data: fsRes.data });
+
+  const fields      = fsRes.data?.fields || {};
+  const downloadUrl = fields.page_data_download_url?.stringValue;
+  const sectionsRaw = fields.sections;
+
+  let storageFile = null;
+  if (downloadUrl) {
+    const u    = new URL(downloadUrl);
+    storageFile = await new Promise(resolve => {
+      const req2 = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'GET' },
+        (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(d); } }); }
+      );
+      req2.on('error', () => resolve(null));
+      req2.end();
+    });
+  }
+
+  res.json({
+    pageId,
+    firestoreFields:     Object.keys(fields),
+    downloadUrl,
+    // First section from Storage file (what GHL builder actually reads)
+    storageFirstSection: Array.isArray(storageFile?.sections) ? storageFile.sections[0] : storageFile,
+    // First section from Firestore sections field (decoded)
+    firestoreSectionsPresent: !!sectionsRaw,
+    firestoreSectionsSample:  sectionsRaw ? JSON.stringify(sectionsRaw).slice(0, 800) : null,
+  });
+});
+
+// ── GET /list-pages — list pages in a funnel (debug / fetch) ─────────────────
+// Usage: GET /funnel-builder/list-pages?funnelId=xxx
+
+router.get('/list-pages', async (req, res) => {
+  const { funnelId } = req.query;
+  if (!funnelId) return res.status(400).json({ error: '"funnelId" query param required' });
+
+  try {
+    const result = await ghlClient.ghlRequest(req.locationId, 'GET', '/funnels/page', null, {
+      locationId: req.locationId,
+      funnelId,
+      limit: 50,
+      offset: '0',
+    });
+    const pages = result?.funnelPages || result?.pages || result?.pageList || result?.list || result?.data
+               || (Array.isArray(result) ? result : []);
+    res.json({ funnelId, count: pages.length, pages });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ── POST /generate-funnel — list all funnel pages then generate each ──────────
 
 // Infer page type from page name
