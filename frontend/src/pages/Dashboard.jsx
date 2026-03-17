@@ -102,6 +102,7 @@ const SLASH_COMMANDS = [
   { cmd: '/search_contacts',    label: 'Search Contacts',       placeholder: '/search_contacts John Smith',          task: q => `Search contacts with query: ${q}` },
   { cmd: '/get_contact',        label: 'Get Contact',           placeholder: '/get_contact jane@email.com',          task: q => `Get full details for contact: ${q}` },
   { cmd: '/create_contact',     label: 'Create Contact',        placeholder: '/create_contact Jane Doe jane@email.com', task: q => `Create a new contact: ${q}` },
+  { cmd: '/update_contact',     label: 'Update Contact',        placeholder: '/update_contact John Smith email newjohn@email.com phone +1234567890', task: q => `Find and update contact — ${q}. Search for the contact first to get their ID, then update the specified fields.` },
   { cmd: '/send_sms',           label: 'Send SMS',              placeholder: '/send_sms +1234567890 Hello!',         task: q => `Send SMS: ${q}` },
   { cmd: '/send_email',         label: 'Send Email',            placeholder: '/send_email to@email.com Subject Body', task: q => `Send email: ${q}` },
   { cmd: '/list_opportunities', label: 'List Opportunities',    placeholder: '/list_opportunities',                  task: () => 'List all opportunities in the pipeline' },

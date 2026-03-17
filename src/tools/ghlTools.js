@@ -87,7 +87,7 @@ const TOOL_DEFINITIONS = [
 
   {
     name: 'update_contact',
-    description: 'Update an existing contact in GHL. Only provide the fields you want to change.',
+    description: 'Update an existing contact in GHL. Only provide the fields you want to change. If you only have a name or email, use search_contacts first to get the contactId, then call this tool.',
     input_schema: {
       type: 'object',
       properties: {
