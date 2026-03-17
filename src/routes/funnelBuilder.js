@@ -658,6 +658,65 @@ SCHEMA:
   res.end();
 });
 
+// ── GET /ghl-raw — call GHL's actual backend APIs and return raw responses ─────
+// Usage: GET /funnel-builder/ghl-raw?pageId=xxx
+// Calls ALL known GHL backend endpoints for a page so we can see exactly what
+// GHL's editor reads (vs what we write to Firestore/Storage).
+
+router.get('/ghl-raw', async (req, res) => {
+  const { pageId } = req.query;
+  if (!pageId) return res.status(400).json({ error: '"pageId" query param required' });
+
+  let idToken;
+  try { idToken = await getFirebaseToken(req.locationId); }
+  catch (err) { return res.status(400).json({ error: 'Firebase not connected', detail: err.message }); }
+
+  const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+  const beHeaders = buildBackendHeaders(idToken);
+  delete beHeaders['Content-Type'];
+
+  const callGHL = (hostname, path, extraHeaders = {}) => new Promise(resolve => {
+    const req2 = https.request(
+      { hostname, path, method: 'GET', headers: { ...beHeaders, ...extraHeaders } },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+        try { resolve({ status: r.statusCode, data: JSON.parse(d) }); }
+        catch { resolve({ status: r.statusCode, data: d }); }
+      }); }
+    );
+    req2.on('error', e => resolve({ status: 0, error: e.message }));
+    req2.end();
+  });
+
+  // Probe multiple GHL backend paths to find where the editor reads sections from
+  const [copilotData, funnelPage, funnelPageV2] = await Promise.all([
+    callGHL('backend.leadconnectorhq.com', `/funnel-ai/copilot/page-data/${pageId}?locationId=${encodeURIComponent(req.locationId)}`),
+    callGHL('backend.leadconnectorhq.com', `/funnels/page/${pageId}?locationId=${encodeURIComponent(req.locationId)}`),
+    callGHL('backend.leadconnectorhq.com', `/funnels/page/${pageId}`),
+  ]);
+
+  // Summarize what each endpoint returned
+  const summarize = (r) => ({
+    status: r.status,
+    error: r.error,
+    keys: typeof r.data === 'object' && r.data ? Object.keys(r.data) : null,
+    hasSections: typeof r.data === 'object' && r.data
+      ? (Array.isArray(r.data.sections) ? `array[${r.data.sections.length}]` :
+         typeof r.data.sections !== 'undefined' ? 'present (non-array)' : 'absent')
+      : null,
+    firstSection: typeof r.data === 'object' && Array.isArray(r.data.sections)
+      ? JSON.stringify(r.data.sections[0]).slice(0, 600) : null,
+    rawSlice: typeof r.data === 'string' ? r.data.slice(0, 300) : null,
+  });
+
+  res.json({
+    pageId,
+    locationId: req.locationId,
+    '/funnel-ai/copilot/page-data': summarize(copilotData),
+    '/funnels/page/{pageId}?locationId': summarize(funnelPage),
+    '/funnels/page/{pageId}': summarize(funnelPageV2),
+  });
+});
+
 // ── GET /page-data — fetch existing GHL page data from Firestore + Storage ────
 // Usage: GET /funnel-builder/page-data?pageId=xxx
 

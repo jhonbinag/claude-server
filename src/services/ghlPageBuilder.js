@@ -125,21 +125,42 @@ async function uploadToStorage(idToken, funnelId, pageId, pageData) {
   const fileName    = `page-data-${uuidv4()}`;
   const storagePath = `funnel/${funnelId}/page/${pageId}/${fileName}`;
   const encodedPath = encodeURIComponent(storagePath);
-  const uploadPath  = `/v0/b/${STORAGE_BUCKET}/o?uploadType=media&name=${encodedPath}`;
 
-  const body = JSON.stringify(pageData);
-  const res  = await httpsRequest(STORAGE_HOST, 'POST', uploadPath, {
+  // Generate our own download token so the URL is publicly accessible
+  // (Firebase Storage REST API doesn't auto-generate downloadTokens)
+  const downloadToken = uuidv4();
+
+  // Use multipart upload to include metadata (with download token) alongside the file
+  const boundary = `boundary_${randomId(16)}`;
+  const jsonBody = JSON.stringify(pageData);
+  const metadata = JSON.stringify({
+    contentType: 'application/json',
+    metadata: { firebaseStorageDownloadTokens: downloadToken },
+  });
+  const multipart = [
+    `--${boundary}`,
+    'Content-Type: application/json; charset=UTF-8',
+    '',
+    metadata,
+    `--${boundary}`,
+    'Content-Type: application/json',
+    '',
+    jsonBody,
+    `--${boundary}--`,
+  ].join('\r\n');
+
+  const uploadPath = `/v0/b/${STORAGE_BUCKET}/o?uploadType=multipart&name=${encodedPath}`;
+  const res = await httpsRequest(STORAGE_HOST, 'POST', uploadPath, {
     'Authorization': `Bearer ${idToken}`,
-    'Content-Type':  'application/json',
-  }, body);
+    'Content-Type':  `multipart/related; boundary="${boundary}"`,
+  }, multipart);
 
   if (res.status >= 400) throw new Error(`Storage upload failed (${res.status}): ${String(res.raw).slice(0, 300)}`);
 
-  const downloadToken = res.data.downloadTokens;
-  if (!downloadToken) console.warn(`[GHLPageBuilder] Storage upload response has no downloadTokens — URL may be inaccessible. Response keys: ${Object.keys(res.data || {}).join(', ')}`);
-  const downloadUrl = downloadToken
-    ? `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodedPath}?alt=media&token=${downloadToken}`
-    : `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodedPath}?alt=media`;
+  // Use our pre-generated token (or fall back to whatever the API returned)
+  const finalToken = res.data?.downloadTokens || downloadToken;
+  const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodedPath}?alt=media&token=${finalToken}`;
+  console.log(`[GHLPageBuilder] Storage upload OK, token: ${finalToken.slice(0, 8)}...`);
   return { storagePath, downloadUrl };
 }
 
