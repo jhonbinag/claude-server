@@ -136,7 +136,10 @@ async function uploadToStorage(idToken, funnelId, pageId, pageData) {
   if (res.status >= 400) throw new Error(`Storage upload failed (${res.status}): ${String(res.raw).slice(0, 300)}`);
 
   const downloadToken = res.data.downloadTokens;
-  const downloadUrl   = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodedPath}?alt=media&token=${downloadToken}`;
+  if (!downloadToken) console.warn(`[GHLPageBuilder] Storage upload response has no downloadTokens — URL may be inaccessible. Response keys: ${Object.keys(res.data || {}).join(', ')}`);
+  const downloadUrl = downloadToken
+    ? `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodedPath}?alt=media&token=${downloadToken}`
+    : `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodedPath}?alt=media`;
   return { storagePath, downloadUrl };
 }
 
@@ -345,19 +348,27 @@ function buildGhlElement(el) {
 // ── Convert AI sections → GHL hierarchical format ─────────────────────────────
 // This format is used for BOTH Firebase Storage file AND Firestore sections field.
 
+// Recursively collect leaf elements from any nesting depth (section/row/column wrappers).
+function flattenElements(nodes) {
+  const result = [];
+  for (const n of (nodes || [])) {
+    if (!n) continue;
+    if (n.type === 'row' || n.type === 'column' || n.type === 'section') {
+      result.push(...flattenElements(n.children));
+    } else {
+      result.push(n);
+    }
+  }
+  return result;
+}
+
 function convertSectionsToGHL(aiSections) {
   return aiSections.map((aiSection, idx) => {
     const secId = aiSection.id || `section-${randomId()}`;
 
-    // Flatten content items from nested AI format
-    const kids = aiSection.children || [];
-    let contentItems = [];
-    if (kids.length > 0 && kids[0].type === 'row') {
-      const col = (kids[0].children || [])[0];
-      contentItems = col?.children || [];
-    } else {
-      contentItems = kids.filter(k => !['row', 'column'].includes(k.type));
-    }
+    // Extract leaf content elements, regardless of how the AI structured row/column wrappers
+    const contentItems = flattenElements(aiSection.children || []);
+    console.log(`[GHLPageBuilder] Section ${idx + 1}: extracted ${contentItems.length} elements (types: ${contentItems.map(e => e.type).join(', ')})`);
 
     const ghlElements = contentItems.map(buildGhlElement);
 
@@ -451,10 +462,13 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
 
   // Storage file — matches GHL's native AI format exactly
   const storageFile = { sections: ghlSections };
+  const firstSection = ghlSections[0];
+  const firstElement = firstSection?.children?.[0]?.children?.[0]?.children?.[0];
+  console.log(`[GHLPageBuilder] Sample element: ${JSON.stringify(firstElement).slice(0, 300)}`);
 
   // Upload to Firebase Storage
   const { storagePath, downloadUrl: newDownloadUrl } = await uploadToStorage(idToken, funnelId, pageId, storageFile);
-  console.log(`[GHLPageBuilder] Uploaded to ${storagePath}`);
+  console.log(`[GHLPageBuilder] Uploaded to ${storagePath}, downloadUrl present: ${!!newDownloadUrl}`);
 
   // Build versionHistory entry
   const newVHEntry = toFirestoreValue({
