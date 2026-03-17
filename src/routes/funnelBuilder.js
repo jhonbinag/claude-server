@@ -607,31 +607,16 @@ router.post('/generate-funnel', async (req, res) => {
     return res.status(502).json({ success: false, error: `Failed to list funnel pages: ${err.message}` });
   }
 
-  // If funnel has no pages yet, auto-create based on funnel type
+  // If funnel has no pages, tell user which pages to create in GHL
   if (!Array.isArray(pages) || pages.length === 0) {
-    const defaults = FUNNEL_TYPE_PAGES[funnelType] || FUNNEL_TYPE_PAGES.sales;
-    pages = [];
-    for (const p of defaults) {
-      try {
-        const created = await ghlClient.ghlRequest(req.locationId, 'POST', '/funnels/page', {
-          locationId: req.locationId,
-          funnelId,
-          name:      p.name,
-          url:       p.url,
-          title:     p.name,
-          stepOrder: p.stepOrder,
-          published: false,
-        }, null);
-        const id = created?._id || created?.id || created?.data?._id || created?.data?.id;
-        if (id) pages.push({ _id: id, id, name: p.name, stepOrder: p.stepOrder });
-        else console.warn('[FunnelBuilder] create page response had no id:', JSON.stringify(created).slice(0, 300));
-      } catch (err) {
-        console.error('[FunnelBuilder] Failed to create page', p.name, err.message);
-      }
-    }
-    if (pages.length === 0) {
-      return res.status(502).json({ success: false, error: 'Funnel has no pages and auto-creation failed. Create at least one page in GHL first.' });
-    }
+    const typePages = FUNNEL_TYPE_PAGES[funnelType] || FUNNEL_TYPE_PAGES.sales;
+    const pageNames = typePages.map((p, i) => `${i + 1}. ${p.name}`).join(', ');
+    return res.status(400).json({
+      success: false,
+      needsPages: true,
+      error: `This funnel has no pages yet. Go to GHL → Funnels → open your funnel → add these pages: ${pageNames}. Then run Full Funnel again.`,
+      pagesToCreate: typePages,
+    });
   }
 
   // Sort by stepOrder

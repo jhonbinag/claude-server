@@ -96,6 +96,7 @@ export default function FunnelBuilder() {
   const [funnelType,    setFunnelType]    = useState('');
   const [funnelPages,   setFunnelPages]   = useState([]); // [{ id, name, pageType, status, sectionsCount, error }]
   const [funnelRunning, setFunnelRunning] = useState(false);
+  const [needsPages,    setNeedsPages]    = useState(null); // { pagesToCreate: [...] }
 
   // Design upload mode
   const [designFile,    setDesignFile]    = useState(null);   // File object
@@ -269,6 +270,7 @@ export default function FunnelBuilder() {
 
     setFunnelRunning(true);
     setFunnelPages([]);
+    setNeedsPages(null);
     const colorScheme = colorPreset || customColor || COLOR_PRESETS[0].value;
 
     try {
@@ -289,6 +291,11 @@ export default function FunnelBuilder() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
+        if (errData.needsPages && errData.pagesToCreate) {
+          setNeedsPages(errData.pagesToCreate);
+          setFunnelRunning(false);
+          return;
+        }
         throw new Error(errData.error || `Server error ${res.status}`);
       }
 
@@ -713,6 +720,23 @@ export default function FunnelBuilder() {
                     ? <span className="flex items-center justify-center gap-2"><span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Generating all pages…</span>
                     : '🚀 Generate All Funnel Pages'}
                 </button>
+
+                {/* Needs pages instruction */}
+                {needsPages && (
+                  <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)' }}>
+                    <p className="text-xs font-semibold text-yellow-400">⚠️ This funnel has no pages yet</p>
+                    <p className="text-xs text-gray-400">Go to <strong className="text-white">GHL → Funnels → open your funnel</strong> and add these pages, then click Generate again:</p>
+                    <div className="space-y-1 mt-1">
+                      {needsPages.map((p, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <span className="w-4 h-4 rounded-full text-center text-xs font-bold flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(251,191,36,0.2)', color: '#fbbf24' }}>{i + 1}</span>
+                          <span className="text-white">{p.name}</span>
+                          <span className="text-gray-500">— url: /{p.url}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Per-page progress */}
                 {funnelPages.length > 0 && (
