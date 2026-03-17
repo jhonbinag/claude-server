@@ -798,7 +798,7 @@ export default function Dashboard() {
                           {trainLoading && (
                             <div className="text-xs px-3 py-2 rounded-xl mr-auto"
                               style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)', color: '#c084fc' }}>
-                              <span className="animate-pulse">🤖 Claude is processing…</span>
+                              <span className="animate-pulse">🤖 AI is processing…</span>
                             </div>
                           )}
                           {/* Scroll anchor */}

@@ -353,7 +353,7 @@ function geminiPost(body, retries = 3) {
           try {
             const parsed = JSON.parse(d);
             if (resp.statusCode === 429 && retries > 0) {
-              const wait = (4 - retries) * 15000;
+              const wait = (4 - retries) * 5000; // 5s, 10s, 15s
               console.warn(`[Gemini] 429 — retrying in ${wait / 1000}s`);
               await new Promise(r => setTimeout(r, wait));
               geminiPost(body, retries - 1).then(resolve).catch(reject);

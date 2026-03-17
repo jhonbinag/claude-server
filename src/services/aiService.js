@@ -52,7 +52,7 @@ function httpsPost(hostname, path, headers, body, retries = 3) {
             const parsed = JSON.parse(d);
             if (resp.statusCode === 429 && retries > 0) {
               // Rate limited — wait and retry with backoff
-              const wait = (4 - retries) * 15000; // 15s, 30s, 45s
+              const wait = (4 - retries) * 5000; // 5s, 10s, 15s
               console.warn(`[aiService] 429 from ${hostname} — retrying in ${wait / 1000}s (${retries} left)`);
               await new Promise(r => setTimeout(r, wait));
               httpsPost(hostname, path, headers, body, retries - 1).then(resolve).catch(reject);

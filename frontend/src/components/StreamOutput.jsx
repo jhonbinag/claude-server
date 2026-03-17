@@ -163,7 +163,7 @@ export default function StreamOutput({ messages = [], isRunning = false, placeho
             className="spinner w-3.5 h-3.5 rounded-full border-2 flex-shrink-0"
             style={{ borderColor: '#6366f1', borderTopColor: 'transparent' }}
           />
-          Claude is processing…
+          AI is processing…
         </div>
       )}
 
