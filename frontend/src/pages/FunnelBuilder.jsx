@@ -395,56 +395,43 @@ export default function FunnelBuilder() {
                   <p className="text-xs text-gray-500">Checking connection…</p>
                 ) : (
                   <>
-                    {/* Bookmarklet */}
+                    {/* Console snippet */}
                     {(() => {
                       const serverUrl = window.location.origin;
                       const locId = locationId || '';
-                      const bm = `javascript:(function(){` +
-                        `var fbKey=Object.keys(localStorage).find(function(k){return k.startsWith('firebase:authUser:');});` +
-                        `var fbUser=fbKey?JSON.parse(localStorage.getItem(fbKey)||'null'):null;` +
-                        `var t=(fbUser&&fbUser.stsTokenManager&&fbUser.stsTokenManager.accessToken)||localStorage.getItem('refreshedToken');` +
-                        `if(!t){alert('Firebase token not found — open GHL and make sure you are logged in.');return;}` +
-                        `fetch('${serverUrl}/funnel-builder/connect',{` +
-                          `method:'POST',` +
-                          `headers:{'Content-Type':'application/json','x-location-id':'${locId}'},` +
-                          `body:JSON.stringify({refreshedToken:t})` +
-                        `}).then(r=>r.json()).then(d=>{` +
-                          `if(d.success)alert('✅ Page Builder connected! Go back to your app.');` +
-                          `else alert('❌ '+(d.error||'Connect failed'));` +
-                        `}).catch(e=>alert('❌ '+e.message));` +
-                      `})();`;
+                      const snippet =
+`var fbKey=Object.keys(localStorage).find(k=>k.startsWith('firebase:authUser:'));
+var fbUser=fbKey?JSON.parse(localStorage.getItem(fbKey)||'null'):null;
+var t=(fbUser&&fbUser.stsTokenManager&&fbUser.stsTokenManager.accessToken)||localStorage.getItem('refreshedToken');
+if(!t){alert('Token not found — make sure you are logged in to GHL.');}
+else fetch('${serverUrl}/funnel-builder/connect',{method:'POST',headers:{'Content-Type':'application/json','x-location-id':'${locId}'},body:JSON.stringify({refreshedToken:t})}).then(r=>r.json()).then(d=>{if(d.success)alert('✅ Connected! Go back to your app.');else alert('❌ '+(d.error||'Failed'));});`;
                       return (
                         <div className="mb-4">
-                          <p className="text-xs text-gray-400 mb-2">
-                            Drag this button to your bookmarks bar. Then go to GHL and click it — done.
-                          </p>
-                          <div className="flex items-center gap-3">
-                            <a
-                              href={bm}
-                              draggable
-                              onClick={e => e.preventDefault()}
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold cursor-grab active:cursor-grabbing select-none"
-                              style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', border: '2px dashed rgba(165,180,252,0.4)', textDecoration: 'none' }}
-                            >
-                              🔑 Connect GHL Page Builder
-                            </a>
-                            <span className="text-xs text-gray-600">← drag to bookmarks bar</span>
+                          <p className="text-xs text-gray-300 font-semibold mb-1">Step 1 — Copy this snippet:</p>
+                          <div className="relative">
+                            <pre className="bg-gray-900 border border-gray-700 rounded-lg p-3 text-xs text-green-400 overflow-x-auto whitespace-pre-wrap break-all">{snippet}</pre>
+                            <button
+                              onClick={() => { navigator.clipboard.writeText(snippet); }}
+                              className="absolute top-2 right-2 px-2 py-1 rounded text-xs font-semibold"
+                              style={{ background: '#4f46e5', color: '#fff' }}
+                            >Copy</button>
                           </div>
-                          <p className="text-xs text-gray-600 mt-2">
-                            Click it while on <code className="text-gray-400">app.gohighlevel.com</code> — it reads the token and connects automatically.
+                          <p className="text-xs text-gray-400 mt-2">
+                            <strong className="text-gray-300">Step 2</strong> — Go to <code className="text-green-400">app.gohighlevel.com</code>, open DevTools (F12), paste into the <strong>Console</strong> tab and press Enter.
                           </p>
+                          <p className="text-xs text-gray-500 mt-1">You'll see a ✅ popup when connected.</p>
                         </div>
                       );
                     })()}
 
                     {/* Manual fallback */}
-                    <p className="text-xs text-gray-600 mb-2">Or paste the token manually:</p>
+                    <p className="text-xs text-gray-600 mb-2 mt-3">Or paste the token manually:</p>
                     <form onSubmit={handleConnect} className="flex gap-2">
                       <input
                         type="password"
                         value={token}
                         onChange={e => setToken(e.target.value)}
-                        placeholder="Paste refreshedToken from GHL…"
+                        placeholder="Paste Firebase token from GHL…"
                         className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
                       />
                       <button
