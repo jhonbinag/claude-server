@@ -35,10 +35,10 @@ const config = {
   // Token store file path (swap for Postgres/Redis in production)
   storePath: process.env.STORE_PATH || './data/store.json',
 
-  // Anthropic / Claude AI
-  anthropic: {
-    apiKey: process.env.ANTHROPIC_API_KEY,
-  },
+  // AI providers — first one configured is used automatically
+  anthropic: { apiKey: process.env.ANTHROPIC_API_KEY || null },
+  openai:    { apiKey: process.env.OPENAI_API_KEY    || null },
+  google:    { apiKey: process.env.GOOGLE_API_KEY    || null },
 
   // ── Firebase Admin SDK ────────────────────────────────────────────────────
   // Encrypted tool config storage in Firestore (per sub-account API keys).
@@ -94,8 +94,14 @@ config.isFirebaseEnabled = !!(
 // GHL_CLIENT_ID, GHL_CLIENT_SECRET, GHL_REDIRECT_URI are optional env vars.
 // They can be configured via the Admin → App Settings UI and stored in Firestore.
 // If set in .env they serve as fallback values only.
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.warn('[Config] ANTHROPIC_API_KEY not set — Claude AI features will not work.');
+const hasAiProvider = !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || process.env.GOOGLE_API_KEY);
+if (!hasAiProvider) {
+  console.warn('[Config] No AI provider configured — set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.');
+} else {
+  const provider = process.env.ANTHROPIC_API_KEY ? 'Anthropic (Claude)'
+    : process.env.OPENAI_API_KEY ? 'OpenAI (GPT-4o-mini)'
+    : 'Google (Gemini 2.0 Flash)';
+  console.log(`[Config] AI provider: ${provider}`);
 }
 
 if (!config.ghl.webhookPublicKey) {

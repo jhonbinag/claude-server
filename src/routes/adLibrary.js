@@ -233,8 +233,8 @@ router.post('/analyze', async (req, res) => {
 
     const registry  = require('../tools/toolRegistry');
     const configs   = await registry.loadToolConfigs(req.locationId);
-    const apiKey    = configs.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return res.status(400).json({ error: 'Anthropic API key not configured.' });
+    const aiService = require('../services/aiService');
+    if (!aiService.getProvider()) return res.status(400).json({ error: 'No AI provider configured.' });
 
     const adSummaries = ads.slice(0, 20).map((ad, i) => {
       const body   = (ad.ad_creative_bodies  || []).join(' | ') || '—';
@@ -268,20 +268,9 @@ Provide a structured analysis with:
 
 Be specific, data-driven, and actionable.`;
 
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey });
+    const analysis = await aiService.generate('You are a competitive intelligence analyst.', prompt, { maxTokens: 1500 });
 
-    const message = await client.messages.create({
-      model:      'claude-opus-4-6',
-      max_tokens: 1500,
-      messages:   [{ role: 'user', content: prompt }],
-    });
-
-    res.json({
-      success:  true,
-      analysis: message.content[0]?.text || '',
-      usage:    message.usage,
-    });
+    res.json({ success: true, analysis });
   } catch (err) {
     console.error('[AdLibrary] analyze error:', err.message);
     res.status(500).json({ error: err.message });

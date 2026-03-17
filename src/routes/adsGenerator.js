@@ -278,7 +278,7 @@ router.post('/generate', async (req, res) => {
   const claudeKey = (configs.anthropic && configs.anthropic.apiKey) || process.env.ANTHROPIC_API_KEY;
 
   if (!fbToken)   return res.status(400).json({ success: false, error: 'Facebook Ads access token not configured. Connect Facebook Ads in the dashboard.' });
-  if (!claudeKey) return res.status(400).json({ success: false, error: 'ANTHROPIC_API_KEY not configured.' });
+  if (!claudeKey) return res.status(400).json({ success: false, error: 'ANTHROPIC_API_KEY required for Ads Generator (streaming). Set it in your environment.' });
   if (generateImages && !openAiKey) return res.status(400).json({ success: false, error: 'OpenAI API key required for image generation. Connect OpenAI in the dashboard.' });
 
   const client  = new Anthropic.default({ apiKey: claudeKey });

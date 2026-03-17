@@ -210,8 +210,8 @@ router.post('/train', async (req, res) => {
 
     const registry = require('../tools/toolRegistry');
     const configs  = await registry.loadToolConfigs(req.locationId);
-    const apiKey   = configs.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return res.status(400).json({ success: false, error: 'Anthropic API key not configured.' });
+    const aiService = require('../services/aiService');
+    if (!aiService.getProvider()) return res.status(400).json({ success: false, error: 'No AI provider configured.' });
 
     const COACH_SYSTEM = `You are a friendly persona training coach helping a user define their ideal AI persona through natural conversation.
 
@@ -238,17 +238,15 @@ Requirements:
 - 150–300 words maximum
 - Output ONLY the system prompt — no preamble, no explanation, no markdown headers`;
 
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey });
+    // For multi-turn conversation: extract the last user message, pass prior turns as context in system
+    const systemPrompt = action === 'finalize' ? FINALIZE_SYSTEM : COACH_SYSTEM;
+    const lastUser     = [...messages].reverse().find(m => m.role === 'user');
+    const history      = messages.slice(0, -1).map(m => `${m.role}: ${Array.isArray(m.content) ? m.content.map(c => c.text || '').join('') : m.content}`).join('\n');
+    const userText     = Array.isArray(lastUser?.content) ? lastUser.content.map(c => c.text || '').join('') : (lastUser?.content || '');
+    const fullSystem   = history ? `${systemPrompt}\n\n--- Conversation so far ---\n${history}` : systemPrompt;
 
-    const message = await client.messages.create({
-      model:      'claude-opus-4-6',
-      max_tokens: action === 'finalize' ? 600 : 300,
-      system:     action === 'finalize' ? FINALIZE_SYSTEM : COACH_SYSTEM,
-      messages,
-    });
-
-    res.json({ success: true, reply: message.content[0]?.text || '' });
+    const reply = await aiService.generate(fullSystem, userText, { maxTokens: action === 'finalize' ? 600 : 300 });
+    res.json({ success: true, reply });
   } catch (err) {
     console.error('[Prompts] train error:', err.message);
     res.status(500).json({ success: false, error: err.message });

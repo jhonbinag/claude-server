@@ -11,8 +11,8 @@
 
 const express      = require('express');
 const router       = express.Router();
-const Anthropic    = require('@anthropic-ai/sdk');
 const multer       = require('multer');
+const aiService    = require('../services/aiService');
 const authenticate = require('../middleware/authenticate');
 const {
   connectFirebase,
@@ -190,9 +190,8 @@ router.post('/generate', async (req, res) => {
     return res.status(400).json({ success: false, error: '"niche" and "offer" are required.' });
   }
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
-    return res.status(503).json({ success: false, error: 'ANTHROPIC_API_KEY not configured.' });
+  if (!aiService.getProvider()) {
+    return res.status(503).json({ success: false, error: 'No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.' });
   }
 
   // Step 1: Ensure Firebase is connected
@@ -360,18 +359,10 @@ Build a FULL page with these sections in order:
 
 Remember: output ONLY the JSON object. No markdown, no explanation.`;
 
-  // Step 4: Call Claude
+  // Step 4: Call AI provider
   let pageJson;
   try {
-    const client   = new Anthropic({ apiKey: anthropicKey });
-    const response = await client.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 4096,
-      system:     systemPrompt,
-      messages:   [{ role: 'user', content: userPrompt }],
-    });
-
-    const rawText = response.content[0]?.text?.trim() || '';
+    const rawText = (await aiService.generate(systemPrompt, userPrompt, { maxTokens: 4096 })).trim();
 
     // Strip any accidental markdown code fences
     const cleaned = rawText
@@ -450,9 +441,8 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     return res.status(400).json({ success: false, error: '"pageId" is required.' });
   }
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
-    return res.status(503).json({ success: false, error: 'ANTHROPIC_API_KEY not configured.' });
+  if (!aiService.getProvider()) {
+    return res.status(503).json({ success: false, error: 'No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.' });
   }
 
   // Step 1: Ensure Firebase is connected
@@ -551,34 +541,12 @@ SCHEMA:
   }]
 }`;
 
-  const userMessageContent = [
-    {
-      type:   'image',
-      source: {
-        type:       'base64',
-        media_type: imageMediaType,
-        data:       imageBase64,
-      },
-    },
-    {
-      type: 'text',
-      text: `Analyze this design screenshot and reconstruct it as a complete native GHL page JSON. Preserve the visual layout, section order, all text content, colors, and hierarchy faithfully.${extraContext ? `\n\nAdditional context from user: ${extraContext}` : ''}\n\nOutput ONLY the JSON object, nothing else.`,
-    },
-  ];
-
-  // Step 5: Call Claude Vision
+  // Step 5: Call AI Vision
   let pageJson;
   try {
-    const client   = new Anthropic({ apiKey: anthropicKey });
-    const response = await client.messages.create({
-      model:      'claude-opus-4-5',
-      max_tokens: 8192,
-      system:     systemPrompt,
-      messages:   [{ role: 'user', content: userMessageContent }],
-    });
-
-    const rawText = response.content[0]?.text?.trim() || '';
-    const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+    const visionText = `Analyze this design screenshot and reconstruct it as a complete native GHL page JSON. Preserve the visual layout, section order, all text content, colors, and hierarchy faithfully.${extraContext ? `\n\nAdditional context from user: ${extraContext}` : ''}\n\nOutput ONLY the JSON object, nothing else.`;
+    const rawText    = (await aiService.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
+    const cleaned    = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
     pageJson = JSON.parse(cleaned);
 
     if (!pageJson.sections || !Array.isArray(pageJson.sections)) {

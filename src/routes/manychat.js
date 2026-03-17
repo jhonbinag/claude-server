@@ -13,7 +13,7 @@ const router       = express.Router();
 const axios        = require('axios');
 const authenticate = require('../middleware/authenticate');
 const toolRegistry = require('../tools/toolRegistry');
-const Anthropic    = require('@anthropic-ai/sdk');
+const aiService    = require('../services/aiService');
 
 router.use(authenticate);
 
@@ -56,12 +56,9 @@ router.post('/generate-sequence', async (req, res) => {
   const { topic, channels = ['messenger'], steps = 7, endDay = 30, context } = req.body;
   if (!topic) return res.status(400).json({ error: 'topic is required.' });
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured.' });
+  if (!aiService.getProvider()) return res.status(503).json({ error: 'No AI provider configured.' });
 
   try {
-    const client = new Anthropic({ apiKey: anthropicKey });
-
     // Define the delay schedule based on steps count
     const defaultDays = [0, 1, 3, 7, 14, 21, 30, 45, 60, 90].slice(0, steps);
     while (defaultDays.length < steps) {
@@ -117,13 +114,7 @@ Respond with ONLY valid JSON (no markdown, no explanation):
   ]
 }`;
 
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const text = response.content[0]?.text?.trim() || '';
+    const text = (await aiService.generate('You are a world-class ManyChat funnel strategist.', prompt, { maxTokens: 4096 })).trim();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return res.status(500).json({ error: 'Claude did not return valid JSON for the sequence.' });

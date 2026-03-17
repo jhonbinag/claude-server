@@ -17,7 +17,7 @@ const router       = express.Router();
 const authenticate = require('../middleware/authenticate');
 const agentStore   = require('../services/agentStore');
 const ghlClient    = require('../services/ghlClient');
-const Anthropic    = require('@anthropic-ai/sdk');
+const aiService    = require('../services/aiService');
 const chroma       = require('../services/chromaService');
 
 router.use(authenticate);
@@ -116,8 +116,7 @@ router.post('/agents/:id/execute', async (req, res) => {
       return res.status(400).json({ success: false, error: 'This agent has no GHL Agent Studio agent linked.' });
     }
 
-    const anthropicKey = process.env.ANTHROPIC_API_KEY;
-    if (!anthropicKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured.' });
+    if (!aiService.getProvider()) return res.status(503).json({ error: 'No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.' });
 
     // Build the task description
     const taskDescription = task || [
@@ -150,15 +149,7 @@ ${agent.instructions}${ragContext}
 
 Your job is to generate a complete, detailed execution brief that the GHL Agent Studio agent will follow step-by-step to complete the requested task inside GoHighLevel. Be extremely specific — include actual copy, headlines, CTAs, color suggestions, and step-by-step build instructions. The GHL agent must be able to execute this without any follow-up questions.`;
 
-    const client   = new Anthropic({ apiKey: anthropicKey });
-    const response = await client.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 2048,
-      system:     systemPrompt,
-      messages:   [{ role: 'user', content: `Complete this task inside GHL:\n\n${taskDescription}` }],
-    });
-
-    const brief = response.content[0]?.text?.trim() || '';
+    const brief = (await aiService.generate(systemPrompt, `Complete this task inside GHL:\n\n${taskDescription}`, { maxTokens: 2048 })).trim();
 
     // Execute via GHL Agent Studio v2 API
     // POST /agent-studio/agent/:agentId/execute
@@ -193,12 +184,11 @@ router.post('/generate', async (req, res) => {
   const { niche, offer, audience, funnelType, pages, extraContext } = req.body;
   if (!niche || !offer) return res.status(400).json({ error: '"niche" and "offer" are required.' });
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured.' });
+  if (!aiService.getProvider()) return res.status(503).json({ error: 'No AI provider configured.' });
 
   const pageList = Array.isArray(pages) && pages.length ? pages.join(', ') : 'Opt-in Page, Sales Page, Thank You Page';
 
-  const prompt = `You are an expert GHL funnel strategist. Generate a complete, detailed agent brief that a GHL Agent Studio agent will use to build a high-converting ${funnelType || 'Sales Funnel'} natively inside GoHighLevel.
+  const prompt = `Generate a complete, detailed agent brief that a GHL Agent Studio agent will use to build a high-converting ${funnelType || 'Sales Funnel'} natively inside GoHighLevel.
 
 Business: ${niche} | Offer: ${offer} | Audience: ${audience || 'General'} | Pages: ${pageList}
 ${extraContext ? `Context: ${extraContext}` : ''}
@@ -213,12 +203,8 @@ Include:
 Write as direct instructions to the GHL agent. Include actual copy text. Be extremely specific.`;
 
   try {
-    const client   = new Anthropic({ apiKey: anthropicKey });
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6', max_tokens: 2048,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    res.json({ success: true, brief: response.content[0]?.text?.trim() || '' });
+    const brief = (await aiService.generate('You are an expert GHL funnel strategist.', prompt, { maxTokens: 2048 })).trim();
+    res.json({ success: true, brief });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
