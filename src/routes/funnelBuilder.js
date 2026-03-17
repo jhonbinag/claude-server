@@ -238,6 +238,81 @@ router.get('/inspect-page', async (req, res) => {
   });
 });
 
+// ── GET /read-storage — download actual Storage file for a page (debug) ───────
+// Usage: GET /funnel-builder/read-storage?pageId=xxx
+// Downloads the page JSON from Firebase Storage so we can see exactly what
+// GHL's own AI saves vs what we're writing.
+
+router.get('/read-storage', async (req, res) => {
+  const { pageId } = req.query;
+  if (!pageId) return res.status(400).json({ error: '"pageId" query param required' });
+
+  let idToken;
+  try { idToken = await getFirebaseToken(req.locationId); }
+  catch (err) { return res.status(400).json({ error: 'Firebase not connected', detail: err.message }); }
+
+  const { readFirestoreDoc, downloadStorageFile } = (() => {
+    // Re-use helpers from ghlPageBuilder
+    const builder = require('../services/ghlPageBuilder');
+    return builder;
+  })();
+
+  // Read Firestore to get the download URL
+  const https     = require('https');
+  const projectId = 'highlevel-backend';
+
+  const firestoreGet = (path) => new Promise((resolve) => {
+    const req2 = https.request(
+      { hostname: 'firestore.googleapis.com', path, method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve({ status: r.statusCode, data: JSON.parse(d) }); } catch { resolve({ status: r.statusCode, data: d }); } }); }
+    );
+    req2.on('error', e => resolve({ status: 0, error: e.message }));
+    req2.end();
+  });
+
+  const docPath = `/v1/projects/${projectId}/databases/(default)/documents/funnel_pages/${pageId}`;
+  const docRes  = await firestoreGet(docPath);
+
+  if (docRes.status >= 400) {
+    return res.status(docRes.status).json({ error: 'Firestore read failed', detail: docRes.data });
+  }
+
+  const fields      = docRes.data?.fields || {};
+  const downloadUrl = fields.page_data_download_url?.stringValue;
+  const vhValues    = fields.versionHistory?.arrayValue?.values || [];
+  const vhUrl       = vhValues[0]?.mapValue?.fields?.page_download_url?.stringValue;
+
+  if (!downloadUrl && !vhUrl) {
+    return res.json({
+      message: 'No storage URL found in Firestore document — page has never been saved.',
+      firestoreFields: Object.keys(fields),
+    });
+  }
+
+  // Download the actual Storage file
+  const url     = downloadUrl || vhUrl;
+  const httpsGet = (urlStr) => new Promise((resolve) => {
+    const u   = new URL(urlStr);
+    const req2 = https.request(
+      { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers: {} },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve({ status: r.statusCode, data: JSON.parse(d) }); } catch { resolve({ status: r.statusCode, data: d }); } }); }
+    );
+    req2.on('error', e => resolve({ status: 0, error: e.message }));
+    req2.end();
+  });
+
+  const fileRes = await httpsGet(url);
+
+  res.json({
+    storageUrl:      url,
+    storageStatus:   fileRes.status,
+    // Top-level keys in the file
+    topLevelKeys:    typeof fileRes.data === 'object' ? Object.keys(fileRes.data) : null,
+    // Full raw file (may be large)
+    rawFile:         fileRes.data,
+  });
+});
+
 // ── GET /status — check whether Firebase token exists + expiry ────────────────
 
 router.get('/status', async (req, res) => {
