@@ -1,39 +1,30 @@
 /**
  * src/services/ghlPageBuilder.js
  *
- * Saves native GHL page sections by writing directly to the Firestore
- * `sections` field on the funnel_pages document.
+ * Saves native GHL page sections via TWO writes:
  *
- * Discovery: GHL renders pages from the Firestore `sections` field —
- * a hierarchical nested format (section → row → column → elements).
- * Firebase Storage holds a snapshot but is NOT what the builder reads.
+ *  1. Firebase Storage — flat elements format with metaData (what GHL builder RENDERS from)
+ *     - sections[].{ id, metaData, elements[], sequence, pageId, funnelId, locationId, general }
+ *     - Top-level: { sections, settings, general, pageStyles, trackingCode, fontsForPreview, popups, popupsList }
+ *     - pageStyles contains CSS variable definitions required for rendering
  *
- * Section format (plain JS before Firestore encoding):
- *   { id, type:'section', styles:{...}, mobileStyles:{}, children:[
- *     { children:[          // rows
- *       { id, type:'column', width:12, styles:{...}, mobileStyles:{}, children:[
- *         { id, type:'headline',     tag:'h1', text:'...' },
- *         { id, type:'sub-headline', text:'...' },
- *         { id, type:'paragraph',    text:'...' },
- *         { id, type:'button',       text:'...', link:'#', styles:{...} },
- *         { id, type:'bulletList',   text:'<ul>...' },
- *       ]}
- *     ]}
- *   ]}
+ *  2. Firestore funnel_pages/{pageId} — update page_data_url, page_data_download_url, sections (hierarchical), version
+ *
+ * Discovery: GHL reads page content from Firebase Storage (flat elements format).
+ * The Firestore `sections` field uses a simplified hierarchical format for the builder UI sidebar.
  */
 
-const https   = require('https');
-const crypto  = require('crypto');
+const https  = require('https');
+const crypto = require('crypto');
 const { getFirebaseToken } = require('./ghlFirebaseService');
 
 const FIRESTORE_HOST = 'firestore.googleapis.com';
 const STORAGE_HOST   = 'firebasestorage.googleapis.com';
 const STORAGE_BUCKET = 'highlevel-backend.appspot.com';
-const BACKEND_HOST   = 'backend.leadconnectorhq.com';
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
-function randomId(len = 8) {
+function randomId(len = 10) {
   return crypto.randomBytes(len).toString('base64url').slice(0, len);
 }
 
@@ -150,86 +141,417 @@ async function uploadToStorage(idToken, funnelId, pageId, pageData) {
   return { storagePath, downloadUrl };
 }
 
-// ── Section → GHL Firestore format converter ──────────────────────────────────
+// ── GHL flat elements format builders ─────────────────────────────────────────
 
-/**
- * Convert our AI-generated sections to GHL's Firestore sections format.
- * GHL sections are hierarchical: section → row → column → elements.
- * Columns can be split (width 6+6) or full-width (12).
- *
- * Our AI format (same hierarchy, just needs style normalization):
- *   { type:'section', id, name, styles:{backgroundColor, paddingTop, paddingBottom},
- *     children: [
- *       { type:'headline'|'sub-headline'|'paragraph'|'button'|'bulletList', id, text, tag?, link?, styles?, items? }
- *       OR { type:'row', children: [{ type:'column', children:[elements] }] }
- *     ]
- *   }
- */
-function convertSectionsToGhl(aiSections) {
-  return aiSections.map(aiSection => {
+const DEFAULT_BG_IMAGE = {
+  value: { mediaType: 'image', url: '', opacity: '1', options: 'bgCover', svgCode: '', videoUrl: '', videoThumbnail: '', videoLoop: true },
+};
+const DEFAULT_VISIBILITY = { value: { hideDesktop: false, hideMobile: false } };
+
+function buildSection(secId, rowId, styles = {}) {
+  const bgColor = styles.backgroundColor?.value || 'var(--transparent)';
+  const padTop  = styles.paddingTop?.value  || 60;
+  const padBot  = styles.paddingBottom?.value || 60;
+  return {
+    id: secId,
+    type: 'section',
+    child: [rowId],
+    class: {
+      width:        { value: 'fullSection' },
+      borders:      { value: 'noBorder' },
+      borderRadius: { value: 'radius0' },
+      radiusEdge:   { value: 'none' },
+    },
+    styles: {
+      boxShadow:       { value: 'none' },
+      paddingLeft:     { unit: 'px', value: 0 },
+      paddingRight:    { value: 0, unit: 'px' },
+      paddingBottom:   { unit: 'px', value: padBot },
+      paddingTop:      { unit: 'px', value: padTop },
+      marginTop:       { unit: 'px', value: 0 },
+      marginBottom:    { unit: 'px', value: 0 },
+      marginLeft:      { unit: 'px', value: 0 },
+      marginRight:     { unit: 'px', value: 0 },
+      backgroundColor: { value: bgColor },
+      background:      { value: 'none' },
+      backdropFilter:  { value: 'none' },
+      borderColor:     { value: 'var(--black)' },
+      borderWidth:     { value: '0', unit: 'px' },
+      borderStyle:     { value: 'solid' },
+    },
+    extra: {
+      sticky:          { value: 'noneSticky' },
+      visibility:      DEFAULT_VISIBILITY,
+      bgImage:         DEFAULT_BG_IMAGE,
+      allowRowMaxWidth:{ value: false },
+      customClass:     { value: [] },
+      elementScreenshot: { value: [] },
+    },
+    wrapper:      {},
+    meta:         'section',
+    tagName:      'c-section',
+    title:        'Section',
+    mobileStyles: {},
+    mobileWrapper:{},
+  };
+}
+
+function buildRow(rowId, colIds) {
+  return {
+    id: rowId, type: 'row', child: colIds,
+    class: {
+      alignRow:     { value: 'row-align-center' },
+      borders:      { value: 'noBorder' },
+      borderRadius: { value: 'radius0' },
+      radiusEdge:   { value: 'none' },
+    },
+    styles: {
+      boxShadow:       { value: 'none' },
+      paddingLeft:     { value: 20, unit: 'px' },
+      paddingRight:    { value: 20, unit: 'px' },
+      paddingTop:      { value: 10, unit: 'px' },
+      paddingBottom:   { value: 10, unit: 'px' },
+      backgroundColor: { value: 'var(--transparent)' },
+      background:      { value: 'none' },
+      backdropFilter:  { value: 'none' },
+      borderColor:     { value: 'var(--black)' },
+      borderWidth:     { value: '0', unit: 'px' },
+      borderStyle:     { value: 'solid' },
+    },
+    extra: {
+      visibility: DEFAULT_VISIBILITY,
+      bgImage:    DEFAULT_BG_IMAGE,
+      rowWidth:   { value: 1170, unit: 'px' },
+      customClass:{ value: [] },
+    },
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: '', value: 'auto' }, marginRight: { unit: '', value: 'auto' } },
+    tagName:      'c-row',
+    meta:         'row',
+    mobileStyles: {},
+    mobileWrapper:{},
+    title:        '1 Column Row',
+  };
+}
+
+function buildCol(colId, childIds) {
+  return {
+    id: colId, type: 'col', child: childIds,
+    class: {
+      borders:      { value: 'noBorder' },
+      borderRadius: { value: 'radius0' },
+      radiusEdge:   { value: 'none' },
+    },
+    styles: {
+      boxShadow:       { value: 'none' },
+      paddingLeft:     { value: 15, unit: 'px' },
+      paddingRight:    { value: 15, unit: 'px' },
+      paddingTop:      { value: 10, unit: 'px' },
+      paddingBottom:   { value: 10, unit: 'px' },
+      backgroundColor: { value: 'var(--transparent)' },
+      background:      { value: 'none' },
+      backdropFilter:  { value: 'none' },
+      width:           { value: 100, unit: '%' },
+      borderColor:     { value: 'var(--black)' },
+      borderWidth:     { value: '0', unit: 'px' },
+      borderStyle:     { value: 'solid' },
+    },
+    extra: {
+      visibility:                  DEFAULT_VISIBILITY,
+      bgImage:                     DEFAULT_BG_IMAGE,
+      columnLayout:                { value: 'column' },
+      justifyContentColumnLayout:  { value: 'center' },
+      alignContentColumnLayout:    { value: 'inherit' },
+      forceColumnLayoutForMobile:  { value: true },
+      customClass:                 { value: [] },
+      elementVersion:              { value: 2 },
+    },
+    wrapper:      { marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 }, marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 } },
+    tagName:      'c-column',
+    meta:         'col',
+    mobileStyles: {},
+    mobileWrapper:{},
+    title:        '1st Column',
+    noOfColumns:  1,
+  };
+}
+
+function buildHeadline(id, text, tag = 'h1') {
+  return {
+    id, type: 'headline', child: [],
+    class: {
+      textAlign:    { value: 'center' },
+      borders:      { value: 'noBorder' },
+      borderRadius: { value: 'radius0' },
+      radiusEdge:   { value: 'none' },
+    },
+    styles: {
+      fontSize:      { value: tag === 'h1' ? 48 : tag === 'h2' ? 36 : 28, unit: 'px' },
+      fontWeight:    { value: '700' },
+      color:         { value: 'var(--black)' },
+      lineHeight:    { value: 1.2 },
+      letterSpacing: { value: 0, unit: 'px' },
+    },
+    extra: {
+      visibility:  DEFAULT_VISIBILITY,
+      customClass: { value: [] },
+      content:     { value: text },
+      tag:         { value: tag },
+      link:        { value: { type: 'none', value: '', target: '_self' } },
+    },
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 20 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
+    tagName:      'c-heading',
+    meta:         'headline',
+    title:        'Headline',
+    mobileStyles: { fontSize: { value: tag === 'h1' ? 32 : 24, unit: 'px' } },
+    mobileWrapper:{},
+  };
+}
+
+function buildSubHeadline(id, text) {
+  return {
+    id, type: 'sub-headline', child: [],
+    class: {
+      textAlign:    { value: 'center' },
+      borders:      { value: 'noBorder' },
+      borderRadius: { value: 'radius0' },
+      radiusEdge:   { value: 'none' },
+    },
+    styles: {
+      fontSize:   { value: 22, unit: 'px' },
+      fontWeight: { value: '500' },
+      color:      { value: 'var(--black)' },
+      lineHeight: { value: 1.4 },
+    },
+    extra: {
+      visibility:  DEFAULT_VISIBILITY,
+      customClass: { value: [] },
+      content:     { value: text },
+      link:        { value: { type: 'none', value: '', target: '_self' } },
+    },
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 15 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
+    tagName:      'c-heading',
+    meta:         'sub-headline',
+    title:        'Sub Headline',
+    mobileStyles: { fontSize: { value: 18, unit: 'px' } },
+    mobileWrapper:{},
+  };
+}
+
+function buildParagraph(id, text) {
+  const html = text.startsWith('<') ? text : `<p>${text}</p>`;
+  return {
+    id, type: 'paragraph', child: [],
+    class: {},
+    styles: {
+      fontSize:   { value: 16, unit: 'px' },
+      color:      { value: 'var(--black)' },
+      lineHeight: { value: 1.7 },
+    },
+    extra: {
+      visibility:  DEFAULT_VISIBILITY,
+      customClass: { value: [] },
+      content:     { value: html },
+    },
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 15 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
+    tagName:      'c-text',
+    meta:         'paragraph',
+    title:        'Paragraph',
+    mobileStyles: {},
+    mobileWrapper:{},
+  };
+}
+
+function buildButton(id, text, link = '#', elStyles = {}) {
+  return {
+    id, type: 'button', child: [],
+    class: {
+      align:        { value: 'center' },
+      borders:      { value: 'noBorder' },
+      borderRadius: { value: 'radius0' },
+      radiusEdge:   { value: 'none' },
+    },
+    styles: {
+      fontSize:        { value: 16, unit: 'px' },
+      fontWeight:      { value: '700' },
+      color:           { value: elStyles.color || 'var(--white)' },
+      backgroundColor: { value: elStyles.backgroundColor || 'var(--primary)' },
+      paddingTop:      { value: 14, unit: 'px' },
+      paddingBottom:   { value: 14, unit: 'px' },
+      paddingLeft:     { value: 32, unit: 'px' },
+      paddingRight:    { value: 32, unit: 'px' },
+      borderRadius:    { value: 6, unit: 'px' },
+      borderWidth:     { value: '0', unit: 'px' },
+      borderStyle:     { value: 'solid' },
+      borderColor:     { value: 'var(--black)' },
+    },
+    extra: {
+      visibility:  DEFAULT_VISIBILITY,
+      customClass: { value: [] },
+      content:     { value: text },
+      link:        { value: { type: 'url', value: link, target: '_self' } },
+    },
+    wrapper:      { marginTop: { unit: 'px', value: 10 }, marginBottom: { unit: 'px', value: 10 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
+    tagName:      'c-button',
+    meta:         'button',
+    title:        'Button',
+    mobileStyles: {},
+    mobileWrapper:{},
+  };
+}
+
+function buildBulletList(id, items) {
+  const html = '<ul>' + items.map(i => `<li>${i.text || i}</li>`).join('') + '</ul>';
+  return {
+    id, type: 'list', child: [],
+    class: {},
+    styles: {
+      fontSize:   { value: 16, unit: 'px' },
+      color:      { value: 'var(--black)' },
+      lineHeight: { value: 1.7 },
+    },
+    extra: {
+      visibility:  DEFAULT_VISIBILITY,
+      customClass: { value: [] },
+      content:     { value: html },
+    },
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 15 }, marginLeft: { unit: 'px', value: 0 }, marginRight: { unit: 'px', value: 0 } },
+    tagName:      'c-list',
+    meta:         'list',
+    title:        'List',
+    mobileStyles: {},
+    mobileWrapper:{},
+  };
+}
+
+// ── Top-level GHL Storage file structure ──────────────────────────────────────
+
+const PAGE_STYLES = `:root{ --transparent: transparent;\n--primary: #37ca37;\n--secondary: #188bf6;\n--white: #ffffff;\n--gray: #cbd5e0;\n--black: #000000;\n--red: #e93d3d;\n--orange: #f6ad55;\n--yellow: #faf089;\n--green: #9ae6b4;\n--teal: #81e6d9;\n--malibu: #63b3ed;\n--indigo: #757BBD;\n--purple: #d6bcfa;\n--pink: #fbb6ce;\n--inter: Inter,sans-serif;\n}`;
+
+const PAGE_SETTINGS = {
+  settings: {
+    typography: {
+      fonts: {
+        headlineFont: { id: 'headlinefont', text: 'Headline Font', value: { text: 'Inter', value: 'var(--inter)' } },
+        contentFont:  { id: 'contentfont',  text: 'Content Font',  value: { text: 'Inter', value: 'var(--inter)' } },
+      },
+      colors: {
+        textColor:       { id: 'textcolor',       text: 'Text Color',       value: { text: 'Black', value: 'var(--black)' } },
+        backgroundColor: { id: 'backgroundcolor', text: 'Background Color', value: { text: 'Transparent', value: 'var(--transparent)' } },
+      },
+    },
+  },
+};
+
+const PAGE_GENERAL = {
+  general: {
+    colors: [
+      { label: 'Transparent', value: 'transparent' },
+      { label: 'Primary',     value: '#37ca37' },
+      { label: 'Secondary',   value: '#188bf6' },
+      { label: 'White',       value: '#ffffff' },
+      { label: 'Gray',        value: '#cbd5e0' },
+      { label: 'Black',       value: '#000000' },
+    ],
+    rootVars: { '--transparent': 'transparent', '--black': '#000000', '--primary': '#37ca37', '--secondary': '#188bf6', '--white': '#ffffff' },
+  },
+};
+
+const SECTION_GENERAL = {
+  colors: [
+    { label: 'Transparent', value: 'transparent' },
+    { label: 'Black', value: '#000000' },
+  ],
+  fontsForPreview: [],
+  rootVars: { '--transparent': 'transparent', '--black': '#000000' },
+  sectionStyles: '',
+  customFonts: [],
+};
+
+// ── Convert AI sections → GHL flat elements format (for Firebase Storage) ─────
+
+function convertSectionsToGhlStorage(aiSections, pageId, funnelId, locationId) {
+  return aiSections.map((aiSection, idx) => {
     const secId = aiSection.id || `section-${randomId()}`;
+    const rowId = `row-${randomId()}`;
+    const colId = `col-${randomId()}`;
 
-    // Flatten content elements from AI section
+    // Flatten content elements
     const kids = aiSection.children || [];
     let contentItems = [];
-
     if (kids.length > 0 && kids[0].type === 'row') {
-      // Nested row/column structure
-      const row = kids[0];
-      const col = (row.children || [])[0];
+      const col = (kids[0].children || [])[0];
       contentItems = col?.children || [];
     } else {
-      // Flat: direct children are content elements
       contentItems = kids.filter(k => !['row', 'column'].includes(k.type));
     }
 
-    // Build content elements in GHL Firestore format
-    const ghlElements = contentItems.map(el => {
+    // Build content elements
+    const contentEls = [];
+    const contentIds = [];
+    for (const el of contentItems) {
+      const elId = el.id || `${el.type}-${randomId()}`;
+      let built;
+      switch (el.type) {
+        case 'headline':    built = buildHeadline(elId, el.text || '', el.tag || 'h1'); break;
+        case 'sub-headline':built = buildSubHeadline(elId, el.text || ''); break;
+        case 'paragraph':   built = buildParagraph(elId, el.text || ''); break;
+        case 'button':      built = buildButton(elId, el.text || 'Click Here', el.link || '#', el.styles || {}); break;
+        case 'bulletList':  built = buildBulletList(elId, el.items || []); break;
+        default:            built = buildParagraph(elId, el.text || '');
+      }
+      contentEls.push(built);
+      contentIds.push(elId);
+    }
+
+    // Build the metaData section descriptor
+    const sectionMeta = buildSection(secId, rowId, aiSection.styles || {});
+
+    return {
+      id:         secId,
+      metaData:   sectionMeta,
+      elements:   [
+        buildRow(rowId, [colId]),
+        buildCol(colId, contentIds),
+        ...contentEls,
+      ],
+      sequence:   idx,
+      pageId,
+      funnelId,
+      locationId,
+      general:    SECTION_GENERAL,
+    };
+  });
+}
+
+// ── Convert AI sections → GHL Firestore hierarchical format (for sections field) ──
+
+function convertSectionsToFirestore(aiSections) {
+  return aiSections.map(aiSection => {
+    const secId = aiSection.id || `section-${randomId()}`;
+    const kids  = aiSection.children || [];
+    let contentItems = [];
+    if (kids.length > 0 && kids[0].type === 'row') {
+      const col = (kids[0].children || [])[0];
+      contentItems = col?.children || [];
+    } else {
+      contentItems = kids.filter(k => !['row', 'column'].includes(k.type));
+    }
+
+    const ghlEls = contentItems.map(el => {
       const elId = el.id || `${el.type}-${randomId()}`;
       switch (el.type) {
-        case 'headline':
-          return {
-            id: elId, type: 'headline', tag: el.tag || 'h1', text: el.text || '',
-            styles: { color: {} }, mobileStyles: {},
-          };
-        case 'sub-headline':
-          return {
-            id: elId, type: 'sub-headline', text: el.text || '',
-          };
-        case 'paragraph':
-          return {
-            id: elId, type: 'paragraph', text: el.text || '',
-          };
-        case 'button':
-          return {
-            id: elId, type: 'button',
-            text: el.text || 'Click Here',
-            link: el.link || '#',
-            styles: {
-              backgroundColor: { value: el.styles?.backgroundColor || '#000000' },
-              color:           { value: el.styles?.color           || '#ffffff' },
-              paddingLeft:     { value: 25, unit: 'px' },
-              paddingRight:    { value: 25, unit: 'px' },
-              borderRadius:    {},
-            },
-            mobileStyles: {},
-          };
-        case 'bulletList':
-          return {
-            id: elId, type: 'bulletList',
-            text: '<ul>' + (el.items || []).map(i => `<li>${i.text || i}</li>`).join('') + '</ul>',
-          };
-        default:
-          return {
-            id: elId, type: 'paragraph', text: el.text || '',
-          };
+        case 'headline':    return { id: elId, type: 'headline',     tag: el.tag || 'h1', text: el.text || '', styles: { color: {} }, mobileStyles: {} };
+        case 'sub-headline':return { id: elId, type: 'sub-headline', text: el.text || '' };
+        case 'paragraph':   return { id: elId, type: 'paragraph',    text: el.text || '' };
+        case 'button':      return { id: elId, type: 'button', text: el.text || 'Click Here', link: el.link || '#',
+                                     styles: { backgroundColor: { value: el.styles?.backgroundColor || '#000000' }, color: { value: el.styles?.color || '#ffffff' }, paddingLeft: { value: 25, unit: 'px' }, paddingRight: { value: 25, unit: 'px' }, borderRadius: {} }, mobileStyles: {} };
+        case 'bulletList':  return { id: elId, type: 'bulletList', text: '<ul>' + (el.items||[]).map(i=>`<li>${i.text||i}</li>`).join('') + '</ul>' };
+        default:            return { id: elId, type: 'paragraph', text: el.text || '' };
       }
     });
 
-    // Build the section in GHL Firestore format
     return {
-      id: secId,
-      type: 'section',
+      id:   secId, type: 'section',
       styles: {
         paddingTop:      { value: aiSection.styles?.paddingTop?.value      || 80,  unit: 'px' },
         paddingBottom:   { value: aiSection.styles?.paddingBottom?.value   || 80,  unit: 'px' },
@@ -238,25 +560,84 @@ function convertSectionsToGhl(aiSections) {
         backgroundColor: { value: aiSection.styles?.backgroundColor?.value || '#ffffff' },
       },
       mobileStyles: {},
-      children: [
-        {
-          children: [
-            {
-              id:           `column-${randomId()}`,
-              type:         'column',
-              width:        12,
-              styles:       { textAlign: { value: 'center' } },
-              mobileStyles: {},
-              children:     ghlElements,
-            },
-          ],
-        },
-      ],
+      children: [{ children: [{ id: `column-${randomId()}`, type: 'column', width: 12, styles: { textAlign: { value: 'center' } }, mobileStyles: {}, children: ghlEls }] }],
     };
   });
 }
 
-// ── Backend metadata helper ───────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Save page sections to GHL.
+ *
+ * @param {string} locationId
+ * @param {string} pageId
+ * @param {object} sectionsJson  { sections: [...] }
+ */
+async function savePageData(locationId, pageId, sectionsJson) {
+  const aiSections = sectionsJson?.sections || [];
+  console.log(`[GHLPageBuilder] Saving page ${pageId} — ${aiSections.length} AI sections`);
+
+  const idToken   = await getFirebaseToken(locationId);
+  const projectId = getProjectIdFromToken(idToken);
+
+  // Read Firestore for funnelId and current state
+  let docInfo;
+  try {
+    docInfo = await readFirestoreDoc(idToken, projectId, pageId);
+  } catch (e) {
+    throw new Error(`Cannot read Firestore doc for page ${pageId}: ${e.message}`);
+  }
+
+  const { funnelId, version: currentVersion, downloadUrl: currentDownloadUrl } = docInfo;
+  if (!funnelId) throw new Error(`Page ${pageId} missing funnelId — open the page in GHL builder first.`);
+
+  // Download existing file to preserve settings/general if available
+  let existingFile = null;
+  if (currentDownloadUrl) {
+    try { existingFile = await downloadStorageFile(currentDownloadUrl); } catch { /* ignore */ }
+  }
+
+  // Convert to GHL flat elements format (what the builder renders from Storage)
+  const storageSections = convertSectionsToGhlStorage(aiSections, pageId, funnelId, locationId);
+  console.log(`[GHLPageBuilder] Built ${storageSections.length} sections (flat elements format)`);
+
+  // Build complete page file matching GHL's expected structure
+  const pageFile = {
+    sections:        storageSections,
+    settings:        existingFile?.settings  || PAGE_SETTINGS,
+    general:         existingFile?.general   || PAGE_GENERAL,
+    pageStyles:      existingFile?.pageStyles || PAGE_STYLES,
+    trackingCode:    existingFile?.trackingCode    || '',
+    fontsForPreview: existingFile?.fontsForPreview || [],
+    popups:          existingFile?.popups          || [],
+    popupsList:      existingFile?.popupsList      || [],
+  };
+
+  // Upload to Firebase Storage
+  const { storagePath, downloadUrl: newDownloadUrl } = await uploadToStorage(idToken, funnelId, pageId, pageFile);
+  console.log(`[GHLPageBuilder] Uploaded to ${storagePath}`);
+
+  // Convert to Firestore hierarchical format (for builder sections sidebar)
+  const firestoreSections = convertSectionsToFirestore(aiSections);
+
+  // Update Firestore with new Storage URL + sections + version
+  const newVersion = (currentVersion || 1) + 1;
+  const fsResult   = await patchFirestoreDoc(idToken, projectId, pageId, {
+    page_data_url:          toFirestoreValue(storagePath),
+    page_data_download_url: toFirestoreValue(newDownloadUrl),
+    sections:               toFirestoreValue(firestoreSections),
+    version:                toFirestoreValue(newVersion),
+    date_updated:           { timestampValue: new Date().toISOString() },
+  });
+  console.log(`[GHLPageBuilder] Firestore updated → ${fsResult.status}`);
+
+  if (fsResult.status >= 400) {
+    throw new Error(`Firestore update failed (${fsResult.status}): ${String(fsResult.raw).slice(0, 200)}`);
+  }
+
+  return { success: true, storagePath, downloadUrl: newDownloadUrl, sections: storageSections.length, version: newVersion };
+}
 
 function buildBackendHeaders(idToken) {
   return {
@@ -268,91 +649,12 @@ function buildBackendHeaders(idToken) {
   };
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
-/**
- * Save page sections to GHL.
- *
- * Writes directly to the Firestore `sections` field (what GHL renders from).
- * Also uploads a snapshot to Firebase Storage and updates the URL fields.
- *
- * @param {string} locationId
- * @param {string} pageId
- * @param {object} sectionsJson  { sections: [...] }  (our AI-generated format)
- */
-async function savePageData(locationId, pageId, sectionsJson) {
-  const aiSections = sectionsJson?.sections || [];
-  console.log(`[GHLPageBuilder] Saving page ${pageId} — ${aiSections.length} AI sections`);
-
-  const idToken   = await getFirebaseToken(locationId);
-  const projectId = getProjectIdFromToken(idToken);
-
-  // 1. Read Firestore doc to get funnelId and version
-  let docInfo;
-  try {
-    docInfo = await readFirestoreDoc(idToken, projectId, pageId);
-  } catch (e) {
-    throw new Error(`Cannot read Firestore doc for page ${pageId}: ${e.message}`);
-  }
-
-  const { funnelId, version: currentVersion, downloadUrl: currentDownloadUrl } = docInfo;
-  if (!funnelId) throw new Error(`Page ${pageId} Firestore doc missing funnelId — open the page in GHL builder first.`);
-
-  // 2. Convert AI sections to GHL Firestore format
-  const ghlSections = convertSectionsToGhl(aiSections);
-  console.log(`[GHLPageBuilder] Converted to ${ghlSections.length} GHL sections`);
-
-  // 3. Write sections directly to Firestore (what GHL builder reads)
-  const newVersion = (currentVersion || 1) + 1;
-  const fsFields = {
-    sections:     toFirestoreValue(ghlSections),
-    version:      toFirestoreValue(newVersion),
-    date_updated: { timestampValue: new Date().toISOString() },
-  };
-
-  const fsResult = await patchFirestoreDoc(idToken, projectId, pageId, fsFields);
-  console.log(`[GHLPageBuilder] Firestore sections written → ${fsResult.status}`);
-
-  if (fsResult.status >= 400) {
-    throw new Error(`Firestore sections write failed (${fsResult.status}): ${String(fsResult.raw).slice(0, 300)}`);
-  }
-
-  // 4. Also upload snapshot to Firebase Storage + update URL fields (non-fatal)
-  try {
-    let currentPageData = null;
-    if (currentDownloadUrl) {
-      try { currentPageData = await downloadStorageFile(currentDownloadUrl); }
-      catch { /* ignore */ }
-    }
-
-    const { storagePath, downloadUrl: newDownloadUrl } = await uploadToStorage(
-      idToken, funnelId, pageId,
-      { sections: ghlSections, settings: currentPageData?.settings || {}, general: currentPageData?.general || {} }
-    );
-    console.log(`[GHLPageBuilder] Storage snapshot → ${storagePath}`);
-
-    await patchFirestoreDoc(idToken, projectId, pageId, {
-      page_data_url:          toFirestoreValue(storagePath),
-      page_data_download_url: toFirestoreValue(newDownloadUrl),
-    });
-  } catch (e) {
-    console.warn(`[GHLPageBuilder] Storage snapshot failed (non-fatal): ${e.message}`);
-  }
-
-  return { success: true, sections: ghlSections.length, version: newVersion };
-}
-
-/**
- * Fetch the current page data from GHL's backend copilot endpoint.
- */
 async function getPageData(locationId, pageId) {
   const idToken = await getFirebaseToken(locationId);
   const headers = buildBackendHeaders(idToken);
   delete headers['Content-Type'];
-
   const path   = `/funnel-ai/copilot/page-data/${pageId}?locationId=${encodeURIComponent(locationId)}`;
-  const result = await httpsRequest(BACKEND_HOST, 'GET', path, headers, null);
-
+  const result = await httpsRequest('backend.leadconnectorhq.com', 'GET', path, headers, null);
   if (result.status >= 400) {
     const d = result.data;
     throw new Error(`GHL getPageData failed (${result.status}): ${typeof d === 'object' ? (d.message || d.error || JSON.stringify(d)) : d}`);
