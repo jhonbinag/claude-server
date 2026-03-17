@@ -289,12 +289,47 @@ async function runTaskWithAnthropic({ task, locationId, companyId, allowedIntegr
 
 // ─── Gemini Agentic Loop ──────────────────────────────────────────────────────
 
+// Recursively sanitize a JSON Schema for Gemini:
+//  - Every array type must have an `items` field
+//  - Remove keywords Gemini doesn't support (additionalProperties, $schema, etc.)
+function sanitizeSchema(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+
+  const out = {};
+  for (const [k, v] of Object.entries(schema)) {
+    // Drop unsupported keywords
+    if (['$schema', 'additionalProperties', 'default', 'examples', '$defs', '$ref'].includes(k)) continue;
+    out[k] = v;
+  }
+
+  if (out.type === 'array') {
+    out.items = sanitizeSchema(out.items) || { type: 'string' };
+  }
+
+  if (out.properties && typeof out.properties === 'object') {
+    const cleaned = {};
+    for (const [k, v] of Object.entries(out.properties)) {
+      cleaned[k] = sanitizeSchema(v);
+    }
+    out.properties = cleaned;
+  }
+
+  if (out.items && typeof out.items === 'object') {
+    out.items = sanitizeSchema(out.items);
+  }
+
+  if (Array.isArray(out.anyOf)) out.anyOf = out.anyOf.map(sanitizeSchema);
+  if (Array.isArray(out.oneOf)) out.oneOf = out.oneOf.map(sanitizeSchema);
+
+  return out;
+}
+
 // Convert Anthropic input_schema tools → Gemini functionDeclarations
 function toGeminiFunctions(tools) {
   return tools.map(t => ({
     name:        t.name,
     description: t.description,
-    parameters:  t.input_schema || { type: 'object', properties: {} },
+    parameters:  sanitizeSchema(t.input_schema) || { type: 'object', properties: {} },
   }));
 }
 
