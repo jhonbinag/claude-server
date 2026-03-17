@@ -12,7 +12,7 @@
 const express      = require('express');
 const router       = express.Router();
 
-// Repair truncated JSON: close open strings, remove trailing commas, close brackets
+// Repair truncated JSON: close open strings, fill dangling keys, close brackets
 function repairJson(str) {
   const stack = [];
   let inString = false;
@@ -28,6 +28,7 @@ function repairJson(str) {
   let out = str.trimEnd();
   if (inString) out += '"';           // close unterminated string
   out = out.replace(/,\s*$/, '');     // remove trailing comma
+  if (/:\s*$/.test(out)) out += 'null'; // dangling key with no value → null
   return out + stack.reverse().join('');
 }
 
@@ -239,8 +240,10 @@ router.post('/generate', async (req, res) => {
   try {
     pageContext = await getPageData(req.locationId, pageId);
   } catch (err) {
-    // Non-fatal — continue without existing context
-    console.warn(`[FunnelBuilder] Could not fetch page context for ${pageId}:`, err.message);
+    // Non-fatal — 404 is normal for new pages, log only unexpected errors
+    if (!err.message.includes('404')) {
+      console.warn(`[FunnelBuilder] Could not fetch page context for ${pageId}:`, err.message);
+    }
   }
 
   // Step 2b: Load selected agent (optional)
@@ -278,96 +281,49 @@ router.post('/generate', async (req, res) => {
     ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\nYour training and instructions:\n${selectedAgent.instructions}${ragContext}\n\n---\n\n`
     : '';
 
-  const systemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer and copywriter. Your job is to generate complete, production-ready native GHL page JSON that follows the exact GoHighLevel page builder schema.
+  const provider = aiService.getProvider();
+  const isGroq   = provider?.name === 'groq';
+
+  // Groq compact schema — no mobileStyles, minimal style props to save tokens
+  const groqSystemPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
+Root: {"sections":[...]}
+IDs: type-XXXXXXXX (8 random chars). Styles use {"value":X,"unit":"px"} or {"value":"#HEX"} format.
+
+Element types:
+- heading: {"id":"heading-X","type":"heading","tag":"h1","text":"...","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{}}
+- sub-heading: {"id":"sub-heading-X","type":"sub-heading","text":"...","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{}}
+- paragraph: {"id":"paragraph-X","type":"paragraph","text":"<p>...</p>","styles":{"color":{"value":"#555"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
+- button: {"id":"button-X","type":"button","text":"...","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#fff"},"fontSize":{"value":16,"unit":"px"},"paddingTop":{"value":14,"unit":"px"},"paddingBottom":{"value":14,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
+- bulletList: {"id":"bulletList-X","type":"bulletList","items":[{"text":"..."}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
+
+Section wrapper: {"id":"section-X","type":"section","name":"name","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-X","type":"row","children":[{"id":"column-X","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}`;
+
+  const fullSystemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer and copywriter. Generate complete, production-ready native GHL page JSON.
 
 RULES:
-1. Respond with ONLY valid JSON — no markdown, no code fences, no explanation text.
-2. The root object must be exactly: { "sections": [ ... ] }
-3. Follow the schema below precisely for every element type.
-4. Generate a COMPLETE, high-converting ${pageLabel} — include ALL sections (hero, benefits, social proof, CTA, footer).
-5. All IDs must use the format: type-XXXXXXXX (8 random alphanumeric chars), e.g. "section-a1b2c3d4".
-6. Use persuasive, benefit-driven copy that addresses the target audience directly.
-7. Mobile styles should reduce padding/font sizes appropriately (roughly 50-60% of desktop).
+1. Respond with ONLY valid JSON — no markdown, no code fences, no explanation.
+2. Root object: { "sections": [ ... ] }
+3. All IDs: type-XXXXXXXX (8 random alphanumeric chars).
+4. Use persuasive, benefit-driven copy for the target audience.
+5. Mobile styles reduce padding/font sizes to ~60% of desktop.
 
 SCHEMA:
-{
-  "sections": [
-    {
-      "id": "section-{8chars}",
-      "type": "section",
-      "name": "descriptive-section-name",
-      "allowRowMaxWidth": false,
-      "styles": {
-        "backgroundColor": { "value": "#HEXCOLOR" },
-        "paddingTop":    { "value": 80, "unit": "px" },
-        "paddingBottom": { "value": 80, "unit": "px" },
-        "paddingLeft":   { "value": 20, "unit": "px" },
-        "paddingRight":  { "value": 20, "unit": "px" }
-      },
-      "mobileStyles": {
-        "paddingTop":    { "value": 40, "unit": "px" },
-        "paddingBottom": { "value": 40, "unit": "px" }
-      },
-      "children": [
-        {
-          "id": "row-{8chars}",
-          "type": "row",
-          "children": [
-            {
-              "id": "column-{8chars}",
-              "type": "column",
-              "width": 12,
-              "styles": { "textAlign": { "value": "center" } },
-              "mobileStyles": {},
-              "children": [
-                // ELEMENT TYPES — use exactly as shown:
+{"sections":[{"id":"section-X","type":"section","name":"name","allowRowMaxWidth":false,
+"styles":{"backgroundColor":{"value":"#HEX"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},
+"mobileStyles":{"paddingTop":{"value":40,"unit":"px"},"paddingBottom":{"value":40,"unit":"px"}},
+"children":[{"id":"row-X","type":"row","children":[{"id":"column-X","type":"column","width":12,
+"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},
+"children":[
+{"id":"heading-X","type":"heading","text":"Headline","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
+{"id":"sub-heading-X","type":"sub-heading","text":"Subheadline","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"},"fontWeight":{"value":"500"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
+{"id":"paragraph-X","type":"paragraph","text":"<p>Body copy.</p>","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.7}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"button-X","type":"button","text":"CTA","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFFFFF"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"bulletList-X","type":"bulletList","items":[{"text":"Benefit 1"},{"text":"Benefit 2"},{"text":"Benefit 3"}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"image-X","type":"image","src":"https://placehold.co/800x450/1D4ED8/FFFFFF?text=Image","alt":"Image","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
+]}]}]}]}`;
 
-                // Heading (H1):
-                { "id": "heading-{8chars}", "type": "heading", "text": "Your Headline Here", "tag": "h1",
-                  "styles": { "color": {"value":"#111827"}, "fontSize": {"value":52,"unit":"px"}, "fontWeight": {"value":"700"}, "lineHeight": {"value":1.2} },
-                  "mobileStyles": { "fontSize": {"value":32,"unit":"px"} } },
+  const systemPrompt = isGroq ? groqSystemPrompt : fullSystemPrompt;
 
-                // Subheading:
-                { "id": "sub-heading-{8chars}", "type": "sub-heading", "text": "Subheadline text here",
-                  "styles": { "color": {"value":"#374151"}, "fontSize": {"value":24,"unit":"px"}, "fontWeight": {"value":"500"} },
-                  "mobileStyles": { "fontSize": {"value":18,"unit":"px"} } },
-
-                // Paragraph:
-                { "id": "paragraph-{8chars}", "type": "paragraph", "text": "<p>Body copy with <strong>bold</strong> and emphasis.</p>",
-                  "styles": { "color": {"value":"#4B5563"}, "fontSize": {"value":18,"unit":"px"}, "lineHeight": {"value":1.7} },
-                  "mobileStyles": { "fontSize": {"value":16,"unit":"px"} } },
-
-                // Button:
-                { "id": "button-{8chars}", "type": "button", "text": "CTA Text Here", "link": "#",
-                  "styles": { "backgroundColor": {"value":"#1D4ED8"}, "color": {"value":"#FFFFFF"},
-                    "fontSize": {"value":18,"unit":"px"}, "fontWeight": {"value":"700"},
-                    "paddingTop": {"value":16,"unit":"px"}, "paddingBottom": {"value":16,"unit":"px"},
-                    "paddingLeft": {"value":40,"unit":"px"}, "paddingRight": {"value":40,"unit":"px"},
-                    "borderRadius": {"value":8,"unit":"px"} },
-                  "mobileStyles": { "fontSize": {"value":16,"unit":"px"} } },
-
-                // Bullet list:
-                { "id": "bulletList-{8chars}", "type": "bulletList",
-                  "items": [ {"text": "Benefit one"}, {"text": "Benefit two"}, {"text": "Benefit three"} ],
-                  "icon": { "name": "check", "unicode": "f00c", "fontFamily": "Font Awesome 5 Free" },
-                  "styles": { "color": {"value":"#111827"}, "fontSize": {"value":18,"unit":"px"} },
-                  "mobileStyles": { "fontSize": {"value":16,"unit":"px"} } },
-
-                // Image:
-                { "id": "image-{8chars}", "type": "image", "src": "https://placehold.co/800x450/1D4ED8/FFFFFF?text=Image", "alt": "Description",
-                  "styles": { "width": {"value":100,"unit":"%"}, "borderRadius": {"value":8,"unit":"px"} },
-                  "mobileStyles": {} }
-              ]
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}`;
-
-  const provider   = aiService.getProvider();
-  const isGroq     = provider?.name === 'groq';
   // Groq has tight token limits — generate a compact 3-section page; other providers get all 7
   const sectionsInstruction = isGroq
     ? `Build 3 sections: 1) Hero (H1 headline + subheading + CTA button), 2) Benefits (subheading + 4 bullet points), 3) Final CTA (headline + button). Keep copy concise.`
