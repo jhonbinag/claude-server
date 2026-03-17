@@ -178,8 +178,19 @@ async function connectFirebase(locationId, ghlToken) {
   } else if (kind === 'customToken') {
     const result = await httpsPost(SIGN_IN_URL, { token: ghlToken, returnSecureToken: true });
     if (result.status !== 200 || !result.data.idToken) {
-      const msg = result.data?.error?.message || JSON.stringify(result.data);
-      throw new Error(`Firebase sign-in failed: ${msg}`);
+      const errMsg = result.data?.error?.message || '';
+      // INVALID_CUSTOM_TOKEN means GHL stored an idToken in refreshedToken — fall back to using it directly
+      if (errMsg.includes('INVALID_CUSTOM_TOKEN') || errMsg.includes('INVALID_IDP_RESPONSE')) {
+        console.log(`[GHLFirebase] customToken exchange rejected (${errMsg}) — treating as idToken`);
+        const payload = decodeJwtPayload(ghlToken);
+        idToken   = ghlToken;
+        expiresAt = payload?.exp ? payload.exp * 1000 : Date.now() + 3600 * 1000;
+        const record = { idToken, customToken: null, expiresAt };
+        await storeRecord(locationId, record);
+        console.log(`[GHLFirebase] Connected ${locationId} via idToken fallback, expires ${new Date(expiresAt).toISOString()}`);
+        return record;
+      }
+      throw new Error(`Firebase sign-in failed: ${errMsg || JSON.stringify(result.data)}`);
     }
     idToken   = result.data.idToken;
     expiresAt = Date.now() + (parseInt(result.data.expiresIn, 10) || 3600) * 1000;
