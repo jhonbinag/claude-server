@@ -612,6 +612,9 @@ router.post('/generate-funnel', async (req, res) => {
 
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
+  // Normalise page objects — GHL returns _id not id
+  pages = pages.map(p => ({ ...p, id: p.id || p._id }));
+
   send('start', { total: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name, stepOrder: p.stepOrder })) });
 
   const provider  = aiService.getProvider();
