@@ -16,6 +16,7 @@
  */
 
 const Anthropic      = require('@anthropic-ai/sdk');
+const https          = require('https');
 const config         = require('../config');
 const toolRegistry   = require('../tools/toolRegistry');
 const activityLogger = require('./activityLogger');
@@ -188,7 +189,7 @@ ${hasFacebook ? '- Use facebook_create_campaign to set up the Facebook campaign\
  * @param {string[]=} options.allowedIntegrations  Optional whitelist of external
  *   integration categories (e.g. ['openai','sendgrid']). null = all enabled.
  */
-async function runTask({ task, locationId, companyId, allowedIntegrations, onEvent }) {
+async function runTaskWithAnthropic({ task, locationId, companyId, allowedIntegrations, onEvent }) {
   const client = await getClientForLocation(locationId);
   const emit   = onEvent || (() => {});
 
@@ -284,6 +285,154 @@ async function runTask({ task, locationId, companyId, allowedIntegrations, onEve
   const limitMsg = `[Task reached the ${MAX_TURNS}-turn limit. Partial result: ${finalText}]`;
   emit({ type: 'done', message: limitMsg, turns, toolCallCount });
   return { result: limitMsg, turns, toolCallCount };
+}
+
+// ─── Gemini Agentic Loop ──────────────────────────────────────────────────────
+
+// Convert Anthropic input_schema tools → Gemini functionDeclarations
+function toGeminiFunctions(tools) {
+  return tools.map(t => ({
+    name:        t.name,
+    description: t.description,
+    parameters:  t.input_schema || { type: 'object', properties: {} },
+  }));
+}
+
+// POST to Gemini REST API with 429 retry
+function geminiPost(body, retries = 3) {
+  const key  = process.env.GOOGLE_API_KEY;
+  const model = 'gemini-1.5-flash';
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = https.request(
+      {
+        hostname: 'generativelanguage.googleapis.com',
+        path:     `/v1beta/models/${model}:generateContent?key=${key}`,
+        method:   'POST',
+        headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+      },
+      (resp) => {
+        let d = '';
+        resp.on('data', c => d += c);
+        resp.on('end', async () => {
+          try {
+            const parsed = JSON.parse(d);
+            if (resp.statusCode === 429 && retries > 0) {
+              const wait = (4 - retries) * 15000;
+              console.warn(`[Gemini] 429 — retrying in ${wait / 1000}s`);
+              await new Promise(r => setTimeout(r, wait));
+              geminiPost(body, retries - 1).then(resolve).catch(reject);
+            } else if (resp.statusCode >= 400) {
+              reject(new Error(`Gemini ${resp.statusCode}: ${JSON.stringify(parsed).slice(0, 300)}`));
+            } else {
+              resolve(parsed);
+            }
+          } catch (e) { reject(e); }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function runTaskWithGemini({ task, locationId, companyId, allowedIntegrations, onEvent }) {
+  const emit = onEvent || (() => {});
+
+  const [tools, enabledIntegrations] = await Promise.all([
+    toolRegistry.getTools(locationId, allowedIntegrations ?? null),
+    toolRegistry.getEnabledIntegrations(locationId),
+  ]);
+
+  const systemPrompt = buildSystemPrompt(locationId, companyId, enabledIntegrations);
+  const geminiFns    = toGeminiFunctions(tools);
+
+  // Gemini conversation history
+  const contents = [{ role: 'user', parts: [{ text: task }] }];
+
+  let turns         = 0;
+  let toolCallCount = 0;
+  let finalText     = '';
+
+  while (turns < MAX_TURNS) {
+    turns++;
+
+    const resp = await geminiPost({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents,
+      tools: geminiFns.length ? [{ functionDeclarations: geminiFns }] : undefined,
+      generationConfig: { maxOutputTokens: 8192 },
+    });
+
+    const candidate = resp.candidates?.[0];
+    if (!candidate) throw new Error('Gemini returned no candidates.');
+
+    const parts       = candidate.content?.parts || [];
+    const textParts   = parts.filter(p => p.text);
+    const fnCallParts = parts.filter(p => p.functionCall);
+
+    // Emit text
+    const turnText = textParts.map(p => p.text).join('');
+    if (turnText) {
+      finalText = turnText;
+      emit({ type: 'text', text: turnText });
+    }
+
+    // Append model turn to history
+    contents.push({ role: 'model', parts });
+
+    const finishReason = candidate.finishReason;
+
+    // No function calls → done
+    if (!fnCallParts.length || finishReason === 'STOP') {
+      emit({ type: 'done', message: finalText, turns, toolCallCount });
+      return { result: finalText, turns, toolCallCount };
+    }
+
+    // Execute function calls
+    const fnResponses = [];
+    for (const part of fnCallParts) {
+      const { name, args } = part.functionCall;
+      toolCallCount++;
+      emit({ type: 'tool_call', name, input: args });
+
+      let result;
+      try {
+        result = await toolRegistry.executeTool(name, args, locationId, companyId);
+        emit({ type: 'tool_result', name, result });
+        activityLogger.log({ locationId, event: 'tool_call', detail: { tool: name }, success: true });
+      } catch (err) {
+        result = { error: true, message: err.message };
+        emit({ type: 'tool_result', name, result });
+        activityLogger.log({ locationId, event: 'tool_call', detail: { tool: name, error: err.message }, success: false });
+      }
+
+      fnResponses.push({
+        functionResponse: {
+          name,
+          response: { result: typeof result === 'string' ? result : JSON.stringify(result) },
+        },
+      });
+    }
+
+    // Feed results back
+    contents.push({ role: 'user', parts: fnResponses });
+  }
+
+  const limitMsg = `[Task reached the ${MAX_TURNS}-turn limit. Partial result: ${finalText}]`;
+  emit({ type: 'done', message: limitMsg, turns, toolCallCount });
+  return { result: limitMsg, turns, toolCallCount };
+}
+
+// ─── Route to correct provider ────────────────────────────────────────────────
+
+async function runTask(options) {
+  const hasAnthropic = !!(process.env.ANTHROPIC_API_KEY);
+  if (!hasAnthropic && process.env.GOOGLE_API_KEY) {
+    return runTaskWithGemini(options);
+  }
+  return runTaskWithAnthropic(options);
 }
 
 module.exports = { runTask };

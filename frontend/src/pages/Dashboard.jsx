@@ -591,8 +591,8 @@ export default function Dashboard() {
               style={{ background: 'rgba(251,191,36,0.08)', borderBottom: '1px solid rgba(251,191,36,0.2)' }}
             >
               <div className="min-w-0">
-                <span className="text-yellow-400 text-xs font-semibold">⚠️ Anthropic API key required</span>
-                <span className="text-gray-400 text-xs ml-1 hidden sm:inline">Add your key in Settings to activate Claude.</span>
+                <span className="text-yellow-400 text-xs font-semibold">⚠️ AI provider required</span>
+                <span className="text-gray-400 text-xs ml-1 hidden sm:inline">Add an API key in Settings (Anthropic, OpenAI, or Google Gemini).</span>
               </div>
               <button
                 onClick={() => navigate('/settings')}
