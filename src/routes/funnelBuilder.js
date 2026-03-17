@@ -590,14 +590,41 @@ router.post('/generate-funnel', async (req, res) => {
       limit: 20,
       offset: '0',
     });
-    console.log('[FunnelBuilder] /funnels/page full response:', JSON.stringify(result).slice(0, 1000));
     pages = result?.funnelPages || result?.pages || result?.pageList || result?.list || result?.data
          || (Array.isArray(result) ? result : []);
-    if (!Array.isArray(pages) || pages.length === 0) {
-      return res.status(404).json({ success: false, error: `No pages found in this funnel. Response keys: ${result ? Object.keys(result).join(', ') : 'null'}` });
-    }
   } catch (err) {
     return res.status(502).json({ success: false, error: `Failed to list funnel pages: ${err.message}` });
+  }
+
+  // If funnel has no pages yet, auto-create a standard set
+  if (!Array.isArray(pages) || pages.length === 0) {
+    const defaults = [
+      { name: 'Opt-in Page',   url: 'opt-in',    stepOrder: 1 },
+      { name: 'Sales Page',    url: 'sales',      stepOrder: 2 },
+      { name: 'Thank You Page',url: 'thank-you',  stepOrder: 3 },
+    ];
+    pages = [];
+    for (const p of defaults) {
+      try {
+        const created = await ghlClient.ghlRequest(req.locationId, 'POST', '/funnels/page', {
+          locationId: req.locationId,
+          funnelId,
+          name:      p.name,
+          url:       p.url,
+          title:     p.name,
+          stepOrder: p.stepOrder,
+          published: false,
+        }, null);
+        const id = created?._id || created?.id || created?.data?._id || created?.data?.id;
+        if (id) pages.push({ _id: id, id, name: p.name, stepOrder: p.stepOrder });
+        else console.warn('[FunnelBuilder] create page response had no id:', JSON.stringify(created).slice(0, 300));
+      } catch (err) {
+        console.error('[FunnelBuilder] Failed to create page', p.name, err.message);
+      }
+    }
+    if (pages.length === 0) {
+      return res.status(502).json({ success: false, error: 'Funnel has no pages and auto-creation failed. Create at least one page in GHL first.' });
+    }
   }
 
   // Sort by stepOrder
