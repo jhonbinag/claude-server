@@ -353,7 +353,7 @@ export default function Settings() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-white text-sm">
-                      {aiProvider === 'google' ? 'Gemini 2.0 Flash' : aiProvider === 'openai' ? 'GPT-4o-mini' : 'Claude Opus 4.6'}
+                      {aiProvider === 'google' ? 'Gemini 2.5 Flash' : aiProvider === 'openai' ? 'GPT-4o-mini' : aiProvider === 'groq' ? 'Groq — Llama 3.3 70B' : 'Claude Opus 4.6'}
                     </span>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${claudeReady ? 'badge-on' : 'badge-off'}`}>
                       {claudeReady ? 'Active' : 'Key required'}
@@ -361,10 +361,11 @@ export default function Settings() {
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">
                     {claudeReady
-                      ? aiProvider === 'google' ? 'Google Gemini 2.0 Flash is active (free tier).'
+                      ? aiProvider === 'groq'   ? 'Groq Llama 3.3 70B is active (free tier, fastest).'
+                        : aiProvider === 'google' ? 'Google Gemini 2.5 Flash is active (free tier).'
                         : aiProvider === 'openai' ? 'OpenAI GPT-4o-mini is active.'
                         : 'Anthropic Claude is active.'
-                      : 'Enter an API key to activate AI features (Anthropic, OpenAI, or Google Gemini).'}
+                      : 'Enter an API key to activate AI features (Anthropic, OpenAI, Groq, or Google Gemini).'}
                   </p>
                 </div>
               </div>

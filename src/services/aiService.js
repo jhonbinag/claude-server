@@ -4,7 +4,8 @@
  * Unified AI provider layer — auto-detects which provider is configured:
  *   1. Anthropic (ANTHROPIC_API_KEY)  → Claude Sonnet 4.6
  *   2. OpenAI    (OPENAI_API_KEY)     → GPT-4o-mini
- *   3. Google    (GOOGLE_API_KEY)     → Gemini 2.0 Flash (free tier)
+ *   3. Groq      (GROQ_API_KEY)       → llama-3.3-70b-versatile (free tier, fastest)
+ *   4. Google    (GOOGLE_API_KEY)     → Gemini 2.5 Flash (free tier)
  *
  * Exports:
  *   getProvider()                         → { name, model }
@@ -23,6 +24,9 @@ function getProvider() {
   }
   if (process.env.OPENAI_API_KEY) {
     return { name: 'openai', model: 'gpt-4o-mini', visionModel: 'gpt-4o' };
+  }
+  if (process.env.GROQ_API_KEY) {
+    return { name: 'groq', model: 'llama-3.3-70b-versatile', visionModel: 'llama-3.2-90b-vision-preview' };
   }
   if (process.env.GOOGLE_API_KEY) {
     const m = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
@@ -147,6 +151,48 @@ async function openaiGenerateWithVision(system, userText, imageBase64, mimeType,
   return resp.choices?.[0]?.message?.content || '';
 }
 
+// ── Groq (OpenAI-compatible) ──────────────────────────────────────────────────
+
+async function groqGenerate(system, userText, { model, maxTokens = 4096 } = {}) {
+  const resp = await httpsPost(
+    'api.groq.com',
+    '/openai/v1/chat/completions',
+    { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+    {
+      model:      model || 'llama-3.3-70b-versatile',
+      max_tokens: maxTokens,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user',   content: userText },
+      ],
+    }
+  );
+  return resp.choices?.[0]?.message?.content || '';
+}
+
+async function groqGenerateWithVision(system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
+  const resp = await httpsPost(
+    'api.groq.com',
+    '/openai/v1/chat/completions',
+    { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+    {
+      model:      model || 'llama-3.2-90b-vision-preview',
+      max_tokens: maxTokens,
+      messages: [
+        { role: 'system', content: system },
+        {
+          role:    'user',
+          content: [
+            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+            { type: 'text',      text: userText },
+          ],
+        },
+      ],
+    }
+  );
+  return resp.choices?.[0]?.message?.content || '';
+}
+
 // ── Google Gemini ─────────────────────────────────────────────────────────────
 
 async function googleGenerate(system, userText, { model, maxTokens = 4096 } = {}) {
@@ -199,6 +245,7 @@ async function generate(system, userText, opts = {}) {
   switch (provider.name) {
     case 'anthropic': return anthropicGenerate(system, userText, { ...opts, model });
     case 'openai':    return openaiGenerate(system, userText, { ...opts, model });
+    case 'groq':      return groqGenerate(system, userText, { ...opts, model });
     case 'google':    return googleGenerate(system, userText, { ...opts, model });
   }
 }
@@ -214,6 +261,7 @@ async function generateWithVision(system, userText, imageBase64, mimeType, opts 
   switch (provider.name) {
     case 'anthropic': return anthropicGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
     case 'openai':    return openaiGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
+    case 'groq':      return groqGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
     case 'google':    return googleGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
   }
 }

@@ -309,7 +309,8 @@ router.get('/status', async (req, res) => {
     const modelName = provider
       ? provider.name === 'anthropic' ? 'claude-opus-4-6'
         : provider.name === 'openai'  ? 'gpt-4o-mini'
-        : 'gemini-1.5-flash'
+        : provider.name === 'groq'    ? 'llama-3.3-70b-versatile'
+        : 'gemini-2.5-flash'
       : 'not configured';
 
     res.json({

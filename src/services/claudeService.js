@@ -460,14 +460,144 @@ async function runTaskWithGemini({ task, locationId, companyId, allowedIntegrati
   return { result: limitMsg, turns, toolCallCount };
 }
 
+// ─── OpenAI-compatible Agentic Loop (used by both Groq + OpenAI) ─────────────
+
+function toOpenAIFunctions(tools) {
+  return tools.map(t => ({
+    type: 'function',
+    function: {
+      name:        t.name,
+      description: t.description,
+      parameters:  sanitizeSchema(t.input_schema) || { type: 'object', properties: {} },
+    },
+  }));
+}
+
+function openAIPost(hostname, apiKey, body, retries = 3) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = https.request(
+      {
+        hostname,
+        path:    '/openai/v1/chat/completions',
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), Authorization: `Bearer ${apiKey}` },
+      },
+      (resp) => {
+        let d = '';
+        resp.on('data', c => d += c);
+        resp.on('end', async () => {
+          try {
+            const parsed = JSON.parse(d);
+            if (resp.statusCode === 429 && retries > 0) {
+              const wait = (4 - retries) * 5000;
+              console.warn(`[Groq] 429 — retrying in ${wait / 1000}s`);
+              await new Promise(r => setTimeout(r, wait));
+              openAIPost(hostname, apiKey, body, retries - 1).then(resolve).catch(reject);
+            } else if (resp.statusCode >= 400) {
+              reject(new Error(`Groq ${resp.statusCode}: ${JSON.stringify(parsed).slice(0, 300)}`));
+            } else {
+              resolve(parsed);
+            }
+          } catch (e) { reject(e); }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegrations, onEvent }, hostname, apiKey, model) {
+  const emit = onEvent || (() => {});
+
+  const [tools, enabledIntegrations] = await Promise.all([
+    toolRegistry.getTools(locationId, allowedIntegrations ?? null),
+    toolRegistry.getEnabledIntegrations(locationId),
+  ]);
+
+  const systemPrompt  = buildSystemPrompt(locationId, companyId, enabledIntegrations);
+  const openAITools   = toOpenAIFunctions(tools);
+  const messages      = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user',   content: task },
+  ];
+
+  let turns         = 0;
+  let toolCallCount = 0;
+  let finalText     = '';
+
+  while (turns < MAX_TURNS) {
+    turns++;
+
+    const resp = await openAIPost(hostname, apiKey, {
+      model,
+      max_tokens: 8192,
+      messages,
+      tools:      openAITools.length ? openAITools : undefined,
+      tool_choice: openAITools.length ? 'auto' : undefined,
+    });
+
+    const choice  = resp.choices?.[0];
+    if (!choice) throw new Error('Groq returned no choices.');
+
+    const msg         = choice.message;
+    const turnText    = msg.content || '';
+    const toolCalls   = msg.tool_calls || [];
+
+    if (turnText) {
+      finalText = turnText;
+      emit({ type: 'text', text: turnText });
+    }
+
+    messages.push(msg);
+
+    if (choice.finish_reason === 'stop' || !toolCalls.length) {
+      emit({ type: 'done', message: finalText, turns, toolCallCount });
+      return { result: finalText, turns, toolCallCount };
+    }
+
+    // Execute tool calls
+    for (const tc of toolCalls) {
+      const name  = tc.function.name;
+      const args  = JSON.parse(tc.function.arguments || '{}');
+      toolCallCount++;
+      emit({ type: 'tool_call', name, input: args });
+
+      let result;
+      try {
+        result = await toolRegistry.executeTool(name, args, locationId, companyId);
+        emit({ type: 'tool_result', name, result });
+        activityLogger.log({ locationId, event: 'tool_call', detail: { tool: name }, success: true });
+      } catch (err) {
+        result = { error: true, message: err.message };
+        emit({ type: 'tool_result', name, result });
+        activityLogger.log({ locationId, event: 'tool_call', detail: { tool: name, error: err.message }, success: false });
+      }
+
+      messages.push({
+        role:         'tool',
+        tool_call_id: tc.id,
+        name,
+        content:      typeof result === 'string' ? result : JSON.stringify(result),
+      });
+    }
+  }
+
+  const limitMsg = `[Task reached the ${MAX_TURNS}-turn limit. Partial result: ${finalText}]`;
+  emit({ type: 'done', message: limitMsg, turns, toolCallCount });
+  return { result: limitMsg, turns, toolCallCount };
+}
+
 // ─── Route to correct provider ────────────────────────────────────────────────
 
 async function runTask(options) {
-  const hasAnthropic = !!(process.env.ANTHROPIC_API_KEY);
-  if (!hasAnthropic && process.env.GOOGLE_API_KEY) {
-    return runTaskWithGemini(options);
-  }
-  return runTaskWithAnthropic(options);
+  if (process.env.ANTHROPIC_API_KEY) return runTaskWithAnthropic(options);
+  if (process.env.OPENAI_API_KEY)    return runTaskOpenAICompat(options, 'api.openai.com',   process.env.OPENAI_API_KEY, 'gpt-4o-mini');
+  if (process.env.GROQ_API_KEY)      return runTaskOpenAICompat(options, 'api.groq.com',     process.env.GROQ_API_KEY,  'llama-3.3-70b-versatile');
+  if (process.env.GOOGLE_API_KEY)    return runTaskWithGemini(options);
+  throw new Error('No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, or GOOGLE_API_KEY.');
 }
 
 module.exports = { runTask };
