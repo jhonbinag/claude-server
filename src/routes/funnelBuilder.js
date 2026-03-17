@@ -567,9 +567,10 @@ SCHEMA:
     }
 
     try {
-      await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId);
-      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length });
-      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length });
+      const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId);
+      const warn    = saveRes?.firestoreWarning;
+      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, warning: warn || undefined });
+      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length, warning: warn || undefined });
     } catch (err) {
       console.error(`[FunnelBuilder] Save error for "${page.name}":`, err.message);
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
@@ -737,10 +738,10 @@ Output ONLY the JSON object.`;
     }
 
     try {
-      await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId);
-
-      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length });
-      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length });
+      const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId);
+      const warn    = saveRes?.firestoreWarning;
+      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, warning: warn || undefined });
+      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length, warning: warn || undefined });
     } catch (err) {
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
       results.push({ pageId: page.id, name: page.name, success: false, error: err.message });

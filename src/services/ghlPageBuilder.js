@@ -475,37 +475,77 @@ function buildBulletList(id, items) {
   };
 }
 
+function buildImage(id, src, alt = '') {
+  const rawId = id.replace(/^image-/, '');
+  return {
+    id,
+    type:      'element',
+    child:     [],
+    meta:      'image',
+    tagName:   'c-image',
+    title:     'Image',
+    customCss: [],
+    class: {
+      borders:      { value: 'noBorder' },
+      borderRadius: { value: 'radius0' },
+      radiusEdge:   { value: 'none' },
+      align:        { value: 'center' },
+    },
+    styles: {
+      width:           { value: 100,  unit: '%' },
+      maxWidth:        { value: 100,  unit: '%' },
+      paddingTop:      { value: 0,    unit: 'px' },
+      paddingBottom:   { value: 0,    unit: 'px' },
+      paddingLeft:     { value: 0,    unit: 'px' },
+      paddingRight:    { value: 0,    unit: 'px' },
+      opacity:         { value: '1' },
+      borderColor:     { value: 'var(--black)' },
+      borderWidth:     { value: '0', unit: 'px' },
+      borderStyle:     { value: 'solid' },
+    },
+    extra: {
+      nodeId:      { value: `cimage-${rawId}` },
+      visibility:  DEFAULT_VISIBILITY,
+      src:         { value: src || '' },
+      alt:         { value: alt || '' },
+      link:        { value: { type: 'url', value: '', target: '_self' } },
+      customClass: { value: [] },
+    },
+    wrapper:      { marginTop: { unit: 'px', value: 0 }, marginBottom: { unit: 'px', value: 0 }, marginLeft: { unit: '', value: 'auto' }, marginRight: { unit: '', value: 'auto' } },
+    mobileStyles: {},
+    mobileWrapper:{},
+  };
+}
+
 // ── Top-level GHL Storage file structure ──────────────────────────────────────
 
 const PAGE_STYLES = `:root{ --transparent: transparent;\n--primary: #37ca37;\n--secondary: #188bf6;\n--white: #ffffff;\n--gray: #cbd5e0;\n--black: #000000;\n--red: #e93d3d;\n--orange: #f6ad55;\n--yellow: #faf089;\n--green: #9ae6b4;\n--teal: #81e6d9;\n--malibu: #63b3ed;\n--indigo: #757BBD;\n--purple: #d6bcfa;\n--pink: #fbb6ce;\n--inter: Inter,sans-serif;\n}`;
 
+// These objects match the shape of existingFile.settings / existingFile.general
+// (no outer wrapper — pageFile.settings = { typography:{...} }, not { settings:{...} })
 const PAGE_SETTINGS = {
-  settings: {
-    typography: {
-      fonts: {
-        headlineFont: { id: 'headlinefont', text: 'Headline Font', value: { text: 'Inter', value: 'var(--inter)' } },
-        contentFont:  { id: 'contentfont',  text: 'Content Font',  value: { text: 'Inter', value: 'var(--inter)' } },
-      },
-      colors: {
-        textColor:       { id: 'textcolor',       text: 'Text Color',       value: { text: 'Black', value: 'var(--black)' } },
-        backgroundColor: { id: 'backgroundcolor', text: 'Background Color', value: { text: 'Transparent', value: 'var(--transparent)' } },
-      },
+  typography: {
+    fonts: {
+      headlineFont: { id: 'headlinefont', text: 'Headline Font', value: { text: 'Inter', value: 'var(--inter)' } },
+      contentFont:  { id: 'contentfont',  text: 'Content Font',  value: { text: 'Inter', value: 'var(--inter)' } },
+    },
+    colors: {
+      textColor:       { id: 'textcolor',       text: 'Text Color',       value: { text: 'Black', value: 'var(--black)' } },
+      backgroundColor: { id: 'backgroundcolor', text: 'Background Color', value: { text: 'Transparent', value: 'var(--transparent)' } },
     },
   },
 };
 
 const PAGE_GENERAL = {
-  general: {
-    colors: [
-      { label: 'Transparent', value: 'transparent' },
-      { label: 'Primary',     value: '#37ca37' },
-      { label: 'Secondary',   value: '#188bf6' },
-      { label: 'White',       value: '#ffffff' },
-      { label: 'Gray',        value: '#cbd5e0' },
-      { label: 'Black',       value: '#000000' },
-    ],
-    rootVars: { '--transparent': 'transparent', '--black': '#000000', '--primary': '#37ca37', '--secondary': '#188bf6', '--white': '#ffffff' },
-  },
+  colors: [
+    { label: 'Transparent', value: 'transparent' },
+    { label: 'Primary',     value: '#37ca37' },
+    { label: 'Secondary',   value: '#188bf6' },
+    { label: 'White',       value: '#ffffff' },
+    { label: 'Gray',        value: '#cbd5e0' },
+    { label: 'Black',       value: '#000000' },
+  ],
+  rootVars: { '--transparent': 'transparent', '--black': '#000000', '--primary': '#37ca37', '--secondary': '#188bf6', '--white': '#ffffff' },
 };
 
 const SECTION_GENERAL = {
@@ -549,6 +589,7 @@ function convertSectionsToGhlStorage(aiSections, pageId, funnelId, locationId) {
         case 'paragraph':   built = buildParagraph(elId, el.text || ''); break;
         case 'button':      built = buildButton(elId, el.text || 'Click Here', el.link || '#', el.styles || {}); break;
         case 'bulletList':  built = buildBulletList(elId, el.items || []); break;
+        case 'image':       built = buildImage(elId, el.src || '', el.alt || ''); break;
         default:            built = buildParagraph(elId, el.text || '');
       }
       contentEls.push(built);
@@ -598,6 +639,7 @@ function convertSectionsToFirestore(aiSections) {
         case 'button':      return { id: elId, type: 'button', text: el.text || 'Click Here', link: el.link || '#',
                                      styles: { backgroundColor: { value: el.styles?.backgroundColor || '#000000' }, color: { value: el.styles?.color || '#ffffff' }, paddingLeft: { value: 25, unit: 'px' }, paddingRight: { value: 25, unit: 'px' }, borderRadius: {} }, mobileStyles: {} };
         case 'bulletList':  return { id: elId, type: 'bulletList', text: '<ul>' + (el.items||[]).map(i=>`<li>${i.text||i}</li>`).join('') + '</ul>' };
+        case 'image':       return { id: elId, type: 'image', src: el.src || '', alt: el.alt || '', styles: { width: { value: 100, unit: '%' } }, mobileStyles: {} };
         default:            return { id: elId, type: 'paragraph', text: el.text || '' };
       }
     });
@@ -709,7 +751,19 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   console.log(`[GHLPageBuilder] Firestore updated → ${fsResult.status}`);
 
   if (fsResult.status >= 400) {
-    throw new Error(`Firestore update failed (${fsResult.status}): ${String(fsResult.raw).slice(0, 200)}`);
+    // Storage upload succeeded but Firestore metadata update failed.
+    // The page data IS saved to Storage — GHL just won't see it until Firestore is updated.
+    // This typically means the Firebase token lacks Firestore write permissions.
+    // Reconnect using the console snippet (refreshedToken) and regenerate to fix.
+    console.warn(`[GHLPageBuilder] Firestore PATCH failed (${fsResult.status}) — page saved to Storage but GHL won't reload it until Firestore is updated. Token may lack write claims.`);
+    return {
+      success:      true,
+      firestoreWarning: `Firestore update failed (${fsResult.status}) — reconnect via the console snippet and regenerate so GHL picks up the new content.`,
+      storagePath,
+      downloadUrl:  newDownloadUrl,
+      sections:     storageSections.length,
+      version:      newVersion,
+    };
   }
 
   return { success: true, storagePath, downloadUrl: newDownloadUrl, sections: storageSections.length, version: newVersion };

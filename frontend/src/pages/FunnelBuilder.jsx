@@ -237,7 +237,7 @@ export default function FunnelBuilder() {
             } else if (eventLine === 'page_start') {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'running', pageType: d.pageType } : p));
             } else if (eventLine === 'page_done') {
-              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'done', sectionsCount: d.sectionsCount, pageType: d.pageType } : p));
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: d.warning ? 'warn' : 'done', sectionsCount: d.sectionsCount, pageType: d.pageType, warning: d.warning } : p));
             } else if (eventLine === 'page_error') {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
             } else if (eventLine === 'complete') {
@@ -311,7 +311,7 @@ export default function FunnelBuilder() {
             } else if (eventLine === 'page_start') {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'running', pageType: d.pageType } : p));
             } else if (eventLine === 'page_done') {
-              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'done', sectionsCount: d.sectionsCount, pageType: d.pageType } : p));
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: d.warning ? 'warn' : 'done', sectionsCount: d.sectionsCount, pageType: d.pageType, warning: d.warning } : p));
             } else if (eventLine === 'page_error') {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
             } else if (eventLine === 'complete') {
@@ -384,7 +384,7 @@ export default function FunnelBuilder() {
             } else if (eventLine === 'page_start') {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'running', pageType: d.pageType } : p));
             } else if (eventLine === 'page_done') {
-              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'done', sectionsCount: d.sectionsCount, pageType: d.pageType } : p));
+              setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: d.warning ? 'warn' : 'done', sectionsCount: d.sectionsCount, pageType: d.pageType, warning: d.warning } : p));
             } else if (eventLine === 'page_error') {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
             } else if (eventLine === 'complete') {
@@ -705,13 +705,16 @@ export default function FunnelBuilder() {
                     {funnelPages.map((p, i) => (
                       <div key={p.id} className="flex items-center gap-2">
                         {p.status === 'pending' && <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />}
+                        {p.status === 'pending' && <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />}
                         {p.status === 'running' && <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
                         {p.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
+                        {p.status === 'warn'    && <span className="text-yellow-400 flex-shrink-0">⚠</span>}
                         {p.status === 'error'   && <span className="text-red-400 flex-shrink-0">✗</span>}
-                        <span style={{ color: p.status === 'error' ? '#f87171' : p.status === 'done' ? '#6ee7b7' : p.status === 'running' ? '#a5b4fc' : '#6b7280' }}>
+                        <span style={{ color: p.status === 'error' ? '#f87171' : p.status === 'warn' ? '#fbbf24' : p.status === 'done' ? '#6ee7b7' : p.status === 'running' ? '#a5b4fc' : '#6b7280' }}>
                           {i + 1}. {p.name}
                           {p.pageType && p.status !== 'pending' && <span className="ml-1 opacity-60">({p.pageType})</span>}
-                          {p.status === 'done'  && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
+                          {(p.status === 'done' || p.status === 'warn') && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
+                          {p.status === 'warn'  && <span className="ml-1 opacity-60">— ⚠ Reconnect &amp; regenerate for GHL to display</span>}
                           {p.status === 'error' && <span className="ml-1 opacity-60">— {p.error}</span>}
                         </span>
                       </div>
@@ -828,13 +831,16 @@ export default function FunnelBuilder() {
                     {funnelPages.map((p, i) => (
                       <div key={p.id} className="flex items-center gap-2">
                         {p.status === 'pending' && <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />}
+                        {p.status === 'pending' && <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />}
                         {p.status === 'running' && <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
                         {p.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
+                        {p.status === 'warn'    && <span className="text-yellow-400 flex-shrink-0">⚠</span>}
                         {p.status === 'error'   && <span className="text-red-400 flex-shrink-0">✗</span>}
-                        <span style={{ color: p.status === 'error' ? '#f87171' : p.status === 'done' ? '#6ee7b7' : p.status === 'running' ? '#a5b4fc' : '#6b7280' }}>
+                        <span style={{ color: p.status === 'error' ? '#f87171' : p.status === 'warn' ? '#fbbf24' : p.status === 'done' ? '#6ee7b7' : p.status === 'running' ? '#a5b4fc' : '#6b7280' }}>
                           {i + 1}. {p.name}
                           {p.pageType && p.status !== 'pending' && <span className="ml-1 opacity-60">({p.pageType})</span>}
-                          {p.status === 'done'  && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
+                          {(p.status === 'done' || p.status === 'warn') && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
+                          {p.status === 'warn'  && <span className="ml-1 opacity-60">— ⚠ Reconnect &amp; regenerate for GHL to display</span>}
                           {p.status === 'error' && <span className="ml-1 opacity-60">— {p.error}</span>}
                         </span>
                       </div>
@@ -1005,11 +1011,13 @@ export default function FunnelBuilder() {
                       {p.status === 'pending' && <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />}
                       {p.status === 'running' && <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
                       {p.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
+                      {p.status === 'warn'    && <span className="text-yellow-400 flex-shrink-0">⚠</span>}
                       {p.status === 'error'   && <span className="text-red-400 flex-shrink-0">✗</span>}
-                      <span style={{ color: p.status === 'error' ? '#f87171' : p.status === 'done' ? '#6ee7b7' : p.status === 'running' ? '#a5b4fc' : '#6b7280' }}>
+                      <span style={{ color: p.status === 'error' ? '#f87171' : p.status === 'warn' ? '#fbbf24' : p.status === 'done' ? '#6ee7b7' : p.status === 'running' ? '#a5b4fc' : '#6b7280' }}>
                         {i + 1}. {p.name}
                         {p.pageType && p.status !== 'pending' && <span className="ml-1 opacity-60">({p.pageType})</span>}
-                        {p.status === 'done'  && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
+                        {(p.status === 'done' || p.status === 'warn') && <span className="ml-1 opacity-60">— {p.sectionsCount} sections</span>}
+                        {p.status === 'warn'  && <span className="ml-1 opacity-60">— ⚠ Reconnect &amp; regenerate for GHL to display</span>}
                         {p.status === 'error' && <span className="ml-1 opacity-60">— {p.error}</span>}
                       </span>
                     </div>
