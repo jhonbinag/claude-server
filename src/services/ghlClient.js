@@ -246,11 +246,14 @@ async function ghlRequest(locationId, method, endpoint, data = null, params = nu
       console.error(`[GHLClient] 429 Rate limited for ${locationId}. Status:`, status);
     }
 
-    const status  = err.response?.status;
-    const message = err.response?.data?.message || err.message;
-    const traceId = err.response?.headers?.['x-request-id'] || err.response?.data?.traceId;
+    const status   = err.response?.status;
+    const data     = err.response?.data;
+    const message  = data?.message || data?.msg || err.message;
+    const detail   = data && typeof data === 'object' ? JSON.stringify(data) : '';
+    const traceId  = err.response?.headers?.['x-request-id'] || data?.traceId;
     if (traceId) console.error(`[GHLClient] TraceId: ${traceId}`);
-    throw new Error(`GHL API error [${status}]: ${message}`);
+    console.error(`[GHLClient] ${status} error:`, detail || message);
+    throw new Error(`GHL API error [${status}]: ${message}${detail && detail !== `{"message":"${message}"}` ? ' — ' + detail : ''}`);
   }
 }
 
