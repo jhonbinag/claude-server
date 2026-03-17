@@ -370,15 +370,6 @@ Output ONLY the JSON object. No markdown, no explanation.`;
     });
   }
 
-  // Step 5b: Readback verification — confirm sections are stored
-  try {
-    const readback = await getPageData(req.locationId, pageId);
-    const storedSections = readback?.data?._data?.sections || readback?.sections || readback?.data?.sections;
-    console.log(`[FunnelBuilder] Readback for page ${pageId} — storedSections: ${storedSections?.length ?? 'NOT FOUND'}, keys: ${JSON.stringify(Object.keys(readback?.data?._data || readback?.data || readback || {}))}`);
-  } catch (e) {
-    console.warn(`[FunnelBuilder] Readback failed (non-fatal): ${e.message}`);
-  }
-
   // Step 6: Build preview URL
   const previewUrl = funnelId
     ? `https://app.gohighlevel.com/v2/preview/${funnelId}/${pageId}`
@@ -705,19 +696,8 @@ Output ONLY the JSON object.`;
     try {
       await savePageData(req.locationId, page.id, pageJson);
 
-      // Readback to verify sections are actually stored in Firestore
-      let storedCount = null;
-      try {
-        const readback = await getPageData(req.locationId, page.id);
-        const stored = readback?.data?._data?.sections || readback?.sections || readback?.data?.sections;
-        storedCount = stored?.length ?? null;
-        console.log(`[FunnelBuilder] Readback "${page.name}" — storedSections: ${storedCount ?? 'NOT FOUND'}, topKeys: ${JSON.stringify(Object.keys(readback || {}))}`);
-      } catch (e) {
-        console.warn(`[FunnelBuilder] Readback failed for "${page.name}": ${e.message}`);
-      }
-
-      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, storedCount });
-      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length, storedCount });
+      send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length });
+      results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length });
     } catch (err) {
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
       results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
