@@ -24,6 +24,7 @@ const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_
 
 const FIREBASE_API_KEY       = 'AIzaSyB_w3vXmsI7WeQtrIOkjR6xTRVN5uOieiE';
 const SIGN_IN_URL            = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${FIREBASE_API_KEY}`;
+const REFRESH_URL            = `https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`;
 const FIVE_MINUTES_MS        = 5 * 60 * 1000;
 
 const PREFIX = 'hltools:fb:';
@@ -132,54 +133,66 @@ function decodeJwtPayload(token) {
 }
 
 /**
- * Returns true if the token is already a Firebase idToken (aud = project ID),
- * false if it is a custom token (aud = identitytoolkit URL).
+ * Classify a token string:
+ *  'idToken'      — Firebase idToken JWT  (aud = project ID)
+ *  'customToken'  — Firebase custom token (aud = identitytoolkit URL)
+ *  'refreshToken' — Firebase refresh token (opaque, not a JWT)
  */
-function isFirebaseIdToken(token) {
+function classifyToken(token) {
+  if (!token || typeof token !== 'string') return 'unknown';
+  const parts = token.split('.');
+  if (parts.length !== 3) return 'refreshToken'; // not a JWT → refresh token
   const p = decodeJwtPayload(token);
-  if (!p) return false;
+  if (!p) return 'refreshToken';
   const aud = Array.isArray(p.aud) ? p.aud[0] : p.aud;
-  // Custom tokens: aud = "https://identitytoolkit.googleapis.com/..."
-  // idTokens:      aud = project ID string like "highlevel-backend"
-  return typeof aud === 'string' && !aud.includes('identitytoolkit.googleapis.com');
+  if (typeof aud === 'string' && aud.includes('identitytoolkit.googleapis.com')) return 'customToken';
+  return 'idToken';
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Accept whatever token GHL stores in localStorage (`refreshedToken`).
- * Handles two cases automatically:
- *  - Firebase custom token → exchange via signInWithCustomToken
- *  - Firebase idToken already → use directly
- * Stores the original token for re-exchange on expiry.
- *
- * @param {string} locationId
- * @param {string} ghlToken  Token from GHL localStorage (custom token or idToken)
- * @returns {{ idToken, expiresAt }}
+ * Accept any Firebase token type from GHL localStorage:
+ *  - idToken      → use directly
+ *  - customToken  → exchange via signInWithCustomToken
+ *  - refreshToken → exchange via securetoken.googleapis.com
+ * Stores the token alongside the idToken for auto-refresh on expiry.
  */
 async function connectFirebase(locationId, ghlToken) {
-  let idToken, expiresAt, storedToken;
+  const kind = classifyToken(ghlToken);
+  console.log(`[GHLFirebase] Connecting ${locationId} with token type: ${kind}`);
 
-  if (isFirebaseIdToken(ghlToken)) {
-    // Already a Firebase idToken — use directly
-    console.log(`[GHLFirebase] Received Firebase idToken directly for ${locationId}`);
+  let idToken, expiresAt;
+
+  if (kind === 'idToken') {
     const payload = decodeJwtPayload(ghlToken);
-    idToken     = ghlToken;
-    expiresAt   = payload?.exp ? payload.exp * 1000 : Date.now() + 3600 * 1000;
-    storedToken = ghlToken; // store as-is; on expiry user must reconnect
-  } else {
-    // Firebase custom token → exchange for idToken
+    idToken   = ghlToken;
+    expiresAt = payload?.exp ? payload.exp * 1000 : Date.now() + 3600 * 1000;
+
+  } else if (kind === 'customToken') {
     const result = await httpsPost(SIGN_IN_URL, { token: ghlToken, returnSecureToken: true });
     if (result.status !== 200 || !result.data.idToken) {
       const msg = result.data?.error?.message || JSON.stringify(result.data);
       throw new Error(`Firebase sign-in failed: ${msg}`);
     }
-    idToken     = result.data.idToken;
-    expiresAt   = Date.now() + (parseInt(result.data.expiresIn, 10) || 3600) * 1000;
-    storedToken = ghlToken; // store custom token for re-exchange
+    idToken   = result.data.idToken;
+    expiresAt = Date.now() + (parseInt(result.data.expiresIn, 10) || 3600) * 1000;
+
+  } else {
+    // refreshToken — exchange via securetoken
+    const body   = `grant_type=refresh_token&refresh_token=${encodeURIComponent(ghlToken)}`;
+    const result = await httpsPost(REFRESH_URL, body, 'application/x-www-form-urlencoded');
+    if (result.status !== 200 || !result.data.id_token) {
+      const msg = result.data?.error?.message || JSON.stringify(result.data);
+      throw new Error(`Firebase refresh exchange failed: ${msg}`);
+    }
+    idToken   = result.data.id_token;
+    expiresAt = Date.now() + (parseInt(result.data.expires_in, 10) || 3600) * 1000;
+    // Store the new refresh token returned so we can re-exchange it later
+    ghlToken  = result.data.refresh_token || ghlToken;
   }
 
-  const record = { idToken, customToken: storedToken, expiresAt };
+  const record = { idToken, customToken: ghlToken, expiresAt };
   await storeRecord(locationId, record);
 
   console.log(`[GHLFirebase] Connected location ${locationId}, expires ${new Date(expiresAt).toISOString()}`);
