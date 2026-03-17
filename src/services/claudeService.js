@@ -336,7 +336,7 @@ function toGeminiFunctions(tools) {
 // POST to Gemini REST API with 429 retry
 function geminiPost(body, retries = 3) {
   const key  = process.env.GOOGLE_API_KEY;
-  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = https.request(

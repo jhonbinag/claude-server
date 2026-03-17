@@ -25,7 +25,7 @@ function getProvider() {
     return { name: 'openai', model: 'gpt-4o-mini', visionModel: 'gpt-4o' };
   }
   if (process.env.GOOGLE_API_KEY) {
-    const m = process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
+    const m = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
     return { name: 'google', model: m, visionModel: m };
   }
   return null;
@@ -150,7 +150,7 @@ async function openaiGenerateWithVision(system, userText, imageBase64, mimeType,
 // ── Google Gemini ─────────────────────────────────────────────────────────────
 
 async function googleGenerate(system, userText, { model, maxTokens = 4096 } = {}) {
-  const m    = model || process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
+  const m    = model || process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
   const resp = await httpsPost(
     'generativelanguage.googleapis.com',
     `/v1beta/models/${m}:generateContent?key=${process.env.GOOGLE_API_KEY}`,
@@ -165,7 +165,7 @@ async function googleGenerate(system, userText, { model, maxTokens = 4096 } = {}
 }
 
 async function googleGenerateWithVision(system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
-  const m    = model || process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
+  const m    = model || process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
   const resp = await httpsPost(
     'generativelanguage.googleapis.com',
     `/v1beta/models/${m}:generateContent?key=${process.env.GOOGLE_API_KEY}`,
