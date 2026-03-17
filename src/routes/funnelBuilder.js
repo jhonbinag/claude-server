@@ -11,6 +11,33 @@
 
 const express      = require('express');
 const router       = express.Router();
+
+// Repair truncated JSON by closing any unclosed brackets/braces
+function repairJson(str) {
+  const stack = [];
+  let inString = false;
+  let escape   = false;
+  for (const ch of str) {
+    if (escape)                      { escape = false; continue; }
+    if (ch === '\\' && inString)     { escape = true;  continue; }
+    if (ch === '"')                  { inString = !inString; continue; }
+    if (inString)                    continue;
+    if (ch === '{' || ch === '[')    stack.push(ch === '{' ? '}' : ']');
+    else if (ch === '}' || ch === ']') stack.pop();
+  }
+  let out = str.trimEnd();
+  if (out.endsWith(',')) out = out.slice(0, -1); // remove trailing comma
+  return out + stack.reverse().join('');
+}
+
+function parseJsonSafe(raw) {
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return JSON.parse(repairJson(cleaned));
+  }
+}
 const multer       = require('multer');
 const aiService    = require('../services/aiService');
 const authenticate = require('../middleware/authenticate');
@@ -338,42 +365,40 @@ SCHEMA:
   ]
 }`;
 
-  const userPrompt = `Generate a complete, high-converting native GHL ${pageLabel} JSON for:
-
-Business / Niche: ${niche}
-Offer: ${offer}
-Target Audience: ${audience || 'General prospects interested in the offer'}
-Color Scheme: ${colors}
-${extraContext ? `Additional Context: ${extraContext}` : ''}
-${funnelId ? `Funnel ID (for reference): ${funnelId}` : ''}
-${contextBlock}
-
-Build a FULL page with these sections in order:
+  const provider   = aiService.getProvider();
+  const isGroq     = provider?.name === 'groq';
+  // Groq has tight token limits — generate a compact 3-section page; other providers get all 7
+  const sectionsInstruction = isGroq
+    ? `Build 3 sections: 1) Hero (H1 headline + subheading + CTA button), 2) Benefits (subheading + 4 bullet points), 3) Final CTA (headline + button). Keep copy concise.`
+    : `Build a FULL page with these sections in order:
 1. Hero section — bold H1 headline, compelling subheading, short paragraph hook, primary CTA button
 2. Problem/Agitation section — speak to the pain points of the audience (paragraph + bullet list)
 3. Solution/Benefits section — introduce the offer as the solution, 4-6 benefit bullets, supporting paragraph
 4. Social Proof section — testimonial-style paragraph(s) with names, a results stat or two
 5. Offer Details / Value Stack section — what they get, price anchoring, urgency element, CTA button
 6. FAQ section — 3-4 common objections answered (paragraph elements)
-7. Final CTA section — strong closing headline, urgency/scarcity line, final CTA button
+7. Final CTA section — strong closing headline, urgency/scarcity line, final CTA button`;
 
-Remember: output ONLY the JSON object. No markdown, no explanation.`;
+  const userPrompt = `Generate a native GHL ${pageLabel} JSON for:
+
+Business / Niche: ${niche}
+Offer: ${offer}
+Target Audience: ${audience || 'General prospects interested in the offer'}
+Color Scheme: ${colors}
+${extraContext ? `Additional Context: ${extraContext}` : ''}
+${contextBlock}
+
+${sectionsInstruction}
+
+Output ONLY the JSON object. No markdown, no explanation.`;
 
   // Step 4: Call AI provider
   let pageJson;
   try {
     const rawText = (await aiService.generate(systemPrompt, userPrompt, { maxTokens: 4096 })).trim();
-
-    // Strip any accidental markdown code fences
-    const cleaned = rawText
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```\s*$/i, '')
-      .trim();
-
-    pageJson = JSON.parse(cleaned);
-
+    pageJson = parseJsonSafe(rawText);
     if (!pageJson.sections || !Array.isArray(pageJson.sections)) {
-      throw new Error('Claude response missing "sections" array.');
+      throw new Error('AI response missing "sections" array.');
     }
   } catch (err) {
     console.error('[FunnelBuilder] AI generation error:', err.message);
@@ -544,12 +569,10 @@ SCHEMA:
   let pageJson;
   try {
     const visionText = `Analyze this design screenshot and reconstruct it as a complete native GHL page JSON. Preserve the visual layout, section order, all text content, colors, and hierarchy faithfully.${extraContext ? `\n\nAdditional context from user: ${extraContext}` : ''}\n\nOutput ONLY the JSON object, nothing else.`;
-    const rawText    = (await aiService.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
-    const cleaned    = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-    pageJson = JSON.parse(cleaned);
-
+    const rawText = (await aiService.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
+    pageJson = parseJsonSafe(rawText);
     if (!pageJson.sections || !Array.isArray(pageJson.sections)) {
-      throw new Error('Claude response missing "sections" array.');
+      throw new Error('AI response missing "sections" array.');
     }
   } catch (err) {
     console.error('[FunnelBuilder] Vision generation error:', err.message);
