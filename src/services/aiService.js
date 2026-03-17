@@ -26,7 +26,8 @@ function getProvider() {
     return { name: 'openai', model: 'gpt-4o-mini', visionModel: 'gpt-4o' };
   }
   if (process.env.GROQ_API_KEY) {
-    return { name: 'groq', model: 'llama-3.3-70b-versatile', visionModel: 'llama-3.2-90b-vision-preview' };
+    const m = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    return { name: 'groq', model: m, visionModel: 'llama-3.2-11b-vision-preview' };
   }
   if (process.env.GOOGLE_API_KEY) {
     const m = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
@@ -159,7 +160,7 @@ async function groqGenerate(system, userText, { model, maxTokens = 4096 } = {}) 
     '/openai/v1/chat/completions',
     { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
     {
-      model:      model || 'llama-3.3-70b-versatile',
+      model:      model || process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
       max_tokens: maxTokens,
       messages: [
         { role: 'system', content: system },

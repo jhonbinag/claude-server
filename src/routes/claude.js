@@ -309,7 +309,7 @@ router.get('/status', async (req, res) => {
     const modelName = provider
       ? provider.name === 'anthropic' ? 'claude-opus-4-6'
         : provider.name === 'openai'  ? 'gpt-4o-mini'
-        : provider.name === 'groq'    ? 'llama-3.3-70b-versatile'
+        : provider.name === 'groq'    ? (process.env.GROQ_MODEL || 'llama-3.1-8b-instant')
         : 'gemini-2.5-flash'
       : 'not configured';
 

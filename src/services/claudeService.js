@@ -595,7 +595,7 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
 async function runTask(options) {
   if (process.env.ANTHROPIC_API_KEY) return runTaskWithAnthropic(options);
   if (process.env.OPENAI_API_KEY)    return runTaskOpenAICompat(options, 'api.openai.com',   process.env.OPENAI_API_KEY, 'gpt-4o-mini');
-  if (process.env.GROQ_API_KEY)      return runTaskOpenAICompat(options, 'api.groq.com',     process.env.GROQ_API_KEY,  'llama-3.3-70b-versatile');
+  if (process.env.GROQ_API_KEY)      return runTaskOpenAICompat(options, 'api.groq.com',     process.env.GROQ_API_KEY,  process.env.GROQ_MODEL || 'llama-3.1-8b-instant');
   if (process.env.GOOGLE_API_KEY)    return runTaskWithGemini(options);
   throw new Error('No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, or GOOGLE_API_KEY.');
 }
