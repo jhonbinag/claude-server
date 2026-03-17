@@ -221,8 +221,8 @@ async function ghlRequest(locationId, method, endpoint, data = null, params = nu
       Version:        config.ghl.apiVersion,
       'Content-Type': 'application/json',
     },
-    ...(data   && { data }),
-    ...(params && { params }),
+    ...(data   != null && { data }),
+    ...(params != null && { params }),
   };
 
   try {
