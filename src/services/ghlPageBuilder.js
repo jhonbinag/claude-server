@@ -108,6 +108,7 @@ async function backendRequestWithRetry(locationId, method, path, body) {
 async function savePageData(locationId, pageId, sectionsJson) {
   const path   = `/funnels/funnel/funnel-page/${pageId}`;
   const body   = sectionsJson; // already { sections: [...] }
+  console.log(`[GHLPageBuilder] Saving page ${pageId} — sections: ${sectionsJson?.sections?.length}, sample: ${JSON.stringify(sectionsJson?.sections?.[0]).slice(0, 200)}`);
   const result = await backendRequestWithRetry(locationId, 'POST', path, body);
 
   if (result.status >= 400) {
@@ -117,7 +118,7 @@ async function savePageData(locationId, pageId, sectionsJson) {
     throw new Error(`GHL savePageData failed (${result.status}): ${msg}`);
   }
 
-  console.log(`[GHLPageBuilder] Saved page ${pageId} for location ${locationId}`);
+  console.log(`[GHLPageBuilder] Saved page ${pageId} — status: ${result.status}, response: ${JSON.stringify(result.data).slice(0, 300)}`);
   return result.data;
 }
 
