@@ -199,7 +199,7 @@ export default function FunnelBuilder() {
     try {
       const resp = await fetch(`/funnel-builder/generate-from-design`, {
         method:  'POST',
-        headers: { 'x-api-key': apiKey },
+        headers: { 'x-location-id': locationId },
         body:    formData,
       });
       const d = await resp.json();
