@@ -1161,14 +1161,32 @@ router.post('/generate-funnel', async (req, res) => {
     send('page_start', { index: i, pageId: page.id, name: page.name, pageType });
     send('log', { msg: `[${i+1}/${pages.length}] "${page.name}" — type: ${pageType}`, level: 'info' });
 
-    // ── Step A: Read current page from GHL API to verify step ID ────────────
+    // ── Step A: Read current page via Firebase backend to verify step ID ────
     send('log', { msg: `[${i+1}/${pages.length}] Reading current page from GHL...`, level: 'info' });
     let currentPage = null;
     try {
-      currentPage = await ghlClient.ghlRequest(req.locationId, 'GET', `/funnels/page/${page.id}`, null, { locationId: req.locationId });
-      const stepId          = currentPage.stepId || currentPage.step_id || 'unknown';
-      const existingSections = Array.isArray(currentPage.sections) ? currentPage.sections.length : 0;
-      send('log', { msg: `[${i+1}/${pages.length}] Verified: stepId=${stepId} | existing sections=${existingSections}`, level: 'success' });
+      const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+      const fbToken  = await getFirebaseToken(req.locationId);
+      const beHdrs   = buildBackendHeaders(fbToken);
+      delete beHdrs['Content-Type'];
+      const pagePath = `/funnels/page/${page.id}?locationId=${encodeURIComponent(req.locationId)}`;
+      const pageRes  = await new Promise((resolve, reject) => {
+        const r2 = https.request(
+          { hostname: 'backend.leadconnectorhq.com', path: pagePath, method: 'GET', headers: beHdrs },
+          (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve({ status: r.statusCode, data: JSON.parse(d) }); } catch { resolve({ status: r.statusCode, data: d }); } }); }
+        );
+        r2.on('error', reject);
+        r2.end();
+      });
+      if (pageRes.status === 200) {
+        currentPage = pageRes.data;
+        const stepId           = currentPage.stepId || currentPage.step_id || 'unknown';
+        const existingSections = Array.isArray(currentPage.sections) ? currentPage.sections.length : 0;
+        const sv               = currentPage.sectionVersion ?? '-';
+        send('log', { msg: `[${i+1}/${pages.length}] Verified: stepId=${stepId} | sectionVersion=${sv} | existing sections=${existingSections}`, level: 'success' });
+      } else {
+        send('log', { msg: `[${i+1}/${pages.length}] Page read returned ${pageRes.status} — continuing`, level: 'warn' });
+      }
     } catch (err) {
       send('log', { msg: `[${i+1}/${pages.length}] Page read warning: ${err.message.slice(0, 80)}`, level: 'warn' });
     }
