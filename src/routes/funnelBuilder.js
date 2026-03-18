@@ -539,8 +539,8 @@ Output ONLY the JSON object. No markdown, no explanation.`;
     });
   }
 
-  // Step 4b: If AI collapsed everything into 1 section, split into 3 proper sections
-  if (isGroq && pageJson.sections.length === 1) {
+  // Step 4b: Ensure 3 proper sections regardless of how many the AI returned
+  if (isGroq) {
     const crypto2 = require('crypto');
     const sid = () => crypto2.randomBytes(4).toString('hex');
     const makeSection = (name, bgColor, textAlign, elems) => ({
@@ -550,29 +550,39 @@ Output ONLY the JSON object. No markdown, no explanation.`;
       children: [{ id: `row-${sid()}`, type: 'row', children: [{ id: `col-${sid()}`, type: 'column', width: 12, styles: { textAlign: { value: textAlign } }, mobileStyles: {}, children: elems }] }],
     });
 
-    // Flatten all elements out of the single section
+    // Collect all elements from all AI sections
     const flat = [];
-    const dig = nodes => nodes?.forEach(n => n.type === 'row' || n.type === 'column' || n.type === 'section' ? dig(n.children) : flat.push(n));
-    dig(pageJson.sections[0].children);
+    const dig = nodes => nodes?.forEach(n =>
+      n.type === 'row' || n.type === 'column' || n.type === 'section' ? dig(n.children) : n.type && flat.push(n)
+    );
+    pageJson.sections.forEach(s => dig(s.children));
 
-    if (flat.length >= 3) {
-      // Find first button as end of hero section
-      const firstBtn = flat.findIndex(e => e.type === 'button');
-      const heroEnd  = firstBtn >= 0 ? firstBtn + 1 : Math.ceil(flat.length / 3);
+    if (flat.length >= 2) {
+      // Split: hero = up to (and including) first button
+      const firstBtn  = flat.findIndex(e => e.type === 'button');
+      const heroEnd   = firstBtn >= 0 ? firstBtn + 1 : Math.ceil(flat.length / 3);
       const heroElems = flat.slice(0, heroEnd);
       const rest      = flat.slice(heroEnd);
-      // Find last button as start of CTA section
-      const lastBtn   = rest.map(e => e.type).lastIndexOf('button');
-      const ctaStart  = lastBtn > 0 ? lastBtn : Math.max(rest.length - 2, 1);
+
+      // Benefits = everything between hero and last button
+      const lastBtn      = rest.map(e => e.type).lastIndexOf('button');
+      const ctaStart     = lastBtn > 0 ? lastBtn : Math.max(rest.length - 2, 1);
       const benefitElems = rest.slice(0, ctaStart);
       const ctaElems     = rest.slice(ctaStart);
 
+      // Guarantee CTA section always has a heading + paragraph + button
+      const fallbackCta = [
+        { id: `heading-${sid()}`, type: 'heading', tag: 'h2', text: `Ready to start your journey?`, styles: { color: { value: '#ffffff' }, fontSize: { value: 36, unit: 'px' }, fontWeight: { value: '700' }, lineHeight: { value: 1.2, unit: 'em' }, textAlign: { value: 'center' }, marginTop: { value: 0, unit: 'px' }, marginRight: { value: 0, unit: 'px' }, marginBottom: { value: 16, unit: 'px' }, marginLeft: { value: 0, unit: 'px' }, typography: { value: 'var(--headlinefont)' }, linkTextColor: { value: '#ffffff' } }, mobileStyles: { fontSize: { value: 26, unit: 'px' }, lineHeight: { value: 1.2, unit: 'em' }, marginTop: { value: 0, unit: 'px' }, marginRight: { value: 0, unit: 'px' }, marginBottom: { value: 12, unit: 'px' }, marginLeft: { value: 0, unit: 'px' } } },
+        { id: `paragraph-${sid()}`, type: 'paragraph', text: `Join thousands who have already taken the first step. Spots are limited — act now.`, styles: { color: { value: '#e2e8f0' }, fontSize: { value: 18, unit: 'px' }, lineHeight: { value: 1.6, unit: 'em' }, textAlign: { value: 'center' }, marginTop: { value: 0, unit: 'px' }, marginRight: { value: 0, unit: 'px' }, marginBottom: { value: 24, unit: 'px' }, marginLeft: { value: 0, unit: 'px' }, typography: { value: 'var(--contentfont)' }, linkTextColor: { value: '#e2e8f0' } }, mobileStyles: { fontSize: { value: 16, unit: 'px' }, lineHeight: { value: 1.6, unit: 'em' }, marginTop: { value: 0, unit: 'px' }, marginRight: { value: 0, unit: 'px' }, marginBottom: { value: 16, unit: 'px' }, marginLeft: { value: 0, unit: 'px' } } },
+        { id: `button-${sid()}`, type: 'button', text: `Get Started Now`, link: '#', styles: { backgroundColor: { value: '#f59e0b' }, color: { value: '#1e3a5f' }, fontSize: { value: 18, unit: 'px' }, fontWeight: { value: '700' }, lineHeight: { value: 1.2, unit: 'em' }, paddingTop: { value: 16, unit: 'px' }, paddingBottom: { value: 16, unit: 'px' }, paddingLeft: { value: 40, unit: 'px' }, paddingRight: { value: 40, unit: 'px' }, borderRadius: { value: 8, unit: 'px' }, marginTop: { value: 0, unit: 'px' }, marginBottom: { value: 0, unit: 'px' }, marginLeft: { value: 0, unit: 'px' }, marginRight: { value: 0, unit: 'px' }, textAlign: { value: 'center' } }, mobileStyles: { fontSize: { value: 16, unit: 'px' }, paddingTop: { value: 14, unit: 'px' }, paddingBottom: { value: 14, unit: 'px' } } },
+      ];
+
       pageJson.sections = [
         makeSection('Hero',     '#ffffff', 'center', heroElems.length    ? heroElems    : [flat[0]]),
-        makeSection('Benefits', '#f9fafb', 'left',   benefitElems.length ? benefitElems : [flat[1]]),
-        makeSection('CTA',      '#1e3a5f', 'center', ctaElems.length     ? ctaElems     : [flat[flat.length - 1]]),
+        makeSection('Benefits', '#f9fafb', 'left',   benefitElems.length ? benefitElems : flat.slice(Math.min(1, flat.length - 1))),
+        makeSection('CTA',      '#1e3a5f', 'center', ctaElems.length     ? ctaElems     : fallbackCta),
       ];
-      console.log(`[FunnelBuilder] Auto-split 1 section → 3 (${heroElems.length}/${benefitElems.length}/${ctaElems.length} elements)`);
+      console.log(`[FunnelBuilder] Sections rebuilt: Hero=${heroElems.length} Benefits=${benefitElems.length} CTA=${ctaElems.length || 'fallback'}`);
     }
   }
 
