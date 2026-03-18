@@ -1083,6 +1083,57 @@ router.get('/ghl-raw', async (req, res) => {
   });
 });
 
+// ── GET /ghl-full — return the raw untruncated GHL backend response for a page ─
+// Usage: GET /funnel-builder/ghl-full?pageId=xxx
+
+router.get('/ghl-full', async (req, res) => {
+  const { pageId } = req.query;
+  if (!pageId) return res.status(400).json({ error: '"pageId" required' });
+
+  let idToken;
+  try { idToken = await getFirebaseToken(req.locationId); }
+  catch (err) { return res.status(400).json({ error: 'Firebase not connected' }); }
+
+  const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+  const beHeaders = buildBackendHeaders(idToken);
+  delete beHeaders['Content-Type'];
+
+  const result = await new Promise(resolve => {
+    const r2 = https.request(
+      { hostname: 'backend.leadconnectorhq.com', path: `/funnels/page/${pageId}?locationId=${encodeURIComponent(req.locationId)}`, method: 'GET', headers: beHeaders },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve({ status: r.statusCode, data: JSON.parse(d) }); } catch { resolve({ status: r.statusCode, raw: d.slice(0, 500) }); } }); }
+    );
+    r2.on('error', e => resolve({ status: 0, error: e.message }));
+    r2.end();
+  });
+
+  if (!result.data) return res.json(result);
+
+  const d = result.data;
+  // Return key diagnostic fields without sections (sections are large)
+  res.json({
+    status:          result.status,
+    deleted:         d.deleted,
+    templateType:    d.templateType,
+    url:             d.url,
+    name:            d.name,
+    stepId:          d.stepId,
+    funnelId:        d.funnelId,
+    locationId:      d.locationId,
+    sectionVersion:  d.sectionVersion,
+    pageVersion:     d.pageVersion,
+    version:         d.version,
+    sectionCount:    Array.isArray(d.sections) ? d.sections.length : 'not array',
+    firstElementTypes: Array.isArray(d.sections) && d.sections[0]
+      ? (d.sections[0].children?.[0]?.children?.[0]?.children || []).map(e => `${e.type}:${(e.text||'').slice(0,30)}`)
+      : null,
+    pageDataDownloadUrl: d.pageDataDownloadUrl,
+    colorsPresent:   !!d.colors,
+    popupsPresent:   Array.isArray(d.popups) ? d.popups.length : 0,
+    previewSnapshot: d.previewSnapshot ? d.previewSnapshot.slice(0, 100) : null,
+  });
+});
+
 // ── GET /page-data — fetch existing GHL page data from Firestore + Storage ────
 // Usage: GET /funnel-builder/page-data?pageId=xxx
 
