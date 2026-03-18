@@ -607,6 +607,19 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   }
   console.log(`[GHLPageBuilder] Built ${ghlSections.length} sections in GHL native format`);
 
+  // Also normalize AI sections for Firestore `sections` field (regular editor reads this directly).
+  // The regular funnel editor reads the `sections` array from the GHL backend API (not Storage).
+  // We write sections in GHL's old nested-children format with normalized element type names.
+  function normalizeTypeNames(nodes) {
+    return (nodes || []).map(n => {
+      const typeMap = { heading: 'headline', 'sub-heading': 'sub-headline' };
+      const out = { ...n, type: typeMap[n.type] || n.type };
+      if (Array.isArray(n.children)) out.children = normalizeTypeNames(n.children);
+      return out;
+    });
+  }
+  const firestoreSections = normalizeTypeNames(aiSections);
+
   // Storage file — GHL native format: { sections: [{ id, metaData, elements, sequence, pageId, funnelId, locationId, general }] }
   const storageFile = { sections: ghlSections };
   const firstLeaf = ghlSections[0]?.elements?.find(e => e.type === 'element');
@@ -632,13 +645,15 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   });
   const updatedVH = { arrayValue: { values: [newVHEntry, ...(existingVH || []).slice(0, 29)] } };
 
-  // Update Firestore — URL fields + version counters only.
-  // GHL's editor reads from the Storage file (page_data_download_url), NOT from Firestore sections field.
-  // Incrementing section_version triggers GHL's editor to re-fetch the Storage file.
+  // Update Firestore — sections (nested format for regular editor) + URL fields + version counters.
+  // The regular funnel editor reads `sections` from GHL's backend API (Firestore-backed).
+  // The AI editor reads from Storage via page_data_download_url.
+  // We write both so either editor path shows the generated content.
   const newVersion   = (currentVersion || 1) + 1;
   const newSV        = (currentSV || 1) + 1;
   const newPV        = (currentPV || 1) + 1;
   const fsResult     = await patchFirestoreDoc(idToken, projectId, pageId, {
+    sections:               toFirestoreValue(firestoreSections),
     page_data_url:          toFirestoreValue(storagePath),
     page_data_download_url: toFirestoreValue(newDownloadUrl),
     versionHistory:         updatedVH,
