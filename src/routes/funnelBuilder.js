@@ -452,19 +452,22 @@ router.post('/generate', async (req, res) => {
   const provider = aiService.getProvider();
   const isGroq   = provider?.name === 'groq';
 
-  // Groq compact schema — no mobileStyles, minimal style props to save tokens
-  const groqSystemPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
-Root: {"sections":[...]}
-IDs MUST be unique using format {elementType}-{8 random alphanumeric chars}. Generate truly random chars — NEVER use sequential numbers like 0001, 12345. Styles use {"value":X,"unit":"px"} or {"value":"#HEX"} format.
+  // Groq compact schema — 3-section skeleton shown explicitly so model outputs 3 sections
+  const groqSystemPrompt = `${agentIntro}Output ONLY valid JSON. No explanation, no markdown.
 
-Element types (use EXACTLY these type names — heading NOT headline, sub-heading NOT sub-headline):
-- heading: {"id":"heading-a1b2c3d4","type":"heading","tag":"h1","text":"Headline text","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{}}
-- sub-heading: {"id":"sub-heading-e5f6g7h8","type":"sub-heading","text":"Subheading text","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{}}
-- paragraph: {"id":"paragraph-X","type":"paragraph","text":"Plain text body copy. No HTML tags.","styles":{"color":{"value":"#555"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
-- button: {"id":"button-X","type":"button","text":"Button label","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#fff"},"fontSize":{"value":16,"unit":"px"},"paddingTop":{"value":14,"unit":"px"},"paddingBottom":{"value":14,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
-- bulletList: {"id":"bulletList-X","type":"bulletList","items":["Benefit one","Benefit two","Benefit three"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
+REQUIRED output shape — 3 separate section objects in the array:
+{"sections":[
+  {"id":"section-A1B2C3D4","type":"section","name":"Hero","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#ffffff"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-A1B2C3D4","type":"row","children":[{"id":"col-A1B2C3D4","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[HERO_ELEMENTS]}]}]},
+  {"id":"section-E5F6G7H8","type":"section","name":"Benefits","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#f9fafb"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-E5F6G7H8","type":"row","children":[{"id":"col-E5F6G7H8","type":"column","width":12,"styles":{"textAlign":{"value":"left"}},"mobileStyles":{},"children":[BENEFITS_ELEMENTS]}]}]},
+  {"id":"section-I9J0K1L2","type":"section","name":"CTA","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#1e3a5f"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-I9J0K1L2","type":"row","children":[{"id":"col-I9J0K1L2","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[CTA_ELEMENTS]}]}]}
+]}
 
-Section wrapper: {"id":"section-X","type":"section","name":"name","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-X","type":"row","children":[{"id":"column-X","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}`;
+Replace HERO_ELEMENTS, BENEFITS_ELEMENTS, CTA_ELEMENTS with real element arrays. Use unique 8-char random IDs. Element types:
+- {"id":"heading-XXXXXXXX","type":"heading","tag":"h1","text":"...","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{"fontSize":{"value":30,"unit":"px"}}}
+- {"id":"sub-heading-XXXXXXXX","type":"sub-heading","text":"...","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
+- {"id":"paragraph-XXXXXXXX","type":"paragraph","text":"Plain text only. No HTML.","styles":{"color":{"value":"#555"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
+- {"id":"button-XXXXXXXX","type":"button","text":"...","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#fff"},"fontSize":{"value":16,"unit":"px"},"paddingTop":{"value":14,"unit":"px"},"paddingBottom":{"value":14,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
+- {"id":"bulletList-XXXXXXXX","type":"bulletList","items":["Benefit 1","Benefit 2","Benefit 3","Benefit 4"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}`;
 
   const fullSystemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer and copywriter. Generate complete, production-ready native GHL page JSON.
 
@@ -497,7 +500,7 @@ SCHEMA:
 
   // Groq has tight token limits — generate a compact 3-section page; other providers get all 7
   const sectionsInstruction = isGroq
-    ? `Build 3 sections: 1) Hero (H1 headline + subheading + CTA button), 2) Benefits (subheading + 4 bullet points), 3) Final CTA (headline + button). Keep copy concise.`
+    ? `Fill the 3-section skeleton with real content for this business. HERO_ELEMENTS=[heading(h1),sub-heading,button]. BENEFITS_ELEMENTS=[sub-heading,bulletList(4 items),paragraph]. CTA_ELEMENTS=[heading(h2),paragraph,button]. Output only the final JSON.`
     : `Build a FULL page with these sections in order:
 1. Hero section — bold H1 headline, compelling subheading, short paragraph hook, primary CTA button
 2. Problem/Agitation section — speak to the pain points of the audience (paragraph + bullet list)
@@ -534,6 +537,43 @@ Output ONLY the JSON object. No markdown, no explanation.`;
       success: false,
       error:   'Failed to generate page JSON: ' + err.message,
     });
+  }
+
+  // Step 4b: If AI collapsed everything into 1 section, split into 3 proper sections
+  if (isGroq && pageJson.sections.length === 1) {
+    const crypto2 = require('crypto');
+    const sid = () => crypto2.randomBytes(4).toString('hex');
+    const makeSection = (name, bgColor, textAlign, elems) => ({
+      id: `section-${sid()}`, type: 'section', name, allowRowMaxWidth: false,
+      styles: { backgroundColor: { value: bgColor }, paddingTop: { value: 80, unit: 'px' }, paddingBottom: { value: 80, unit: 'px' }, paddingLeft: { value: 20, unit: 'px' }, paddingRight: { value: 20, unit: 'px' } },
+      mobileStyles: {},
+      children: [{ id: `row-${sid()}`, type: 'row', children: [{ id: `col-${sid()}`, type: 'column', width: 12, styles: { textAlign: { value: textAlign } }, mobileStyles: {}, children: elems }] }],
+    });
+
+    // Flatten all elements out of the single section
+    const flat = [];
+    const dig = nodes => nodes?.forEach(n => n.type === 'row' || n.type === 'column' || n.type === 'section' ? dig(n.children) : flat.push(n));
+    dig(pageJson.sections[0].children);
+
+    if (flat.length >= 3) {
+      // Find first button as end of hero section
+      const firstBtn = flat.findIndex(e => e.type === 'button');
+      const heroEnd  = firstBtn >= 0 ? firstBtn + 1 : Math.ceil(flat.length / 3);
+      const heroElems = flat.slice(0, heroEnd);
+      const rest      = flat.slice(heroEnd);
+      // Find last button as start of CTA section
+      const lastBtn   = rest.map(e => e.type).lastIndexOf('button');
+      const ctaStart  = lastBtn > 0 ? lastBtn : Math.max(rest.length - 2, 1);
+      const benefitElems = rest.slice(0, ctaStart);
+      const ctaElems     = rest.slice(ctaStart);
+
+      pageJson.sections = [
+        makeSection('Hero',     '#ffffff', 'center', heroElems.length    ? heroElems    : [flat[0]]),
+        makeSection('Benefits', '#f9fafb', 'left',   benefitElems.length ? benefitElems : [flat[1]]),
+        makeSection('CTA',      '#1e3a5f', 'center', ctaElems.length     ? ctaElems     : [flat[flat.length - 1]]),
+      ];
+      console.log(`[FunnelBuilder] Auto-split 1 section → 3 (${heroElems.length}/${benefitElems.length}/${ctaElems.length} elements)`);
+    }
   }
 
   // Step 5: Save to GHL backend (Firestore + Storage)
