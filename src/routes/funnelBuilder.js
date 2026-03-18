@@ -517,7 +517,7 @@ Output ONLY the JSON object. No markdown, no explanation.`;
     });
   }
 
-  // Step 5: Save to GHL backend
+  // Step 5: Save to GHL backend (Firestore + Storage)
   let saveResult;
   try {
     saveResult = await saveWithFunnelHint(req.locationId, resolvedPageId, pageJson, funnelId);
@@ -530,6 +530,34 @@ Output ONLY the JSON object. No markdown, no explanation.`;
       hint:    err.message.includes('403') ? 'Firebase token expired. Use the bookmarklet to reconnect.' : undefined,
       pageJson,
     });
+  }
+
+  // Step 5b: POST to GHL's native copilot save endpoint (same as GHL's "Ask AI")
+  try {
+    const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+    const fbTok2    = await getFirebaseToken(req.locationId);
+    const beHdrs2   = buildBackendHeaders(fbTok2);
+    const copilotBody = JSON.stringify({
+      sections:            convertSectionsToGHL(pageJson.sections),
+      pageDataDownloadUrl: saveResult.downloadUrl,
+      pageDataUrl:         saveResult.storagePath,
+      sectionVersion:      saveResult.sectionVersion,
+      pageVersion:         saveResult.pageVersion,
+      version:             saveResult.version,
+    });
+    const copilotPath = `/funnel-ai/copilot/page-data/${resolvedPageId}?locationId=${encodeURIComponent(req.locationId)}`;
+    await new Promise((resolve) => {
+      const r2 = https.request(
+        { hostname: 'backend.leadconnectorhq.com', path: copilotPath, method: 'POST',
+          headers: { ...beHdrs2, 'Content-Length': Buffer.byteLength(copilotBody) } },
+        (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => resolve(r.statusCode)); }
+      );
+      r2.on('error', () => resolve(0));
+      r2.write(copilotBody);
+      r2.end();
+    });
+  } catch (e) {
+    console.warn('[FunnelBuilder] copilot push warning:', e.message);
   }
 
   // Step 6: Build preview URL
@@ -892,6 +920,83 @@ router.post('/ghl-push', async (req, res) => {
 
   const success = results.filter(r => r.status >= 200 && r.status < 300);
   res.json({ sectionsAvailable: sections.length, results: results.map(r => ({ path: r.path, status: r.status })), successPaths: success.map(r => r.path), successDetails: success });
+});
+
+// ── POST /copilot-push — push current Firestore sections via GHL's native copilot API ──
+// Usage: POST /funnel-builder/copilot-push { pageId }
+// Reads what's currently in Firestore for this page and POSTs it to GHL's
+// funnel-ai/copilot/page-data endpoint — the same endpoint GHL's "Ask AI" uses.
+// If this makes the editor show content, we know the copilot endpoint is required.
+
+router.post('/copilot-push', async (req, res) => {
+  const { pageId } = req.body;
+  if (!pageId) return res.status(400).json({ error: '"pageId" required' });
+
+  let idToken;
+  try { idToken = await getFirebaseToken(req.locationId); }
+  catch (err) { return res.status(400).json({ error: 'Firebase not connected', detail: err.message }); }
+
+  const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+  const beHeaders = buildBackendHeaders(idToken);
+  const projectId = 'highlevel-backend';
+
+  // 1. Read current sections from Firestore
+  const fsPath = `/v1/projects/${projectId}/databases/(default)/documents/funnel_pages/${pageId}`;
+  const fsRes  = await new Promise(resolve => {
+    const r2 = https.request({ hostname: 'firestore.googleapis.com', path: fsPath, method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve({ status: r.statusCode, data: JSON.parse(d) }); } catch { resolve({ status: r.statusCode, data: d }); } }); });
+    r2.on('error', e => resolve({ status: 0, error: e.message }));
+    r2.end();
+  });
+
+  if (fsRes.status >= 400) return res.status(fsRes.status).json({ error: 'Firestore read failed', data: fsRes.data });
+
+  // Decode Firestore values to plain JS
+  function decodeFS(v) {
+    if (!v) return null;
+    if ('stringValue'  in v) return v.stringValue;
+    if ('integerValue' in v) return Number(v.integerValue);
+    if ('doubleValue'  in v) return v.doubleValue;
+    if ('booleanValue' in v) return v.booleanValue;
+    if ('nullValue'    in v) return null;
+    if ('arrayValue'   in v) return (v.arrayValue.values || []).map(decodeFS);
+    if ('mapValue'     in v) { const o = {}; for (const [k, fv] of Object.entries(v.mapValue.fields || {})) o[k] = decodeFS(fv); return o; }
+    return null;
+  }
+
+  const f           = fsRes.data?.fields || {};
+  const sections    = decodeFS(f.sections);
+  const downloadUrl = f.page_data_download_url?.stringValue || '';
+  const storagePath = f.page_data_url?.stringValue || '';
+  const sv          = Number(f.section_version?.integerValue || 1);
+  const pv          = Number(f.page_version?.integerValue || 1);
+  const ver         = Number(f.version?.integerValue || 1);
+
+  if (!sections || !sections.length) {
+    return res.status(400).json({ error: 'No sections in Firestore for this page. Generate content first.' });
+  }
+
+  // 2. POST to GHL copilot save endpoint
+  const copilotBody = JSON.stringify({ sections, pageDataDownloadUrl: downloadUrl, pageDataUrl: storagePath, sectionVersion: sv, pageVersion: pv, version: ver });
+  const copilotPath = `/funnel-ai/copilot/page-data/${pageId}?locationId=${encodeURIComponent(req.locationId)}`;
+  const copilotRes  = await new Promise(resolve => {
+    const r2 = https.request(
+      { hostname: 'backend.leadconnectorhq.com', path: copilotPath, method: 'POST',
+        headers: { ...beHeaders, 'Content-Length': Buffer.byteLength(copilotBody) } },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve({ status: r.statusCode, data: JSON.parse(d) }); } catch { resolve({ status: r.statusCode, data: d.slice(0, 500) }); } }); }
+    );
+    r2.on('error', e => resolve({ status: 0, error: e.message }));
+    r2.write(copilotBody);
+    r2.end();
+  });
+
+  res.json({
+    message:       'Copilot push attempted',
+    sectionsCount: sections.length,
+    copilotPath,
+    copilotStatus: copilotRes.status,
+    copilotData:   copilotRes.data,
+  });
 });
 
 // ── GET /ghl-raw — call GHL's actual backend APIs and return raw responses ─────
@@ -1283,22 +1388,43 @@ Output ONLY the JSON object.`;
         send('log', { msg: `[${i+1}/${pages.length}] Firestore updated (v${saveRes.version}, sectionV${saveRes.sectionVersion})`, level: 'success' });
       }
 
-      // ── Step D: PUT update via GHL OAuth API ─────────────────────────────
-      send('log', { msg: `[${i+1}/${pages.length}] Pushing update via GHL API PUT...`, level: 'info' });
+      // ── Step D: POST to GHL's native copilot save endpoint ───────────────
+      // This is the same endpoint GHL's own "Ask AI" feature calls internally.
+      send('log', { msg: `[${i+1}/${pages.length}] Pushing to GHL backend save API...`, level: 'info' });
       try {
-        const ghlSections = convertSectionsToGHL(pageJson.sections);
-        const putBody = {
-          sections:            ghlSections,
+        const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+        const fbToken2  = await getFirebaseToken(req.locationId);
+        const beHdrs2   = buildBackendHeaders(fbToken2);
+        const ghlSects  = convertSectionsToGHL(pageJson.sections);
+        const copilotBody = JSON.stringify({
+          sections:            ghlSects,
           pageDataDownloadUrl: saveRes.downloadUrl,
           pageDataUrl:         saveRes.storagePath,
           sectionVersion:      saveRes.sectionVersion,
           pageVersion:         saveRes.pageVersion,
           version:             saveRes.version,
-        };
-        await ghlClient.ghlRequest(req.locationId, 'PUT', `/funnels/page/${page.id}`, putBody, { locationId: req.locationId });
-        send('log', { msg: `[${i+1}/${pages.length}] GHL API PUT success — page fully updated`, level: 'success' });
+        });
+        const copilotPath = `/funnel-ai/copilot/page-data/${page.id}?locationId=${encodeURIComponent(req.locationId)}`;
+        const copilotRes  = await new Promise((resolve, reject) => {
+          const r2 = https.request(
+            { hostname: 'backend.leadconnectorhq.com', path: copilotPath, method: 'POST',
+              headers: { ...beHdrs2, 'Content-Length': Buffer.byteLength(copilotBody) } },
+            (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+              try { resolve({ status: r.statusCode, data: JSON.parse(d) }); }
+              catch { resolve({ status: r.statusCode, data: d.slice(0, 200) }); }
+            }); }
+          );
+          r2.on('error', reject);
+          r2.write(copilotBody);
+          r2.end();
+        });
+        if (copilotRes.status >= 200 && copilotRes.status < 300) {
+          send('log', { msg: `[${i+1}/${pages.length}] GHL copilot save OK (${copilotRes.status}) — editor will refresh`, level: 'success' });
+        } else {
+          send('log', { msg: `[${i+1}/${pages.length}] GHL copilot save returned ${copilotRes.status} — Firestore write still active`, level: 'warn' });
+        }
       } catch (putErr) {
-        send('log', { msg: `[${i+1}/${pages.length}] GHL API PUT failed (${putErr.message.slice(0, 80)}) — Firestore write still active`, level: 'warn' });
+        send('log', { msg: `[${i+1}/${pages.length}] GHL copilot save error: ${putErr.message.slice(0, 80)}`, level: 'warn' });
       }
 
       send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, warning: warn || undefined });
