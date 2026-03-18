@@ -728,8 +728,32 @@ router.get('/ghl-raw', async (req, res) => {
       : null,
     firstSection: typeof r.data === 'object' && Array.isArray(r.data.sections)
       ? JSON.stringify(r.data.sections[0]).slice(0, 600) : null,
+    // Critical: show the actual URL the editor would download for page content
+    pageDataDownloadUrl: r.data?.pageDataDownloadUrl ?? null,
+    pageDataUrl:         r.data?.pageDataUrl ?? null,
+    sectionVersion:      r.data?.sectionVersion ?? null,
+    pageVersion:         r.data?.pageVersion ?? null,
+    version:             r.data?.version ?? null,
     rawSlice: typeof r.data === 'string' ? r.data.slice(0, 300) : null,
   });
+
+  // Also try to download the actual file from GHL's pageDataDownloadUrl
+  const pageData = funnelPage.data?.pageDataDownloadUrl || funnelPageV2.data?.pageDataDownloadUrl;
+  let storageContent = null;
+  if (pageData) {
+    try {
+      const u = new URL(pageData);
+      storageContent = await new Promise(resolve => {
+        const req2 = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'GET' },
+          (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+            try { resolve({ ok: true, keys: Object.keys(JSON.parse(d)), sectionCount: JSON.parse(d)?.sections?.length }); }
+            catch { resolve({ ok: false, raw: d.slice(0, 200) }); }
+          }); });
+        req2.on('error', e => resolve({ ok: false, error: e.message }));
+        req2.end();
+      });
+    } catch (e) { storageContent = { error: e.message }; }
+  }
 
   res.json({
     pageId,
@@ -737,6 +761,7 @@ router.get('/ghl-raw', async (req, res) => {
     '/funnel-ai/copilot/page-data': summarize(copilotData),
     '/funnels/page/{pageId}?locationId': summarize(funnelPage),
     '/funnels/page/{pageId}': summarize(funnelPageV2),
+    storageFileFromGhlUrl: storageContent,
   });
 });
 
