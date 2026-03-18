@@ -1153,6 +1153,103 @@ router.get('/ghl-full', async (req, res) => {
   });
 });
 
+// ── GET /editor-check — returns FULL decoded sections from GHL API + Storage ──
+// Shows exactly what the GHL page editor would see when it opens the page.
+// Usage: GET /funnel-builder/editor-check?pageId=xxx
+
+router.get('/editor-check', async (req, res) => {
+  const { pageId } = req.query;
+  if (!pageId) return res.status(400).json({ error: '"pageId" required' });
+
+  let idToken;
+  try { idToken = await getFirebaseToken(req.locationId); }
+  catch (err) { return res.status(400).json({ error: 'Firebase not connected' }); }
+
+  const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+  const beHeaders = buildBackendHeaders(idToken);
+  delete beHeaders['Content-Type'];
+
+  // Step 1: fetch from GHL backend API (same call the editor makes)
+  const apiResult = await new Promise(resolve => {
+    const r2 = https.request(
+      { hostname: 'backend.leadconnectorhq.com', path: `/funnels/page/${pageId}?locationId=${encodeURIComponent(req.locationId)}`, method: 'GET', headers: beHeaders },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve({ status: r.statusCode, data: JSON.parse(d) }); } catch { resolve({ status: r.statusCode }); } }); }
+    );
+    r2.on('error', e => resolve({ status: 0, error: e.message }));
+    r2.end();
+  });
+
+  // Step 2: decode each section and its full element tree from the API response
+  const apiSections = apiResult.data?.sections || [];
+  const decodedSections = apiSections.map((section, si) => {
+    const rows    = section.children || [];
+    const allElems = [];
+    rows.forEach(row => {
+      (row.children || []).forEach(col => {
+        (col.children || []).forEach(el => {
+          allElems.push({
+            type:  el.type,
+            id:    el.id,
+            text:  el.text  || undefined,
+            items: el.items || undefined,
+            tag:   el.tag   || undefined,
+            link:  el.link  || undefined,
+            stylesKeys:       Object.keys(el.styles       || {}),
+            mobileStylesKeys: Object.keys(el.mobileStyles || {}),
+          });
+        });
+      });
+    });
+    return {
+      sectionIndex: si,
+      sectionId:    section.id,
+      sectionName:  section.name,
+      bgColor:      section.styles?.backgroundColor?.value,
+      elementCount: allElems.length,
+      elements:     allElems,
+    };
+  });
+
+  // Step 3: also download the Storage file and decode it
+  const dlUrl = apiResult.data?.pageDataDownloadUrl;
+  let storageDecoded = null;
+  if (dlUrl) {
+    try {
+      const u2 = new URL(dlUrl);
+      const storageRaw = await new Promise(resolve => {
+        const r3 = https.request({ hostname: u2.hostname, path: u2.pathname + u2.search, method: 'GET' },
+          (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } }); });
+        r3.on('error', () => resolve(null));
+        r3.end();
+      });
+      if (storageRaw?.sections) {
+        storageDecoded = storageRaw.sections.map((section, si) => {
+          const allElems = [];
+          (section.children || []).forEach(row => {
+            (row.children || []).forEach(col => {
+              (col.children || []).forEach(el => {
+                allElems.push({ type: el.type, id: el.id, text: el.text || undefined, items: el.items || undefined });
+              });
+            });
+          });
+          return { sectionIndex: si, sectionId: section.id, elementCount: allElems.length, elements: allElems };
+        });
+      }
+    } catch (e) { storageDecoded = { error: e.message }; }
+  }
+
+  res.json({
+    apiStatus:        apiResult.status,
+    sectionVersion:   apiResult.data?.sectionVersion,
+    pageVersion:      apiResult.data?.pageVersion,
+    totalSections:    decodedSections.length,
+    sectionsFromAPI:  decodedSections,
+    sectionsFromStorage: storageDecoded,
+    match: JSON.stringify(decodedSections.map(s => s.elements.map(e => e.type))) ===
+           JSON.stringify((storageDecoded || []).map(s => s.elements.map(e => e.type))),
+  });
+});
+
 // ── GET /page-data — fetch existing GHL page data from Firestore + Storage ────
 // Usage: GET /funnel-builder/page-data?pageId=xxx
 
