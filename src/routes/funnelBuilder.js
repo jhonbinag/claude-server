@@ -1157,6 +1157,45 @@ router.get('/ghl-raw', async (req, res) => {
   });
 });
 
+// ── GET /copilot-get — call GHL OAuth copilot GET + try PUT to trigger editor ──
+// Tests the copilot endpoint that GHL's native AI uses to save sections.
+// Usage: GET /funnel-builder/copilot-get?pageId=xxx
+
+router.get('/copilot-get', async (req, res) => {
+  const { pageId } = req.query;
+  if (!pageId) return res.status(400).json({ error: '"pageId" required' });
+
+  const results = {};
+
+  // Try GET via OAuth client (services.leadconnectorhq.com)
+  try {
+    const getResp = await ghlClient.ghlRequest(
+      req.locationId, 'GET',
+      `/funnel-ai/copilot/page-data/${pageId}?locationId=${encodeURIComponent(req.locationId)}`,
+      null, { locationId: req.locationId }
+    );
+    results.copilotGet = { ok: true, data: getResp };
+  } catch (err) {
+    results.copilotGet = { ok: false, error: err.message, status: err.status };
+  }
+
+  // Also try a few other plausible paths via OAuth
+  for (const path of [
+    `/funnel-ai/copilot/sections/${pageId}?locationId=${encodeURIComponent(req.locationId)}`,
+    `/funnels/page-builder/${pageId}?locationId=${encodeURIComponent(req.locationId)}`,
+    `/funnel-ai/page/${pageId}?locationId=${encodeURIComponent(req.locationId)}`,
+  ]) {
+    try {
+      const r = await ghlClient.ghlRequest(req.locationId, 'GET', path, null, { locationId: req.locationId });
+      results[path] = { ok: true, keys: Object.keys(r || {}), data: r };
+    } catch (err) {
+      results[path] = { ok: false, status: err.status, error: err.message?.slice(0, 100) };
+    }
+  }
+
+  res.json(results);
+});
+
 // ── GET /ghl-full — return the raw untruncated GHL backend response for a page ─
 // Usage: GET /funnel-builder/ghl-full?pageId=xxx
 
