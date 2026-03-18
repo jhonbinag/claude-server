@@ -681,6 +681,94 @@ SCHEMA:
   res.end();
 });
 
+// ── POST /ghl-push — push sections directly to GHL's backend save API ─────────
+// Usage: POST /funnel-builder/ghl-push { pageId, funnelId }
+// Tries known GHL backend endpoints to write sections, similar to what GHL's
+// native AI does internally. This finds + uses the correct save API.
+
+router.post('/ghl-push', async (req, res) => {
+  const { pageId, funnelId } = req.body;
+  if (!pageId) return res.status(400).json({ error: '"pageId" required' });
+
+  let idToken;
+  try { idToken = await getFirebaseToken(req.locationId); }
+  catch (err) { return res.status(400).json({ error: 'Firebase not connected', detail: err.message }); }
+
+  const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+  const beHeaders = { ...buildBackendHeaders(idToken), 'Content-Type': 'application/json' };
+
+  // Read current Firestore sections to push
+  const projectId = 'highlevel-backend';
+  const fsPath    = `/v1/projects/${projectId}/databases/(default)/documents/funnel_pages/${pageId}`;
+  const fsRes = await new Promise(resolve => {
+    const r2 = https.request({ hostname: 'firestore.googleapis.com', path: fsPath, method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({}); } }); });
+    r2.on('error', () => resolve({}));
+    r2.end();
+  });
+
+  // Decode sections from Firestore arrayValue
+  function decodeFirestore(v) {
+    if (!v) return null;
+    if ('stringValue'  in v) return v.stringValue;
+    if ('integerValue' in v) return Number(v.integerValue);
+    if ('doubleValue'  in v) return v.doubleValue;
+    if ('booleanValue' in v) return v.booleanValue;
+    if ('nullValue'    in v) return null;
+    if ('arrayValue'   in v) return (v.arrayValue.values || []).map(decodeFirestore);
+    if ('mapValue'     in v) {
+      const o = {};
+      for (const [k, fv] of Object.entries(v.mapValue.fields || {})) o[k] = decodeFirestore(fv);
+      return o;
+    }
+    return null;
+  }
+
+  const rawSections = fsRes?.fields?.sections;
+  const sections    = rawSections ? decodeFirestore(rawSections) : [];
+  const downloadUrl = fsRes?.fields?.page_data_download_url?.stringValue || '';
+
+  const tryPost = (path, body) => new Promise(resolve => {
+    const payload = JSON.stringify(body);
+    const r2 = https.request(
+      { hostname: 'backend.leadconnectorhq.com', path, method: 'POST',
+        headers: { ...beHeaders, 'Content-Length': Buffer.byteLength(payload) } },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+        try { resolve({ path, status: r.statusCode, data: JSON.parse(d) }); }
+        catch { resolve({ path, status: r.statusCode, data: d.slice(0, 200) }); }
+      }); });
+    r2.on('error', e => resolve({ path, status: 0, error: e.message }));
+    r2.write(payload); r2.end();
+  });
+
+  const tryPut = (path, body) => new Promise(resolve => {
+    const payload = JSON.stringify(body);
+    const r2 = https.request(
+      { hostname: 'backend.leadconnectorhq.com', path, method: 'PUT',
+        headers: { ...beHeaders, 'Content-Length': Buffer.byteLength(payload) } },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+        try { resolve({ path, status: r.statusCode, data: JSON.parse(d) }); }
+        catch { resolve({ path, status: r.statusCode, data: d.slice(0, 200) }); }
+      }); });
+    r2.on('error', e => resolve({ path, status: 0, error: e.message }));
+    r2.write(payload); r2.end();
+  });
+
+  const pagePayload = { sections, pageDataDownloadUrl: downloadUrl, pageDataUrl: downloadUrl };
+
+  const results = await Promise.all([
+    tryPost(`/funnel-ai/copilot/page-data/${pageId}?locationId=${encodeURIComponent(req.locationId)}`, pagePayload),
+    tryPut(`/funnel-ai/copilot/page-data/${pageId}?locationId=${encodeURIComponent(req.locationId)}`, pagePayload),
+    tryPost(`/funnels/page/${pageId}?locationId=${encodeURIComponent(req.locationId)}`, pagePayload),
+    tryPut(`/funnels/page/${pageId}?locationId=${encodeURIComponent(req.locationId)}`, pagePayload),
+    tryPost(`/funnel-ai/copilot/save/${pageId}?locationId=${encodeURIComponent(req.locationId)}`, pagePayload),
+    tryPost(`/funnels/${funnelId || 'x'}/pages/${pageId}/save`, pagePayload),
+  ]);
+
+  const success = results.filter(r => r.status >= 200 && r.status < 300);
+  res.json({ sectionsAvailable: sections.length, results: results.map(r => ({ path: r.path, status: r.status })), successPaths: success.map(r => r.path), successDetails: success });
+});
+
 // ── GET /ghl-raw — call GHL's actual backend APIs and return raw responses ─────
 // Usage: GET /funnel-builder/ghl-raw?pageId=xxx
 // Calls ALL known GHL backend endpoints for a page so we can see exactly what
