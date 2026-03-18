@@ -577,10 +577,15 @@ Output ONLY the JSON object. No markdown, no explanation.`;
         { id: `button-${sid()}`, type: 'button', text: `Get Started Now`, link: '#', styles: { backgroundColor: { value: '#f59e0b' }, color: { value: '#1e3a5f' }, fontSize: { value: 18, unit: 'px' }, fontWeight: { value: '700' }, lineHeight: { value: 1.2, unit: 'em' }, paddingTop: { value: 16, unit: 'px' }, paddingBottom: { value: 16, unit: 'px' }, paddingLeft: { value: 40, unit: 'px' }, paddingRight: { value: 40, unit: 'px' }, borderRadius: { value: 8, unit: 'px' }, marginTop: { value: 0, unit: 'px' }, marginBottom: { value: 0, unit: 'px' }, marginLeft: { value: 0, unit: 'px' }, marginRight: { value: 0, unit: 'px' }, textAlign: { value: 'center' } }, mobileStyles: { fontSize: { value: 16, unit: 'px' }, paddingTop: { value: 14, unit: 'px' }, paddingBottom: { value: 14, unit: 'px' } } },
       ];
 
+      // If CTA has no heading, prepend the fallback heading + paragraph before any AI button
+      const ctaFinal = ctaElems.length
+        ? (ctaElems.some(e => e.type === 'heading') ? ctaElems : [...fallbackCta.slice(0, 2), ...ctaElems])
+        : fallbackCta;
+
       pageJson.sections = [
         makeSection('Hero',     '#ffffff', 'center', heroElems.length    ? heroElems    : [flat[0]]),
         makeSection('Benefits', '#f9fafb', 'left',   benefitElems.length ? benefitElems : flat.slice(Math.min(1, flat.length - 1))),
-        makeSection('CTA',      '#1e3a5f', 'center', ctaElems.length     ? ctaElems     : fallbackCta),
+        makeSection('CTA',      '#1e3a5f', 'center', ctaFinal),
       ];
       console.log(`[FunnelBuilder] Sections rebuilt: Hero=${heroElems.length} Benefits=${benefitElems.length} CTA=${ctaElems.length || 'fallback'}`);
     }
