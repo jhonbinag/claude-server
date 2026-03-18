@@ -1142,11 +1142,13 @@ router.post('/generate-funnel', async (req, res) => {
   // Normalise page objects — GHL returns _id not id
   pages = pages.map(p => ({ ...p, id: p.id || p._id }));
 
-  send('start', { total: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name, stepOrder: p.stepOrder })) });
+  const provider = aiService.getProvider();
+  const isGroq   = provider?.name === 'groq';
+  const results  = [];
 
-  const provider  = aiService.getProvider();
-  const isGroq    = provider?.name === 'groq';
-  const results   = [];
+  send('log', { msg: `Using AI provider: ${provider?.name} (${provider?.model})`, level: 'info' });
+  send('start', { total: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name, stepOrder: p.stepOrder })) });
+  send('log', { msg: `Found ${pages.length} page(s) in funnel`, level: 'info' });
 
   let agentInfo = null;
   if (agentId) {
@@ -1157,28 +1159,49 @@ router.post('/generate-funnel', async (req, res) => {
     const page     = pages[i];
     const pageType = inferPageType(page.name || '');
     send('page_start', { index: i, pageId: page.id, name: page.name, pageType });
+    send('log', { msg: `[${i+1}/${pages.length}] "${page.name}" — type: ${pageType}`, level: 'info' });
 
-    // Build prompts (reuse existing logic)
-    const colors      = colorScheme || 'modern, professional — white, dark navy, and gold accents';
-    const agentIntro  = agentInfo ? `You are ${agentInfo.name}. ${agentInfo.persona || ''}\n${agentInfo.instructions}\n\n---\n\n` : '';
-    const isGroqLocal = isGroq;
-    const imgKw       = (niche || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
+    const colors     = colorScheme || 'modern, professional — white, dark navy, and gold accents';
+    const agentIntro = agentInfo ? `You are ${agentInfo.name}. ${agentInfo.persona || ''}\n${agentInfo.instructions}\n\n---\n\n` : '';
+    const imgKw      = (niche || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
+    const randId     = () => Math.random().toString(36).slice(2, 10);
 
-    const randId = () => Math.random().toString(36).slice(2, 10);
     const groqSysPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
-Root: {"sections":[...]}. IDs MUST be unique per element using format {type}-{8 random alphanumeric chars}, e.g. section-${randId()}, row-${randId()}, column-${randId()}, headline-${randId()}. NEVER reuse IDs. Styles: {"value":X,"unit":"px"} or {"value":"#HEX"}.
-Elements (use EXACTLY these type names): headline(tag h1/h2/h3), sub-headline, paragraph(text as <p>html</p>), button(link,text), bulletList(items:[{text}],icon:{name:"check",unicode:"f00c",fontFamily:"Font Awesome 5 Free"}), image(src,alt).
-Section: {"id":"section-${randId()}","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-${randId()}","type":"row","children":[{"id":"column-${randId()}","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}`;
+Root: {"sections":[...]}. IDs MUST be unique per element using format {type}-{8 random alphanumeric chars}, e.g. section-${randId()}, row-${randId()}, column-${randId()}, heading-${randId()}. NEVER reuse IDs. Styles: {"value":X,"unit":"px"} or {"value":"#HEX"}.
+CRITICAL: Use EXACTLY these element type names — "heading" (NOT headline), "sub-heading" (NOT sub-headline), "paragraph" (plain text, NO HTML tags), "button", "bulletList" (items = plain string array), "image".
+Section: {"id":"section-${randId()}","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-${randId()}","type":"row","children":[{"id":"column-${randId()}","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}
+Elements examples:
+{"id":"heading-${randId()}","type":"heading","tag":"h1","text":"Your headline here","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"}},"mobileStyles":{"fontSize":{"value":30,"unit":"px"}}}
+{"id":"sub-heading-${randId()}","type":"sub-heading","text":"Your subheading here","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
+{"id":"paragraph-${randId()}","type":"paragraph","text":"Plain text body copy. No HTML tags.","styles":{"color":{"value":"#555"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{"fontSize":{"value":15,"unit":"px"}}}
+{"id":"button-${randId()}","type":"button","text":"Click Here","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#fff"},"fontSize":{"value":16,"unit":"px"},"paddingTop":{"value":14,"unit":"px"},"paddingBottom":{"value":14,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
+{"id":"bulletList-${randId()}","type":"bulletList","items":["Benefit one","Benefit two","Benefit three"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}`;
 
-    const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. Generate production-ready native GHL page JSON. Output ONLY valid JSON. Root: {"sections":[...]}. Follow GHL schema with {"value":X,"unit":"px"} style format. Include mobileStyles with ~60% desktop values. For image elements use src "https://picsum.photos/seed/${imgKw}/800/450".`;
+    const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. Generate production-ready native GHL page JSON. Output ONLY valid JSON. Root: {"sections":[...]}.
+CRITICAL: Use EXACTLY these element type names — "heading" (NOT headline), "sub-heading" (NOT sub-headline).
+CRITICAL: paragraph "text" must be plain text — NO HTML tags, no <p>, no <br>.
+CRITICAL: bulletList "items" must be plain string array — ["Item 1","Item 2"] NOT [{text:"Item 1"}].
+Style format: {"value":X,"unit":"px"}. Include mobileStyles with ~60% desktop values.
+For image elements use src "https://picsum.photos/seed/${imgKw}/800/450".`;
 
-    const systemPrompt = isGroqLocal ? groqSysPrompt : fullSysPrompt;
+    const systemPrompt = isGroq ? groqSysPrompt : fullSysPrompt;
 
-    const sectionsNote = isGroqLocal
-      ? `Build 3 sections: Hero (H1 + subheading + CTA), Benefits (4 bullet points), CTA (headline + button). Keep copy short.`
-      : `Build a complete ${pageType} with all relevant sections: hero, benefits, social proof, CTA, and any page-type specific sections.`;
+    const sectionsNote = isGroq
+      ? `Build 3 sections:
+1. Hero — heading (h1) + sub-heading + paragraph (plain text) + button
+2. Benefits — sub-heading + bulletList (4 plain string items) + paragraph (plain text)
+3. Final CTA — heading + paragraph (plain text) + button
+Keep copy concise but persuasive.`
+      : `Build a complete ${pageType} with ALL these sections:
+1. Hero — bold heading h1, compelling sub-heading, short paragraph hook, primary CTA button
+2. Problem/Pain — speak to audience pain points (sub-heading + paragraph + bulletList)
+3. Solution/Benefits — introduce offer as solution, 5-6 benefit bullets, supporting paragraph
+4. Social Proof — testimonial paragraphs with names, results stats
+5. Offer Details — what they get, value stack, urgency, CTA button
+6. FAQ — 3-4 objections answered (sub-heading + paragraph pairs)
+7. Final CTA — strong closing heading, urgency line, final CTA button`;
 
-    const userPrompt = `Generate a native GHL ${pageType} JSON (step ${i + 1} of ${pages.length} in a funnel).
+    const userPrompt = `Generate a native GHL ${pageType} JSON (page ${i + 1} of ${pages.length}).
 Page name: "${page.name}"
 Niche: ${niche}
 Offer: ${offer}
@@ -1189,47 +1212,62 @@ ${extraContext ? `Extra context: ${extraContext}` : ''}
 ${sectionsNote}
 Output ONLY the JSON object.`;
 
+    send('log', { msg: `[${i+1}/${pages.length}] Calling AI (${provider?.name}) to generate content...`, level: 'info' });
+
     let pageJson;
     let genError;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         if (attempt > 1) {
-          console.log(`[FunnelBuilder] Retry attempt ${attempt} for "${page.name}"`);
-          await new Promise(r => setTimeout(r, isGroqLocal ? 5000 : 1000));
+          send('log', { msg: `[${i+1}/${pages.length}] Retry attempt ${attempt}/3...`, level: 'warn' });
+          await new Promise(r => setTimeout(r, isGroq ? 5000 : 1000));
         }
         const retryNote = attempt > 1 ? '\n\nIMPORTANT: Your previous response had invalid JSON. Output ONLY a raw JSON object, no text before or after, no code fences, no comments.' : '';
         const raw = (await aiService.generate(systemPrompt, userPrompt + retryNote, { maxTokens: 4096 })).trim();
         pageJson  = parseJsonSafe(raw);
         if (!pageJson.sections) throw new Error('Missing sections array');
-        console.log(`[FunnelBuilder] "${page.name}" — ${pageJson.sections.length} sections (attempt ${attempt})`);
+        const totalEls = pageJson.sections.reduce((sum, s) => sum + (s.children?.[0]?.children?.[0]?.children?.length || 0), 0);
+        send('log', { msg: `[${i+1}/${pages.length}] AI generated ${pageJson.sections.length} sections, ${totalEls} elements`, level: 'success' });
         genError = null;
         break;
       } catch (err) {
         genError = err;
-        console.warn(`[FunnelBuilder] "${page.name}" attempt ${attempt} failed: ${err.message}`);
+        send('log', { msg: `[${i+1}/${pages.length}] AI attempt ${attempt} failed: ${err.message.slice(0, 80)}`, level: 'warn' });
       }
     }
     if (genError) {
+      send('log', { msg: `[${i+1}/${pages.length}] All AI attempts failed — skipping page`, level: 'error' });
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `AI generation failed: ${genError.message}` });
       results.push({ pageId: page.id, name: page.name, success: false, error: genError.message });
       continue;
     }
 
     try {
+      send('log', { msg: `[${i+1}/${pages.length}] Uploading to Firebase Storage...`, level: 'info' });
       const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId);
       const warn    = saveRes?.firestoreWarning;
+      if (warn) {
+        send('log', { msg: `[${i+1}/${pages.length}] Firestore warning: ${warn.slice(0, 120)}`, level: 'warn' });
+      } else {
+        send('log', { msg: `[${i+1}/${pages.length}] Saved to Firestore (v${saveRes.version}, sectionV${saveRes.sectionVersion})`, level: 'success' });
+      }
       send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, warning: warn || undefined });
       results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length, warning: warn || undefined });
     } catch (err) {
+      send('log', { msg: `[${i+1}/${pages.length}] Save error: ${err.message.slice(0, 120)}`, level: 'error' });
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
       results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
     }
 
     // Pace between pages for Groq TPM
-    if (isGroq && i < pages.length - 1) await new Promise(r => setTimeout(r, 8000));
+    if (isGroq && i < pages.length - 1) {
+      send('log', { msg: `Waiting 8s before next page (Groq rate limit)...`, level: 'info' });
+      await new Promise(r => setTimeout(r, 8000));
+    }
   }
 
   const succeeded = results.filter(r => r.success).length;
+  send('log', { msg: `All done — ${succeeded}/${pages.length} pages generated successfully`, level: succeeded === pages.length ? 'success' : 'warn' });
   send('complete', { total: pages.length, succeeded, failed: pages.length - succeeded, results });
   res.end();
 });
