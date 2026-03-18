@@ -220,12 +220,30 @@ router.get('/inspect-page', async (req, res) => {
     get(`${projectId}-default-rtdb.firebaseio.com`, `/funnel_pages/${pageId}.json?shallow=true`),
   ]);
 
+  // Also try to write a minimal section document to the sub-collection
+  const testSectionDoc = JSON.stringify({
+    fields: {
+      id:   { stringValue: 'section-probe-test' },
+      type: { stringValue: 'section' },
+      name: { stringValue: 'probe' },
+    },
+  });
+  const subWriteRes = await new Promise(resolve => {
+    const subPath = `${base}/funnel_pages/${pageId}/sections`;
+    const req2    = https.request(
+      { hostname: 'firestore.googleapis.com', path: subPath, method: 'POST',
+        headers: { ...authHeader, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(testSectionDoc) } },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve({ status: r.statusCode, data: JSON.parse(d) }); } catch { resolve({ status: r.statusCode, data: d.slice(0, 200) }); } }); }
+    );
+    req2.on('error', e => resolve({ status: 0, error: e.message }));
+    req2.write(testSectionDoc);
+    req2.end();
+  });
+
   res.json({
     mainDoc:     {
       status: mainDoc.status,
-      // Show ALL field names present in the doc (tells us what fields GHL stores)
       fields: mainDoc.data?.fields ? Object.keys(mainDoc.data.fields) : mainDoc.data,
-      // Show the raw sections field if it exists
       sectionsPresent: !!mainDoc.data?.fields?.sections,
       rawSectionsSample: mainDoc.data?.fields?.sections
         ? JSON.stringify(mainDoc.data.fields.sections).slice(0, 500)
@@ -234,7 +252,8 @@ router.get('/inspect-page', async (req, res) => {
     subSections: { status: subSections.status, data: subSections.data },
     subContent:  { status: subContent.status,  data: subContent.data },
     rtdb:        { status: rtdb.status,        data: rtdb.data },
-    // Also try reading from backend API GET (different from POST)
+    // Write probe — can we write to the sub-collection?
+    subCollectionWriteProbe: { status: subWriteRes.status, data: subWriteRes.data },
   });
 });
 
