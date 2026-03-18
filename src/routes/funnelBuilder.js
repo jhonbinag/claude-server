@@ -681,6 +681,125 @@ SCHEMA:
   res.end();
 });
 
+// ── POST /write-test-sections — write known-good GHL native sections to Firestore ──
+// Usage: POST /funnel-builder/write-test-sections { pageId }
+// Writes hardcoded sections from a confirmed-working GHL native AI page,
+// to test whether the write mechanism works regardless of our generated format.
+
+router.post('/write-test-sections', async (req, res) => {
+  const { pageId } = req.body;
+  if (!pageId) return res.status(400).json({ error: '"pageId" required' });
+
+  let idToken;
+  try { idToken = await getFirebaseToken(req.locationId); }
+  catch (err) { return res.status(400).json({ error: 'Firebase not connected', detail: err.message }); }
+
+  // Minimal known-good section from GHL's native AI (confirmed working format)
+  const testSections = [
+    {
+      id: 'section-test-native',
+      type: 'section',
+      name: 'Test Hero',
+      allowRowMaxWidth: false,
+      styles: {
+        backgroundColor: { value: '#FFFFFF' },
+        paddingTop:       { value: 80, unit: 'px' },
+        paddingRight:     { value: 20, unit: 'px' },
+        paddingBottom:    { value: 80, unit: 'px' },
+        paddingLeft:      { value: 20, unit: 'px' },
+      },
+      mobileStyles: {
+        paddingTop:    { value: 40, unit: 'px' },
+        paddingRight:  { value: 15, unit: 'px' },
+        paddingBottom: { value: 40, unit: 'px' },
+        paddingLeft:   { value: 15, unit: 'px' },
+      },
+      children: [{
+        id:   'row-test-native',
+        type: 'row',
+        children: [{
+          id:    'column-test-native',
+          type:  'column',
+          width: 12,
+          styles: {
+            textAlign:                  { value: 'center' },
+            forceColumnLayoutForMobile: { value: false },
+            marginTop:                  { value: 0,      unit: 'px' },
+            marginRight:                { value: 'auto', unit: ''   },
+            marginBottom:               { value: 0,      unit: 'px' },
+            marginLeft:                 { value: 'auto', unit: ''   },
+            justifyContentColumnLayout: { value: 'flex-start' },
+          },
+          mobileStyles: {
+            marginTop:    { value: 0,      unit: 'px' },
+            marginRight:  { value: 'auto', unit: ''   },
+            marginBottom: { value: 0,      unit: 'px' },
+            marginLeft:   { value: 'auto', unit: ''   },
+          },
+          children: [
+            {
+              id:   'heading-test-native',
+              type: 'heading',
+              text: 'Hello from HL Pro Tools AI',
+              tag:  'h1',
+              styles: {
+                color:         { value: '#0F172A' },
+                fontSize:      { value: 56, unit: 'px' },
+                lineHeight:    { value: 1.05, unit: 'em' },
+                textAlign:     { value: 'center' },
+                marginTop:     { value: 0,  unit: 'px' },
+                marginRight:   { value: 0,  unit: 'px' },
+                marginBottom:  { value: 20, unit: 'px' },
+                marginLeft:    { value: 0,  unit: 'px' },
+                typography:    { value: 'var(--headlinefont)' },
+                linkTextColor: { value: '#0F172A' },
+              },
+              mobileStyles: {
+                fontSize:      { value: 40,  unit: 'px' },
+                lineHeight:    { value: 1.1, unit: 'em' },
+                marginTop:     { value: 0,   unit: 'px' },
+                marginRight:   { value: 0,   unit: 'px' },
+                marginBottom:  { value: 16,  unit: 'px' },
+                marginLeft:    { value: 0,   unit: 'px' },
+              },
+            },
+            {
+              id:    'paragraph-test-native',
+              type:  'paragraph',
+              text:  'This test section was written by HL Pro Tools to verify the GHL editor renders our format correctly.',
+              styles: {
+                color:         { value: '#6B7280' },
+                fontSize:      { value: 18, unit: 'px' },
+                lineHeight:    { value: 1.6, unit: 'em' },
+                textAlign:     { value: 'center' },
+                marginTop:     { value: 0,  unit: 'px' },
+                marginRight:   { value: 0,  unit: 'px' },
+                marginBottom:  { value: 30, unit: 'px' },
+                marginLeft:    { value: 0,  unit: 'px' },
+                typography:    { value: 'var(--contentfont)' },
+                linkTextColor: { value: '#6B7280' },
+              },
+              mobileStyles: {
+                fontSize:     { value: 16, unit: 'px' },
+                marginBottom: { value: 24, unit: 'px' },
+              },
+            },
+          ],
+        }],
+      }],
+    },
+  ];
+
+  // Write to Firestore using same method as savePageData
+  const { savePageData } = require('../services/ghlPageBuilder');
+  try {
+    const result = await savePageData(req.locationId, pageId, { sections: testSections }, {});
+    res.json({ success: true, message: 'Test sections written to Firestore + Storage', result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /ghl-push — push sections directly to GHL's backend save API ─────────
 // Usage: POST /funnel-builder/ghl-push { pageId, funnelId }
 // Tries known GHL backend endpoints to write sections, similar to what GHL's
