@@ -606,7 +606,45 @@ Output ONLY the JSON object. No markdown, no explanation.`;
     });
   }
 
-  // Step 5b: POST to GHL's native copilot save endpoint (same as GHL's "Ask AI").
+  // Step 5b: PUT to GHL's backend API to update pageDataDownloadUrl in GHL's DB.
+  // GHL's backend has its OWN database separate from Firestore — Firestore writes
+  // alone don't update what the editor reads. We must call the backend API directly.
+  let ghlPutStatus = null;
+  let ghlPutData   = null;
+  try {
+    const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+    const fbTok2  = await getFirebaseToken(req.locationId);
+    const beHdrs2 = buildBackendHeaders(fbTok2);
+    const putBody = JSON.stringify({
+      pageDataDownloadUrl: saveResult.downloadUrl,
+      pageDataUrl:         saveResult.storagePath,
+      sectionVersion:      saveResult.sectionVersion,
+      pageVersion:         saveResult.pageVersion,
+      version:             saveResult.version,
+    });
+    const pagePath = `/funnels/page/${resolvedPageId}?locationId=${encodeURIComponent(req.locationId)}`;
+    const putRes = await new Promise((resolve) => {
+      const r2 = https.request(
+        { hostname: 'backend.leadconnectorhq.com', path: pagePath, method: 'PUT',
+          headers: { ...beHdrs2, 'Content-Length': Buffer.byteLength(putBody) } },
+        (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+          try { resolve({ status: r.statusCode, data: JSON.parse(d) }); }
+          catch { resolve({ status: r.statusCode, data: d.slice(0, 300) }); }
+        }); }
+      );
+      r2.on('error', e => resolve({ status: 0, error: e.message }));
+      r2.write(putBody); r2.end();
+    });
+    ghlPutStatus = putRes.status;
+    ghlPutData   = putRes.data;
+    console.log(`[FunnelBuilder] GHL backend PUT /funnels/page → ${putRes.status}`, JSON.stringify(putRes.data).slice(0, 200));
+  } catch (e) {
+    console.warn('[FunnelBuilder] GHL PUT warning:', e.message);
+    ghlPutStatus = 0;
+    ghlPutData   = { error: e.message };
+  }
+
+  // Step 5c: POST to GHL's native copilot save endpoint (same as GHL's "Ask AI").
   // IMPORTANT: send AI-generated sections in GHL's expected nested-children format,
   // NOT the Storage native format (metaData + flat elements[]). Normalize element
   // type names to match what GHL's AI outputs ("headline" not "heading", etc.)
@@ -710,6 +748,7 @@ Output ONLY the JSON object. No markdown, no explanation.`;
     agentUsed:    selectedAgent ? { id: selectedAgent.id, name: selectedAgent.name, emoji: selectedAgent.emoji } : null,
     message:      `Page generated (${pageJson.sections.length} sections) and saved to GHL successfully.`,
     ghlResponse:  saveResult,
+    ghlPut:       { status: ghlPutStatus, data: ghlPutData },
     copilotPush:  { status: copilotPushStatus, ...( typeof copilotPushData === 'object' ? copilotPushData : { data: copilotPushData } ) },
   });
 });
