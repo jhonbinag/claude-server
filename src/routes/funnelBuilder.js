@@ -41,7 +41,7 @@ const {
   getFirebaseToken,
   getStatus,
 } = require('../services/ghlFirebaseService');
-const { savePageData, getPageData } = require('../services/ghlPageBuilder');
+const { savePageData, getPageData, convertSectionsToGHL } = require('../services/ghlPageBuilder');
 const { buildPageHtml }             = require('../tools/ghlTools');
 const agentStore                    = require('../services/agentStore');
 const ghlClient                     = require('../services/ghlClient');
@@ -1161,6 +1161,18 @@ router.post('/generate-funnel', async (req, res) => {
     send('page_start', { index: i, pageId: page.id, name: page.name, pageType });
     send('log', { msg: `[${i+1}/${pages.length}] "${page.name}" — type: ${pageType}`, level: 'info' });
 
+    // ── Step A: Read current page from GHL API to verify step ID ────────────
+    send('log', { msg: `[${i+1}/${pages.length}] Reading current page from GHL...`, level: 'info' });
+    let currentPage = null;
+    try {
+      currentPage = await ghlClient.ghlRequest(req.locationId, 'GET', `/funnels/page/${page.id}`, null, { locationId: req.locationId });
+      const stepId          = currentPage.stepId || currentPage.step_id || 'unknown';
+      const existingSections = Array.isArray(currentPage.sections) ? currentPage.sections.length : 0;
+      send('log', { msg: `[${i+1}/${pages.length}] Verified: stepId=${stepId} | existing sections=${existingSections}`, level: 'success' });
+    } catch (err) {
+      send('log', { msg: `[${i+1}/${pages.length}] Page read warning: ${err.message.slice(0, 80)}`, level: 'warn' });
+    }
+
     const colors     = colorScheme || 'modern, professional — white, dark navy, and gold accents';
     const agentIntro = agentInfo ? `You are ${agentInfo.name}. ${agentInfo.persona || ''}\n${agentInfo.instructions}\n\n---\n\n` : '';
     const imgKw      = (niche || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
@@ -1243,14 +1255,34 @@ Output ONLY the JSON object.`;
     }
 
     try {
+      // ── Step C: Upload to Storage + write Firestore ──────────────────────
       send('log', { msg: `[${i+1}/${pages.length}] Uploading to Firebase Storage...`, level: 'info' });
       const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId);
       const warn    = saveRes?.firestoreWarning;
       if (warn) {
         send('log', { msg: `[${i+1}/${pages.length}] Firestore warning: ${warn.slice(0, 120)}`, level: 'warn' });
       } else {
-        send('log', { msg: `[${i+1}/${pages.length}] Saved to Firestore (v${saveRes.version}, sectionV${saveRes.sectionVersion})`, level: 'success' });
+        send('log', { msg: `[${i+1}/${pages.length}] Firestore updated (v${saveRes.version}, sectionV${saveRes.sectionVersion})`, level: 'success' });
       }
+
+      // ── Step D: PUT update via GHL OAuth API ─────────────────────────────
+      send('log', { msg: `[${i+1}/${pages.length}] Pushing update via GHL API PUT...`, level: 'info' });
+      try {
+        const ghlSections = convertSectionsToGHL(pageJson.sections);
+        const putBody = {
+          sections:            ghlSections,
+          pageDataDownloadUrl: saveRes.downloadUrl,
+          pageDataUrl:         saveRes.storagePath,
+          sectionVersion:      saveRes.sectionVersion,
+          pageVersion:         saveRes.pageVersion,
+          version:             saveRes.version,
+        };
+        await ghlClient.ghlRequest(req.locationId, 'PUT', `/funnels/page/${page.id}`, putBody, { locationId: req.locationId });
+        send('log', { msg: `[${i+1}/${pages.length}] GHL API PUT success — page fully updated`, level: 'success' });
+      } catch (putErr) {
+        send('log', { msg: `[${i+1}/${pages.length}] GHL API PUT failed (${putErr.message.slice(0, 80)}) — Firestore write still active`, level: 'warn' });
+      }
+
       send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, warning: warn || undefined });
       results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length, warning: warn || undefined });
     } catch (err) {

@@ -590,4 +590,4 @@ async function getPageData(locationId, pageId) {
   return result.data;
 }
 
-module.exports = { buildBackendHeaders, savePageData, getPageData };
+module.exports = { buildBackendHeaders, savePageData, getPageData, convertSectionsToGHL };
