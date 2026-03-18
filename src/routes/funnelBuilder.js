@@ -606,13 +606,30 @@ Output ONLY the JSON object. No markdown, no explanation.`;
     });
   }
 
-  // Step 5b: POST to GHL's native copilot save endpoint (same as GHL's "Ask AI")
+  // Step 5b: POST to GHL's native copilot save endpoint (same as GHL's "Ask AI").
+  // IMPORTANT: send AI-generated sections in GHL's expected nested-children format,
+  // NOT the Storage native format (metaData + flat elements[]). Normalize element
+  // type names to match what GHL's AI outputs ("headline" not "heading", etc.)
+  function normalizeForCopilot(nodes) {
+    return (nodes || []).map(n => {
+      const typeMap = { heading: 'headline', 'sub-heading': 'sub-headline' };
+      const out = { ...n, type: typeMap[n.type] || n.type };
+      if (Array.isArray(n.children)) out.children = normalizeForCopilot(n.children);
+      return out;
+    });
+  }
+
+  let copilotPushStatus = null;
+  let copilotPushData   = null;
   try {
     const { buildBackendHeaders } = require('../services/ghlPageBuilder');
     const fbTok2    = await getFirebaseToken(req.locationId);
     const beHdrs2   = buildBackendHeaders(fbTok2);
+
+    // Send AI sections in nested-children format (GHL expects this, not native Storage format)
+    const normalizedSects = normalizeForCopilot(pageJson.sections);
     const copilotBody = JSON.stringify({
-      sections:            convertSectionsToGHL(pageJson.sections),
+      sections:            normalizedSects,
       pageDataDownloadUrl: saveResult.downloadUrl,
       pageDataUrl:         saveResult.storagePath,
       sectionVersion:      saveResult.sectionVersion,
@@ -620,18 +637,64 @@ Output ONLY the JSON object. No markdown, no explanation.`;
       version:             saveResult.version,
     });
     const copilotPath = `/funnel-ai/copilot/page-data/${resolvedPageId}?locationId=${encodeURIComponent(req.locationId)}`;
-    await new Promise((resolve) => {
+    const cpRes = await new Promise((resolve) => {
       const r2 = https.request(
         { hostname: 'backend.leadconnectorhq.com', path: copilotPath, method: 'POST',
           headers: { ...beHdrs2, 'Content-Length': Buffer.byteLength(copilotBody) } },
-        (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => resolve(r.statusCode)); }
+        (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+          try { resolve({ status: r.statusCode, data: JSON.parse(d) }); }
+          catch { resolve({ status: r.statusCode, data: d.slice(0, 300) }); }
+        }); }
       );
-      r2.on('error', () => resolve(0));
+      r2.on('error', e => resolve({ status: 0, error: e.message }));
       r2.write(copilotBody);
       r2.end();
     });
+    copilotPushStatus = cpRes.status;
+    console.log(`[FunnelBuilder] copilot POST → ${cpRes.status}`, JSON.stringify(cpRes.data).slice(0, 200));
+
+    // Step 5c: GET copilot + GET /funnels/page to see what the editor would read
+    const [cpGetRes, pageApiRes] = await Promise.all([
+      new Promise((resolve) => {
+        const r3 = https.request(
+          { hostname: 'backend.leadconnectorhq.com', path: copilotPath, method: 'GET', headers: { ...beHdrs2 } },
+          (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+            try { resolve({ status: r.statusCode, data: JSON.parse(d) }); }
+            catch { resolve({ status: r.statusCode, data: d.slice(0, 300) }); }
+          }); }
+        );
+        r3.on('error', e => resolve({ status: 0, error: e.message }));
+        r3.end();
+      }),
+      new Promise((resolve) => {
+        const pagePath = `/funnels/page/${resolvedPageId}?locationId=${encodeURIComponent(req.locationId)}`;
+        const r4 = https.request(
+          { hostname: 'backend.leadconnectorhq.com', path: pagePath, method: 'GET', headers: { ...beHdrs2 } },
+          (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+            try { resolve({ status: r.statusCode, data: JSON.parse(d) }); }
+            catch { resolve({ status: r.statusCode, data: d.slice(0, 200) }); }
+          }); }
+        );
+        r4.on('error', e => resolve({ status: 0, error: e.message }));
+        r4.end();
+      }),
+    ]);
+
+    const cpD  = cpGetRes.data;
+    const pgD  = pageApiRes.data;
+    copilotPushData = {
+      postStatus:  cpRes.status,
+      postData:    cpRes.data,
+      // What does the copilot GET return after our POST?
+      copilotGet:  { status: cpGetRes.status, hasSections: Array.isArray(cpD?.sections) ? cpD.sections.length : 'no', downloadUrl: cpD?.pageDataDownloadUrl || null, raw: JSON.stringify(cpD).slice(0, 400) },
+      // What does the regular page API return? (This is what the editor reads)
+      pageApi:     { status: pageApiRes.status, sectionCount: Array.isArray(pgD?.sections) ? pgD.sections.length : 'no', downloadUrl: pgD?.pageDataDownloadUrl || null, sectionVersion: pgD?.sectionVersion, version: pgD?.version },
+    };
+    console.log(`[FunnelBuilder] pageApi after save → status=${pageApiRes.status} sections=${copilotPushData.pageApi.sectionCount} dlUrl=${!!copilotPushData.pageApi.downloadUrl}`);
   } catch (e) {
     console.warn('[FunnelBuilder] copilot push warning:', e.message);
+    copilotPushStatus = 0;
+    copilotPushData   = { error: e.message };
   }
 
   // Step 6: Build preview URL
@@ -647,6 +710,7 @@ Output ONLY the JSON object. No markdown, no explanation.`;
     agentUsed:    selectedAgent ? { id: selectedAgent.id, name: selectedAgent.name, emoji: selectedAgent.emoji } : null,
     message:      `Page generated (${pageJson.sections.length} sections) and saved to GHL successfully.`,
     ghlResponse:  saveResult,
+    copilotPush:  { status: copilotPushStatus, ...( typeof copilotPushData === 'object' ? copilotPushData : { data: copilotPushData } ) },
   });
 });
 
@@ -1194,6 +1258,77 @@ router.get('/copilot-get', async (req, res) => {
   }
 
   res.json(results);
+});
+
+// ── GET /copilot-full — full untruncated copilot GET via Firebase backend token ─
+// This shows EXACTLY what the GHL editor reads from the copilot endpoint.
+// If our POST worked, sections will appear here. If empty/different, we know the POST format is wrong.
+// Usage: GET /funnel-builder/copilot-full?pageId=xxx
+
+router.get('/copilot-full', async (req, res) => {
+  const { pageId } = req.query;
+  if (!pageId) return res.status(400).json({ error: '"pageId" required' });
+
+  let idToken;
+  try { idToken = await getFirebaseToken(req.locationId); }
+  catch (err) { return res.status(400).json({ error: 'Firebase not connected' }); }
+
+  const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+  const beHeaders = buildBackendHeaders(idToken);
+  delete beHeaders['Content-Type'];
+
+  const copilotPath = `/funnel-ai/copilot/page-data/${pageId}?locationId=${encodeURIComponent(req.locationId)}`;
+
+  // GET copilot endpoint via Firebase backend token (same path our POST targets)
+  const cpGet = await new Promise(resolve => {
+    const r2 = https.request(
+      { hostname: 'backend.leadconnectorhq.com', path: copilotPath, method: 'GET', headers: beHeaders },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+        try { resolve({ status: r.statusCode, data: JSON.parse(d) }); }
+        catch { resolve({ status: r.statusCode, data: d }); }
+      }); }
+    );
+    r2.on('error', e => resolve({ status: 0, error: e.message }));
+    r2.end();
+  });
+
+  // Also GET /funnels/page/{pageId} for comparison
+  const pageGet = await new Promise(resolve => {
+    const r2 = https.request(
+      { hostname: 'backend.leadconnectorhq.com', path: `/funnels/page/${pageId}?locationId=${encodeURIComponent(req.locationId)}`, method: 'GET', headers: beHeaders },
+      (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => {
+        try { resolve({ status: r.statusCode, data: JSON.parse(d) }); }
+        catch { resolve({ status: r.statusCode, data: d }); }
+      }); }
+    );
+    r2.on('error', e => resolve({ status: 0, error: e.message }));
+    r2.end();
+  });
+
+  const cpData = cpGet.data;
+  const pgData = pageGet.data;
+
+  res.json({
+    pageId,
+    // ── Copilot endpoint (/funnel-ai/copilot/page-data) ──────────────────
+    copilotEndpoint: {
+      status:          cpGet.status,
+      topLevelKeys:    typeof cpData === 'object' && cpData ? Object.keys(cpData) : null,
+      hasSections:     Array.isArray(cpData?.sections) ? `array[${cpData.sections.length}]` : typeof cpData?.sections,
+      sectionVersion:  cpData?.sectionVersion,
+      pageVersion:     cpData?.pageVersion,
+      version:         cpData?.version,
+      firstSectionFull: Array.isArray(cpData?.sections) ? cpData.sections[0] : null,
+      rawSlice:        typeof cpData === 'string' ? cpData.slice(0, 500) : null,
+    },
+    // ── Regular page endpoint (/funnels/page) ────────────────────────────
+    pageEndpoint: {
+      status:         pageGet.status,
+      hasSections:    Array.isArray(pgData?.sections) ? `array[${pgData.sections.length}]` : typeof pgData?.sections,
+      sectionVersion: pgData?.sectionVersion,
+      firstSectionFull: Array.isArray(pgData?.sections) ? pgData.sections[0] : null,
+    },
+  });
 });
 
 // ── GET /ghl-full — return the raw untruncated GHL backend response for a page ─
