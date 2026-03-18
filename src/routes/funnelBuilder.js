@@ -438,12 +438,12 @@ router.post('/generate', async (req, res) => {
 Root: {"sections":[...]}
 IDs MUST be unique using format {elementType}-{8 random alphanumeric chars}. Generate truly random chars — NEVER use sequential numbers like 0001, 12345. Styles use {"value":X,"unit":"px"} or {"value":"#HEX"} format.
 
-Element types (use EXACTLY these type names):
-- headline: {"id":"headline-a1b2c3d4","type":"headline","tag":"h1","text":"...","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{}}
-- sub-headline: {"id":"sub-headline-e5f6g7h8","type":"sub-headline","text":"...","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{}}
-- paragraph: {"id":"paragraph-X","type":"paragraph","text":"<p>...</p>","styles":{"color":{"value":"#555"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
-- button: {"id":"button-X","type":"button","text":"...","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#fff"},"fontSize":{"value":16,"unit":"px"},"paddingTop":{"value":14,"unit":"px"},"paddingBottom":{"value":14,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
-- bulletList: {"id":"bulletList-X","type":"bulletList","items":[{"text":"..."}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
+Element types (use EXACTLY these type names — heading NOT headline, sub-heading NOT sub-headline):
+- heading: {"id":"heading-a1b2c3d4","type":"heading","tag":"h1","text":"Headline text","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{}}
+- sub-heading: {"id":"sub-heading-e5f6g7h8","type":"sub-heading","text":"Subheading text","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{}}
+- paragraph: {"id":"paragraph-X","type":"paragraph","text":"Plain text body copy. No HTML tags.","styles":{"color":{"value":"#555"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
+- button: {"id":"button-X","type":"button","text":"Button label","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#fff"},"fontSize":{"value":16,"unit":"px"},"paddingTop":{"value":14,"unit":"px"},"paddingBottom":{"value":14,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
+- bulletList: {"id":"bulletList-X","type":"bulletList","items":["Benefit one","Benefit two","Benefit three"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
 
 Section wrapper: {"id":"section-X","type":"section","name":"name","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-X","type":"row","children":[{"id":"column-X","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}`;
 
@@ -455,6 +455,9 @@ RULES:
 3. All IDs: type-XXXXXXXX (8 random alphanumeric chars).
 4. Use persuasive, benefit-driven copy for the target audience.
 5. Mobile styles reduce padding/font sizes to ~60% of desktop.
+6. CRITICAL: Use "heading" (NOT "headline") and "sub-heading" (NOT "sub-headline") for element types.
+7. CRITICAL: paragraph "text" must be plain text — NO HTML tags, no <p>, no <br>, no <strong>.
+8. CRITICAL: bulletList "items" must be an array of plain strings — NOT objects. Example: ["Benefit 1","Benefit 2"]
 
 SCHEMA:
 {"sections":[{"id":"section-X","type":"section","name":"name","allowRowMaxWidth":false,
@@ -463,11 +466,11 @@ SCHEMA:
 "children":[{"id":"row-X","type":"row","children":[{"id":"column-X","type":"column","width":12,
 "styles":{"textAlign":{"value":"center"}},"mobileStyles":{},
 "children":[
-{"id":"headline-X","type":"headline","text":"Headline","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
-{"id":"sub-headline-X","type":"sub-headline","text":"Subheadline","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"},"fontWeight":{"value":"500"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
-{"id":"paragraph-X","type":"paragraph","text":"<p>Body copy.</p>","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.7}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
-{"id":"button-X","type":"button","text":"CTA","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFFFFF"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
-{"id":"bulletList-X","type":"bulletList","items":[{"text":"Benefit 1"},{"text":"Benefit 2"},{"text":"Benefit 3"}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"heading-X","type":"heading","text":"Headline text here","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
+{"id":"sub-heading-X","type":"sub-heading","text":"Subheading text here","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"},"fontWeight":{"value":"500"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
+{"id":"paragraph-X","type":"paragraph","text":"Plain text body copy here. No HTML tags whatsoever.","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.7}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"button-X","type":"button","text":"CTA Text","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFFFFF"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"bulletList-X","type":"bulletList","items":["Benefit one plain text","Benefit two plain text","Benefit three plain text"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
 {"id":"image-X","type":"image","src":"https://picsum.photos/seed/${imgKeyword}/800/450","alt":"${imgKeyword}","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
 ]}]}]}]}`;
 
@@ -614,6 +617,9 @@ RULES:
 5. Match colors using hex codes.
 6. All IDs: type-XXXXXXXX (8 random alphanumeric chars).
 7. Mobile styles reduce padding/font sizes to ~60% of desktop values.
+8. CRITICAL: Use "heading" (NOT "headline") and "sub-heading" (NOT "sub-headline") for element types.
+9. CRITICAL: paragraph "text" must be plain text — NO HTML tags, no <p>, no <br>, no <strong>.
+10. CRITICAL: bulletList "items" must be an array of plain strings — NOT objects. Example: ["Item 1","Item 2"]
 
 SCHEMA:
 {"sections":[{"id":"section-{8chars}","type":"section","name":"section-name","allowRowMaxWidth":false,
@@ -621,11 +627,11 @@ SCHEMA:
 "mobileStyles":{"paddingTop":{"value":40,"unit":"px"},"paddingBottom":{"value":40,"unit":"px"}},
 "children":[{"id":"row-{8chars}","type":"row","children":[{"id":"column-{8chars}","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},
 "children":[
-{"id":"headline-{8chars}","type":"headline","text":"Headline","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
-{"id":"sub-headline-{8chars}","type":"sub-headline","text":"Subheadline","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
-{"id":"paragraph-{8chars}","type":"paragraph","text":"<p>Body copy</p>","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"heading-{8chars}","type":"heading","text":"Headline text","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
+{"id":"sub-heading-{8chars}","type":"sub-heading","text":"Subheading text","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
+{"id":"paragraph-{8chars}","type":"paragraph","text":"Plain text body copy. No HTML tags.","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
 {"id":"button-{8chars}","type":"button","text":"CTA","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFF"},"fontSize":{"value":18,"unit":"px"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
-{"id":"bulletList-{8chars}","type":"bulletList","items":[{"text":"Item 1"}],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+{"id":"bulletList-{8chars}","type":"bulletList","items":["Plain text item 1","Plain text item 2","Plain text item 3"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
 {"id":"image-{8chars}","type":"image","src":"https://picsum.photos/seed/design/800/450","alt":"Image","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
 ]}]}]}]}`;
 

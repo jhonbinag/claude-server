@@ -190,7 +190,11 @@ function buildGhlElement(el) {
         },
         mobileStyles: {
           fontSize:     { value: mSize, unit: 'px' },
+          lineHeight:   { value: 1.2,   unit: 'em' },
+          marginTop:    { value: 0,     unit: 'px' },
+          marginRight:  { value: 0,     unit: 'px' },
           marginBottom: { value: 16,    unit: 'px' },
+          marginLeft:   { value: 0,     unit: 'px' },
         },
       };
     }
@@ -216,17 +220,23 @@ function buildGhlElement(el) {
         },
         mobileStyles: {
           fontSize:     { value: el.mobileStyles?.fontSize?.value || Math.max(fSize - 2, 14), unit: 'px' },
-          marginBottom: { value: 10, unit: 'px' },
+          lineHeight:   { value: 1.4, unit: 'em' },
+          marginTop:    { value: 0,   unit: 'px' },
+          marginRight:  { value: 0,   unit: 'px' },
+          marginBottom: { value: 10,  unit: 'px' },
+          marginLeft:   { value: 0,   unit: 'px' },
         },
       };
     }
 
     case 'paragraph': {
       const fSize = el.styles?.fontSize?.value || 16;
+      // Strip HTML tags — GHL native stores plain text for paragraph elements
+      const rawText = (el.text || '').replace(/<[^>]*>/g, '').trim();
       return {
         id:   `paragraph-${randomId()}`,
         type: 'paragraph',
-        text: el.text || '',
+        text: rawText,
         styles: {
           color:         { value: rawColor },
           fontSize:      { value: fSize, unit: 'px' },
@@ -241,7 +251,11 @@ function buildGhlElement(el) {
         },
         mobileStyles: {
           fontSize:     { value: el.mobileStyles?.fontSize?.value || Math.max(fSize - 2, 14), unit: 'px' },
-          marginBottom: { value: 16, unit: 'px' },
+          lineHeight:   { value: 1.6, unit: 'em' },
+          marginTop:    { value: 0,   unit: 'px' },
+          marginRight:  { value: 0,   unit: 'px' },
+          marginBottom: { value: 16,  unit: 'px' },
+          marginLeft:   { value: 0,   unit: 'px' },
         },
       };
     }
@@ -303,7 +317,11 @@ function buildGhlElement(el) {
         },
         mobileStyles: {
           fontSize:     { value: el.mobileStyles?.fontSize?.value || Math.max(fSize - 1, 14), unit: 'px' },
-          marginBottom: { value: 16, unit: 'px' },
+          lineHeight:   { value: 1.7, unit: 'em' },
+          marginTop:    { value: 0,   unit: 'px' },
+          marginRight:  { value: 0,   unit: 'px' },
+          marginBottom: { value: 16,  unit: 'px' },
+          marginLeft:   { value: 0,   unit: 'px' },
         },
       };
     }
