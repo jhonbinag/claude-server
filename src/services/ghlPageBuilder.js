@@ -103,6 +103,8 @@ async function readFirestoreDoc(idToken, projectId, pageId) {
     funnelId:       f.funnel_id?.stringValue,
     locationId:     f.location_id?.stringValue,
     version:        parseInt(f.version?.integerValue || '1', 10),
+    sectionVersion: parseInt(f.section_version?.integerValue || '1', 10),
+    pageVersion:    parseInt(f.page_version?.integerValue || '1', 10),
     downloadUrl:    f.page_data_download_url?.stringValue,
     versionHistory: vhValues,
     updatedBy:      f.updated_by?.stringValue,
@@ -486,7 +488,7 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
     }
   }
 
-  const { funnelId, version: currentVersion, versionHistory: existingVH } = docInfo;
+  const { funnelId, version: currentVersion, sectionVersion: currentSV, pageVersion: currentPV, versionHistory: existingVH } = docInfo;
   if (!funnelId) throw new Error(`Page ${pageId} missing funnelId — provide funnelId in the request or open the page in GHL builder first.`);
 
   // Convert AI output → GHL's native hierarchical format
@@ -527,14 +529,18 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   const updatedVH = { arrayValue: { values: [newVHEntry, ...(existingVH || []).slice(0, 29)] } };
 
   // Update Firestore — sections + URL fields. GHL editor reads sections directly from Firestore.
-  // Only write filtered ghlSections (empty sections already removed above).
-  const newVersion = (currentVersion || 1) + 1;
-  const fsResult   = await patchFirestoreDoc(idToken, projectId, pageId, {
+  // Increment section_version and page_version so GHL's editor cache-busts and re-renders.
+  const newVersion   = (currentVersion || 1) + 1;
+  const newSV        = (currentSV || 1) + 1;
+  const newPV        = (currentPV || 1) + 1;
+  const fsResult     = await patchFirestoreDoc(idToken, projectId, pageId, {
     page_data_url:          toFirestoreValue(storagePath),
     page_data_download_url: toFirestoreValue(newDownloadUrl),
     versionHistory:         updatedVH,
     sections:               toFirestoreValue(ghlSections),
     version:                toFirestoreValue(newVersion),
+    section_version:        toFirestoreValue(newSV),
+    page_version:           toFirestoreValue(newPV),
     date_updated:           { timestampValue: new Date().toISOString() },
   });
 
@@ -558,7 +564,7 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
     };
   }
 
-  return { success: true, firestoreOk: true, storagePath, downloadUrl: newDownloadUrl, sections: ghlSections.length, version: newVersion };
+  return { success: true, firestoreOk: true, storagePath, downloadUrl: newDownloadUrl, sections: ghlSections.length, version: newVersion, sectionVersion: newSV, pageVersion: newPV };
 }
 
 function buildBackendHeaders(idToken) {
