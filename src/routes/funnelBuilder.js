@@ -560,9 +560,28 @@ function parseFigmaUrl(url) {
   return { fileKey, nodeId };
 }
 
-/** Verify PAT is valid — returns { id, email, handle } or throws */
+/**
+ * Verify PAT is valid — returns true if valid, false if definitively unauthorized (401).
+ * Any other error (network, 403 scope, etc.) is treated as "probably fine, proceed".
+ */
 async function figmaVerifyPat(authHeader) {
-  return httpsGet('api.figma.com', '/v1/me', authHeader);
+  return new Promise((resolve) => {
+    const https2 = require('https');
+    const headers = { 'Content-Type': 'application/json', ...authHeader };
+    const req = https2.request(
+      { hostname: 'api.figma.com', path: '/v1/me', method: 'GET', headers },
+      (resp) => {
+        let d = '';
+        resp.on('data', c => d += c);
+        resp.on('end', () => {
+          if (resp.statusCode === 401) return resolve(false); // definitely invalid
+          resolve(true); // 200, 403 scope, etc. — treat as valid, let file call handle access
+        });
+      }
+    );
+    req.on('error', () => resolve(true)); // network error — don't block, proceed
+    req.end();
+  });
 }
 
 /**
@@ -963,7 +982,7 @@ async function loadStoredFigmaToken(locationId) {
   try {
     const pat = await getFigmaToken(locationId)
       || (await getToolConfig(locationId).catch(() => ({})))?.figmaToken?.token;
-    if (pat) return { token: pat, authHeader: { 'X-Figma-Token': pat } };
+    if (pat) { const t = String(pat).trim(); return { token: t, authHeader: { 'X-Figma-Token': t } }; }
   } catch { /* fall through */ }
 
   return null;
@@ -1538,13 +1557,12 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     try {
       const { fileKey, nodeId } = parseFigmaUrl(figmaUrl);
 
-      // Step 0: Verify PAT is valid
-      try {
-        await figmaVerifyPat(figmaAuth.authHeader);
-      } catch (err) {
+      // Step 0: Quick PAT sanity check (only blocks on 401 — definitively invalid)
+      const patValid = await figmaVerifyPat(figmaAuth.authHeader);
+      if (!patValid) {
         return res.status(400).json({
           success: false,
-          error: 'Figma PAT is invalid or expired. Go to the Design tab → Figma Link → Disconnect, then paste a fresh Personal Access Token from figma.com/settings.',
+          error: 'Figma PAT is invalid or expired. In the Design tab → Figma Link → click Disconnect, then paste a fresh token from figma.com/settings → Security → Personal access tokens.',
         });
       }
 
