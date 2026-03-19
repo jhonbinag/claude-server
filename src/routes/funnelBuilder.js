@@ -515,15 +515,22 @@ function httpsPostForm(hostname, path, headers, params) {
   });
 }
 
-function httpsGet(hostname, path, headers = {}) {
+function httpsGet(hostname, path, headers = {}, retries = 3) {
   return new Promise((resolve, reject) => {
     const req = https.request(
       { hostname, path, method: 'GET', headers: { 'Content-Type': 'application/json', ...headers } },
       (resp) => {
         let d = '';
         resp.on('data', c => d += c);
-        resp.on('end', () => {
+        resp.on('end', async () => {
           try {
+            if (resp.statusCode === 429 && retries > 0) {
+              const retryAfter = parseInt(resp.headers['retry-after'] || '10', 10);
+              const wait = (retryAfter || 10) * 1000;
+              console.warn(`[FunnelBuilder] Figma 429 — retrying in ${wait}ms (${retries} left)`);
+              await new Promise(r => setTimeout(r, wait));
+              return httpsGet(hostname, path, headers, retries - 1).then(resolve).catch(reject);
+            }
             if (resp.statusCode >= 400) return reject(new Error(`${hostname} ${resp.statusCode}: ${d.slice(0, 300)}`));
             resolve(JSON.parse(d));
           } catch (e) { reject(new Error(`JSON parse error from ${hostname}: ${d.slice(0, 200)}`)); }
