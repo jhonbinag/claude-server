@@ -923,12 +923,12 @@ export default function FunnelBuilder() {
 
                 <button
                   type="submit"
-                  disabled={analyzing || !designFile}
+                  disabled={analyzing || (designMode === 'upload' ? !designFile : !figmaUrl.trim() || !figmaConnected)}
                   className="w-full py-3 rounded-xl text-sm font-bold transition-all"
                   style={{
                     background: analyzing ? 'rgba(99,102,241,0.3)' : 'linear-gradient(135deg, #6366f1, #4f46e5)',
                     color: '#fff',
-                    opacity: analyzing || !designFile ? 0.7 : 1,
+                    opacity: analyzing || (designMode === 'upload' ? !designFile : !figmaUrl.trim() || !figmaConnected) ? 0.7 : 1,
                   }}
                 >
                   {analyzing ? (
