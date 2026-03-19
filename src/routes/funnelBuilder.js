@@ -57,7 +57,12 @@ const ghlClient                     = require('../services/ghlClient');
 const chroma                        = require('../services/chromaService');
 const https                         = require('https');
 const { saveToolConfig, getToolConfig } = require('../services/firebaseStore');
-const { saveFunnelAiKey, getFunnelAiKey, deleteFunnelAiKey, saveFigmaToken, getFigmaToken, deleteFigmaToken } = require('../services/toolTokenService');
+const {
+  saveFunnelAiKey, getFunnelAiKey, deleteFunnelAiKey,
+  saveFigmaToken, getFigmaToken, deleteFigmaToken,
+  saveFigmaOAuthState, getFigmaOAuthState,
+  saveFigmaOAuthToken, getFigmaOAuthToken, deleteFigmaOAuthToken,
+} = require('../services/toolTokenService');
 
 function detectProviderName(key = '') {
   if (key.startsWith('sk-ant-')) return 'claude';
@@ -207,6 +212,56 @@ const upload = multer({
     else cb(new Error('Only PNG, JPG, WEBP, or GIF images are accepted.'));
   },
 });
+
+// ── Public OAuth routes (no auth middleware — browser popup flow) ─────────────
+// These are registered BEFORE authenticate so the browser popup can hit them directly.
+// Security is provided by the short-lived state token stored in Redis.
+
+router.get('/figma-auth', async (req, res) => {
+  const locationId = req.query.locationId;
+  if (!locationId) return res.status(400).send('Missing locationId');
+  const clientId    = process.env.FIGMA_CLIENT_ID;
+  const redirectUri = process.env.FIGMA_REDIRECT_URI;
+  if (!clientId || !redirectUri) {
+    return res.status(503).send('Figma OAuth not configured on server (missing FIGMA_CLIENT_ID / FIGMA_REDIRECT_URI).');
+  }
+  const state = require('crypto').randomBytes(20).toString('hex');
+  await saveFigmaOAuthState(state, locationId);
+  const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, scope: 'file_content', state, response_type: 'code' });
+  res.redirect(`https://www.figma.com/oauth?${params}`);
+});
+
+router.get('/figma-callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) return res.send(_popupHtml('error', `Figma denied: ${error}`));
+  if (!code || !state) return res.send(_popupHtml('error', 'Missing code/state.'));
+  const locationId = await getFigmaOAuthState(state);
+  if (!locationId) return res.send(_popupHtml('error', 'State expired — please try again.'));
+  try {
+    const data = await httpsPostForm('api.figma.com', '/v1/oauth/token', {}, {
+      client_id: process.env.FIGMA_CLIENT_ID, client_secret: process.env.FIGMA_CLIENT_SECRET,
+      redirect_uri: process.env.FIGMA_REDIRECT_URI, code, grant_type: 'authorization_code',
+    });
+    const tokenData = { accessToken: data.access_token, refreshToken: data.refresh_token, expiresAt: Date.now() + (data.expires_in || 7776000) * 1000, userId: data.user_id };
+    await Promise.all([saveFigmaOAuthToken(locationId, tokenData), saveToolConfig(locationId, 'figmaOAuth', tokenData)]);
+    console.log(`[FunnelBuilder] Figma OAuth connected for location ${locationId}`);
+    res.send(_popupHtml('success', 'Figma connected! You can close this window.'));
+  } catch (err) {
+    console.error('[FunnelBuilder] Figma token exchange failed:', err.message);
+    res.send(_popupHtml('error', `Token exchange failed: ${err.message}`));
+  }
+});
+
+function _popupHtml(status, message) {
+  const ok = status === 'success';
+  return `<!DOCTYPE html><html><head><title>Figma ${ok ? 'Connected' : 'Error'}</title>
+<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f172a;color:#fff;}
+.box{text-align:center;padding:40px;border-radius:16px;background:${ok ? '#14532d' : '#7f1d1d'};max-width:360px;}
+h2{margin:0 0 12px;}p{margin:0;color:#d1d5db;font-size:14px;}</style></head>
+<body><div class="box"><h2>${ok ? '✅ Figma Connected!' : '❌ Error'}</h2><p>${message}</p></div>
+<script>window.opener&&window.opener.postMessage({type:'figma_oauth',status:'${status}'},'*');setTimeout(()=>window.close(),${ok?1500:3500});</script>
+</body></html>`;
+}
 
 router.use(authenticate);
 
@@ -491,6 +546,25 @@ router.get('/status', async (req, res) => {
 
 // ── Figma API helpers ─────────────────────────────────────────────────────────
 
+function httpsPostForm(hostname, path, headers, params) {
+  return new Promise((resolve, reject) => {
+    const body = new URLSearchParams(params).toString();
+    const req = https.request(
+      { hostname, path, method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body), ...headers } },
+      (resp) => {
+        let d = ''; resp.on('data', c => d += c);
+        resp.on('end', () => {
+          try {
+            if (resp.statusCode >= 400) return reject(new Error(`${hostname} ${resp.statusCode}: ${d.slice(0, 300)}`));
+            resolve(JSON.parse(d));
+          } catch (e) { reject(new Error(`JSON parse error: ${d.slice(0, 200)}`)); }
+        });
+      }
+    );
+    req.on('error', reject); req.write(body); req.end();
+  });
+}
+
 function httpsGet(hostname, path, headers = {}) {
   return new Promise((resolve, reject) => {
     const req = https.request(
@@ -536,11 +610,11 @@ function parseFigmaUrl(url) {
   return { fileKey, nodeId };
 }
 
-async function figmaExportImage(fileKey, nodeId, token) {
+async function figmaExportImage(fileKey, nodeId, authHeader) {
   const data = await httpsGet(
     'api.figma.com',
     `/v1/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=png&scale=2`,
-    { 'X-Figma-Token': token }
+    authHeader
   );
   if (data.err) throw new Error(`Figma export error: ${data.err}`);
   const imageUrl = data.images?.[nodeId];
@@ -549,12 +623,12 @@ async function figmaExportImage(fileKey, nodeId, token) {
   return { base64: buffer.toString('base64'), mimeType: 'image/png' };
 }
 
-async function figmaExtractContent(fileKey, nodeId, token) {
+async function figmaExtractContent(fileKey, nodeId, authHeader) {
   try {
     const data = await httpsGet(
       'api.figma.com',
       `/v1/files/${fileKey}/nodes?ids=${encodeURIComponent(nodeId)}`,
-      { 'X-Figma-Token': token }
+      authHeader
     );
     const nodeData = data.nodes?.[nodeId]?.document;
     if (!nodeData) return { texts: [], colors: [] };
@@ -580,20 +654,54 @@ async function figmaExtractContent(fileKey, nodeId, token) {
   } catch { return { texts: [], colors: [] }; }
 }
 
+// Returns { token, authHeader } — token is the string, authHeader is the correct header object for Figma API
 async function loadStoredFigmaToken(locationId) {
+  // 1. Try OAuth token first (preferred)
   try {
-    const redisToken = await getFigmaToken(locationId);
-    if (redisToken) return redisToken;
-  } catch { /* fall through */ }
-  try {
-    const configs = await getToolConfig(locationId);
-    const fbToken = configs?.figmaToken?.token;
-    if (fbToken) {
-      saveFigmaToken(locationId, fbToken).catch(() => {});
-      return fbToken;
+    let oauth = await getFigmaOAuthToken(locationId);
+    if (!oauth) {
+      const configs = await getToolConfig(locationId);
+      oauth = configs?.figmaOAuth || null;
+      if (oauth) saveFigmaOAuthToken(locationId, oauth).catch(() => {});
+    }
+    if (oauth?.accessToken) {
+      // Refresh if within 5 minutes of expiry
+      if (oauth.expiresAt && Date.now() > oauth.expiresAt - 5 * 60 * 1000) {
+        try {
+          const refreshed = await figmaRefreshToken(oauth.refreshToken);
+          await Promise.all([
+            saveFigmaOAuthToken(locationId, refreshed),
+            saveToolConfig(locationId, 'figmaOAuth', refreshed),
+          ]);
+          oauth = refreshed;
+        } catch { /* use old token and hope it still works */ }
+      }
+      return { token: oauth.accessToken, authHeader: { 'Authorization': `Bearer ${oauth.accessToken}` } };
     }
   } catch { /* fall through */ }
+
+  // 2. PAT fallback
+  try {
+    const pat = await getFigmaToken(locationId)
+      || (await getToolConfig(locationId).catch(() => ({})))?.figmaToken?.token;
+    if (pat) return { token: pat, authHeader: { 'X-Figma-Token': pat } };
+  } catch { /* fall through */ }
+
   return null;
+}
+
+async function figmaRefreshToken(refreshToken) {
+  const data = await httpsPostForm('api.figma.com', '/v1/oauth/token', {}, {
+    client_id:     process.env.FIGMA_CLIENT_ID,
+    client_secret: process.env.FIGMA_CLIENT_SECRET,
+    refresh_token: refreshToken,
+    grant_type:    'refresh_token',
+  });
+  return {
+    accessToken:  data.access_token,
+    refreshToken: data.refresh_token || refreshToken,
+    expiresAt:    Date.now() + (data.expires_in || 7776000) * 1000,
+  };
 }
 
 // ── AI Key persistence: GET / POST / DELETE /ai-key ──────────────────────────
@@ -634,17 +742,21 @@ router.delete('/ai-key', async (req, res) => {
   }
 });
 
-// ── Figma Token persistence: GET / POST / DELETE /figma-token ────────────────
+// ── Figma Token: status / PAT save / disconnect ───────────────────────────────
 
 router.get('/figma-token', async (req, res) => {
   try {
-    const token = await loadStoredFigmaToken(req.locationId);
-    res.json({ token: token || null, connected: !!token });
+    const auth = await loadStoredFigmaToken(req.locationId);
+    if (!auth) return res.json({ connected: false, method: null });
+    // Detect oauth vs pat
+    const isOAuth = !!auth.authHeader?.Authorization;
+    res.json({ connected: true, method: isOAuth ? 'oauth' : 'pat' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// Save PAT manually (fallback if user doesn't want OAuth)
 router.post('/figma-token', async (req, res) => {
   const { token } = req.body;
   if (!token) return res.status(400).json({ error: '"token" is required' });
@@ -653,23 +765,29 @@ router.post('/figma-token', async (req, res) => {
       saveFigmaToken(req.locationId, token),
       saveToolConfig(req.locationId, 'figmaToken', { token }),
     ]);
-    res.json({ success: true });
+    res.json({ success: true, method: 'pat' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// Disconnect — remove both OAuth and PAT
 router.delete('/figma-token', async (req, res) => {
   try {
     await Promise.all([
       deleteFigmaToken(req.locationId),
+      deleteFigmaOAuthToken(req.locationId),
       saveToolConfig(req.locationId, 'figmaToken', { token: '' }),
+      saveToolConfig(req.locationId, 'figmaOAuth', {}),
     ]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── Figma OAuth: /figma-auth → redirect + /figma-callback ────────────────────
+
 
 // ── POST /generate — AI-powered native page generation + save to GHL ─────────
 
@@ -1135,17 +1253,16 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   // Resolve image: either uploaded file or exported from Figma
   let imageBase64, imageMediaType, figmaContent = { texts: [], colors: [] };
   if (figmaUrl) {
-    const figmaToken = await loadStoredFigmaToken(req.locationId);
-    if (!figmaToken) {
-      return res.status(400).json({ success: false, error: 'Figma access token not saved. Add your Figma token in the Design tab first.' });
+    const figmaAuth = await loadStoredFigmaToken(req.locationId);
+    if (!figmaAuth) {
+      return res.status(400).json({ success: false, error: 'Figma not connected. Click "Connect Figma" in the Design tab first.' });
     }
     try {
       const { fileKey, nodeId } = parseFigmaUrl(figmaUrl);
       console.log(`[FunnelBuilder] Fetching Figma frame — file: ${fileKey}, node: ${nodeId || 'root'}`);
-      // Export image + extract text/colors in parallel
       const [imgResult, content] = await Promise.all([
-        figmaExportImage(fileKey, nodeId || '0:1', figmaToken),
-        figmaExtractContent(fileKey, nodeId || '0:1', figmaToken),
+        figmaExportImage(fileKey, nodeId || '0:1', figmaAuth.authHeader),
+        figmaExtractContent(fileKey, nodeId || '0:1', figmaAuth.authHeader),
       ]);
       imageBase64    = imgResult.base64;
       imageMediaType = imgResult.mimeType;

@@ -49,7 +49,9 @@ const TOOLCFG_PREFIX   = 'hltools:toolcfg:';
 const TOOLTOKEN_PREFIX = 'hltools:tooltoken:';
 const TOKENIDX_PREFIX  = 'hltools:tooltokenidx:';
 const AIKEY_PREFIX     = 'hltools:funnelaikey:';
-const FIGMATOKEN_PREFIX = 'hltools:figmatoken:';
+const FIGMATOKEN_PREFIX  = 'hltools:figmatoken:';
+const FIGMAOAUTH_PREFIX  = 'hltools:figmaoauth:';
+const FIGMASTATE_PREFIX  = 'hltools:figmastate:';
 
 // ── Upstash REST Client ───────────────────────────────────────────────────────
 
@@ -335,6 +337,35 @@ async function deleteFigmaToken(locationId) {
   await redis.del(FIGMATOKEN_PREFIX + locationId);
 }
 
+// ── Figma OAuth tokens ────────────────────────────────────────────────────────
+
+const FIGMA_STATE_TTL = 600; // 10 min — short-lived, just for the OAuth handshake
+
+async function saveFigmaOAuthState(state, locationId) {
+  await redis.set(FIGMASTATE_PREFIX + state, locationId, FIGMA_STATE_TTL);
+}
+
+async function getFigmaOAuthState(state) {
+  const val = await redis.get(FIGMASTATE_PREFIX + state);
+  await redis.del(FIGMASTATE_PREFIX + state); // single-use
+  return val || null;
+}
+
+async function saveFigmaOAuthToken(locationId, tokenData) {
+  // tokenData: { accessToken, refreshToken, expiresAt }
+  await redis.set(FIGMAOAUTH_PREFIX + locationId, JSON.stringify(tokenData), AIKEY_TTL);
+}
+
+async function getFigmaOAuthToken(locationId) {
+  const raw = await redis.get(FIGMAOAUTH_PREFIX + locationId);
+  if (!raw) return null;
+  try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
+}
+
+async function deleteFigmaOAuthToken(locationId) {
+  await redis.del(FIGMAOAUTH_PREFIX + locationId);
+}
+
 module.exports = {
   // Cache
   getCachedToolConfig,
@@ -351,10 +382,16 @@ module.exports = {
   saveFunnelAiKey,
   getFunnelAiKey,
   deleteFunnelAiKey,
-  // Figma token persistence
+  // Figma PAT persistence
   saveFigmaToken,
   getFigmaToken,
   deleteFigmaToken,
+  // Figma OAuth persistence
+  saveFigmaOAuthState,
+  getFigmaOAuthState,
+  saveFigmaOAuthToken,
+  getFigmaOAuthToken,
+  deleteFigmaOAuthToken,
   // Constants (used by UI sync endpoint)
   TOKEN_IDLE_DAYS:   TOKEN_IDLE_MS   / (24 * 3600 * 1000),
   TOKEN_EXPIRE_DAYS: TOKEN_EXPIRE_MS / (24 * 3600 * 1000),

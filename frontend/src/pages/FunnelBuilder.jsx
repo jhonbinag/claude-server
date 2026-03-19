@@ -104,29 +104,49 @@ export default function FunnelBuilder() {
   const [designAgent,   setDesignAgent]   = useState('');
   const [designDragging,setDesignDragging]= useState(false);
   const [analyzing,     setAnalyzing]     = useState(false);
-  const [designMode,    setDesignMode]    = useState('upload'); // 'upload' | 'figma'
-  const [figmaUrl,      setFigmaUrl]      = useState('');
-  const [figmaToken,    setFigmaToken]    = useState('');
-  const [figmaTokenSaving, setFigmaTokenSaving] = useState(false);
-  const [figmaTokenSaved,  setFigmaTokenSaved]  = useState(false);
-  const fileInputRef                      = useRef(null);
+  const [designMode,      setDesignMode]      = useState('upload'); // 'upload' | 'figma'
+  const [figmaUrl,        setFigmaUrl]        = useState('');
+  const [figmaConnected,  setFigmaConnected]  = useState(false);  // OAuth status
+  const [figmaMethod,     setFigmaMethod]     = useState(null);   // 'oauth' | 'pat'
+  const [figmaConnecting, setFigmaConnecting] = useState(false);
+  const fileInputRef                          = useRef(null);
 
-  const saveFigmaTokenToBackend = async (token) => {
-    setFigmaToken(token);
-    if (!token || !apiKey) return;
-    setFigmaTokenSaving(true); setFigmaTokenSaved(false);
+  const checkFigmaStatus = async () => {
+    if (!apiKey) return;
     try {
-      await api.postWithKey('/funnel-builder/figma-token', { token }, apiKey);
-      setFigmaTokenSaved(true);
-      setTimeout(() => setFigmaTokenSaved(false), 3000);
+      const d = await api.getWithKey('/funnel-builder/figma-token', apiKey);
+      setFigmaConnected(d.connected || false);
+      setFigmaMethod(d.method || null);
     } catch { /* non-fatal */ }
-    finally { setFigmaTokenSaving(false); }
   };
 
-  const clearFigmaToken = async () => {
-    setFigmaToken('');
+  const connectFigma = () => {
+    const locId = locationId || localStorage.getItem('gtm_location_id') || '';
+    if (!locId) { toast(setToastState, 'Location ID not found. Please refresh.', 'error'); return; }
+    setFigmaConnecting(true);
+    const popup = window.open(`/funnel-builder/figma-auth?locationId=${encodeURIComponent(locId)}`, 'figma_oauth', 'width=620,height=720,left=200,top=100');
+    const handler = (e) => {
+      if (e.data?.type === 'figma_oauth') {
+        window.removeEventListener('message', handler);
+        setFigmaConnecting(false);
+        if (e.data.status === 'success') {
+          setFigmaConnected(true); setFigmaMethod('oauth');
+          toast(setToastState, 'Figma connected!', 'success');
+        } else {
+          toast(setToastState, 'Figma connection failed.', 'error');
+        }
+      }
+    };
+    window.addEventListener('message', handler);
+    // Fallback: if popup closes without message
+    const poll = setInterval(() => {
+      if (popup?.closed) { clearInterval(poll); setFigmaConnecting(false); window.removeEventListener('message', handler); checkFigmaStatus(); }
+    }, 800);
+  };
+
+  const disconnectFigma = async () => {
     if (!apiKey) return;
-    try { await api.deleteWithKey('/funnel-builder/figma-token', apiKey); } catch { /* non-fatal */ }
+    try { await api.deleteWithKey('/funnel-builder/figma-token', apiKey); setFigmaConnected(false); setFigmaMethod(null); } catch { /* non-fatal */ }
   };
 
   // Agent selector
@@ -214,7 +234,7 @@ export default function FunnelBuilder() {
       .then(d => { if (d.key) setAiApiKey(d.key); })
       .catch(() => {});
     api.getWithKey('/funnel-builder/figma-token', apiKey)
-      .then(d => { if (d.token) setFigmaToken(d.token); })
+      .then(d => { setFigmaConnected(d.connected || false); setFigmaMethod(d.method || null); })
       .catch(() => {});
   }, [apiKey]);
 
@@ -275,7 +295,7 @@ export default function FunnelBuilder() {
     e.preventDefault();
     if (designMode === 'upload' && !designFile) { toast(setToastState, 'Upload a design image first.', 'error'); return; }
     if (designMode === 'figma'  && !figmaUrl.trim()) { toast(setToastState, 'Paste a Figma URL first.', 'error'); return; }
-    if (designMode === 'figma'  && !figmaToken.trim()) { toast(setToastState, 'Add your Figma access token first.', 'error'); return; }
+    if (designMode === 'figma'  && !figmaConnected) { toast(setToastState, 'Connect Figma first using the button below.', 'error'); return; }
     if (!designFunnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
 
     const colorScheme = colorPreset || customColor || COLOR_PRESETS[0].value;
@@ -821,10 +841,36 @@ export default function FunnelBuilder() {
                 {/* Figma Link mode */}
                 {designMode === 'figma' && (
                   <div className="space-y-3">
-                    <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)' }}>
+                    {/* Connect / Connected status */}
+                    <div className="rounded-xl p-4" style={{ background: 'rgba(99,102,241,0.06)', border: `1px solid ${figmaConnected ? 'rgba(34,197,94,0.3)' : 'rgba(99,102,241,0.2)'}` }}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-white flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${figmaConnected ? 'bg-green-400' : 'bg-gray-500'}`} />
+                            {figmaConnected ? `Figma connected${figmaMethod === 'oauth' ? ' via OAuth' : ' via PAT'}` : 'Figma not connected'}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {figmaConnected ? 'Your Figma account is linked. Paste any frame URL below.' : 'Connect your Figma account to import designs directly.'}
+                          </p>
+                        </div>
+                        {figmaConnected ? (
+                          <button type="button" onClick={disconnectFigma}
+                            className="btn-secondary text-xs px-3 py-1.5">Disconnect</button>
+                        ) : (
+                          <button type="button" onClick={connectFigma} disabled={figmaConnecting}
+                            className="text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+                            style={{ background: figmaConnecting ? '#374151' : '#4f46e5', color: '#fff' }}>
+                            {figmaConnecting ? 'Connecting…' : '🔗 Connect Figma'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Figma URL input — only shown when connected */}
+                    {figmaConnected && (
                       <div>
                         <label className="block text-xs text-gray-400 mb-1">
-                          Figma Frame / Page URL <span className="text-red-400">*</span>
+                          Figma Frame URL <span className="text-red-400">*</span>
                         </label>
                         <input
                           value={figmaUrl}
@@ -832,37 +878,13 @@ export default function FunnelBuilder() {
                           placeholder="https://www.figma.com/design/abc123/My-Design?node-id=1-2"
                           className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 font-mono"
                         />
-                        <p className="text-xs text-gray-600 mt-1">Right-click a frame in Figma → Copy link to selection</p>
+                        <p className="text-xs text-gray-600 mt-1">Right-click any frame in Figma → Copy link to selection → paste here</p>
                       </div>
-                      <div>
-                        <label className="block text-xs text-gray-400 mb-1 flex items-center gap-2">
-                          Figma Personal Access Token <span className="text-red-400">*</span>
-                          {figmaTokenSaved && <span className="text-green-400 font-normal">● saved</span>}
-                          {figmaTokenSaving && <span className="text-gray-400 font-normal">saving…</span>}
-                          {figmaToken && !figmaTokenSaving && !figmaTokenSaved && <span className="text-green-400 font-normal">● connected</span>}
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="password"
-                            value={figmaToken}
-                            onChange={e => saveFigmaTokenToBackend(e.target.value)}
-                            placeholder="figd_..."
-                            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 font-mono"
-                          />
-                          {figmaToken && (
-                            <button type="button" onClick={clearFigmaToken}
-                              className="btn-secondary text-xs px-3">Clear</button>
-                          )}
-                        </div>
-                        <p className="text-xs text-gray-600 mt-1">
-                          Figma → Settings → Security → Personal access tokens.{' '}
-                          <a href="https://www.figma.com/settings" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Open Figma settings →</a>
-                        </p>
-                      </div>
-                    </div>
+                    )}
+
                     <div className="rounded-lg px-3 py-2 text-xs text-indigo-300 flex gap-2" style={{ background: 'rgba(99,102,241,0.08)' }}>
                       <span>ℹ️</span>
-                      <span>The backend will export your Figma frame as an image and extract all text, colors, and images — then reconstruct them as native GHL elements.</span>
+                      <span>We export your Figma frame as PNG and extract all text + colors — then reconstruct them as native GHL sections.</span>
                     </div>
                   </div>
                 )}
