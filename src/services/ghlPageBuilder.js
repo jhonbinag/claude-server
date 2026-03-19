@@ -277,7 +277,7 @@ function buildGhlNativeElement(el, textAlign = 'center') {
           visibility:      { value: { hideDesktop: false, hideMobile: false } },
         },
         id,
-        meta:    'headline',
+        meta:    'heading',
         styles: {
           boldTextColor: { value: color },
           color:         { value: color },
@@ -288,7 +288,7 @@ function buildGhlNativeElement(el, textAlign = 'center') {
         },
         tag:     tag,
         tagName: 'c-heading',
-        title:   'Heading',
+        title:   'headline',
         type:    'element',
         wrapper: { marginTop: { unit: 'px', value: '0' }, textAlign: { value: textAlign } },
       };
@@ -297,20 +297,20 @@ function buildGhlNativeElement(el, textAlign = 'center') {
     case 'sub-headline':
     case 'sub-heading': {
       const fSize = el.styles?.fontSize?.value || 22;
-      const id    = `heading-${sid()}`;
+      const id    = `sub-heading-${sid()}`;
       return {
         child: [],
         class: { borderRadius: { value: 'radius0' } },
         extra: {
           desktopFontSize: { unit: 'px', value: String(fSize) },
           mobileFontSize:  { unit: 'px', value: String(Math.max(fSize - 4, 16)) },
-          nodeId:          `c-heading-${id}`,
+          nodeId:          `c-sub-heading-${id}`,
           text:            { value: el.text || '' },
           typography:      { value: 'var(--headlinefont)' },
           visibility:      { value: { hideDesktop: false, hideMobile: false } },
         },
         id,
-        meta:    'headline',
+        meta:    'sub-heading',
         styles: {
           boldTextColor: { value: color },
           color:         { value: color },
@@ -320,8 +320,8 @@ function buildGhlNativeElement(el, textAlign = 'center') {
           textAlign:     { value: textAlign },
         },
         tag:     'h3',
-        tagName: 'c-heading',
-        title:   'Heading',
+        tagName: 'c-sub-heading',
+        title:   'sub-headline',
         type:    'element',
         wrapper: { marginTop: { unit: 'px', value: '10' }, textAlign: { value: textAlign } },
       };
@@ -620,8 +620,80 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   }
   const firestoreSections = normalizeTypeNames(aiSections);
 
-  // Storage file — GHL native format: { sections: [{ id, metaData, elements, sequence, pageId, funnelId, locationId, general }] }
-  const storageFile = { sections: ghlSections };
+  // Storage file — GHL native format requires these top-level fields for the renderer to work.
+  // Without pageStyles (CSS vars) and settings (fonts), the page renders blank.
+  const popupRowId = `row-${sid()}`;
+  const popupColId = `col-${sid()}`;
+  const storageFile = {
+    sections: ghlSections,
+    popups: [
+      {
+        id: 'hl_main_popup', tag: '', meta: 'hl_main_popup', child: [popupRowId],
+        title: 'Modal', customCss: [],
+        extra: {
+          visibility: { value: { hideDesktop: true, hideMobile: true } },
+          minWidth: { value: 'medium-page' }, left: { unit: '%', value: 50 },
+          showPopupOnMouseOut: { value: false }, overlayColor: { value: 'var(--overlay)' },
+          popupDisabled: { value: false },
+          desktopFontSize: { unit: 'px', value: '16' }, mobileFontSize: { value: '16', unit: 'px' },
+          typography: { value: 'var(--contentfont)' }, bgImage: { value: { url: '', options: 'bgNoRepeat' } },
+        },
+        class: { radiusEdge: { value: 'none' }, borderRadius: { value: 'radius10' }, borders: { value: 'noBorder' }, boxShadow: { value: 'none' } },
+        wrapper: {},
+        styles: { paddingBottom: { unit: 'px', value: '40' }, borderStyle: { value: 'solid' }, paddingTop: { value: '40', unit: 'px' }, paddingRight: { value: 0, unit: 'px' }, marginTop: { value: '100', unit: 'px' }, paddingLeft: { value: 0, unit: 'px' }, borderWidth: { value: 3, unit: 'px' }, backgroundColor: { value: 'var(--color-18)' } },
+      },
+      { type: 'row', meta: 'row', id: popupRowId, tagName: 'c-row', title: '1 column row', child: [popupColId], class: { borderRadius: { value: 'radius0' }, alignRow: { value: 'row-align-center' }, borders: { value: 'noBorder' } }, extra: { visibility: { value: { hideDesktop: false, hideMobile: false } }, bgImage: { value: { options: 'bgCover', url: '' } }, desktopFontSize: { unit: 'px', value: '16' }, mobileFontSize: { unit: 'px', value: '16' }, typography: { value: 'var(--contentfont)' } }, styles: { borderStyle: { value: 'solid' }, paddingTop: { unit: 'px', value: '20' }, paddingRight: { value: '10', unit: 'px' }, paddingLeft: { unit: 'px', value: '10' }, marginTop: { value: '0', unit: 'px' }, paddingBottom: { unit: 'px', value: '20' }, borderWidth: { value: 3, unit: 'px' } }, wrapper: {} },
+      { type: 'col', meta: 'col', id: popupColId, tagName: 'c-column', title: '1st column', child: [], class: { borderRadius: { value: 'radius0' }, borders: { value: 'noBorder' } }, extra: { visibility: { value: { hideDesktop: false, hideMobile: false } }, bgImage: { value: { options: 'bgCover', url: '' } }, desktopFontSize: { unit: 'px', value: '16' }, mobileFontSize: { unit: 'px', value: '16' }, typography: { value: 'var(--contentfont)' } }, styles: { paddingBottom: { unit: 'px', value: '0' }, borderWidth: { value: 3, unit: 'px' }, borderStyle: { value: 'solid' }, paddingTop: { value: '0', unit: 'px' }, width: { value: '100', unit: '%' }, paddingLeft: { unit: 'px', value: '10' }, paddingRight: { value: '10', unit: 'px' } }, wrapper: {} },
+    ],
+    settings: {
+      settings: {
+        background: { backgroundColor: { value: 'var(--color-18)' }, bgImage: { value: { options: 'bgCover', url: '' } } },
+        typography: {
+          fonts: {
+            contentFont:  { text: 'Content Font',  id: 'contentfont',  value: { value: 'var(--open-sans)',    text: '"Open Sans"' } },
+            headlineFont: { text: 'Headline Font', id: 'headlinefont', value: { value: 'var(--merriweather)', text: 'Merriweather' } },
+          },
+          colors: {
+            linkColor: { value: { label: 'var(--link-color)', value: 'var(--color-17)' } },
+            textColor: { value: { value: 'var(--black)', label: 'var(--text-color)' } },
+          },
+        },
+      },
+    },
+    general: {
+      general: {
+        colors: [
+          { label: 'Primary',   value: '#37ca37' }, { label: 'Secondary', value: '#188bf6' },
+          { label: 'White',     value: '#ffffff' }, { label: 'Gray',      value: '#cbd5e0' },
+          { label: 'Black',     value: '#000000' }, { label: 'Red',       value: '#e93d3d' },
+          { label: 'Orange',    value: '#f6ad55' }, { label: 'Yellow',    value: '#faf089' },
+          { label: 'Green',     value: '#9ae6b4' }, { label: 'Teal',      value: '#63b3ed' },
+          { label: 'Indigo',    value: '#757BBD' }, { label: 'Purple',    value: '#d6bcfa' },
+          { label: 'Pink',      value: '#fbb6ce' },
+          { label: 'color-14',  value: '#ffffff' }, { label: 'color-15',  value: '#000000' },
+          { label: 'color-16',  value: '#ffffff' }, { label: 'color-17',  value: '#188bf6' },
+          { label: 'color-18',  value: '#ffffff' }, { label: 'color-19',  value: '#ffffff' },
+          { label: 'color-20',  value: '#000000' }, { label: 'color-21',  value: '#000000' },
+          { label: 'color-22',  value: '#000000' }, { label: 'color-23',  value: '#000000' },
+          { label: 'color-24',  value: '#ffffff' }, { label: 'color-25',  value: '#37ca37' },
+        ],
+        fontsForPreview: [],
+      },
+    },
+    pageStyles: `:root{
+--primary:#37ca37;--secondary:#188bf6;--white:#ffffff;--gray:#cbd5e0;--black:#000000;
+--red:#e93d3d;--orange:#f6ad55;--yellow:#faf089;--green:#9ae6b4;--teal:#63b3ed;
+--indigo:#757BBD;--purple:#d6bcfa;--pink:#fbb6ce;--transparent:transparent;
+--overlay:rgba(0,0,0,.5);--text-color:#000000;--link-color:#188bf6;
+--color-14:#ffffff;--color-15:#000000;--color-16:#ffffff;--color-17:#188bf6;
+--color-18:#ffffff;--color-19:#ffffff;--color-20:#000000;--color-21:#000000;
+--color-22:#000000;--color-23:#000000;--color-24:#ffffff;--color-25:#37ca37;
+--open-sans:'Open Sans',sans-serif;--merriweather:'Merriweather',serif;
+--contentfont:var(--open-sans);--headlinefont:var(--merriweather);
+}`,
+    trackingCode: { headerCode: '', footerCode: '' },
+    fontsForPreview: ["'\"Open Sans\"'", "'Merriweather'", "'Open Sans'"],
+  };
   const firstLeaf = ghlSections[0]?.elements?.find(e => e.type === 'element');
   console.log(`[GHLPageBuilder] First leaf element sample: ${JSON.stringify(firstLeaf).slice(0, 200)}`);
 
