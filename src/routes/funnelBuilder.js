@@ -1549,8 +1549,10 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   // Resolve image: either uploaded file or exported from Figma
   let imageBase64, imageMediaType, figmaContent = { texts: [], colors: [], spec: '', sectionCount: 0, imageNodes: [] };
   let figmaImageUrlMap = {}; // nodeId → GHL media URL
+  let figmaAuth = null;
+  let effectiveNodeId = null;
   if (figmaUrl) {
-    const figmaAuth = await loadStoredFigmaToken(req.locationId);
+    figmaAuth = await loadStoredFigmaToken(req.locationId);
     if (!figmaAuth) {
       return res.status(400).json({ success: false, error: 'Figma not connected. Enter your Figma Personal Access Token in the Design tab first.' });
     }
@@ -1567,7 +1569,7 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
       }
 
       // Step 1: Resolve node ID — use URL param or auto-discover first frame
-      let effectiveNodeId = nodeId;
+      effectiveNodeId = nodeId;
       if (!effectiveNodeId) {
         try {
           effectiveNodeId = await figmaFirstFrameNodeId(fileKey, figmaAuth.authHeader);
@@ -1751,30 +1753,63 @@ CRITICAL requirements:
 
 Output ONLY the JSON object. No explanation.`;
       }
-      // Attempt 1: full prompt + image
-      let rawText;
-      try {
-        rawText = (await aiDesign.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
-      } catch (err) {
-        const tooLarge = err.message?.toLowerCase().includes('too large') || err.message?.toLowerCase().includes('request_too_large') || err.message?.includes('413');
-        if (!tooLarge) throw err;
-        // Attempt 2: truncate spec to 4000 chars + image
-        console.warn(`[FunnelBuilder] Request too large for "${page.name}" — retrying with truncated spec`);
-        const truncatedText = visionText.length > 4000
-          ? visionText.slice(0, 4000) + '\n...(spec truncated for size)\n\nOutput ONLY the JSON object.'
-          : visionText;
+      const isTooLarge = (e) => {
+        const m = e?.message || '';
+        return m.toLowerCase().includes('too large') || m.includes('request_too_large') || m.includes('413') || m.startsWith('<') || m.includes('<html');
+      };
+
+      const minimalSystem = `You are a GHL page builder. Output ONLY valid JSON: {"sections":[...]}. Each section has id, type:"section", styles:{backgroundColor,paddingTop,paddingBottom,paddingLeft,paddingRight}, children:[rows→columns→elements]. Element types: heading(tag,text,styles), sub-heading, paragraph(text), button(text,link,styles), image(src,styles), bulletList(items[]). All styles use {"value":X,"unit":"px"} format. IDs: type-XXXXXXXX.`;
+      const imageOnlyPrompt = `Reconstruct this design as GHL JSON. Match every section, color, text, and layout. Output ONLY the JSON object.`;
+
+      // Helper: try vision call, return null on too-large errors
+      const tryVision = async (sys, usr, b64, mime, opts) => {
         try {
-          rawText = (await aiDesign.generateWithVision(systemPrompt, truncatedText, imageBase64, imageMediaType, { maxTokens: 6000 })).trim();
-        } catch (err2) {
-          const tooLarge2 = err2.message?.toLowerCase().includes('too large') || err2.message?.toLowerCase().includes('request_too_large');
-          if (!tooLarge2) throw err2;
-          // Attempt 3: minimal system prompt + image only
-          console.warn(`[FunnelBuilder] Still too large for "${page.name}" — retrying image-only with minimal prompt`);
-          const minimalSystem = `You are a GHL page builder. Output ONLY valid JSON: {"sections":[...]}. Each section has id, type:"section", styles:{backgroundColor,paddingTop,paddingBottom,paddingLeft,paddingRight}, children:[rows→columns→elements]. Element types: heading(tag,text,styles), sub-heading, paragraph(text), button(text,link,styles), image(src,styles), bulletList(items[]). All styles use {"value":X,"unit":"px"} format. IDs: type-XXXXXXXX.`;
-          const imageOnlyText = `Reconstruct this design as GHL JSON. Match every section, color, text, and layout. Output ONLY the JSON object.`;
-          rawText = (await aiDesign.generateWithVision(minimalSystem, imageOnlyText, imageBase64, imageMediaType, { maxTokens: 4096 })).trim();
+          const t = (await aiDesign.generateWithVision(sys, usr, b64, mime, opts)).trim();
+          if (t.startsWith('<')) return null; // HTML error page
+          return t;
+        } catch (e) {
+          if (isTooLarge(e)) return null;
+          throw e;
         }
+      };
+
+      // Attempt 1: full prompt + image at normal quality
+      let rawText = await tryVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 });
+
+      // Attempt 2: truncated spec + image
+      if (rawText === null) {
+        console.warn(`[FunnelBuilder] Too large for "${page.name}" — retrying with truncated spec`);
+        const truncated = visionText.length > 3000
+          ? visionText.slice(0, 3000) + '\n...(truncated)\nOutput ONLY the JSON object.'
+          : visionText;
+        rawText = await tryVision(systemPrompt, truncated, imageBase64, imageMediaType, { maxTokens: 5000 });
       }
+
+      // Attempt 3: minimal system + image only
+      if (rawText === null) {
+        console.warn(`[FunnelBuilder] Still too large for "${page.name}" — retrying image-only`);
+        rawText = await tryVision(minimalSystem, imageOnlyPrompt, imageBase64, imageMediaType, { maxTokens: 4096 });
+      }
+
+      // Attempt 4: re-export at scale=0.5 (JPEG, smallest possible) + minimal prompt
+      if (rawText === null) {
+        console.warn(`[FunnelBuilder] Still too large for "${page.name}" — retrying with half-scale JPEG`);
+        try {
+          const { fileKey: fk, nodeId: fn } = parseFigmaUrl(figmaUrl || '');
+          const smallData = await httpsGet('api.figma.com',
+            `/v1/images/${fk}?ids=${encodeURIComponent(fn || effectiveNodeId || '0:1')}&format=jpg&scale=0.5`,
+            figmaAuth?.authHeader || {}
+          );
+          const smallUrl = smallData?.images?.[fn || effectiveNodeId || '0:1'];
+          if (smallUrl) {
+            const smallBuf = await downloadUrl(smallUrl);
+            rawText = await tryVision(minimalSystem, imageOnlyPrompt, smallBuf.toString('base64'), 'image/jpeg', { maxTokens: 4096 });
+          }
+        } catch { /* ignore — fall through to failure */ }
+      }
+
+      if (rawText === null) throw new Error('Design is too large for AI vision even after all size-reduction attempts. Try selecting a smaller frame in Figma.');
+
       console.log(`[FunnelBuilder] Vision raw output for "${page.name}" (first 300 chars):`, rawText.slice(0, 300));
       pageJson = parseJsonSafe(rawText);
       if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('AI response missing "sections" array.');
