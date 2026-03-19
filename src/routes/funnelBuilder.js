@@ -213,56 +213,6 @@ const upload = multer({
   },
 });
 
-// ── Public OAuth routes (no auth middleware — browser popup flow) ─────────────
-// These are registered BEFORE authenticate so the browser popup can hit them directly.
-// Security is provided by the short-lived state token stored in Redis.
-
-router.get('/figma-auth', async (req, res) => {
-  const locationId = req.query.locationId;
-  if (!locationId) return res.status(400).send('Missing locationId');
-  const clientId    = process.env.FIGMA_CLIENT_ID;
-  const redirectUri = process.env.FIGMA_REDIRECT_URI;
-  if (!clientId || !redirectUri) {
-    return res.status(503).send('Figma OAuth not configured on server (missing FIGMA_CLIENT_ID / FIGMA_REDIRECT_URI).');
-  }
-  const state = require('crypto').randomBytes(20).toString('hex');
-  await saveFigmaOAuthState(state, locationId);
-  const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, scope: 'file_content:read', state, response_type: 'code' });
-  res.redirect(`https://www.figma.com/oauth?${params}`);
-});
-
-router.get('/figma-callback', async (req, res) => {
-  const { code, state, error } = req.query;
-  if (error) return res.send(_popupHtml('error', `Figma denied: ${error}`));
-  if (!code || !state) return res.send(_popupHtml('error', 'Missing code/state.'));
-  const locationId = await getFigmaOAuthState(state);
-  if (!locationId) return res.send(_popupHtml('error', 'State expired — please try again.'));
-  try {
-    const data = await httpsPostForm('api.figma.com', '/v1/oauth/token', {}, {
-      client_id: process.env.FIGMA_CLIENT_ID, client_secret: process.env.FIGMA_CLIENT_SECRET,
-      redirect_uri: process.env.FIGMA_REDIRECT_URI, code, grant_type: 'authorization_code',
-    });
-    const tokenData = { accessToken: data.access_token, refreshToken: data.refresh_token, expiresAt: Date.now() + (data.expires_in || 7776000) * 1000, userId: data.user_id };
-    await Promise.all([saveFigmaOAuthToken(locationId, tokenData), saveToolConfig(locationId, 'figmaOAuth', tokenData)]);
-    console.log(`[FunnelBuilder] Figma OAuth connected for location ${locationId}`);
-    res.send(_popupHtml('success', 'Figma connected! You can close this window.'));
-  } catch (err) {
-    console.error('[FunnelBuilder] Figma token exchange failed:', err.message);
-    res.send(_popupHtml('error', `Token exchange failed: ${err.message}`));
-  }
-});
-
-function _popupHtml(status, message) {
-  const ok = status === 'success';
-  return `<!DOCTYPE html><html><head><title>Figma ${ok ? 'Connected' : 'Error'}</title>
-<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f172a;color:#fff;}
-.box{text-align:center;padding:40px;border-radius:16px;background:${ok ? '#14532d' : '#7f1d1d'};max-width:360px;}
-h2{margin:0 0 12px;}p{margin:0;color:#d1d5db;font-size:14px;}</style></head>
-<body><div class="box"><h2>${ok ? '✅ Figma Connected!' : '❌ Error'}</h2><p>${message}</p></div>
-<script>window.opener&&window.opener.postMessage({type:'figma_oauth',status:'${status}'},'*');setTimeout(()=>window.close(),${ok?1500:3500});</script>
-</body></html>`;
-}
-
 router.use(authenticate);
 
 // ── Probe GHL backend for a Firebase custom token ────────────────────────────
@@ -747,10 +697,8 @@ router.delete('/ai-key', async (req, res) => {
 router.get('/figma-token', async (req, res) => {
   try {
     const auth = await loadStoredFigmaToken(req.locationId);
-    if (!auth) return res.json({ connected: false, method: null });
-    // Detect oauth vs pat
-    const isOAuth = !!auth.authHeader?.Authorization;
-    res.json({ connected: true, method: isOAuth ? 'oauth' : 'pat' });
+    if (!auth) return res.json({ connected: false });
+    res.json({ connected: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

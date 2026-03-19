@@ -106,47 +106,32 @@ export default function FunnelBuilder() {
   const [analyzing,     setAnalyzing]     = useState(false);
   const [designMode,      setDesignMode]      = useState('upload'); // 'upload' | 'figma'
   const [figmaUrl,        setFigmaUrl]        = useState('');
-  const [figmaConnected,  setFigmaConnected]  = useState(false);  // OAuth status
-  const [figmaMethod,     setFigmaMethod]     = useState(null);   // 'oauth' | 'pat'
-  const [figmaConnecting, setFigmaConnecting] = useState(false);
+  const [figmaConnected,  setFigmaConnected]  = useState(false);
   const fileInputRef                          = useRef(null);
 
-  const checkFigmaStatus = async () => {
-    if (!apiKey) return;
+  const [figmaPat,        setFigmaPat]        = useState('');
+  const [figmaPatSaving,  setFigmaPatSaving]  = useState(false);
+  const [figmaPatSaved,   setFigmaPatSaved]   = useState(false);
+
+  const saveFigmaPat = async (val) => {
+    setFigmaPat(val);
+    if (!val || !apiKey) return;
+    setFigmaPatSaving(true);
+    setFigmaPatSaved(false);
     try {
-      const d = await api.getWithKey('/funnel-builder/figma-token', apiKey);
-      setFigmaConnected(d.connected || false);
-      setFigmaMethod(d.method || null);
+      await api.postWithKey('/funnel-builder/figma-token', { token: val }, apiKey);
+      setFigmaConnected(true);
+      setFigmaPatSaved(true);
+      setTimeout(() => setFigmaPatSaved(false), 3000);
     } catch { /* non-fatal */ }
+    finally { setFigmaPatSaving(false); }
   };
 
-  const connectFigma = () => {
-    const locId = locationId || localStorage.getItem('gtm_location_id') || '';
-    if (!locId) { toast(setToastState, 'Location ID not found. Please refresh.', 'error'); return; }
-    setFigmaConnecting(true);
-    const popup = window.open(`/funnel-builder/figma-auth?locationId=${encodeURIComponent(locId)}`, 'figma_oauth', 'width=620,height=720,left=200,top=100');
-    const handler = (e) => {
-      if (e.data?.type === 'figma_oauth') {
-        window.removeEventListener('message', handler);
-        setFigmaConnecting(false);
-        if (e.data.status === 'success') {
-          setFigmaConnected(true); setFigmaMethod('oauth');
-          toast(setToastState, 'Figma connected!', 'success');
-        } else {
-          toast(setToastState, 'Figma connection failed.', 'error');
-        }
-      }
-    };
-    window.addEventListener('message', handler);
-    // Fallback: if popup closes without message
-    const poll = setInterval(() => {
-      if (popup?.closed) { clearInterval(poll); setFigmaConnecting(false); window.removeEventListener('message', handler); checkFigmaStatus(); }
-    }, 800);
-  };
-
-  const disconnectFigma = async () => {
+  const clearFigmaPat = async () => {
+    setFigmaPat('');
+    setFigmaConnected(false);
     if (!apiKey) return;
-    try { await api.deleteWithKey('/funnel-builder/figma-token', apiKey); setFigmaConnected(false); setFigmaMethod(null); } catch { /* non-fatal */ }
+    try { await api.deleteWithKey('/funnel-builder/figma-token', apiKey); } catch { /* non-fatal */ }
   };
 
   // Agent selector
@@ -234,7 +219,7 @@ export default function FunnelBuilder() {
       .then(d => { if (d.key) setAiApiKey(d.key); })
       .catch(() => {});
     api.getWithKey('/funnel-builder/figma-token', apiKey)
-      .then(d => { setFigmaConnected(d.connected || false); setFigmaMethod(d.method || null); })
+      .then(d => { if (d.connected) { setFigmaConnected(true); setFigmaPat(d.token || '●●●●●●●●'); } })
       .catch(() => {});
   }, [apiKey]);
 
@@ -295,7 +280,7 @@ export default function FunnelBuilder() {
     e.preventDefault();
     if (designMode === 'upload' && !designFile) { toast(setToastState, 'Upload a design image first.', 'error'); return; }
     if (designMode === 'figma'  && !figmaUrl.trim()) { toast(setToastState, 'Paste a Figma URL first.', 'error'); return; }
-    if (designMode === 'figma'  && !figmaConnected) { toast(setToastState, 'Connect Figma first using the button below.', 'error'); return; }
+    if (designMode === 'figma'  && !figmaConnected) { toast(setToastState, 'Enter your Figma Personal Access Token above.', 'error'); return; }
     if (!designFunnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
 
     const colorScheme = colorPreset || customColor || COLOR_PRESETS[0].value;
@@ -841,32 +826,31 @@ export default function FunnelBuilder() {
                 {/* Figma Link mode */}
                 {designMode === 'figma' && (
                   <div className="space-y-3">
-                    {/* Connect / Connected status */}
-                    <div className="rounded-xl p-4" style={{ background: 'rgba(99,102,241,0.06)', border: `1px solid ${figmaConnected ? 'rgba(34,197,94,0.3)' : 'rgba(99,102,241,0.2)'}` }}>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-white flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full ${figmaConnected ? 'bg-green-400' : 'bg-gray-500'}`} />
-                            {figmaConnected ? `Figma connected${figmaMethod === 'oauth' ? ' via OAuth' : ' via PAT'}` : 'Figma not connected'}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {figmaConnected ? 'Your Figma account is linked. Paste any frame URL below.' : 'Connect your Figma account to import designs directly.'}
-                          </p>
-                        </div>
-                        {figmaConnected ? (
-                          <button type="button" onClick={disconnectFigma}
-                            className="btn-secondary text-xs px-3 py-1.5">Disconnect</button>
-                        ) : (
-                          <button type="button" onClick={connectFigma} disabled={figmaConnecting}
-                            className="text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
-                            style={{ background: figmaConnecting ? '#374151' : '#4f46e5', color: '#fff' }}>
-                            {figmaConnecting ? 'Connecting…' : '🔗 Connect Figma'}
-                          </button>
+                    {/* PAT input */}
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        Figma Personal Access Token{' '}
+                        <a href="https://www.figma.com/settings" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Get one here</a>
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          value={figmaPat}
+                          onChange={e => saveFigmaPat(e.target.value)}
+                          placeholder="figd_xxxxxxxxxxxxxxxxxxxx"
+                          className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 font-mono"
+                        />
+                        {figmaConnected && (
+                          <button type="button" onClick={clearFigmaPat}
+                            className="btn-secondary text-xs px-3 py-1.5 whitespace-nowrap">Clear</button>
                         )}
                       </div>
+                      <p className="text-xs mt-1" style={{ color: figmaPatSaved ? '#34d399' : figmaPatSaving ? '#6b7280' : '#6b7280' }}>
+                        {figmaPatSaved ? '✓ Token saved' : figmaPatSaving ? 'Saving…' : figmaConnected ? '✓ Token saved' : 'Figma → Settings → Security → Personal access tokens → Generate'}
+                      </p>
                     </div>
 
-                    {/* Figma URL input — only shown when connected */}
+                    {/* Figma URL input */}
                     {figmaConnected && (
                       <div>
                         <label className="block text-xs text-gray-400 mb-1">
