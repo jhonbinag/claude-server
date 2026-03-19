@@ -573,6 +573,80 @@ async function figmaExportImage(fileKey, nodeId, authHeader) {
   return { base64: buffer.toString('base64'), mimeType: 'image/png' };
 }
 
+/**
+ * Batch-export multiple Figma nodes as PNG and download their buffers.
+ * Returns a map: nodeId → { buffer, name }
+ */
+async function figmaBatchExportImages(fileKey, imageNodes, authHeader) {
+  if (!imageNodes.length) return {};
+  // Figma allows up to ~20 IDs per call; batch in groups of 20
+  const results = {};
+  const chunks = [];
+  for (let i = 0; i < imageNodes.length; i += 20) chunks.push(imageNodes.slice(i, i + 20));
+
+  for (const chunk of chunks) {
+    const ids = chunk.map(n => n.nodeId).join(',');
+    try {
+      const data = await httpsGet(
+        'api.figma.com',
+        `/v1/images/${fileKey}?ids=${encodeURIComponent(ids)}&format=png&scale=2`,
+        authHeader
+      );
+      if (data.err) { console.warn('[FunnelBuilder] Figma batch export error:', data.err); continue; }
+      for (const node of chunk) {
+        const url = data.images?.[node.nodeId];
+        if (!url) continue;
+        try {
+          const buf = await downloadUrl(url);
+          results[node.nodeId] = { buffer: buf, name: node.name };
+        } catch (e) {
+          console.warn(`[FunnelBuilder] Failed to download Figma image ${node.nodeId}:`, e.message);
+        }
+      }
+    } catch (e) {
+      console.warn('[FunnelBuilder] Figma batch export chunk error:', e.message);
+    }
+  }
+  return results;
+}
+
+/**
+ * Upload an image buffer to GHL media library.
+ * Returns the hosted URL, or null on failure.
+ */
+async function uploadImageToGHL(locationId, buffer, filename) {
+  try {
+    const FormData = require('form-data');
+    const axios    = require('axios');
+    const token    = await ghlClient.getValidAccessToken(locationId);
+
+    const form = new FormData();
+    form.append('file', buffer, { filename, contentType: 'image/png' });
+    form.append('locationId', locationId);
+    form.append('fileAltText', filename.replace(/\.png$/, '').replace(/-/g, ' '));
+
+    const resp = await axios.post(
+      'https://services.leadconnectorhq.com/medias/upload-file',
+      form,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Version: '2021-07-28',
+          ...form.getHeaders(),
+        },
+        maxContentLength: Infinity,
+        maxBodyLength:    Infinity,
+      }
+    );
+    const url = resp.data?.uploadedFiles?.[0]?.url || resp.data?.url || null;
+    if (url) console.log(`[FunnelBuilder] Uploaded "${filename}" to GHL media: ${url}`);
+    return url;
+  } catch (e) {
+    console.warn(`[FunnelBuilder] GHL media upload failed for "${filename}":`, e.response?.data || e.message);
+    return null;
+  }
+}
+
 async function figmaExtractContent(fileKey, nodeId, authHeader) {
   try {
     const data = await httpsGet(
@@ -581,9 +655,10 @@ async function figmaExtractContent(fileKey, nodeId, authHeader) {
       authHeader
     );
     const root = data.nodes?.[nodeId]?.document;
-    if (!root) return { texts: [], colors: [], spec: '', sectionCount: 0 };
+    if (!root) return { texts: [], colors: [], spec: '', sectionCount: 0, imageNodes: [] };
 
     const globalColors = new Set();
+    const imageNodes   = []; // { nodeId, name } — for batch export + GHL upload
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -672,7 +747,9 @@ async function figmaExtractContent(fileKey, nodeId, authHeader) {
       }
 
       if (isImage(n)) {
-        items.push({ type: 'image', name: n.name, width: n.absoluteBoundingBox?.width, height: n.absoluteBoundingBox?.height });
+        const imgNodeId = n.id;
+        if (imgNodeId) imageNodes.push({ nodeId: imgNodeId, name: n.name });
+        items.push({ type: 'image', name: n.name, nodeId: imgNodeId, width: n.absoluteBoundingBox?.width, height: n.absoluteBoundingBox?.height });
         return;
       }
 
@@ -821,11 +898,11 @@ async function figmaExtractContent(fileKey, nodeId, authHeader) {
     const texts  = sections.flatMap(s => s.items.filter(it => it.type === 'text').map(it => it.text));
     const colors = [...globalColors].filter(Boolean).slice(0, 30);
 
-    return { texts, colors, spec, sectionCount: sections.length };
+    return { texts, colors, spec, sectionCount: sections.length, imageNodes };
 
   } catch (e) {
     console.error('[FunnelBuilder] figmaExtractContent error:', e.message);
-    return { texts: [], colors: [], spec: '', sectionCount: 0 };
+    return { texts: [], colors: [], spec: '', sectionCount: 0, imageNodes: [] };
   }
 }
 
@@ -1424,11 +1501,12 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   pages = pages.map(p => ({ ...p, id: p.id || p._id }));
 
   // Resolve image: either uploaded file or exported from Figma
-  let imageBase64, imageMediaType, figmaContent = { texts: [], colors: [] };
+  let imageBase64, imageMediaType, figmaContent = { texts: [], colors: [], spec: '', sectionCount: 0, imageNodes: [] };
+  let figmaImageUrlMap = {}; // nodeId → GHL media URL
   if (figmaUrl) {
     const figmaAuth = await loadStoredFigmaToken(req.locationId);
     if (!figmaAuth) {
-      return res.status(400).json({ success: false, error: 'Figma not connected. Click "Connect Figma" in the Design tab first.' });
+      return res.status(400).json({ success: false, error: 'Figma not connected. Enter your Figma Personal Access Token in the Design tab first.' });
     }
     try {
       const { fileKey, nodeId } = parseFigmaUrl(figmaUrl);
@@ -1440,7 +1518,23 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
       imageBase64    = imgResult.base64;
       imageMediaType = imgResult.mimeType;
       figmaContent   = content;
-      console.log(`[FunnelBuilder] Figma export: ${figmaContent.texts.length} text nodes, ${figmaContent.colors.length} colors`);
+      console.log(`[FunnelBuilder] Figma extract: ${figmaContent.texts.length} texts, ${figmaContent.colors.length} colors, ${figmaContent.imageNodes.length} images`);
+
+      // Export each image node from Figma and upload to GHL media library
+      if (figmaContent.imageNodes.length > 0) {
+        try {
+          const bufferMap = await figmaBatchExportImages(fileKey, figmaContent.imageNodes, figmaAuth.authHeader);
+          await Promise.all(Object.entries(bufferMap).map(async ([nid, { buffer, name }]) => {
+            const slug     = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+            const filename = `figma-${slug}-${nid.replace(/:/g, '-')}.png`;
+            const ghlUrl   = await uploadImageToGHL(req.locationId, buffer, filename);
+            if (ghlUrl) figmaImageUrlMap[nid] = ghlUrl;
+          }));
+          console.log(`[FunnelBuilder] Uploaded ${Object.keys(figmaImageUrlMap).length}/${figmaContent.imageNodes.length} images to GHL media`);
+        } catch (e) {
+          console.warn('[FunnelBuilder] Image upload step failed (non-fatal):', e.message);
+        }
+      }
     } catch (err) {
       return res.status(400).json({ success: false, error: `Figma error: ${err.message}` });
     }
@@ -1547,7 +1641,11 @@ CONVERSION INSTRUCTIONS:
 4. Copy EVERY text string VERBATIM — do not change a single word.
 5. For every text element: set fontSize, fontWeight, color, and textAlign EXACTLY from spec. Include fontFamily if spec specifies one.
 6. For every [BUTTON]: set backgroundColor, color, fontSize, fontWeight, borderRadius, and all padding values from spec exactly.
-7. For every [IMAGE]: insert an image element with src "https://picsum.photos/seed/${imgKwDesign}/800/450".
+7. For every [IMAGE]: use the REAL GHL media URL from the image map below. If the nodeId is not in the map, use "https://picsum.photos/seed/${imgKwDesign}/800/450" as fallback.
+   IMAGE URL MAP (nodeId → real uploaded GHL URL):
+${Object.keys(figmaImageUrlMap).length > 0
+  ? figmaContent.imageNodes.map(n => `   ${n.nodeId}: ${figmaImageUrlMap[n.nodeId] || '(not uploaded — use picsum fallback)'}`).join('\n')
+  : '   (no images uploaded — use picsum fallback for all [IMAGE] elements)'}
 8. For every [DIVIDER]: insert a visual separator (use a paragraph element with border-bottom style or a dedicated divider).
 9. For [2-COLUMN LAYOUT]: create two column elements. Use gridWidth from spec (e.g. 7/12 and 5/12 → width:7 and width:5). Default to width:6 and width:6 if not specified.
 10. For [3-COLUMN LAYOUT]: three column elements each with width:4.
