@@ -500,17 +500,9 @@ SCHEMA:
   const systemPrompt = isGroq ? groqSystemPrompt : fullSystemPrompt;
 
   // Groq has tight token limits — generate a compact 3-section page; other providers get all 7
-  const sectionsInstruction = isGroq
-    ? `Fill the 3-section skeleton with real content for this business. HERO_ELEMENTS=[heading(h1),sub-heading,image,button]. BENEFITS_ELEMENTS=[sub-heading,image,bulletList(4 items),paragraph]. CTA_ELEMENTS=[heading(h2),paragraph,button]. Output only the final JSON.`
-    : `Build a FULL page with these sections in order:
-1. Hero section — bold H1 headline, compelling subheading, image placeholder (800×450), short paragraph hook, primary CTA button
-2. Problem/Agitation section — speak to the pain points of the audience (paragraph + bullet list)
-3. Solution/Benefits section — introduce the offer as the solution, image placeholder, 4-6 benefit bullets, supporting paragraph
-4. Social Proof section — testimonial-style paragraph(s) with names, a results stat or two
-5. Offer Details / Value Stack section — what they get, price anchoring, image placeholder, urgency element, CTA button
-6. FAQ section — 3-4 common objections answered (paragraph elements)
-7. Final CTA section — strong closing headline, urgency/scarcity line, final CTA button
-For image elements use: {"id":"image-XXXXXXXX","type":"image","src":"https://picsum.photos/seed/${imgKeyword}/800/450","alt":"${niche}","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"},"marginTop":{"value":24,"unit":"px"},"marginBottom":{"value":24,"unit":"px"}},"mobileStyles":{}}`;
+  const imgSrc = `https://picsum.photos/seed/${imgKeyword}/800/450`;
+  const sectionPlan = getSectionPlan(pageLabel, imgSrc);
+  const sectionsInstruction = isGroq ? sectionPlan.groq : sectionPlan.full;
 
   const userPrompt = `Generate a native GHL ${pageLabel} JSON for:
 
@@ -1631,13 +1623,156 @@ router.get('/list-pages', async (req, res) => {
 function inferPageType(name = '') {
   const n = name.toLowerCase();
   if (/opt.?in|lead|capture|sign.?up|subscribe/.test(n))  return 'Opt-in / Lead Capture Page';
-  if (/thank|thanks|confirm|success|welcome/.test(n))      return 'Thank You Page';
+  if (/thank|thanks|success|welcome/.test(n))              return 'Thank You Page';
+  if (/confirm|confirmation/.test(n))                      return 'Confirmation Page';
   if (/upsell|oto|one.time|bump/.test(n))                  return 'Upsell Page';
   if (/downsell|down.sell/.test(n))                        return 'Downsell Page';
   if (/order|checkout|payment|buy/.test(n))                return 'Order Page';
+  if (/replay|watch/.test(n))                              return 'Webinar Replay Page';
   if (/webinar|registration|register/.test(n))             return 'Webinar Registration Page';
   if (/vsl|video.?sales/.test(n))                          return 'VSL Page';
   return 'Sales Page';
+}
+
+/**
+ * Returns the section plan (ordered list of sections with element hints)
+ * for a given page type. Drives how many sections the AI generates.
+ */
+function getSectionPlan(pageType, imgSrc) {
+  const img = `image element using src "${imgSrc}"`;
+  const plans = {
+    'Opt-in / Lead Capture Page': {
+      sections: 3,
+      groq: `3 sections:
+1. Hero — heading(h1) + sub-heading + ${img} + paragraph(plain text) + button(CTA)
+2. Benefits — sub-heading + bulletList(3-4 items: what they get) + paragraph
+3. Trust/CTA — sub-heading + paragraph(social proof / guarantee) + button`,
+      full: `3 sections ONLY:
+1. Hero — bold H1 headline, compelling sub-heading, ${img}, short hook paragraph, opt-in CTA button
+2. Benefits / What You'll Get — sub-heading, 3-4 bullet points on the value, supporting paragraph
+3. Trust & Final CTA — social proof line, guarantee statement, final CTA button`,
+    },
+
+    'Thank You Page': {
+      sections: 2,
+      groq: `2 sections:
+1. Confirmation — heading(h1: "You're In!") + sub-heading + paragraph(what happens next) + ${img}
+2. Next Steps — sub-heading + bulletList(3 next steps) + button(optional next action)`,
+      full: `2 sections ONLY:
+1. Confirmation Hero — celebratory H1, sub-heading confirming sign-up, ${img}, paragraph explaining what happens next
+2. Next Steps — sub-heading, 3-step bullet list, optional CTA button for next action`,
+    },
+
+    'Confirmation Page': {
+      sections: 3,
+      groq: `3 sections:
+1. Confirmation — heading(h1: "You're Registered!") + sub-heading + paragraph(event details) + ${img}
+2. What to Expect — sub-heading + bulletList(3-4 items: what they'll learn) + paragraph
+3. Add to Calendar — sub-heading + paragraph(reminder tip) + button("Add to Calendar")`,
+      full: `3 sections ONLY:
+1. Registration Confirmed — celebratory H1, sub-heading with event name/date, ${img}, paragraph with details
+2. What You'll Learn — sub-heading, 4-5 bullet points on webinar content
+3. Prepare & Remind — sub-heading, paragraph about how to prepare, add-to-calendar CTA button`,
+    },
+
+    'Webinar Registration Page': {
+      sections: 5,
+      groq: `3 sections (Groq limit):
+1. Hero — heading(h1: event title) + sub-heading(date/time) + ${img} + paragraph(what you'll learn) + button("Register Free")
+2. What You'll Learn — sub-heading + bulletList(4 items) + paragraph
+3. Register CTA — heading(h2: urgency) + paragraph + button("Secure Your Spot")`,
+      full: `5 sections:
+1. Hero — bold event headline H1, sub-heading with date/time/format, ${img}, short compelling paragraph, "Register Free" CTA button
+2. What You'll Learn — sub-heading, 4-5 learning outcome bullet points, supporting paragraph
+3. About the Presenter — sub-heading, ${img}, bio paragraph, credentials bullet list
+4. Who This Is For — sub-heading, 3-4 audience bullet points, paragraph on prerequisites
+5. Register Now CTA — urgency headline, paragraph on limited spots, final registration button`,
+    },
+
+    'Webinar Replay Page': {
+      sections: 4,
+      groq: `3 sections:
+1. Watch Replay — heading(h1) + sub-heading + ${img} + paragraph(what they'll see)
+2. Key Takeaways — sub-heading + bulletList(4 items)
+3. Special Offer CTA — heading(h2) + paragraph + button("Get Access Now")`,
+      full: `4 sections:
+1. Replay Hero — H1 headline, sub-heading, video/image placeholder (${img}), paragraph on what they'll see
+2. Key Takeaways — sub-heading, 4-5 bullet points on what was covered
+3. Limited-Time Offer — sub-heading, ${img}, paragraph on the offer details and urgency
+4. Final CTA — strong closing headline, scarcity paragraph, CTA button`,
+    },
+
+    'VSL Page': {
+      sections: 4,
+      groq: `3 sections:
+1. Hero — heading(h1) + sub-heading + ${img} + paragraph(tease what the video reveals) + button("Watch Now")
+2. What You'll Discover — sub-heading + bulletList(4 items) + paragraph
+3. CTA — heading(h2) + paragraph + button("Get Instant Access")`,
+      full: `4 sections:
+1. VSL Hero — curiosity headline H1, sub-heading, ${img} (video thumbnail placeholder), paragraph teasing the reveal, "Watch Now" button
+2. What You'll Discover — sub-heading, 4-5 bullet points on video content
+3. Offer Details — sub-heading, ${img}, value stack paragraph, price/bonus details, CTA button
+4. Final CTA — urgency headline, guarantee paragraph, final CTA button`,
+    },
+
+    'Order Page': {
+      sections: 3,
+      groq: `3 sections:
+1. Order Summary — heading(h1) + sub-heading + ${img} + bulletList(what they get)
+2. Guarantee — sub-heading + paragraph(risk reversal/guarantee) + ${img}
+3. Complete Order CTA — heading(h2: urgency) + paragraph + button("Complete My Order")`,
+      full: `3 sections:
+1. Order Summary — H1 headline, sub-heading confirming the offer, ${img}, bullet list of what they get, value statement
+2. Guarantee & Trust — sub-heading, ${img} (badge/seal placeholder), guarantee paragraph, trust bullet points
+3. Complete Your Order — urgency headline, scarcity paragraph, final order CTA button`,
+    },
+
+    'Upsell Page': {
+      sections: 5,
+      groq: `3 sections:
+1. Congratulations / OTO — heading(h1: "Wait — Special One-Time Offer!") + sub-heading + ${img} + paragraph
+2. Why You Need This — sub-heading + bulletList(4 benefits) + paragraph
+3. Yes/No CTA — heading(h2: urgency) + paragraph + button("Yes! Add This Now") + paragraph("No thanks, I don't want...")`,
+      full: `5 sections:
+1. Congratulations Hook — H1 ("Wait — Don't Close This Page!"), sub-heading explaining the one-time offer, ${img}
+2. The Offer — sub-heading, detailed offer paragraph, ${img}, what they get bullet list
+3. Why This Works — sub-heading, 4-5 benefit bullets, social proof paragraph
+4. Value Stack — sub-heading, price anchoring paragraph, what's included bullet list, urgency line
+5. Yes/No Decision — urgency headline, yes CTA button, "no thanks" text link`,
+    },
+
+    'Downsell Page': {
+      sections: 4,
+      groq: `3 sections:
+1. Wait — heading(h1: "Hold On — Here's a Better Option") + sub-heading + ${img} + paragraph(downgraded offer)
+2. What You Get — sub-heading + bulletList(3-4 items) + paragraph
+3. CTA — heading(h2) + paragraph + button("Yes, I'll Take This Instead")`,
+      full: `4 sections:
+1. Special Alternative Offer — H1, sub-heading presenting the downsell, ${img}, paragraph explaining the adjusted offer
+2. What's Included — sub-heading, 3-4 bullet points, paragraph on value
+3. Why This Still Works — sub-heading, ${img}, social proof paragraph, guarantee
+4. Final Decision CTA — urgency headline, CTA button, "no thanks" text link`,
+    },
+
+    'Sales Page': {
+      sections: 8,
+      groq: `3 sections:
+1. Hero — heading(h1) + sub-heading + ${img} + paragraph + button(CTA)
+2. Benefits — sub-heading + ${img} + bulletList(4 items) + paragraph
+3. Final CTA — heading(h2) + paragraph + button`,
+      full: `8 sections:
+1. Hero — bold H1 headline, compelling sub-heading, ${img}, short hook paragraph, primary CTA button
+2. Problem/Agitation — sub-heading, pain point paragraph, bullet list of problems the audience faces
+3. Solution/Benefits — introduce offer as the solution, ${img}, 5-6 benefit bullet points, supporting paragraph
+4. Social Proof — sub-heading, 2-3 testimonial paragraphs with names and results, results stat bullet points
+5. Offer Details / Value Stack — sub-heading, ${img}, what they get bullet list, price anchoring, bonus items, urgency element
+6. Guarantee — sub-heading, ${img} (seal/badge placeholder), strong risk-reversal paragraph
+7. FAQ — sub-heading, 4 common objections answered (sub-heading + paragraph pairs)
+8. Final CTA — strong closing H2 headline, urgency/scarcity paragraph, final CTA button`,
+    },
+  };
+
+  return plans[pageType] || plans['Sales Page'];
 }
 
 const FUNNEL_TYPE_PAGES = {
@@ -1782,24 +1917,9 @@ For image elements use src "https://picsum.photos/seed/${imgKw}/800/450".`;
 
     const systemPrompt = isGroq ? groqSysPrompt : fullSysPrompt;
 
-    const imgPlaceholder = `{"id":"image-XXXXXXXX","type":"image","src":"https://picsum.photos/seed/${imgKw}/800/450","alt":"${niche}","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"},"marginTop":{"value":24,"unit":"px"},"marginBottom":{"value":24,"unit":"px"}},"mobileStyles":{}}`;
-
-    const sectionsNote = isGroq
-      ? `Build 3 sections:
-1. Hero — heading (h1) + sub-heading + image placeholder + button
-2. Benefits — sub-heading + image placeholder + bulletList (4 plain string items) + paragraph
-3. Final CTA — heading + paragraph (plain text) + button
-Image placeholder: ${imgPlaceholder.replace('XXXXXXXX', Math.random().toString(36).slice(2,10))}
-Keep copy concise but persuasive.`
-      : `Build a complete ${pageType} with ALL these sections:
-1. Hero — bold heading h1, compelling sub-heading, image placeholder (800×450), short paragraph hook, primary CTA button
-2. Problem/Pain — speak to audience pain points (sub-heading + paragraph + bulletList)
-3. Solution/Benefits — introduce offer as solution, image placeholder, 5-6 benefit bullets, supporting paragraph
-4. Social Proof — testimonial paragraphs with names, results stats
-5. Offer Details — what they get, value stack, image placeholder, urgency, CTA button
-6. FAQ — 3-4 objections answered (sub-heading + paragraph pairs)
-7. Final CTA — strong closing heading, urgency line, final CTA button
-For image elements use: ${imgPlaceholder.replace('XXXXXXXX', Math.random().toString(36).slice(2,10))}`;
+    const imgSrc2      = `https://picsum.photos/seed/${imgKw}/800/450`;
+    const sectionPlan2 = getSectionPlan(pageType, imgSrc2);
+    const sectionsNote = isGroq ? sectionPlan2.groq : sectionPlan2.full;
 
     const userPrompt = `Generate a native GHL ${pageType} JSON (page ${i + 1} of ${pages.length}).
 Page name: "${page.name}"
