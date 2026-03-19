@@ -604,7 +604,7 @@ async function figmaFirstFrameNodeId(fileKey, authHeader) {
 async function figmaExportImage(fileKey, nodeId, authHeader) {
   const data = await httpsGet(
     'api.figma.com',
-    `/v1/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=png&scale=2`,
+    `/v1/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=png&scale=1`,
     authHeader
   );
   if (data.err) throw new Error(`Figma export error: ${data.err}`);
@@ -630,7 +630,7 @@ async function figmaBatchExportImages(fileKey, imageNodes, authHeader) {
     try {
       const data = await httpsGet(
         'api.figma.com',
-        `/v1/images/${fileKey}?ids=${encodeURIComponent(ids)}&format=png&scale=2`,
+        `/v1/images/${fileKey}?ids=${encodeURIComponent(ids)}&format=png&scale=1`,
         authHeader
       );
       if (data.err) { console.warn('[FunnelBuilder] Figma batch export error:', data.err); continue; }
@@ -1768,10 +1768,11 @@ Output ONLY the JSON object. No explanation.`;
         } catch (err2) {
           const tooLarge2 = err2.message?.toLowerCase().includes('too large') || err2.message?.toLowerCase().includes('request_too_large');
           if (!tooLarge2) throw err2;
-          // Attempt 3: image only, no spec
-          console.warn(`[FunnelBuilder] Still too large for "${page.name}" — retrying image-only`);
-          const imageOnlyText = `Reconstruct this design screenshot as a native GHL ${pageType} JSON for page "${page.name}". Match all sections, colors, text, and layout exactly. Output ONLY the JSON object.`;
-          rawText = (await aiDesign.generateWithVision(systemPrompt, imageOnlyText, imageBase64, imageMediaType, { maxTokens: 5000 })).trim();
+          // Attempt 3: minimal system prompt + image only
+          console.warn(`[FunnelBuilder] Still too large for "${page.name}" — retrying image-only with minimal prompt`);
+          const minimalSystem = `You are a GHL page builder. Output ONLY valid JSON: {"sections":[...]}. Each section has id, type:"section", styles:{backgroundColor,paddingTop,paddingBottom,paddingLeft,paddingRight}, children:[rows→columns→elements]. Element types: heading(tag,text,styles), sub-heading, paragraph(text), button(text,link,styles), image(src,styles), bulletList(items[]). All styles use {"value":X,"unit":"px"} format. IDs: type-XXXXXXXX.`;
+          const imageOnlyText = `Reconstruct this design as GHL JSON. Match every section, color, text, and layout. Output ONLY the JSON object.`;
+          rawText = (await aiDesign.generateWithVision(minimalSystem, imageOnlyText, imageBase64, imageMediaType, { maxTokens: 4096 })).trim();
         }
       }
       console.log(`[FunnelBuilder] Vision raw output for "${page.name}" (first 300 chars):`, rawText.slice(0, 300));
