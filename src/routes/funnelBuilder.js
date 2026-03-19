@@ -580,28 +580,142 @@ async function figmaExtractContent(fileKey, nodeId, authHeader) {
       `/v1/files/${fileKey}/nodes?ids=${encodeURIComponent(nodeId)}`,
       authHeader
     );
-    const nodeData = data.nodes?.[nodeId]?.document;
-    if (!nodeData) return { texts: [], colors: [] };
+    const root = data.nodes?.[nodeId]?.document;
+    if (!root) return { texts: [], colors: [], spec: '' };
 
-    const texts = [];
-    const colorSet = new Set();
+    const globalColors = new Set();
 
-    function walk(n) {
-      if (n.type === 'TEXT' && n.characters) texts.push(n.characters.trim());
-      // Extract fill colors
-      for (const fill of (n.fills || [])) {
-        if (fill.type === 'SOLID' && fill.color) {
-          const { r, g, b } = fill.color;
-          const hex = '#' + [r, g, b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
-          colorSet.add(hex);
+    function toHex(c) {
+      if (!c) return null;
+      const { r, g, b } = c;
+      return '#' + [r, g, b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
+    }
+
+    function getFillHex(fills = []) {
+      const solid = fills.find(f => f.type === 'SOLID' && f.color);
+      return solid ? toHex(solid.color) : null;
+    }
+
+    function isButton(n) {
+      // A button is a FRAME/COMPONENT/INSTANCE with a single text child and solid fill, or with "button"/"btn"/"cta" in its name
+      const name = (n.name || '').toLowerCase();
+      if (name.includes('button') || name.includes('btn') || name.includes('cta')) return true;
+      if ((n.type === 'FRAME' || n.type === 'COMPONENT' || n.type === 'INSTANCE') &&
+          n.children?.length === 1 && n.children[0].type === 'TEXT' &&
+          (n.fills?.some(f => f.type === 'SOLID'))) return true;
+      return false;
+    }
+
+    function isImage(n) {
+      if (n.type === 'RECTANGLE' && n.fills?.some(f => f.type === 'IMAGE')) return true;
+      const name = (n.name || '').toLowerCase();
+      return n.type === 'VECTOR' || name.includes('image') || name.includes('photo') || name.includes('icon') || name.includes('logo') || name.includes('img');
+    }
+
+    // Build a structured spec for each top-level section (direct children of the root frame)
+    const sections = [];
+    const sectionNodes = root.children?.length ? root.children : [root];
+
+    for (const sec of sectionNodes) {
+      const bg = getFillHex(sec.fills);
+      if (bg) globalColors.add(bg);
+
+      const secSpec = {
+        name: sec.name,
+        background: bg || 'transparent',
+        layout: sec.layoutMode === 'HORIZONTAL' ? 'horizontal' : 'vertical',
+        items: [],
+      };
+
+      function walkSection(n, depth) {
+        if (depth > 6) return;
+
+        if (isButton(n)) {
+          const btnBg  = getFillHex(n.fills);
+          const btnTxt = n.children?.find(c => c.type === 'TEXT')?.characters?.trim() || n.name;
+          const btnColor = getFillHex(n.children?.find(c => c.type === 'TEXT')?.fills);
+          if (btnBg) globalColors.add(btnBg);
+          secSpec.items.push({ type: 'button', text: btnTxt, background: btnBg, color: btnColor, borderRadius: n.cornerRadius || 0 });
+          return;
+        }
+
+        if (isImage(n)) {
+          secSpec.items.push({ type: 'image', name: n.name });
+          return;
+        }
+
+        if (n.type === 'TEXT' && n.characters) {
+          const style = n.style || {};
+          const color = getFillHex(n.fills);
+          if (color) globalColors.add(color);
+          const size = style.fontSize || 16;
+          const weight = style.fontWeight || 400;
+          const align = (style.textAlignHorizontal || 'LEFT').toLowerCase();
+          let role = 'paragraph';
+          if (size >= 48 || weight >= 700 && size >= 36) role = 'headline';
+          else if (size >= 28) role = 'subheadline';
+          else if (size >= 20) role = 'subheading';
+          secSpec.items.push({ type: 'text', role, text: n.characters.trim(), fontSize: size, fontWeight: weight, color, align });
+          return;
+        }
+
+        // recurse into groups/frames
+        if (n.children) {
+          const layoutDir = n.layoutMode === 'HORIZONTAL' ? 'horizontal' : null;
+          if (layoutDir === 'horizontal' && depth === 1) {
+            secSpec.items.push({ type: 'columns', children: [] });
+            const colGroup = secSpec.items[secSpec.items.length - 1];
+            for (const child of n.children) {
+              const col = { items: [] };
+              const savedItems = secSpec.items;
+              secSpec.items = col.items;
+              walkSection(child, depth + 1);
+              secSpec.items = savedItems;
+              colGroup.children.push(col);
+            }
+          } else {
+            for (const child of n.children) walkSection(child, depth + 1);
+          }
         }
       }
-      for (const child of (n.children || [])) walk(child);
-    }
-    walk(nodeData);
 
-    return { texts, colors: [...colorSet].slice(0, 10) };
-  } catch { return { texts: [], colors: [] }; }
+      for (const child of (sec.children || [])) walkSection(child, 1);
+      sections.push(secSpec);
+    }
+
+    // Serialise spec to readable text for the AI prompt
+    function serializeItem(item, indent = '') {
+      if (item.type === 'text') {
+        return `${indent}[${item.role.toUpperCase()}] "${item.text}" | size:${item.fontSize}px weight:${item.fontWeight} color:${item.color || 'inherit'} align:${item.align}`;
+      }
+      if (item.type === 'button') {
+        return `${indent}[BUTTON] "${item.text}" | bg:${item.background} color:${item.color || '#fff'} radius:${item.borderRadius}px`;
+      }
+      if (item.type === 'image') {
+        return `${indent}[IMAGE] ${item.name}`;
+      }
+      if (item.type === 'columns') {
+        const cols = item.children.map((col, i) =>
+          `${indent}  Column ${i + 1}:\n${col.items.map(c => serializeItem(c, indent + '    ')).join('\n')}`
+        ).join('\n');
+        return `${indent}[TWO-COLUMN LAYOUT]\n${cols}`;
+      }
+      return '';
+    }
+
+    const spec = sections.map((sec, i) =>
+      `SECTION ${i + 1}: "${sec.name}" | bg:${sec.background} layout:${sec.layout}\n` +
+      (sec.items.length ? sec.items.map(it => serializeItem(it, '  ')).join('\n') : '  (no content)')
+    ).join('\n\n');
+
+    const texts  = sections.flatMap(s => s.items.filter(it => it.type === 'text').map(it => it.text));
+    const colors = [...globalColors].slice(0, 20);
+
+    return { texts, colors, spec, sectionCount: sections.length };
+  } catch (e) {
+    console.error('[FunnelBuilder] figmaExtractContent error:', e.message);
+    return { texts: [], colors: [], spec: '', sectionCount: 0 };
+  }
 }
 
 // Returns { token, authHeader } — token is the string, authHeader is the correct header object for Figma API
@@ -1286,25 +1400,44 @@ SCHEMA (single-column example — use multiple columns when the design has side-
 
     let pageJson, genError;
     try {
-      // Supplement vision prompt with Figma-extracted text + colors when available
-      const figmaTextNote = figmaContent.texts.length > 0
-        ? `\n\nEXACT TEXT FROM FIGMA (use these verbatim — do not paraphrase):\n${figmaContent.texts.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
-        : '';
-      const figmaColorNote = figmaContent.colors.length > 0
-        ? `\n\nEXACT COLORS FROM FIGMA (use these hex values for section backgrounds, buttons, and text):\n${figmaContent.colors.join(', ')}`
-        : '';
+      let visionText;
+      if (figmaUrl && figmaContent.spec) {
+        // Figma mode: full structural spec is the source of truth; image is visual reference only
+        visionText = `Convert this Figma design into a native GHL page JSON for "${page.name}".
 
-      const visionText = `Reconstruct this ${figmaUrl ? 'Figma' : 'design'} screenshot as a native GHL ${pageType} JSON for page "${page.name}" (${i + 1} of ${pages.length}).
+The image is a visual reference. The FIGMA DESIGN SPEC below is the authoritative source — follow it exactly.
+
+FIGMA DESIGN SPEC:
+${figmaContent.spec}
+
+RULES FOR CONVERSION:
+- Create exactly ${figmaContent.sectionCount || 'the same number of'} sections, one per SECTION in the spec above
+- Each section's background color must match the spec exactly
+- Use every [HEADLINE] as a "heading" element (tag: h1 or h2), [SUBHEADLINE] as "sub-heading", [SUBHEADING] as "sub-heading", [PARAGRAPH] as "paragraph"
+- Use every [BUTTON] as a "button" element — match its background color, text color, and border-radius exactly
+- Use every [IMAGE] as an image element with src "https://picsum.photos/seed/${imgKwDesign}/800/450"
+- [TWO-COLUMN LAYOUT] → two column elements each with width:6 in the same row
+- Copy ALL text verbatim from the spec — do not rephrase, summarize, or invent new text
+- Match font sizes proportionally: spec fontSize → use that value in px for desktop, ~60% for mobile${extraContext ? `\n- Additional instructions: ${extraContext}` : ''}
+
+Output ONLY the JSON object. No explanation.`;
+      } else {
+        // Image upload mode
+        const figmaColorNote = figmaContent.colors.length > 0
+          ? `\n\nEXACT COLORS FROM DESIGN:\n${figmaContent.colors.join(', ')}`
+          : '';
+        visionText = `Reconstruct this design screenshot as a native GHL ${pageType} JSON for page "${page.name}".
 
 CRITICAL requirements:
 - Match the EXACT number of sections visible in the design
 - Preserve every section's background color, padding, and layout
-- Extract ALL text verbatim${figmaUrl ? ' — use the exact text provided below' : ''}
-- For every image, photo, illustration, or visual in the design → add an image element with src "https://picsum.photos/seed/${imgKwDesign}/800/450"
+- Extract ALL text verbatim
+- For every image/photo/visual → add an image element with src "https://picsum.photos/seed/${imgKwDesign}/800/450"
 - For side-by-side layouts → use two column elements (width:6 each) in the same row
-- Match button colors exactly from the design${figmaColorNote}${figmaTextNote}${extraContext ? `\n\nUser notes: ${extraContext}` : ''}
+- Match button colors exactly from the design${figmaColorNote}${extraContext ? `\n\nUser notes: ${extraContext}` : ''}
 
 Output ONLY the JSON object. No explanation.`;
+      }
       const rawText = (await aiDesign.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
       console.log(`[FunnelBuilder] Vision raw output for "${page.name}" (first 300 chars):`, rawText.slice(0, 300));
       pageJson = parseJsonSafe(rawText);
