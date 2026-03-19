@@ -250,9 +250,11 @@ export default function FunnelBuilder() {
     if (!designFile)            { toast(setToastState, 'Upload a design image first.', 'error'); return; }
     if (!designFunnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
 
+    const colorScheme = colorPreset || customColor || COLOR_PRESETS[0].value;
     const formData = new FormData();
     formData.append('image', designFile);
     formData.append('funnelId', designFunnelId.trim());
+    formData.append('colorScheme', colorScheme);
     if (designContext.trim()) formData.append('extraContext', designContext.trim());
     if (designAgent)          formData.append('agentId', designAgent);
 
