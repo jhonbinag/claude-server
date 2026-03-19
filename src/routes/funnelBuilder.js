@@ -17,7 +17,7 @@ const { jsonrepair } = require('jsonrepair');
 
 function parseJsonSafe(raw) {
   // Strip markdown code fences
-  let cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  let cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*```\s*$/i, '').replace(/\s*```\s*$/i, '').trim();
 
   // Extract JSON object — from first { to last } (handles leading/trailing text)
   const start = cleaned.indexOf('{');
@@ -26,11 +26,19 @@ function parseJsonSafe(raw) {
     cleaned = cleaned.slice(start, end + 1);
   }
 
+  // Attempt 1: native JSON.parse
   try { return JSON.parse(cleaned); } catch { /* fall through */ }
+
+  // Attempt 2: jsonrepair on extracted JSON
   try { return JSON.parse(jsonrepair(cleaned)); } catch { /* fall through */ }
 
-  // Last resort: jsonrepair on the original stripped text
-  return JSON.parse(jsonrepair(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()));
+  // Attempt 3: jsonrepair on fully raw text (re-strip)
+  const rawStripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  try { return JSON.parse(jsonrepair(rawStripped)); } catch { /* fall through */ }
+
+  // All attempts failed — log raw for debugging, then throw descriptive error
+  console.error('[parseJsonSafe] All parse attempts failed. Raw AI output (first 600 chars):', raw.slice(0, 600));
+  throw new Error(`AI returned non-JSON output. Preview: ${raw.slice(0, 120)}`);
 }
 const multer       = require('multer');
 const aiService    = require('../services/aiService');
@@ -777,8 +785,16 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   if (!funnelId) {
     return res.status(400).json({ success: false, error: '"funnelId" is required.' });
   }
-  if (!aiService.getProvider()) {
-    return res.status(503).json({ success: false, error: 'No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.' });
+  const userKeyForDesign = req.headers['x-anthropic-api-key'];
+  if (!userKeyForDesign && !aiService.getProvider()) {
+    return res.status(503).json({ success: false, error: 'No AI provider configured. Add your Anthropic API key above or set ANTHROPIC_API_KEY on the server.' });
+  }
+  // Vision/design generation requires a capable model — warn if Groq is the only option
+  if (!userKeyForDesign) {
+    const prov = aiService.getProvider();
+    if (prov?.name === 'groq') {
+      return res.status(503).json({ success: false, error: 'Design-from-image requires Claude or GPT-4o. Please enter your Anthropic API key in the field above.' });
+    }
   }
 
   // Ensure Firebase connected
@@ -895,6 +911,7 @@ CRITICAL requirements:
 
 Output ONLY the JSON object. No explanation.`;
       const rawText = (await aiDesign.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
+      console.log(`[FunnelBuilder] Vision raw output for "${page.name}" (first 300 chars):`, rawText.slice(0, 300));
       pageJson = parseJsonSafe(rawText);
       if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('AI response missing "sections" array.');
     } catch (err) {
