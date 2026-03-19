@@ -1733,7 +1733,29 @@ CRITICAL requirements:
 
 Output ONLY the JSON object. No explanation.`;
       }
-      const rawText = (await aiDesign.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
+      // Attempt 1: full prompt + image
+      let rawText;
+      try {
+        rawText = (await aiDesign.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
+      } catch (err) {
+        const tooLarge = err.message?.toLowerCase().includes('too large') || err.message?.toLowerCase().includes('request_too_large') || err.message?.includes('413');
+        if (!tooLarge) throw err;
+        // Attempt 2: truncate spec to 4000 chars + image
+        console.warn(`[FunnelBuilder] Request too large for "${page.name}" — retrying with truncated spec`);
+        const truncatedText = visionText.length > 4000
+          ? visionText.slice(0, 4000) + '\n...(spec truncated for size)\n\nOutput ONLY the JSON object.'
+          : visionText;
+        try {
+          rawText = (await aiDesign.generateWithVision(systemPrompt, truncatedText, imageBase64, imageMediaType, { maxTokens: 6000 })).trim();
+        } catch (err2) {
+          const tooLarge2 = err2.message?.toLowerCase().includes('too large') || err2.message?.toLowerCase().includes('request_too_large');
+          if (!tooLarge2) throw err2;
+          // Attempt 3: image only, no spec
+          console.warn(`[FunnelBuilder] Still too large for "${page.name}" — retrying image-only`);
+          const imageOnlyText = `Reconstruct this design screenshot as a native GHL ${pageType} JSON for page "${page.name}". Match all sections, colors, text, and layout exactly. Output ONLY the JSON object.`;
+          rawText = (await aiDesign.generateWithVision(systemPrompt, imageOnlyText, imageBase64, imageMediaType, { maxTokens: 5000 })).trim();
+        }
+      }
       console.log(`[FunnelBuilder] Vision raw output for "${page.name}" (first 300 chars):`, rawText.slice(0, 300));
       pageJson = parseJsonSafe(rawText);
       if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('AI response missing "sections" array.');
