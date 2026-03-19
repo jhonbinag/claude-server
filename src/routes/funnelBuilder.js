@@ -227,7 +227,7 @@ router.get('/figma-auth', async (req, res) => {
   }
   const state = require('crypto').randomBytes(20).toString('hex');
   await saveFigmaOAuthState(state, locationId);
-  const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, scope: 'file_read', state, response_type: 'code' });
+  const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, scope: 'files:read', state, response_type: 'code' });
   res.redirect(`https://www.figma.com/oauth?${params}`);
 });
 
