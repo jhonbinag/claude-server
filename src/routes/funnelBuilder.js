@@ -56,14 +56,35 @@ const agentStore                    = require('../services/agentStore');
 const ghlClient                     = require('../services/ghlClient');
 const chroma                        = require('../services/chromaService');
 const https                         = require('https');
+const { saveToolConfig, getToolConfig } = require('../services/firebaseStore');
+const { saveFunnelAiKey, getFunnelAiKey, deleteFunnelAiKey } = require('../services/toolTokenService');
+
+function detectProviderName(key = '') {
+  if (key.startsWith('sk-ant-')) return 'claude';
+  if (key.startsWith('sk-'))     return 'openai';
+  if (key.startsWith('gsk_'))    return 'groq';
+  if (key.startsWith('AIza'))    return 'google';
+  return 'unknown';
+}
 
 // ── savePageData wrapper — passes funnelId hint so Firestore read is non-fatal
 // Returns generate/generateWithVision functions bound to the user's key (any provider) or server's aiService
-function resolveAI(req) {
+// storedKey: pre-loaded from Redis/Firebase (fallback when no header sent)
+function resolveAI(req, storedKey) {
   const anthropicKey = req.headers['x-anthropic-api-key'];
   const openaiKey    = req.headers['x-openai-api-key'];
   const groqKey      = req.headers['x-groq-api-key'];
   const googleKey    = req.headers['x-google-api-key'];
+
+  // If no header provided but we have a stored key, inject it into the right slot
+  if (!anthropicKey && !openaiKey && !groqKey && !googleKey && storedKey) {
+    const prov = detectProviderName ? detectProviderName(storedKey) : '';
+    if (prov === 'claude')  req.headers['x-anthropic-api-key'] = storedKey;
+    else if (prov === 'openai') req.headers['x-openai-api-key'] = storedKey;
+    else if (prov === 'groq')   req.headers['x-groq-api-key']   = storedKey;
+    else if (prov === 'google') req.headers['x-google-api-key'] = storedKey;
+    return resolveAI(req, null); // re-enter without storedKey to pick up header
+  }
 
   if (anthropicKey) {
     return {
@@ -450,6 +471,53 @@ router.get('/status', async (req, res) => {
   }
 });
 
+// ── AI Key persistence: GET / POST / DELETE /ai-key ──────────────────────────
+
+router.get('/ai-key', async (req, res) => {
+  try {
+    // Redis first (fast path)
+    let key = await getFunnelAiKey(req.locationId);
+    // Firebase fallback
+    if (!key) {
+      const configs = await getToolConfig(req.locationId);
+      key = configs?.funnelBuilderAiKey?.key || null;
+      // Warm Redis cache if found in Firebase
+      if (key) await saveFunnelAiKey(req.locationId, key).catch(() => {});
+    }
+    if (!key) return res.json({ key: null, provider: null });
+    const provider = detectProviderName(key);
+    res.json({ key, provider });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/ai-key', async (req, res) => {
+  const { key } = req.body;
+  if (!key) return res.status(400).json({ error: '"key" is required' });
+  try {
+    await Promise.all([
+      saveFunnelAiKey(req.locationId, key),
+      saveToolConfig(req.locationId, 'funnelBuilderAiKey', { key }),
+    ]);
+    res.json({ success: true, provider: detectProviderName(key) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/ai-key', async (req, res) => {
+  try {
+    await Promise.all([
+      deleteFunnelAiKey(req.locationId),
+      saveToolConfig(req.locationId, 'funnelBuilderAiKey', { key: '' }),
+    ]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /generate — AI-powered native page generation + save to GHL ─────────
 
 router.post('/generate', async (req, res) => {
@@ -472,8 +540,11 @@ router.post('/generate', async (req, res) => {
     return res.status(400).json({ success: false, error: '"funnelId" is required (pageId is auto-detected from funnelId).' });
   }
 
-  if (!aiService.getProvider()) {
-    return res.status(503).json({ success: false, error: 'No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.' });
+  // Load stored AI key from Redis/Firebase if no header provided
+  const storedAiKey = await getFunnelAiKey(req.locationId).catch(() => null);
+  const hasUserKey  = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-groq-api-key'] || req.headers['x-google-api-key'] || storedAiKey;
+  if (!hasUserKey && !aiService.getProvider()) {
+    return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key in the Funnel Builder.' });
   }
 
   // Step 1: Ensure Firebase is connected
@@ -556,8 +627,8 @@ router.post('/generate', async (req, res) => {
     ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\nYour training and instructions:\n${selectedAgent.instructions}${ragContext}\n\n---\n\n`
     : '';
 
-  const ai       = resolveAI(req);
-  const provider = ai.isUserKey ? { name: 'anthropic' } : (aiService.getProvider() || {});
+  const ai       = resolveAI(req, storedAiKey);
+  const provider = ai.isUserKey ? { name: ai.provider || 'user' } : (aiService.getProvider() || {});
   const isGroq   = !ai.isUserKey && provider?.name === 'groq';
 
   // Groq compact schema — 3-section skeleton with exact brand colors injected
@@ -865,15 +936,16 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   if (!funnelId) {
     return res.status(400).json({ success: false, error: '"funnelId" is required.' });
   }
-  const anyUserKey = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-google-api-key'] || req.headers['x-groq-api-key'];
+  const storedAiKeyDesign = await getFunnelAiKey(req.locationId).catch(() => null);
+  const anyUserKey = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-google-api-key'] || req.headers['x-groq-api-key'] || storedAiKeyDesign;
   if (!anyUserKey && !aiService.getProvider()) {
-    return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key above (Claude, OpenAI, Groq, or Gemini).' });
+    return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key in the Funnel Builder (Claude, OpenAI, Groq, or Gemini).' });
   }
   // Vision/design generation requires a capable model — warn if server Groq is the only option
   if (!anyUserKey) {
     const prov = aiService.getProvider();
     if (prov?.name === 'groq') {
-      return res.status(503).json({ success: false, error: 'Design-from-image requires Claude or GPT-4o. Please enter your API key above.' });
+      return res.status(503).json({ success: false, error: 'Design-from-image requires Claude or GPT-4o. Please enter your API key in the Funnel Builder.' });
     }
   }
 
@@ -921,7 +993,7 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\n${selectedAgent.instructions}${ragContext}\n\n---\n\n`
     : '';
 
-  const aiDesign    = resolveAI(req);
+  const aiDesign    = resolveAI(req, storedAiKeyDesign);
   const imgKwDesign = (extraContext || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
 
   const systemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. You will be given a screenshot of a Figma design or page mockup. Your job is to faithfully reconstruct it as a complete, production-ready native GHL page JSON — matching the EXACT structure, layout, colors, and content.
@@ -1911,7 +1983,10 @@ router.post('/generate-funnel', async (req, res) => {
   const offer = req.body.offer || 'their offer';
 
   if (!funnelId) return res.status(400).json({ success: false, error: '"funnelId" is required.' });
-  if (!aiService.getProvider()) return res.status(503).json({ success: false, error: 'No AI provider configured.' });
+
+  const storedAiKeyFunnel = await getFunnelAiKey(req.locationId).catch(() => null);
+  const hasAnyKeyFunnel   = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-groq-api-key'] || req.headers['x-google-api-key'] || storedAiKeyFunnel;
+  if (!hasAnyKeyFunnel && !aiService.getProvider()) return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key in the Funnel Builder.' });
 
   // Ensure Firebase connected
   try { await getFirebaseToken(req.locationId); } catch (err) {
@@ -1960,8 +2035,8 @@ router.post('/generate-funnel', async (req, res) => {
   // Normalise page objects — GHL returns _id not id
   pages = pages.map(p => ({ ...p, id: p.id || p._id }));
 
-  const aiFunnel = resolveAI(req);
-  const provider = aiFunnel.isUserKey ? { name: 'claude (user key)', model: 'claude-sonnet-4-6' } : (aiService.getProvider() || {});
+  const aiFunnel = resolveAI(req, storedAiKeyFunnel);
+  const provider = aiFunnel.isUserKey ? { name: aiFunnel.provider || 'user', model: 'user-key' } : (aiService.getProvider() || {});
   const isGroq   = !aiFunnel.isUserKey && provider?.name === 'groq';
   const results  = [];
 

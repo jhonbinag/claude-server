@@ -110,11 +110,11 @@ export default function FunnelBuilder() {
   const [agents,        setAgents]        = useState([]);
   const [selectedAgent, setSelectedAgent] = useState('');
 
-  // User's own AI API key (persisted in localStorage)
-  const [aiApiKey, setAiApiKey] = useState(() => localStorage.getItem('funnelBuilderApiKey') || '');
-  const saveAiApiKey = (val) => { setAiApiKey(val); localStorage.setItem('funnelBuilderApiKey', val); };
+  // User's own AI API key — persisted to Redis + Firebase via backend
+  const [aiApiKey,     setAiApiKey]     = useState('');
+  const [aiKeySaving,  setAiKeySaving]  = useState(false);
+  const [aiKeySaved,   setAiKeySaved]   = useState(false);
 
-  // Detect provider from key prefix
   const detectProvider = (key) => {
     if (!key) return null;
     if (key.startsWith('sk-ant-')) return { name: 'Claude (Anthropic)', header: 'x-anthropic-api-key', color: '#6d28d9', link: 'https://console.anthropic.com/account/keys' };
@@ -127,6 +127,25 @@ export default function FunnelBuilder() {
   const aiKeyHeaders = (detectedProvider?.header && aiApiKey)
     ? { [detectedProvider.header]: aiApiKey }
     : {};
+
+  const saveAiApiKey = async (key) => {
+    setAiApiKey(key);
+    if (!key || !apiKey) return;
+    setAiKeySaving(true);
+    setAiKeySaved(false);
+    try {
+      await api.postWithKey('/funnel-builder/ai-key', { key }, apiKey);
+      setAiKeySaved(true);
+      setTimeout(() => setAiKeySaved(false), 3000);
+    } catch { /* non-fatal */ }
+    finally { setAiKeySaving(false); }
+  };
+
+  const clearAiApiKey = async () => {
+    setAiApiKey('');
+    if (!apiKey) return;
+    try { await api.deleteWithKey('/funnel-builder/ai-key', apiKey); } catch { /* non-fatal */ }
+  };
 
   // Detect the white-label GHL domain from the iframe parent referrer
   const appDomain = (() => {
@@ -162,6 +181,14 @@ export default function FunnelBuilder() {
     if (!apiKey) return;
     api.getWithKey('/agent/agents', apiKey)
       .then(d => { if (d.success) setAgents(d.data || []); })
+      .catch(() => {});
+  }, [apiKey]);
+
+  // Load stored AI key from backend on mount
+  useEffect(() => {
+    if (!apiKey) return;
+    api.getWithKey('/funnel-builder/ai-key', apiKey)
+      .then(d => { if (d.key) setAiApiKey(d.key); })
       .catch(() => {});
   }, [apiKey]);
 
@@ -486,14 +513,31 @@ export default function FunnelBuilder() {
               {aiApiKey && detectedProvider?.name === 'Unknown' && (
                 <span className="text-yellow-400 text-xs font-normal">⚠ unrecognized key format</span>
               )}
+              {aiKeySaved && <span className="text-green-400 text-xs font-normal">● saved</span>}
+              {aiKeySaving && <span className="text-gray-400 text-xs font-normal">saving…</span>}
             </h2>
-            <p className="text-xs text-gray-400 mb-3">
-              Enter your own API key — generation uses your tokens, not ours. Supports Claude, OpenAI, Groq, and Gemini.{' '}
-              {detectedProvider?.link
-                ? <a href={detectedProvider.link} target="_blank" rel="noreferrer" className="text-indigo-400 underline">Manage keys →</a>
-                : <a href="https://console.anthropic.com/account/keys" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Get a Claude key →</a>
-              }
+
+            {/* Supported providers list */}
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              {[
+                { name: 'Claude (Anthropic)', prefix: 'sk-ant-...', color: '#6d28d9', link: 'https://console.anthropic.com/account/keys' },
+                { name: 'OpenAI (GPT-4o)',    prefix: 'sk-...',     color: '#065f46', link: 'https://platform.openai.com/api-keys' },
+                { name: 'Groq',               prefix: 'gsk_...',    color: '#92400e', link: 'https://console.groq.com/keys' },
+                { name: 'Google Gemini',       prefix: 'AIza...',    color: '#1e3a5f', link: 'https://aistudio.google.com/app/apikey' },
+              ].map(p => (
+                <a key={p.name} href={p.link} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-white hover:opacity-80 transition-opacity"
+                  style={{ background: p.color + '33', border: `1px solid ${p.color}55` }}>
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color }} />
+                  <span className="font-medium">{p.name}</span>
+                  <span className="text-gray-400 font-mono ml-auto">{p.prefix}</span>
+                </a>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mb-2">
+              Enter your API key — auto-detected by prefix. Saved securely to your account (Redis + Firebase encrypted).
             </p>
+
             <div className="flex gap-2">
               <input
                 type="password"
@@ -504,7 +548,7 @@ export default function FunnelBuilder() {
                 autoComplete="off"
               />
               {aiApiKey && (
-                <button type="button" onClick={() => saveAiApiKey('')}
+                <button type="button" onClick={clearAiApiKey}
                   className="btn-secondary text-xs px-3">Clear</button>
               )}
             </div>

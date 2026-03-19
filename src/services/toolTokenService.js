@@ -48,6 +48,7 @@ const TOUCH_DEBOUNCE_MS   = 6 * 3600 * 1000;        // touch Redis at most once 
 const TOOLCFG_PREFIX   = 'hltools:toolcfg:';
 const TOOLTOKEN_PREFIX = 'hltools:tooltoken:';
 const TOKENIDX_PREFIX  = 'hltools:tooltokenidx:';
+const AIKEY_PREFIX     = 'hltools:funnelaikey:';
 
 // ── Upstash REST Client ───────────────────────────────────────────────────────
 
@@ -301,6 +302,23 @@ async function revokeToolSessionToken(locationId) {
   }
 }
 
+// ── Funnel Builder AI Key (Redis cache, 30-day TTL) ──────────────────────────
+
+const AIKEY_TTL = 30 * 24 * 3600; // 30 days
+
+async function saveFunnelAiKey(locationId, key) {
+  await redis.set(AIKEY_PREFIX + locationId, key, AIKEY_TTL);
+}
+
+async function getFunnelAiKey(locationId) {
+  const val = await redis.get(AIKEY_PREFIX + locationId);
+  return val || null;
+}
+
+async function deleteFunnelAiKey(locationId) {
+  await redis.del(AIKEY_PREFIX + locationId);
+}
+
 module.exports = {
   // Cache
   getCachedToolConfig,
@@ -313,6 +331,10 @@ module.exports = {
   getToolSessionToken,
   getTokenStatus,
   revokeToolSessionToken,
+  // Funnel AI key persistence
+  saveFunnelAiKey,
+  getFunnelAiKey,
+  deleteFunnelAiKey,
   // Constants (used by UI sync endpoint)
   TOKEN_IDLE_DAYS:   TOKEN_IDLE_MS   / (24 * 3600 * 1000),
   TOKEN_EXPIRE_DAYS: TOKEN_EXPIRE_MS / (24 * 3600 * 1000),
