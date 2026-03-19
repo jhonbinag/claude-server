@@ -501,15 +501,16 @@ SCHEMA:
 
   // Groq has tight token limits — generate a compact 3-section page; other providers get all 7
   const sectionsInstruction = isGroq
-    ? `Fill the 3-section skeleton with real content for this business. HERO_ELEMENTS=[heading(h1),sub-heading,button]. BENEFITS_ELEMENTS=[sub-heading,bulletList(4 items),paragraph]. CTA_ELEMENTS=[heading(h2),paragraph,button]. Output only the final JSON.`
+    ? `Fill the 3-section skeleton with real content for this business. HERO_ELEMENTS=[heading(h1),sub-heading,image,button]. BENEFITS_ELEMENTS=[sub-heading,image,bulletList(4 items),paragraph]. CTA_ELEMENTS=[heading(h2),paragraph,button]. Output only the final JSON.`
     : `Build a FULL page with these sections in order:
-1. Hero section — bold H1 headline, compelling subheading, short paragraph hook, primary CTA button
+1. Hero section — bold H1 headline, compelling subheading, image placeholder (800×450), short paragraph hook, primary CTA button
 2. Problem/Agitation section — speak to the pain points of the audience (paragraph + bullet list)
-3. Solution/Benefits section — introduce the offer as the solution, 4-6 benefit bullets, supporting paragraph
+3. Solution/Benefits section — introduce the offer as the solution, image placeholder, 4-6 benefit bullets, supporting paragraph
 4. Social Proof section — testimonial-style paragraph(s) with names, a results stat or two
-5. Offer Details / Value Stack section — what they get, price anchoring, urgency element, CTA button
+5. Offer Details / Value Stack section — what they get, price anchoring, image placeholder, urgency element, CTA button
 6. FAQ section — 3-4 common objections answered (paragraph elements)
-7. Final CTA section — strong closing headline, urgency/scarcity line, final CTA button`;
+7. Final CTA section — strong closing headline, urgency/scarcity line, final CTA button
+For image elements use: {"id":"image-XXXXXXXX","type":"image","src":"https://picsum.photos/seed/${imgKeyword}/800/450","alt":"${niche}","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"},"marginTop":{"value":24,"unit":"px"},"marginBottom":{"value":24,"unit":"px"}},"mobileStyles":{}}`;
 
   const userPrompt = `Generate a native GHL ${pageLabel} JSON for:
 
@@ -813,33 +814,42 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\n${selectedAgent.instructions}${ragContext}\n\n---\n\n`
     : '';
 
-  const systemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. You will be given a screenshot of a page design. Faithfully reconstruct it as a complete, production-ready native GHL page JSON.
+  const imgKwDesign = (extraContext || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
+
+  const systemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. You will be given a screenshot of a Figma design or page mockup. Your job is to faithfully reconstruct it as a complete, production-ready native GHL page JSON — matching the EXACT structure, layout, colors, and content.
 
 RULES:
 1. Respond with ONLY valid JSON — no markdown, no code fences, no explanation.
 2. Root object: { "sections": [ ... ] }
-3. Match the visual layout: section order, column structure, content hierarchy, colors, fonts.
-4. Extract ALL text content visible in the design.
-5. Match colors using hex codes.
-6. All IDs: type-XXXXXXXX (8 random alphanumeric chars).
+3. Match the EXACT visual layout: number of sections, column structure, element order, spacing, background colors.
+4. Extract ALL visible text content verbatim from the design.
+5. Match ALL colors exactly using hex codes extracted from the design.
+6. All IDs: type-XXXXXXXX (8 random alphanumeric chars). Never reuse IDs.
 7. Mobile styles reduce padding/font sizes to ~60% of desktop values.
 8. CRITICAL: Use "heading" (NOT "headline") and "sub-heading" (NOT "sub-headline") for element types.
 9. CRITICAL: paragraph "text" must be plain text — NO HTML tags, no <p>, no <br>, no <strong>.
-10. CRITICAL: bulletList "items" must be an array of plain strings — NOT objects. Example: ["Item 1","Item 2"]
+10. CRITICAL: bulletList "items" must be an array of plain strings. Example: ["Item 1","Item 2"]
+11. IMAGE RULE: Any image, photo, illustration, graphic, icon, or visual placeholder in the design MUST become an image element using src "https://picsum.photos/seed/${imgKwDesign}/800/450". Do NOT skip images.
+12. MULTI-COLUMN: If the design shows a two-column layout (e.g. text left, image right), create TWO column elements in the row — each with width:6. Three-column = width:4 each.
+13. If the design is inside a Figma frame or browser mockup, extract only the page content inside it.
+14. Preserve the section's backgroundColor exactly as it appears in the design (dark hero, light body, etc).
 
-SCHEMA:
+SCHEMA (single-column example — use multiple columns when the design has side-by-side content):
 {"sections":[{"id":"section-{8chars}","type":"section","name":"section-name","allowRowMaxWidth":false,
 "styles":{"backgroundColor":{"value":"#HEX"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},
 "mobileStyles":{"paddingTop":{"value":40,"unit":"px"},"paddingBottom":{"value":40,"unit":"px"}},
-"children":[{"id":"row-{8chars}","type":"row","children":[{"id":"column-{8chars}","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},
-"children":[
-{"id":"heading-{8chars}","type":"heading","text":"Headline text","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
-{"id":"sub-heading-{8chars}","type":"sub-heading","text":"Subheading text","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
-{"id":"paragraph-{8chars}","type":"paragraph","text":"Plain text body copy. No HTML tags.","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
-{"id":"button-{8chars}","type":"button","text":"CTA","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFF"},"fontSize":{"value":18,"unit":"px"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
-{"id":"bulletList-{8chars}","type":"bulletList","items":["Plain text item 1","Plain text item 2","Plain text item 3"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
-{"id":"image-{8chars}","type":"image","src":"https://picsum.photos/seed/design/800/450","alt":"Image","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
-]}]}]}]}`;
+"children":[{"id":"row-{8chars}","type":"row","children":[
+  {"id":"column-{8chars}","type":"column","width":6,"styles":{"textAlign":{"value":"left"}},"mobileStyles":{},"children":[
+    {"id":"heading-{8chars}","type":"heading","text":"Headline text","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
+    {"id":"sub-heading-{8chars}","type":"sub-heading","text":"Subheading","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
+    {"id":"paragraph-{8chars}","type":"paragraph","text":"Plain text body copy. No HTML.","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+    {"id":"button-{8chars}","type":"button","text":"CTA","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFF"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}},
+    {"id":"bulletList-{8chars}","type":"bulletList","items":["Item 1","Item 2","Item 3"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{}}
+  ]},
+  {"id":"column-{8chars}","type":"column","width":6,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[
+    {"id":"image-{8chars}","type":"image","src":"https://picsum.photos/seed/${imgKwDesign}/800/450","alt":"Design image","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
+  ]}
+]}]}]}`;
 
   // SSE setup
   res.setHeader('Content-Type', 'text/event-stream');
@@ -861,7 +871,17 @@ SCHEMA:
 
     let pageJson, genError;
     try {
-      const visionText = `Analyze this design screenshot and reconstruct it as a native GHL ${pageType} JSON (page ${i + 1} of ${pages.length}: "${page.name}"). Preserve the layout, section order, all text, colors, and hierarchy.${extraContext ? `\n\nUser notes: ${extraContext}` : ''}\n\nOutput ONLY the JSON object.`;
+      const visionText = `Reconstruct this Figma/design screenshot as a native GHL ${pageType} JSON for page "${page.name}" (${i + 1} of ${pages.length}).
+
+CRITICAL requirements:
+- Match the EXACT number of sections visible in the design
+- Preserve every section's background color, padding, and layout
+- Extract ALL text verbatim
+- For every image, photo, illustration, or visual in the design → add an image element with src "https://picsum.photos/seed/${imgKwDesign}/800/450"
+- For side-by-side layouts → use two column elements (width:6 each) in the same row
+- Match button colors exactly from the design${extraContext ? `\n\nUser notes: ${extraContext}` : ''}
+
+Output ONLY the JSON object. No explanation.`;
       const rawText = (await aiService.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
       pageJson = parseJsonSafe(rawText);
       if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('AI response missing "sections" array.');
@@ -1762,20 +1782,24 @@ For image elements use src "https://picsum.photos/seed/${imgKw}/800/450".`;
 
     const systemPrompt = isGroq ? groqSysPrompt : fullSysPrompt;
 
+    const imgPlaceholder = `{"id":"image-XXXXXXXX","type":"image","src":"https://picsum.photos/seed/${imgKw}/800/450","alt":"${niche}","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"},"marginTop":{"value":24,"unit":"px"},"marginBottom":{"value":24,"unit":"px"}},"mobileStyles":{}}`;
+
     const sectionsNote = isGroq
       ? `Build 3 sections:
-1. Hero — heading (h1) + sub-heading + paragraph (plain text) + button
-2. Benefits — sub-heading + bulletList (4 plain string items) + paragraph (plain text)
+1. Hero — heading (h1) + sub-heading + image placeholder + button
+2. Benefits — sub-heading + image placeholder + bulletList (4 plain string items) + paragraph
 3. Final CTA — heading + paragraph (plain text) + button
+Image placeholder: ${imgPlaceholder.replace('XXXXXXXX', Math.random().toString(36).slice(2,10))}
 Keep copy concise but persuasive.`
       : `Build a complete ${pageType} with ALL these sections:
-1. Hero — bold heading h1, compelling sub-heading, short paragraph hook, primary CTA button
+1. Hero — bold heading h1, compelling sub-heading, image placeholder (800×450), short paragraph hook, primary CTA button
 2. Problem/Pain — speak to audience pain points (sub-heading + paragraph + bulletList)
-3. Solution/Benefits — introduce offer as solution, 5-6 benefit bullets, supporting paragraph
+3. Solution/Benefits — introduce offer as solution, image placeholder, 5-6 benefit bullets, supporting paragraph
 4. Social Proof — testimonial paragraphs with names, results stats
-5. Offer Details — what they get, value stack, urgency, CTA button
+5. Offer Details — what they get, value stack, image placeholder, urgency, CTA button
 6. FAQ — 3-4 objections answered (sub-heading + paragraph pairs)
-7. Final CTA — strong closing heading, urgency line, final CTA button`;
+7. Final CTA — strong closing heading, urgency line, final CTA button
+For image elements use: ${imgPlaceholder.replace('XXXXXXXX', Math.random().toString(36).slice(2,10))}`;
 
     const userPrompt = `Generate a native GHL ${pageType} JSON (page ${i + 1} of ${pages.length}).
 Page name: "${page.name}"
