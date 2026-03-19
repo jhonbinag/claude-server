@@ -901,7 +901,12 @@ async function figmaExtractContent(fileKey, nodeId, authHeader) {
     return { texts, colors, spec, sectionCount: sections.length, imageNodes };
 
   } catch (e) {
-    console.error('[FunnelBuilder] figmaExtractContent error:', e.message);
+    const msg = e.message || '';
+    if (msg.includes('403')) {
+      console.warn('[FunnelBuilder] figmaExtractContent: 403 — file not accessible to PAT, falling back to image-only mode.');
+    } else {
+      console.error('[FunnelBuilder] figmaExtractContent error:', msg);
+    }
     return { texts: [], colors: [], spec: '', sectionCount: 0, imageNodes: [] };
   }
 }
@@ -1510,17 +1515,30 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     }
     try {
       const { fileKey, nodeId } = parseFigmaUrl(figmaUrl);
-      console.log(`[FunnelBuilder] Fetching Figma frame — file: ${fileKey}, node: ${nodeId || 'root'}`);
-      const [imgResult, content] = await Promise.all([
-        figmaExportImage(fileKey, nodeId || '0:1', figmaAuth.authHeader),
-        figmaExtractContent(fileKey, nodeId || '0:1', figmaAuth.authHeader),
-      ]);
+      const effectiveNodeId = nodeId || '0:1';
+      console.log(`[FunnelBuilder] Fetching Figma frame — file: ${fileKey}, node: ${effectiveNodeId}`);
+
+      // Step 1: Export frame as PNG (required — fail fast if this fails)
+      let imgResult;
+      try {
+        imgResult = await figmaExportImage(fileKey, effectiveNodeId, figmaAuth.authHeader);
+      } catch (err) {
+        const is403 = err.message.includes('403');
+        return res.status(400).json({
+          success: false,
+          error: is403
+            ? 'Figma access denied (403). Make sure your Figma file is accessible to the account that owns the PAT. Open the file in Figma → Share → invite your Figma account with at least "can view" access, then try again.'
+            : `Figma export error: ${err.message}`,
+        });
+      }
       imageBase64    = imgResult.base64;
       imageMediaType = imgResult.mimeType;
-      figmaContent   = content;
-      console.log(`[FunnelBuilder] Figma extract: ${figmaContent.texts.length} texts, ${figmaContent.colors.length} colors, ${figmaContent.imageNodes.length} images`);
 
-      // Export each image node from Figma and upload to GHL media library
+      // Step 2: Extract design spec (non-fatal — falls back to image-only mode on 403)
+      figmaContent = await figmaExtractContent(fileKey, effectiveNodeId, figmaAuth.authHeader);
+      console.log(`[FunnelBuilder] Figma extract: ${figmaContent.texts.length} texts, ${figmaContent.colors.length} colors, ${figmaContent.imageNodes.length} images, spec:${figmaContent.spec ? 'yes' : 'no (image-only mode)'}`);
+
+      // Step 3: Upload image nodes to GHL media (non-fatal)
       if (figmaContent.imageNodes.length > 0) {
         try {
           const bufferMap = await figmaBatchExportImages(fileKey, figmaContent.imageNodes, figmaAuth.authHeader);
