@@ -49,6 +49,7 @@ const TOOLCFG_PREFIX   = 'hltools:toolcfg:';
 const TOOLTOKEN_PREFIX = 'hltools:tooltoken:';
 const TOKENIDX_PREFIX  = 'hltools:tooltokenidx:';
 const AIKEY_PREFIX     = 'hltools:funnelaikey:';
+const FIGMATOKEN_PREFIX = 'hltools:figmatoken:';
 
 // ── Upstash REST Client ───────────────────────────────────────────────────────
 
@@ -319,6 +320,21 @@ async function deleteFunnelAiKey(locationId) {
   await redis.del(AIKEY_PREFIX + locationId);
 }
 
+// ── Figma Token (Redis cache, 30-day TTL) ────────────────────────────────────
+
+async function saveFigmaToken(locationId, token) {
+  await redis.set(FIGMATOKEN_PREFIX + locationId, token, AIKEY_TTL);
+}
+
+async function getFigmaToken(locationId) {
+  const val = await redis.get(FIGMATOKEN_PREFIX + locationId);
+  return val || null;
+}
+
+async function deleteFigmaToken(locationId) {
+  await redis.del(FIGMATOKEN_PREFIX + locationId);
+}
+
 module.exports = {
   // Cache
   getCachedToolConfig,
@@ -335,6 +351,10 @@ module.exports = {
   saveFunnelAiKey,
   getFunnelAiKey,
   deleteFunnelAiKey,
+  // Figma token persistence
+  saveFigmaToken,
+  getFigmaToken,
+  deleteFigmaToken,
   // Constants (used by UI sync endpoint)
   TOKEN_IDLE_DAYS:   TOKEN_IDLE_MS   / (24 * 3600 * 1000),
   TOKEN_EXPIRE_DAYS: TOKEN_EXPIRE_MS / (24 * 3600 * 1000),

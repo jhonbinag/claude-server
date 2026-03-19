@@ -104,7 +104,30 @@ export default function FunnelBuilder() {
   const [designAgent,   setDesignAgent]   = useState('');
   const [designDragging,setDesignDragging]= useState(false);
   const [analyzing,     setAnalyzing]     = useState(false);
+  const [designMode,    setDesignMode]    = useState('upload'); // 'upload' | 'figma'
+  const [figmaUrl,      setFigmaUrl]      = useState('');
+  const [figmaToken,    setFigmaToken]    = useState('');
+  const [figmaTokenSaving, setFigmaTokenSaving] = useState(false);
+  const [figmaTokenSaved,  setFigmaTokenSaved]  = useState(false);
   const fileInputRef                      = useRef(null);
+
+  const saveFigmaTokenToBackend = async (token) => {
+    setFigmaToken(token);
+    if (!token || !apiKey) return;
+    setFigmaTokenSaving(true); setFigmaTokenSaved(false);
+    try {
+      await api.postWithKey('/funnel-builder/figma-token', { token }, apiKey);
+      setFigmaTokenSaved(true);
+      setTimeout(() => setFigmaTokenSaved(false), 3000);
+    } catch { /* non-fatal */ }
+    finally { setFigmaTokenSaving(false); }
+  };
+
+  const clearFigmaToken = async () => {
+    setFigmaToken('');
+    if (!apiKey) return;
+    try { await api.deleteWithKey('/funnel-builder/figma-token', apiKey); } catch { /* non-fatal */ }
+  };
 
   // Agent selector
   const [agents,        setAgents]        = useState([]);
@@ -184,11 +207,14 @@ export default function FunnelBuilder() {
       .catch(() => {});
   }, [apiKey]);
 
-  // Load stored AI key from backend on mount
+  // Load stored AI key + Figma token from backend on mount
   useEffect(() => {
     if (!apiKey) return;
     api.getWithKey('/funnel-builder/ai-key', apiKey)
       .then(d => { if (d.key) setAiApiKey(d.key); })
+      .catch(() => {});
+    api.getWithKey('/funnel-builder/figma-token', apiKey)
+      .then(d => { if (d.token) setFigmaToken(d.token); })
       .catch(() => {});
   }, [apiKey]);
 
@@ -247,14 +273,17 @@ export default function FunnelBuilder() {
 
   async function handleAnalyzeDesign(e) {
     e.preventDefault();
-    if (!designFile)            { toast(setToastState, 'Upload a design image first.', 'error'); return; }
+    if (designMode === 'upload' && !designFile) { toast(setToastState, 'Upload a design image first.', 'error'); return; }
+    if (designMode === 'figma'  && !figmaUrl.trim()) { toast(setToastState, 'Paste a Figma URL first.', 'error'); return; }
+    if (designMode === 'figma'  && !figmaToken.trim()) { toast(setToastState, 'Add your Figma access token first.', 'error'); return; }
     if (!designFunnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
 
     const colorScheme = colorPreset || customColor || COLOR_PRESETS[0].value;
     const formData = new FormData();
-    formData.append('image', designFile);
     formData.append('funnelId', designFunnelId.trim());
     formData.append('colorScheme', colorScheme);
+    if (designMode === 'upload') formData.append('image', designFile);
+    if (designMode === 'figma')  formData.append('figmaUrl', figmaUrl.trim());
     if (designContext.trim()) formData.append('extraContext', designContext.trim());
     if (designAgent)          formData.append('agentId', designAgent);
 
@@ -732,64 +761,110 @@ export default function FunnelBuilder() {
             {genMode === 'design' && (
               <form onSubmit={handleAnalyzeDesign} className="space-y-4">
                 <p className="text-xs text-gray-400">
-                  Screenshot your Figma design (or any page design) and upload it. Claude Vision will analyze the layout and recreate it as native GHL elements.
+                  Analyze a Figma link or upload a screenshot — AI Vision will extract all elements, text, images, and colors and recreate them as native GHL sections.
                 </p>
 
-                {/* Drop zone */}
-                <div
-                  onDragOver={e => { e.preventDefault(); setDesignDragging(true); }}
-                  onDragLeave={() => setDesignDragging(false)}
-                  onDrop={e => { e.preventDefault(); setDesignDragging(false); handleDesignFile(e.dataTransfer.files[0]); }}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="relative rounded-xl border-2 border-dashed transition-all cursor-pointer overflow-hidden"
-                  style={{
-                    borderColor: designDragging ? '#6366f1' : designPreview ? '#374151' : '#374151',
-                    background:  designDragging ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)',
-                    minHeight:   designPreview ? 'auto' : 120,
-                  }}
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    className="hidden"
-                    onChange={e => handleDesignFile(e.target.files[0])}
-                  />
-                  {designPreview ? (
-                    <div className="relative">
-                      <img
-                        src={designPreview}
-                        alt="Design preview"
-                        className="w-full rounded-xl object-contain max-h-96"
-                      />
-                      <div className="absolute inset-0 bg-black/0 hover:bg-black/40 transition-all rounded-xl flex items-center justify-center opacity-0 hover:opacity-100">
-                        <span className="text-white text-xs font-medium bg-black/60 px-3 py-1.5 rounded-lg">
-                          Click to replace
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center gap-2 py-8">
-                      <span className="text-3xl">🖼️</span>
-                      <p className="text-xs text-gray-400 text-center">
-                        Drag & drop your Figma screenshot here<br />
-                        <span className="text-gray-600">or click to browse · PNG, JPG, WEBP up to 10 MB</span>
-                      </p>
-                    </div>
-                  )}
+                {/* Mode toggle */}
+                <div className="flex rounded-lg overflow-hidden border border-gray-700">
+                  {[['upload','📷 Upload Image'],['figma','🎨 Figma Link']].map(([m, label]) => (
+                    <button key={m} type="button"
+                      onClick={() => setDesignMode(m)}
+                      className="flex-1 text-xs py-2 font-medium transition-colors"
+                      style={{ background: designMode === m ? '#4f46e5' : 'rgba(255,255,255,0.03)', color: designMode === m ? '#fff' : '#9ca3af' }}>
+                      {label}
+                    </button>
+                  ))}
                 </div>
 
-                {designFile && (
-                  <p className="text-xs text-gray-500">
-                    {designFile.name} · {(designFile.size / 1024).toFixed(0)} KB
-                    <button
-                      type="button"
-                      onClick={() => { setDesignFile(null); setDesignPreview(null); }}
-                      className="ml-2 text-red-400 hover:text-red-300"
-                    >
-                      Remove
-                    </button>
-                  </p>
+                {/* Upload mode */}
+                {designMode === 'upload' && (<>
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDesignDragging(true); }}
+                    onDragLeave={() => setDesignDragging(false)}
+                    onDrop={e => { e.preventDefault(); setDesignDragging(false); handleDesignFile(e.dataTransfer.files[0]); }}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="relative rounded-xl border-2 border-dashed transition-all cursor-pointer overflow-hidden"
+                    style={{
+                      borderColor: designDragging ? '#6366f1' : designPreview ? '#374151' : '#374151',
+                      background:  designDragging ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)',
+                      minHeight:   designPreview ? 'auto' : 120,
+                    }}
+                  >
+                    <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="hidden" onChange={e => handleDesignFile(e.target.files[0])} />
+                    {designPreview ? (
+                      <div className="relative">
+                        <img src={designPreview} alt="Design preview" className="w-full rounded-xl object-contain max-h-96" />
+                        <div className="absolute inset-0 bg-black/0 hover:bg-black/40 transition-all rounded-xl flex items-center justify-center opacity-0 hover:opacity-100">
+                          <span className="text-white text-xs font-medium bg-black/60 px-3 py-1.5 rounded-lg">Click to replace</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center gap-2 py-8">
+                        <span className="text-3xl">🖼️</span>
+                        <p className="text-xs text-gray-400 text-center">
+                          Drag & drop your design screenshot here<br />
+                          <span className="text-gray-600">or click to browse · PNG, JPG, WEBP up to 10 MB</span>
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  {designFile && (
+                    <p className="text-xs text-gray-500">
+                      {designFile.name} · {(designFile.size / 1024).toFixed(0)} KB
+                      <button type="button" onClick={() => { setDesignFile(null); setDesignPreview(null); }}
+                        className="ml-2 text-red-400 hover:text-red-300">Remove</button>
+                    </p>
+                  )}
+                </>)}
+
+                {/* Figma Link mode */}
+                {designMode === 'figma' && (
+                  <div className="space-y-3">
+                    <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)' }}>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">
+                          Figma Frame / Page URL <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          value={figmaUrl}
+                          onChange={e => setFigmaUrl(e.target.value)}
+                          placeholder="https://www.figma.com/design/abc123/My-Design?node-id=1-2"
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 font-mono"
+                        />
+                        <p className="text-xs text-gray-600 mt-1">Right-click a frame in Figma → Copy link to selection</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1 flex items-center gap-2">
+                          Figma Personal Access Token <span className="text-red-400">*</span>
+                          {figmaTokenSaved && <span className="text-green-400 font-normal">● saved</span>}
+                          {figmaTokenSaving && <span className="text-gray-400 font-normal">saving…</span>}
+                          {figmaToken && !figmaTokenSaving && !figmaTokenSaved && <span className="text-green-400 font-normal">● connected</span>}
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value={figmaToken}
+                            onChange={e => saveFigmaTokenToBackend(e.target.value)}
+                            placeholder="figd_..."
+                            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 font-mono"
+                          />
+                          {figmaToken && (
+                            <button type="button" onClick={clearFigmaToken}
+                              className="btn-secondary text-xs px-3">Clear</button>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-600 mt-1">
+                          Figma → Settings → Security → Personal access tokens.{' '}
+                          <a href="https://www.figma.com/settings" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Open Figma settings →</a>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="rounded-lg px-3 py-2 text-xs text-indigo-300 flex gap-2" style={{ background: 'rgba(99,102,241,0.08)' }}>
+                      <span>ℹ️</span>
+                      <span>The backend will export your Figma frame as an image and extract all text, colors, and images — then reconstruct them as native GHL elements.</span>
+                    </div>
+                  </div>
                 )}
 
                 {/* Funnel ID */}

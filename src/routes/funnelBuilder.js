@@ -57,7 +57,7 @@ const ghlClient                     = require('../services/ghlClient');
 const chroma                        = require('../services/chromaService');
 const https                         = require('https');
 const { saveToolConfig, getToolConfig } = require('../services/firebaseStore');
-const { saveFunnelAiKey, getFunnelAiKey, deleteFunnelAiKey } = require('../services/toolTokenService');
+const { saveFunnelAiKey, getFunnelAiKey, deleteFunnelAiKey, saveFigmaToken, getFigmaToken, deleteFigmaToken } = require('../services/toolTokenService');
 
 function detectProviderName(key = '') {
   if (key.startsWith('sk-ant-')) return 'claude';
@@ -489,6 +489,113 @@ router.get('/status', async (req, res) => {
   }
 });
 
+// ── Figma API helpers ─────────────────────────────────────────────────────────
+
+function httpsGet(hostname, path, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      { hostname, path, method: 'GET', headers: { 'Content-Type': 'application/json', ...headers } },
+      (resp) => {
+        let d = '';
+        resp.on('data', c => d += c);
+        resp.on('end', () => {
+          try {
+            if (resp.statusCode >= 400) return reject(new Error(`${hostname} ${resp.statusCode}: ${d.slice(0, 300)}`));
+            resolve(JSON.parse(d));
+          } catch (e) { reject(new Error(`JSON parse error from ${hostname}: ${d.slice(0, 200)}`)); }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function downloadUrl(url) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? require('https') : require('http');
+    mod.get(url, (resp) => {
+      if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+        return downloadUrl(resp.headers.location).then(resolve).catch(reject);
+      }
+      const chunks = [];
+      resp.on('data', c => chunks.push(c));
+      resp.on('end', () => resolve(Buffer.concat(chunks)));
+      resp.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+function parseFigmaUrl(url) {
+  const match = url.match(/figma\.com\/(?:file|design)\/([a-zA-Z0-9_-]+)/);
+  if (!match) throw new Error('Invalid Figma URL — expected https://www.figma.com/file/... or /design/...');
+  const fileKey = match[1];
+  const rawNodeId = new URL(url).searchParams.get('node-id') || '';
+  // Figma URLs use - separator (e.g. 1-2), API uses : (e.g. 1:2)
+  const nodeId = rawNodeId.replace(/-/g, ':');
+  return { fileKey, nodeId };
+}
+
+async function figmaExportImage(fileKey, nodeId, token) {
+  const data = await httpsGet(
+    'api.figma.com',
+    `/v1/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=png&scale=2`,
+    { 'X-Figma-Token': token }
+  );
+  if (data.err) throw new Error(`Figma export error: ${data.err}`);
+  const imageUrl = data.images?.[nodeId];
+  if (!imageUrl) throw new Error(`Figma returned no image for node "${nodeId}". Ensure the URL includes ?node-id=...`);
+  const buffer = await downloadUrl(imageUrl);
+  return { base64: buffer.toString('base64'), mimeType: 'image/png' };
+}
+
+async function figmaExtractContent(fileKey, nodeId, token) {
+  try {
+    const data = await httpsGet(
+      'api.figma.com',
+      `/v1/files/${fileKey}/nodes?ids=${encodeURIComponent(nodeId)}`,
+      { 'X-Figma-Token': token }
+    );
+    const nodeData = data.nodes?.[nodeId]?.document;
+    if (!nodeData) return { texts: [], colors: [] };
+
+    const texts = [];
+    const colorSet = new Set();
+
+    function walk(n) {
+      if (n.type === 'TEXT' && n.characters) texts.push(n.characters.trim());
+      // Extract fill colors
+      for (const fill of (n.fills || [])) {
+        if (fill.type === 'SOLID' && fill.color) {
+          const { r, g, b } = fill.color;
+          const hex = '#' + [r, g, b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
+          colorSet.add(hex);
+        }
+      }
+      for (const child of (n.children || [])) walk(child);
+    }
+    walk(nodeData);
+
+    return { texts, colors: [...colorSet].slice(0, 10) };
+  } catch { return { texts: [], colors: [] }; }
+}
+
+async function loadStoredFigmaToken(locationId) {
+  try {
+    const redisToken = await getFigmaToken(locationId);
+    if (redisToken) return redisToken;
+  } catch { /* fall through */ }
+  try {
+    const configs = await getToolConfig(locationId);
+    const fbToken = configs?.figmaToken?.token;
+    if (fbToken) {
+      saveFigmaToken(locationId, fbToken).catch(() => {});
+      return fbToken;
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
 // ── AI Key persistence: GET / POST / DELETE /ai-key ──────────────────────────
 
 router.get('/ai-key', async (req, res) => {
@@ -520,6 +627,43 @@ router.delete('/ai-key', async (req, res) => {
     await Promise.all([
       deleteFunnelAiKey(req.locationId),
       saveToolConfig(req.locationId, 'funnelBuilderAiKey', { key: '' }),
+    ]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Figma Token persistence: GET / POST / DELETE /figma-token ────────────────
+
+router.get('/figma-token', async (req, res) => {
+  try {
+    const token = await loadStoredFigmaToken(req.locationId);
+    res.json({ token: token || null, connected: !!token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/figma-token', async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ error: '"token" is required' });
+  try {
+    await Promise.all([
+      saveFigmaToken(req.locationId, token),
+      saveToolConfig(req.locationId, 'figmaToken', { token }),
+    ]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/figma-token', async (req, res) => {
+  try {
+    await Promise.all([
+      deleteFigmaToken(req.locationId),
+      saveToolConfig(req.locationId, 'figmaToken', { token: '' }),
     ]);
     res.json({ success: true });
   } catch (err) {
@@ -937,10 +1081,10 @@ Output ONLY the JSON object. No markdown, no explanation.`;
 // ── POST /generate-from-design — analyze Figma screenshot → GHL native page ──
 
 router.post('/generate-from-design', upload.single('image'), async (req, res) => {
-  const { funnelId, agentId, extraContext, colorScheme } = req.body;
+  const { funnelId, agentId, extraContext, colorScheme, figmaUrl } = req.body;
 
-  if (!req.file) {
-    return res.status(400).json({ success: false, error: 'An image file is required (field: "image").' });
+  if (!req.file && !figmaUrl) {
+    return res.status(400).json({ success: false, error: 'Provide either an image upload or a Figma URL.' });
   }
   if (!funnelId) {
     return res.status(400).json({ success: false, error: '"funnelId" is required.' });
@@ -988,8 +1132,32 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   pages.sort((a, b) => (a.stepOrder || 0) - (b.stepOrder || 0));
   pages = pages.map(p => ({ ...p, id: p.id || p._id }));
 
-  const imageBase64    = req.file.buffer.toString('base64');
-  const imageMediaType = req.file.mimetype;
+  // Resolve image: either uploaded file or exported from Figma
+  let imageBase64, imageMediaType, figmaContent = { texts: [], colors: [] };
+  if (figmaUrl) {
+    const figmaToken = await loadStoredFigmaToken(req.locationId);
+    if (!figmaToken) {
+      return res.status(400).json({ success: false, error: 'Figma access token not saved. Add your Figma token in the Design tab first.' });
+    }
+    try {
+      const { fileKey, nodeId } = parseFigmaUrl(figmaUrl);
+      console.log(`[FunnelBuilder] Fetching Figma frame — file: ${fileKey}, node: ${nodeId || 'root'}`);
+      // Export image + extract text/colors in parallel
+      const [imgResult, content] = await Promise.all([
+        figmaExportImage(fileKey, nodeId || '0:1', figmaToken),
+        figmaExtractContent(fileKey, nodeId || '0:1', figmaToken),
+      ]);
+      imageBase64    = imgResult.base64;
+      imageMediaType = imgResult.mimeType;
+      figmaContent   = content;
+      console.log(`[FunnelBuilder] Figma export: ${figmaContent.texts.length} text nodes, ${figmaContent.colors.length} colors`);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: `Figma error: ${err.message}` });
+    }
+  } else {
+    imageBase64    = req.file.buffer.toString('base64');
+    imageMediaType = req.file.mimetype;
+  }
 
   const agentIntro = selectedAgent
     ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\n${selectedAgent.instructions}${ragContext}\n\n---\n\n`
@@ -1053,15 +1221,23 @@ SCHEMA (single-column example — use multiple columns when the design has side-
 
     let pageJson, genError;
     try {
-      const visionText = `Reconstruct this Figma/design screenshot as a native GHL ${pageType} JSON for page "${page.name}" (${i + 1} of ${pages.length}).
+      // Supplement vision prompt with Figma-extracted text + colors when available
+      const figmaTextNote = figmaContent.texts.length > 0
+        ? `\n\nEXACT TEXT FROM FIGMA (use these verbatim — do not paraphrase):\n${figmaContent.texts.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
+        : '';
+      const figmaColorNote = figmaContent.colors.length > 0
+        ? `\n\nEXACT COLORS FROM FIGMA (use these hex values for section backgrounds, buttons, and text):\n${figmaContent.colors.join(', ')}`
+        : '';
+
+      const visionText = `Reconstruct this ${figmaUrl ? 'Figma' : 'design'} screenshot as a native GHL ${pageType} JSON for page "${page.name}" (${i + 1} of ${pages.length}).
 
 CRITICAL requirements:
 - Match the EXACT number of sections visible in the design
 - Preserve every section's background color, padding, and layout
-- Extract ALL text verbatim
+- Extract ALL text verbatim${figmaUrl ? ' — use the exact text provided below' : ''}
 - For every image, photo, illustration, or visual in the design → add an image element with src "https://picsum.photos/seed/${imgKwDesign}/800/450"
 - For side-by-side layouts → use two column elements (width:6 each) in the same row
-- Match button colors exactly from the design${extraContext ? `\n\nUser notes: ${extraContext}` : ''}
+- Match button colors exactly from the design${figmaColorNote}${figmaTextNote}${extraContext ? `\n\nUser notes: ${extraContext}` : ''}
 
 Output ONLY the JSON object. No explanation.`;
       const rawText = (await aiDesign.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
