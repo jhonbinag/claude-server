@@ -560,6 +560,28 @@ function parseFigmaUrl(url) {
   return { fileKey, nodeId };
 }
 
+/** Verify PAT is valid — returns { id, email, handle } or throws */
+async function figmaVerifyPat(authHeader) {
+  return httpsGet('api.figma.com', '/v1/me', authHeader);
+}
+
+/**
+ * Auto-discover the first frame node in a Figma file.
+ * Used when the URL has no ?node-id parameter.
+ */
+async function figmaFirstFrameNodeId(fileKey, authHeader) {
+  const data = await httpsGet('api.figma.com', `/v1/files/${fileKey}?depth=2`, authHeader);
+  const pages = data.document?.children || [];
+  for (const page of pages) {
+    for (const child of (page.children || [])) {
+      if (child.type === 'FRAME' || child.type === 'COMPONENT' || child.type === 'GROUP') {
+        return child.id; // e.g. "1:2"
+      }
+    }
+  }
+  throw new Error('No frames found in this Figma file. Make sure the file has at least one frame on a page.');
+}
+
 async function figmaExportImage(fileKey, nodeId, authHeader) {
   const data = await httpsGet(
     'api.figma.com',
@@ -568,7 +590,7 @@ async function figmaExportImage(fileKey, nodeId, authHeader) {
   );
   if (data.err) throw new Error(`Figma export error: ${data.err}`);
   const imageUrl = data.images?.[nodeId];
-  if (!imageUrl) throw new Error(`Figma returned no image for node "${nodeId}". Ensure the URL includes ?node-id=...`);
+  if (!imageUrl) throw new Error(`No image returned for node "${nodeId}". Try right-clicking a frame in Figma → Copy link to selection.`);
   const buffer = await downloadUrl(imageUrl);
   return { base64: buffer.toString('base64'), mimeType: 'image/png' };
 }
@@ -1515,10 +1537,33 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     }
     try {
       const { fileKey, nodeId } = parseFigmaUrl(figmaUrl);
-      const effectiveNodeId = nodeId || '0:1';
+
+      // Step 0: Verify PAT is valid
+      try {
+        await figmaVerifyPat(figmaAuth.authHeader);
+      } catch (err) {
+        return res.status(400).json({
+          success: false,
+          error: 'Figma PAT is invalid or expired. Go to the Design tab → Figma Link → Disconnect, then paste a fresh Personal Access Token from figma.com/settings.',
+        });
+      }
+
+      // Step 1: Resolve node ID — use URL param or auto-discover first frame
+      let effectiveNodeId = nodeId;
+      if (!effectiveNodeId) {
+        try {
+          effectiveNodeId = await figmaFirstFrameNodeId(fileKey, figmaAuth.authHeader);
+          console.log(`[FunnelBuilder] Auto-discovered frame node: ${effectiveNodeId}`);
+        } catch (err) {
+          return res.status(400).json({
+            success: false,
+            error: `Could not find a frame in the Figma file: ${err.message}. Right-click a frame in Figma → Copy link to selection → paste that URL.`,
+          });
+        }
+      }
       console.log(`[FunnelBuilder] Fetching Figma frame — file: ${fileKey}, node: ${effectiveNodeId}`);
 
-      // Step 1: Export frame as PNG (required — fail fast if this fails)
+      // Step 2: Export frame as PNG (required)
       let imgResult;
       try {
         imgResult = await figmaExportImage(fileKey, effectiveNodeId, figmaAuth.authHeader);
@@ -1527,7 +1572,7 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
         return res.status(400).json({
           success: false,
           error: is403
-            ? 'Figma access denied (403). Make sure your Figma file is accessible to the account that owns the PAT. Open the file in Figma → Share → invite your Figma account with at least "can view" access, then try again.'
+            ? 'Figma file access denied (403). Your PAT is valid but this file is not accessible. In Figma: Share → Invite → add your Figma account email with "can view" access.'
             : `Figma export error: ${err.message}`,
         });
       }
