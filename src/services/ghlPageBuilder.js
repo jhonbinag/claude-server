@@ -654,8 +654,12 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   const newPV        = (currentPV || 1) + 1;
   const fsResult     = await patchFirestoreDoc(idToken, projectId, pageId, {
     sections:               toFirestoreValue(firestoreSections),
+    // page_data_* — fields used by some GHL paths
     page_data_url:          toFirestoreValue(storagePath),
     page_data_download_url: toFirestoreValue(newDownloadUrl),
+    // section_* — fields the GHL page editor actually reads (confirmed by native AI page inspection)
+    section_url:            toFirestoreValue(storagePath),
+    section_download_url:   toFirestoreValue(newDownloadUrl),
     versionHistory:         updatedVH,
     version:                toFirestoreValue(newVersion),
     section_version:        toFirestoreValue(newSV),
