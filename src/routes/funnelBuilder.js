@@ -67,6 +67,24 @@ function detectProviderName(key = '') {
   return 'unknown';
 }
 
+// Redis → Firebase fallback for the stored AI key
+async function loadStoredAiKey(locationId) {
+  try {
+    const redisKey = await getFunnelAiKey(locationId);
+    if (redisKey) return redisKey;
+  } catch { /* fall through */ }
+  try {
+    const configs = await getToolConfig(locationId);
+    const fbKey = configs?.funnelBuilderAiKey?.key;
+    if (fbKey) {
+      // Warm Redis cache
+      saveFunnelAiKey(locationId, fbKey).catch(() => {});
+      return fbKey;
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
 // ── savePageData wrapper — passes funnelId hint so Firestore read is non-fatal
 // Returns generate/generateWithVision functions bound to the user's key (any provider) or server's aiService
 // storedKey: pre-loaded from Redis/Firebase (fallback when no header sent)
@@ -475,18 +493,9 @@ router.get('/status', async (req, res) => {
 
 router.get('/ai-key', async (req, res) => {
   try {
-    // Redis first (fast path)
-    let key = await getFunnelAiKey(req.locationId);
-    // Firebase fallback
-    if (!key) {
-      const configs = await getToolConfig(req.locationId);
-      key = configs?.funnelBuilderAiKey?.key || null;
-      // Warm Redis cache if found in Firebase
-      if (key) await saveFunnelAiKey(req.locationId, key).catch(() => {});
-    }
+    const key = await loadStoredAiKey(req.locationId);
     if (!key) return res.json({ key: null, provider: null });
-    const provider = detectProviderName(key);
-    res.json({ key, provider });
+    res.json({ key, provider: detectProviderName(key) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -541,7 +550,7 @@ router.post('/generate', async (req, res) => {
   }
 
   // Load stored AI key from Redis/Firebase if no header provided
-  const storedAiKey = await getFunnelAiKey(req.locationId).catch(() => null);
+  const storedAiKey = await loadStoredAiKey(req.locationId);
   const hasUserKey  = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-groq-api-key'] || req.headers['x-google-api-key'] || storedAiKey;
   if (!hasUserKey && !aiService.getProvider()) {
     return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key in the Funnel Builder.' });
@@ -936,17 +945,10 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   if (!funnelId) {
     return res.status(400).json({ success: false, error: '"funnelId" is required.' });
   }
-  const storedAiKeyDesign = await getFunnelAiKey(req.locationId).catch(() => null);
+  const storedAiKeyDesign = await loadStoredAiKey(req.locationId);
   const anyUserKey = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-google-api-key'] || req.headers['x-groq-api-key'] || storedAiKeyDesign;
   if (!anyUserKey && !aiService.getProvider()) {
     return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key in the Funnel Builder (Claude, OpenAI, Groq, or Gemini).' });
-  }
-  // Vision/design generation requires a capable model — warn if server Groq is the only option
-  if (!anyUserKey) {
-    const prov = aiService.getProvider();
-    if (prov?.name === 'groq') {
-      return res.status(503).json({ success: false, error: 'Design-from-image requires Claude or GPT-4o. Please enter your API key in the Funnel Builder.' });
-    }
   }
 
   // Ensure Firebase connected
@@ -1984,7 +1986,7 @@ router.post('/generate-funnel', async (req, res) => {
 
   if (!funnelId) return res.status(400).json({ success: false, error: '"funnelId" is required.' });
 
-  const storedAiKeyFunnel = await getFunnelAiKey(req.locationId).catch(() => null);
+  const storedAiKeyFunnel = await loadStoredAiKey(req.locationId);
   const hasAnyKeyFunnel   = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-groq-api-key'] || req.headers['x-google-api-key'] || storedAiKeyFunnel;
   if (!hasAnyKeyFunnel && !aiService.getProvider()) return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key in the Funnel Builder.' });
 
