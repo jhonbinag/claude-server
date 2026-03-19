@@ -937,7 +937,7 @@ Output ONLY the JSON object. No markdown, no explanation.`;
 // ── POST /generate-from-design — analyze Figma screenshot → GHL native page ──
 
 router.post('/generate-from-design', upload.single('image'), async (req, res) => {
-  const { funnelId, agentId, extraContext } = req.body;
+  const { funnelId, agentId, extraContext, colorScheme } = req.body;
 
   if (!req.file) {
     return res.status(400).json({ success: false, error: 'An image file is required (field: "image").' });
