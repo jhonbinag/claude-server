@@ -1565,22 +1565,15 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     }
     try {
       const { fileKey, nodeId } = parseFigmaUrl(figmaUrl);
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-      // Step 0: Quick PAT sanity check (only blocks on 401 — definitively invalid)
-      const patValid = await figmaVerifyPat(figmaAuth.authHeader);
-      if (!patValid) {
-        return res.status(400).json({
-          success: false,
-          error: 'Figma PAT is invalid or expired. In the Design tab → Figma Link → click Disconnect, then paste a fresh token from figma.com/settings → Security → Personal access tokens.',
-        });
-      }
-
-      // Step 1: Resolve node ID — use URL param or auto-discover first frame
-      effectiveNodeId = nodeId;
+      // Step 1: Resolve node ID — auto-discover if missing or is document root (0:1)
+      effectiveNodeId = (nodeId && nodeId !== '0:1') ? nodeId : null;
       if (!effectiveNodeId) {
         try {
           effectiveNodeId = await figmaFirstFrameNodeId(fileKey, figmaAuth.authHeader);
           console.log(`[FunnelBuilder] Auto-discovered frame node: ${effectiveNodeId}`);
+          await sleep(300); // brief pause before next API call
         } catch (err) {
           return res.status(400).json({
             success: false,
@@ -1607,6 +1600,7 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
       imageMediaType = imgResult.mimeType;
 
       // Step 2: Extract design spec (non-fatal — falls back to image-only mode on 403)
+      await sleep(400); // avoid rate limiting between API calls
       figmaContent = await figmaExtractContent(fileKey, effectiveNodeId, figmaAuth.authHeader);
       console.log(`[FunnelBuilder] Figma extract: ${figmaContent.texts.length} texts, ${figmaContent.colors.length} colors, ${figmaContent.imageNodes.length} images, spec:${figmaContent.spec ? 'yes' : 'no (image-only mode)'}`);
 
