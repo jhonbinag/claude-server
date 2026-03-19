@@ -113,15 +113,14 @@ export default function FunnelBuilder() {
   const [figmaPatSaving,  setFigmaPatSaving]  = useState(false);
   const [figmaPatSaved,   setFigmaPatSaved]   = useState(false);
 
-  const saveFigmaPat = async (val) => {
-    setFigmaPat(val);
-    if (!val || !apiKey) return;
+  const saveFigmaPat = async () => {
+    if (!figmaPat.trim() || !apiKey) return;
     setFigmaPatSaving(true);
-    setFigmaPatSaved(false);
     try {
-      await api.postWithKey('/funnel-builder/figma-token', { token: val }, apiKey);
+      await api.postWithKey('/funnel-builder/figma-token', { token: figmaPat.trim() }, apiKey);
       setFigmaConnected(true);
       setFigmaPatSaved(true);
+      setFigmaPat('');  // clear input — token is stored server-side, no need to keep it in memory
       setTimeout(() => setFigmaPatSaved(false), 3000);
     } catch { /* non-fatal */ }
     finally { setFigmaPatSaving(false); }
@@ -826,29 +825,41 @@ export default function FunnelBuilder() {
                 {/* Figma Link mode */}
                 {designMode === 'figma' && (
                   <div className="space-y-3">
-                    {/* PAT input */}
-                    <div>
-                      <label className="block text-xs text-gray-400 mb-1">
-                        Figma Personal Access Token{' '}
-                        <a href="https://www.figma.com/settings" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Get one here</a>
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="password"
-                          value={figmaPat}
-                          onChange={e => saveFigmaPat(e.target.value)}
-                          placeholder="figd_xxxxxxxxxxxxxxxxxxxx"
-                          className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 font-mono"
-                        />
-                        {figmaConnected && (
-                          <button type="button" onClick={clearFigmaPat}
-                            className="btn-secondary text-xs px-3 py-1.5 whitespace-nowrap">Clear</button>
-                        )}
+                    {/* PAT — show connected badge when saved, input only when not yet connected */}
+                    {figmaConnected ? (
+                      <div className="flex items-center justify-between rounded-xl px-4 py-3" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)' }}>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-green-400" />
+                          <span className="text-xs font-medium text-green-400">Figma PAT connected</span>
+                          <span className="text-xs text-gray-500">— stored securely per location</span>
+                        </div>
+                        <button type="button" onClick={clearFigmaPat}
+                          className="text-xs text-gray-400 hover:text-red-400 transition-colors">Disconnect</button>
                       </div>
-                      <p className="text-xs mt-1" style={{ color: figmaPatSaved ? '#34d399' : figmaPatSaving ? '#6b7280' : '#6b7280' }}>
-                        {figmaPatSaved ? '✓ Token saved' : figmaPatSaving ? 'Saving…' : figmaConnected ? '✓ Token saved' : 'Figma → Settings → Security → Personal access tokens → Generate'}
-                      </p>
-                    </div>
+                    ) : (
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">
+                          Figma Personal Access Token{' '}
+                          <a href="https://www.figma.com/settings" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Get one here</a>
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value={figmaPat}
+                            onChange={e => setFigmaPat(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && saveFigmaPat()}
+                            placeholder="figd_xxxxxxxxxxxxxxxxxxxx"
+                            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 font-mono"
+                          />
+                          <button type="button" onClick={saveFigmaPat} disabled={!figmaPat.trim() || figmaPatSaving}
+                            className="text-xs font-semibold px-4 py-2 rounded-lg whitespace-nowrap transition-colors"
+                            style={{ background: figmaPatSaving ? '#374151' : '#4f46e5', color: '#fff', opacity: !figmaPat.trim() ? 0.5 : 1 }}>
+                            {figmaPatSaving ? 'Saving…' : 'Save'}
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-1">Figma → Settings → Security → Personal access tokens → Generate new token</p>
+                      </div>
+                    )}
 
                     {/* Figma URL input */}
                     {figmaConnected && (
