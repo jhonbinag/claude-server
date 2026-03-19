@@ -581,137 +581,248 @@ async function figmaExtractContent(fileKey, nodeId, authHeader) {
       authHeader
     );
     const root = data.nodes?.[nodeId]?.document;
-    if (!root) return { texts: [], colors: [], spec: '' };
+    if (!root) return { texts: [], colors: [], spec: '', sectionCount: 0 };
 
     const globalColors = new Set();
 
-    function toHex(c) {
-      if (!c) return null;
-      const { r, g, b } = c;
+    // ── Helpers ────────────────────────────────────────────────────────────────
+
+    function toHex({ r, g, b, a } = {}) {
+      if (r == null) return null;
       return '#' + [r, g, b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
     }
 
+    function getFill(fills = []) {
+      return fills.find(f => f.type === 'SOLID' && f.color) || null;
+    }
+
     function getFillHex(fills = []) {
-      const solid = fills.find(f => f.type === 'SOLID' && f.color);
-      return solid ? toHex(solid.color) : null;
+      const f = getFill(fills);
+      return f ? toHex(f.color) : null;
+    }
+
+    function getGradient(fills = []) {
+      const g = fills.find(f => f.type === 'GRADIENT_LINEAR' || f.type === 'GRADIENT_RADIAL');
+      if (!g || !g.gradientStops?.length) return null;
+      const stops = g.gradientStops.map(s => `${toHex(s.color)} ${Math.round(s.position * 100)}%`).join(', ');
+      return g.type === 'GRADIENT_RADIAL' ? `radial-gradient(${stops})` : `linear-gradient(to right, ${stops})`;
+    }
+
+    function getShadow(effects = []) {
+      const s = effects.find(e => e.type === 'DROP_SHADOW' && e.visible !== false);
+      if (!s) return null;
+      return `${s.offset?.x || 0}px ${s.offset?.y || 0}px ${s.radius || 0}px ${toHex(s.color) || 'rgba(0,0,0,0.1)'}`;
+    }
+
+    function getPadding(n) {
+      return {
+        top:    n.paddingTop    || n.verticalPadding   || 0,
+        bottom: n.paddingBottom || n.verticalPadding   || 0,
+        left:   n.paddingLeft   || n.horizontalPadding || 0,
+        right:  n.paddingRight  || n.horizontalPadding || 0,
+      };
     }
 
     function isButton(n) {
-      // A button is a FRAME/COMPONENT/INSTANCE with a single text child and solid fill, or with "button"/"btn"/"cta" in its name
       const name = (n.name || '').toLowerCase();
-      if (name.includes('button') || name.includes('btn') || name.includes('cta')) return true;
+      if (/\b(button|btn|cta|get started|sign up|buy|order|claim|start|join|register|download|apply)\b/.test(name)) return true;
       if ((n.type === 'FRAME' || n.type === 'COMPONENT' || n.type === 'INSTANCE') &&
-          n.children?.length === 1 && n.children[0].type === 'TEXT' &&
-          (n.fills?.some(f => f.type === 'SOLID'))) return true;
+          n.fills?.some(f => f.type === 'SOLID') &&
+          n.children?.some(c => c.type === 'TEXT')) return true;
       return false;
     }
 
     function isImage(n) {
-      if (n.type === 'RECTANGLE' && n.fills?.some(f => f.type === 'IMAGE')) return true;
+      if (n.fills?.some(f => f.type === 'IMAGE')) return true;
       const name = (n.name || '').toLowerCase();
-      return n.type === 'VECTOR' || name.includes('image') || name.includes('photo') || name.includes('icon') || name.includes('logo') || name.includes('img');
+      return /\b(image|photo|img|picture|hero|banner|thumbnail|avatar|icon|logo|illustration|graphic|mockup|screenshot)\b/.test(name);
     }
 
-    // Build a structured spec for each top-level section (direct children of the root frame)
-    const sections = [];
+    // ── Walk a node and produce structured items ────────────────────────────────
+
+    function walkNode(n, depth, items) {
+      if (depth > 8) return;
+
+      // Skip invisible nodes
+      if (n.visible === false || n.opacity === 0) return;
+
+      if (isButton(n)) {
+        const bg       = getFillHex(n.fills);
+        const gradient = getGradient(n.fills);
+        const txtNode  = n.children?.find(c => c.type === 'TEXT');
+        const txt      = txtNode?.characters?.trim() || n.name;
+        const txtColor = getFillHex(txtNode?.fills || []);
+        const txtStyle = txtNode?.style || {};
+        const pad      = getPadding(n);
+        if (bg) globalColors.add(bg);
+        if (txtColor) globalColors.add(txtColor);
+        items.push({
+          type: 'button', text: txt,
+          background: gradient || bg || '#000000',
+          color: txtColor || '#FFFFFF',
+          fontSize: txtStyle.fontSize || 16,
+          fontWeight: txtStyle.fontWeight || 600,
+          fontFamily: txtStyle.fontFamily || null,
+          borderRadius: n.cornerRadius || n.rectangleCornerRadii?.[0] || 0,
+          paddingTop: pad.top, paddingBottom: pad.bottom,
+          paddingLeft: pad.left, paddingRight: pad.right,
+          shadow: getShadow(n.effects || []),
+        });
+        return;
+      }
+
+      if (isImage(n)) {
+        items.push({ type: 'image', name: n.name, width: n.absoluteBoundingBox?.width, height: n.absoluteBoundingBox?.height });
+        return;
+      }
+
+      if (n.type === 'TEXT' && n.characters) {
+        const style    = n.style || {};
+        const color    = getFillHex(n.fills);
+        if (color) globalColors.add(color);
+        const size     = style.fontSize || 16;
+        const weight   = style.fontWeight || 400;
+        const align    = (style.textAlignHorizontal || 'LEFT').toLowerCase();
+        const lineH    = style.lineHeightPx ? Math.round(style.lineHeightPx) : null;
+        const letterSp = style.letterSpacing ? Math.round(style.letterSpacing * 10) / 10 : null;
+        const fontFam  = style.fontFamily || null;
+        const italic   = style.italic || false;
+        const decoration = style.textDecoration || null;
+
+        let role = 'paragraph';
+        if (size >= 44 || (weight >= 700 && size >= 32)) role = 'headline';
+        else if (size >= 28) role = 'subheadline';
+        else if (size >= 20) role = 'subheading';
+        else if (size <= 12) role = 'caption';
+
+        items.push({
+          type: 'text', role, text: n.characters.trim(),
+          fontSize: size, fontWeight: weight, fontFamily: fontFam,
+          color, align, lineHeight: lineH, letterSpacing: letterSp,
+          italic, decoration,
+        });
+        return;
+      }
+
+      // Divider / separator
+      if ((n.type === 'LINE' || n.type === 'RECTANGLE') && !n.children?.length) {
+        const bb = n.absoluteBoundingBox;
+        if (bb && bb.height <= 4) {
+          const col = getFillHex(n.fills);
+          items.push({ type: 'divider', color: col || '#E5E7EB', thickness: Math.max(1, Math.round(bb.height)) });
+          return;
+        }
+      }
+
+      // Recurse into groups/frames
+      if (n.children?.length) {
+        const horizontal = n.layoutMode === 'HORIZONTAL';
+        if (horizontal) {
+          const cols = [];
+          for (const child of n.children) {
+            const colItems = [];
+            const childBg = getFillHex(child.fills);
+            if (childBg) globalColors.add(childBg);
+            walkNode(child, depth + 1, colItems);
+            if (colItems.length) cols.push({ background: childBg, items: colItems, width: child.absoluteBoundingBox?.width });
+          }
+          if (cols.length >= 2) {
+            // Normalise widths to 12-column grid
+            const totalW = cols.reduce((s, c) => s + (c.width || 1), 0);
+            const gridCols = cols.map(c => ({ ...c, gridWidth: Math.round(12 * (c.width || 1) / totalW) }));
+            items.push({ type: 'columns', columns: gridCols });
+          } else {
+            for (const child of n.children) walkNode(child, depth + 1, items);
+          }
+        } else {
+          for (const child of n.children) walkNode(child, depth + 1, items);
+        }
+      }
+    }
+
+    // ── Build sections ─────────────────────────────────────────────────────────
+
     const sectionNodes = root.children?.length ? root.children : [root];
+    const sections = [];
 
     for (const sec of sectionNodes) {
-      const bg = getFillHex(sec.fills);
+      if (sec.visible === false) continue;
+      const bg       = getFillHex(sec.fills);
+      const gradient = getGradient(sec.fills);
+      const shadow   = getShadow(sec.effects || []);
+      const pad      = getPadding(sec);
       if (bg) globalColors.add(bg);
 
-      const secSpec = {
+      const items = [];
+      for (const child of (sec.children || [])) walkNode(child, 1, items);
+
+      sections.push({
         name: sec.name,
-        background: bg || 'transparent',
-        layout: sec.layoutMode === 'HORIZONTAL' ? 'horizontal' : 'vertical',
-        items: [],
-      };
-
-      function walkSection(n, depth) {
-        if (depth > 6) return;
-
-        if (isButton(n)) {
-          const btnBg  = getFillHex(n.fills);
-          const btnTxt = n.children?.find(c => c.type === 'TEXT')?.characters?.trim() || n.name;
-          const btnColor = getFillHex(n.children?.find(c => c.type === 'TEXT')?.fills);
-          if (btnBg) globalColors.add(btnBg);
-          secSpec.items.push({ type: 'button', text: btnTxt, background: btnBg, color: btnColor, borderRadius: n.cornerRadius || 0 });
-          return;
-        }
-
-        if (isImage(n)) {
-          secSpec.items.push({ type: 'image', name: n.name });
-          return;
-        }
-
-        if (n.type === 'TEXT' && n.characters) {
-          const style = n.style || {};
-          const color = getFillHex(n.fills);
-          if (color) globalColors.add(color);
-          const size = style.fontSize || 16;
-          const weight = style.fontWeight || 400;
-          const align = (style.textAlignHorizontal || 'LEFT').toLowerCase();
-          let role = 'paragraph';
-          if (size >= 48 || weight >= 700 && size >= 36) role = 'headline';
-          else if (size >= 28) role = 'subheadline';
-          else if (size >= 20) role = 'subheading';
-          secSpec.items.push({ type: 'text', role, text: n.characters.trim(), fontSize: size, fontWeight: weight, color, align });
-          return;
-        }
-
-        // recurse into groups/frames
-        if (n.children) {
-          const layoutDir = n.layoutMode === 'HORIZONTAL' ? 'horizontal' : null;
-          if (layoutDir === 'horizontal' && depth === 1) {
-            secSpec.items.push({ type: 'columns', children: [] });
-            const colGroup = secSpec.items[secSpec.items.length - 1];
-            for (const child of n.children) {
-              const col = { items: [] };
-              const savedItems = secSpec.items;
-              secSpec.items = col.items;
-              walkSection(child, depth + 1);
-              secSpec.items = savedItems;
-              colGroup.children.push(col);
-            }
-          } else {
-            for (const child of n.children) walkSection(child, depth + 1);
-          }
-        }
-      }
-
-      for (const child of (sec.children || [])) walkSection(child, 1);
-      sections.push(secSpec);
+        background: gradient || bg || 'transparent',
+        paddingTop:    pad.top,    paddingBottom: pad.bottom,
+        paddingLeft:   pad.left,   paddingRight:  pad.right,
+        minHeight: sec.absoluteBoundingBox?.height ? Math.round(sec.absoluteBoundingBox.height) : null,
+        shadow,
+        items,
+      });
     }
 
-    // Serialise spec to readable text for the AI prompt
-    function serializeItem(item, indent = '') {
-      if (item.type === 'text') {
-        return `${indent}[${item.role.toUpperCase()}] "${item.text}" | size:${item.fontSize}px weight:${item.fontWeight} color:${item.color || 'inherit'} align:${item.align}`;
+    // ── Serialise to spec string ───────────────────────────────────────────────
+
+    function fmtItem(it, indent = '  ') {
+      if (it.type === 'text') {
+        const extras = [
+          it.fontFamily  ? `font:"${it.fontFamily}"` : null,
+          it.lineHeight  ? `lineHeight:${it.lineHeight}px` : null,
+          it.letterSpacing ? `letterSpacing:${it.letterSpacing}px` : null,
+          it.italic      ? 'italic' : null,
+          it.decoration  ? `decoration:${it.decoration}` : null,
+        ].filter(Boolean).join(' ');
+        return `${indent}[${it.role.toUpperCase()}] "${it.text}"\n${indent}  → size:${it.fontSize}px weight:${it.fontWeight} color:${it.color || 'inherit'} align:${it.align}${extras ? ' ' + extras : ''}`;
       }
-      if (item.type === 'button') {
-        return `${indent}[BUTTON] "${item.text}" | bg:${item.background} color:${item.color || '#fff'} radius:${item.borderRadius}px`;
+      if (it.type === 'button') {
+        const extras = [
+          it.fontFamily ? `font:"${it.fontFamily}"` : null,
+          it.shadow     ? `shadow:${it.shadow}` : null,
+        ].filter(Boolean).join(' ');
+        return `${indent}[BUTTON] "${it.text}"\n${indent}  → bg:${it.background} color:${it.color} size:${it.fontSize}px weight:${it.fontWeight} radius:${it.borderRadius}px pad:${it.paddingTop}/${it.paddingRight}/${it.paddingBottom}/${it.paddingLeft}px${extras ? ' ' + extras : ''}`;
       }
-      if (item.type === 'image') {
-        return `${indent}[IMAGE] ${item.name}`;
+      if (it.type === 'image') {
+        const dim = it.width && it.height ? ` (${Math.round(it.width)}×${Math.round(it.height)}px)` : '';
+        return `${indent}[IMAGE] "${it.name}"${dim}`;
       }
-      if (item.type === 'columns') {
-        const cols = item.children.map((col, i) =>
-          `${indent}  Column ${i + 1}:\n${col.items.map(c => serializeItem(c, indent + '    ')).join('\n')}`
-        ).join('\n');
-        return `${indent}[TWO-COLUMN LAYOUT]\n${cols}`;
+      if (it.type === 'divider') {
+        return `${indent}[DIVIDER] color:${it.color} thickness:${it.thickness}px`;
+      }
+      if (it.type === 'columns') {
+        const colStr = it.columns.map((col, ci) => {
+          const colHeader = `${indent}  ┌ Column ${ci + 1} (width:${col.gridWidth}/12${col.background ? ` bg:${col.background}` : ''})`;
+          const colItems  = col.items.map(ci2 => fmtItem(ci2, indent + '  │ ')).join('\n');
+          return `${colHeader}\n${colItems}`;
+        }).join('\n');
+        return `${indent}[${it.columns.length}-COLUMN LAYOUT]\n${colStr}`;
       }
       return '';
     }
 
-    const spec = sections.map((sec, i) =>
-      `SECTION ${i + 1}: "${sec.name}" | bg:${sec.background} layout:${sec.layout}\n` +
-      (sec.items.length ? sec.items.map(it => serializeItem(it, '  ')).join('\n') : '  (no content)')
-    ).join('\n\n');
+    const spec = sections.map((sec, i) => {
+      const meta = [
+        `bg:${sec.background}`,
+        sec.paddingTop || sec.paddingBottom ? `padding:${sec.paddingTop}/${sec.paddingRight}/${sec.paddingBottom}/${sec.paddingLeft}px` : null,
+        sec.minHeight ? `minHeight:${sec.minHeight}px` : null,
+        sec.shadow ? `shadow:${sec.shadow}` : null,
+      ].filter(Boolean).join(' ');
+      const content = sec.items.length
+        ? sec.items.map(it => fmtItem(it)).join('\n')
+        : '  (empty section)';
+      return `━━━ SECTION ${i + 1}: "${sec.name}" | ${meta}\n${content}`;
+    }).join('\n\n');
 
     const texts  = sections.flatMap(s => s.items.filter(it => it.type === 'text').map(it => it.text));
-    const colors = [...globalColors].slice(0, 20);
+    const colors = [...globalColors].filter(Boolean).slice(0, 30);
 
     return { texts, colors, spec, sectionCount: sections.length };
+
   } catch (e) {
     console.error('[FunnelBuilder] figmaExtractContent error:', e.message);
     return { texts: [], colors: [], spec: '', sectionCount: 0 };
@@ -1345,40 +1456,56 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   const aiDesign    = resolveAI(req, storedAiKeyDesign);
   const imgKwDesign = (extraContext || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
 
-  const systemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. You will be given a screenshot of a Figma design or page mockup. Your job is to faithfully reconstruct it as a complete, production-ready native GHL page JSON — matching the EXACT structure, layout, colors, and content.
+  const systemPrompt = `${agentIntro}You are a pixel-perfect GoHighLevel page builder. You receive a Figma design spec and a screenshot. Your ONLY job is to convert every single design element into the GHL native JSON format — replicating every font, color, size, spacing, layout, and text exactly as specified.
 
-RULES:
-1. Respond with ONLY valid JSON — no markdown, no code fences, no explanation.
+ABSOLUTE RULES (never break these):
+1. Output ONLY valid JSON. No markdown, no code fences, no explanation, no comments.
 2. Root object: { "sections": [ ... ] }
-3. Match the EXACT visual layout: number of sections, column structure, element order, spacing, background colors.
-4. Extract ALL visible text content verbatim from the design.
-5. Match ALL colors exactly using hex codes extracted from the design.
-6. All IDs: type-XXXXXXXX (8 random alphanumeric chars). Never reuse IDs.
-7. Mobile styles reduce padding/font sizes to ~60% of desktop values.
-8. CRITICAL: Use "heading" (NOT "headline") and "sub-heading" (NOT "sub-headline") for element types.
-9. CRITICAL: paragraph "text" must be plain text — NO HTML tags, no <p>, no <br>, no <strong>.
-10. CRITICAL: bulletList "items" must be an array of plain strings. Example: ["Item 1","Item 2"]
-11. IMAGE RULE: Any image, photo, illustration, graphic, icon, or visual placeholder in the design MUST become an image element using src "https://picsum.photos/seed/${imgKwDesign}/800/450". Do NOT skip images.
-12. MULTI-COLUMN: If the design shows a two-column layout (e.g. text left, image right), create TWO column elements in the row — each with width:6. Three-column = width:4 each.
-13. If the design is inside a Figma frame or browser mockup, extract only the page content inside it.
-14. Preserve the section's backgroundColor exactly as it appears in the design (dark hero, light body, etc).
+3. Every SECTION in the spec → one section element. Never merge or skip sections.
+4. Every text element → copy text VERBATIM. Never paraphrase, summarize, or invent words.
+5. Every color → use the EXACT hex from the spec.
+6. Every font size → use the EXACT value from the spec (in px).
+7. Every font weight → use the EXACT value (e.g. "700", "400", "600").
+8. Every button → match background color, text color, border-radius, padding from spec exactly.
+9. Every [IMAGE] → image element with src "https://picsum.photos/seed/${imgKwDesign}/800/450".
+10. Every [DIVIDER] → a horizontal rule or styled div as a visual separator.
+11. [2-COLUMN LAYOUT] or [3-COLUMN LAYOUT] → multiple column elements in the same row, widths from spec.
+12. All element IDs: type-XXXXXXXX (8 random alphanumeric chars). Never reuse IDs.
+13. Mobile styles: set fontSize to ~60% of desktop, padding to ~50% of desktop.
+14. CRITICAL type names: "heading" (NOT headline), "sub-heading" (NOT sub-headline), "paragraph", "button", "image", "bulletList".
+15. paragraph "text" = plain string. NO HTML. NO <p> <br> <strong> tags.
+16. bulletList "items" = array of plain strings.
+17. Section padding: use EXACT padding values from spec. If spec says paddingTop:80px, set paddingTop value to 80.
+18. If spec includes a gradient background, encode as CSS gradient string in backgroundColor.value.
+19. If spec includes a box-shadow, add it to the section or element styles.
+20. fontFamily: if spec specifies a font family, add it to the element's styles as fontFamily.value.
 
-SCHEMA (single-column example — use multiple columns when the design has side-by-side content):
-{"sections":[{"id":"section-{8chars}","type":"section","name":"section-name","allowRowMaxWidth":false,
-"styles":{"backgroundColor":{"value":"#HEX"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},
-"mobileStyles":{"paddingTop":{"value":40,"unit":"px"},"paddingBottom":{"value":40,"unit":"px"}},
-"children":[{"id":"row-{8chars}","type":"row","children":[
-  {"id":"column-{8chars}","type":"column","width":6,"styles":{"textAlign":{"value":"left"}},"mobileStyles":{},"children":[
-    {"id":"heading-{8chars}","type":"heading","text":"Headline text","tag":"h1","styles":{"color":{"value":"#111827"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
-    {"id":"sub-heading-{8chars}","type":"sub-heading","text":"Subheading","styles":{"color":{"value":"#374151"},"fontSize":{"value":24,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
-    {"id":"paragraph-{8chars}","type":"paragraph","text":"Plain text body copy. No HTML.","styles":{"color":{"value":"#4B5563"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
-    {"id":"button-{8chars}","type":"button","text":"CTA","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#FFF"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}},
-    {"id":"bulletList-{8chars}","type":"bulletList","items":["Item 1","Item 2","Item 3"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111827"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{}}
-  ]},
-  {"id":"column-{8chars}","type":"column","width":6,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[
-    {"id":"image-{8chars}","type":"image","src":"https://picsum.photos/seed/${imgKwDesign}/800/450","alt":"Design image","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
-  ]}
-]}]}]}`;
+GHL NATIVE JSON SCHEMA:
+{"sections":[
+  {"id":"section-XXXXXXXX","type":"section","name":"hero","allowRowMaxWidth":false,
+   "styles":{"backgroundColor":{"value":"#0F172A"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},
+   "mobileStyles":{"paddingTop":{"value":40,"unit":"px"},"paddingBottom":{"value":40,"unit":"px"}},
+   "children":[{"id":"row-XXXXXXXX","type":"row","children":[
+     {"id":"column-XXXXXXXX","type":"column","width":6,"styles":{"textAlign":{"value":"left"}},"mobileStyles":{},"children":[
+       {"id":"heading-XXXXXXXX","type":"heading","text":"Exact headline from spec","tag":"h1",
+        "styles":{"color":{"value":"#FFFFFF"},"fontSize":{"value":56,"unit":"px"},"fontWeight":{"value":"700"},"fontFamily":{"value":"Inter"}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}},
+       {"id":"sub-heading-XXXXXXXX","type":"sub-heading","text":"Exact subheading from spec",
+        "styles":{"color":{"value":"#94A3B8"},"fontSize":{"value":24,"unit":"px"},"fontWeight":{"value":"400"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}},
+       {"id":"paragraph-XXXXXXXX","type":"paragraph","text":"Plain body text verbatim from spec.",
+        "styles":{"color":{"value":"#CBD5E1"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":28,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}},
+       {"id":"button-XXXXXXXX","type":"button","text":"Exact CTA text","link":"#",
+        "styles":{"backgroundColor":{"value":"#F59E0B"},"color":{"value":"#000000"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},
+         "paddingTop":{"value":16,"unit":"px"},"paddingBottom":{"value":16,"unit":"px"},"paddingLeft":{"value":48,"unit":"px"},"paddingRight":{"value":48,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}},
+       {"id":"bulletList-XXXXXXXX","type":"bulletList","items":["Feature one verbatim","Feature two verbatim"],
+        "icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},
+        "styles":{"color":{"value":"#FFFFFF"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{}}
+     ]},
+     {"id":"column-XXXXXXXX","type":"column","width":6,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[
+       {"id":"image-XXXXXXXX","type":"image","src":"https://picsum.photos/seed/${imgKwDesign}/800/450","alt":"hero image",
+        "styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":12,"unit":"px"}},"mobileStyles":{}}
+     ]}
+   ]}]}
+]}`;
 
   // SSE setup
   res.setHeader('Content-Type', 'text/event-stream');
@@ -1403,24 +1530,31 @@ SCHEMA (single-column example — use multiple columns when the design has side-
       let visionText;
       if (figmaUrl && figmaContent.spec) {
         // Figma mode: full structural spec is the source of truth; image is visual reference only
-        visionText = `Convert this Figma design into a native GHL page JSON for "${page.name}".
+        visionText = `Convert the Figma design below into a complete native GHL page JSON for "${page.name}".
 
-The image is a visual reference. The FIGMA DESIGN SPEC below is the authoritative source — follow it exactly.
+The screenshot is provided as visual context. The FIGMA DESIGN SPEC is the authoritative source — it contains the EXACT text, colors, font sizes, font weights, font families, padding, border-radius, and layout from the actual Figma file. Follow every detail in the spec literally.
 
-FIGMA DESIGN SPEC:
+═══════════════════════════════════════════════════
+FIGMA DESIGN SPEC (${figmaContent.sectionCount} sections):
+═══════════════════════════════════════════════════
 ${figmaContent.spec}
+═══════════════════════════════════════════════════
 
-RULES FOR CONVERSION:
-- Create exactly ${figmaContent.sectionCount || 'the same number of'} sections, one per SECTION in the spec above
-- Each section's background color must match the spec exactly
-- Use every [HEADLINE] as a "heading" element (tag: h1 or h2), [SUBHEADLINE] as "sub-heading", [SUBHEADING] as "sub-heading", [PARAGRAPH] as "paragraph"
-- Use every [BUTTON] as a "button" element — match its background color, text color, and border-radius exactly
-- Use every [IMAGE] as an image element with src "https://picsum.photos/seed/${imgKwDesign}/800/450"
-- [TWO-COLUMN LAYOUT] → two column elements each with width:6 in the same row
-- Copy ALL text verbatim from the spec — do not rephrase, summarize, or invent new text
-- Match font sizes proportionally: spec fontSize → use that value in px for desktop, ~60% for mobile${extraContext ? `\n- Additional instructions: ${extraContext}` : ''}
+CONVERSION INSTRUCTIONS:
+1. Create exactly ${figmaContent.sectionCount} section elements — one per ━━━ SECTION in the spec.
+2. Each section: set backgroundColor from spec bg: value. Set paddingTop/Bottom/Left/Right from spec padding: values (or 80/80/20/20 if not specified).
+3. For every [HEADLINE] → "heading" element (tag:"h1"), [SUBHEADLINE] → "heading" (tag:"h2"), [SUBHEADING] → "sub-heading", [PARAGRAPH] → "paragraph", [CAPTION] → "paragraph".
+4. Copy EVERY text string VERBATIM — do not change a single word.
+5. For every text element: set fontSize, fontWeight, color, and textAlign EXACTLY from spec. Include fontFamily if spec specifies one.
+6. For every [BUTTON]: set backgroundColor, color, fontSize, fontWeight, borderRadius, and all padding values from spec exactly.
+7. For every [IMAGE]: insert an image element with src "https://picsum.photos/seed/${imgKwDesign}/800/450".
+8. For every [DIVIDER]: insert a visual separator (use a paragraph element with border-bottom style or a dedicated divider).
+9. For [2-COLUMN LAYOUT]: create two column elements. Use gridWidth from spec (e.g. 7/12 and 5/12 → width:7 and width:5). Default to width:6 and width:6 if not specified.
+10. For [3-COLUMN LAYOUT]: three column elements each with width:4.
+11. If spec shows a gradient background (e.g. linear-gradient(...)), use that CSS string as backgroundColor.value.
+12. Mobile styles: fontSize = 60% of desktop, paddingTop/Bottom = 50% of desktop.${extraContext ? `\n13. Additional instructions: ${extraContext}` : ''}
 
-Output ONLY the JSON object. No explanation.`;
+Output ONLY the JSON object. No markdown, no explanation.`;
       } else {
         // Image upload mode
         const figmaColorNote = figmaContent.colors.length > 0
