@@ -110,6 +110,10 @@ export default function FunnelBuilder() {
   const [agents,        setAgents]        = useState([]);
   const [selectedAgent, setSelectedAgent] = useState('');
 
+  // User's own Anthropic API key (persisted in localStorage)
+  const [claudeApiKey,  setClaudeApiKey]  = useState(() => localStorage.getItem('funnelBuilderAnthropicKey') || '');
+  const saveClaudeApiKey = (val) => { setClaudeApiKey(val); localStorage.setItem('funnelBuilderAnthropicKey', val); };
+
   // Detect the white-label GHL domain from the iframe parent referrer
   const appDomain = (() => {
     try {
@@ -225,7 +229,7 @@ export default function FunnelBuilder() {
     try {
       const resp = await fetch(`/funnel-builder/generate-from-design`, {
         method:  'POST',
-        headers: { 'x-location-id': locId },
+        headers: { 'x-location-id': locId, ...(claudeApiKey ? { 'x-anthropic-api-key': claudeApiKey } : {}) },
         body:    formData,
       });
 
@@ -293,7 +297,7 @@ export default function FunnelBuilder() {
     try {
       const res = await fetch('/funnel-builder/generate-funnel', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId, ...(claudeApiKey ? { 'x-anthropic-api-key': claudeApiKey } : {}) },
         body:    JSON.stringify({
           funnelId:    funnelId.trim(),
           niche:       niche.trim(),
@@ -370,7 +374,7 @@ export default function FunnelBuilder() {
     try {
       const res = await fetch('/funnel-builder/generate-funnel', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId, ...(claudeApiKey ? { 'x-anthropic-api-key': claudeApiKey } : {}) },
         body:    JSON.stringify({
           funnelId:    fullFunnelId.trim(),
           funnelType:  funnelType || undefined,
@@ -453,6 +457,31 @@ export default function FunnelBuilder() {
         )}
 
         <div className="flex-1 overflow-y-auto p-4 max-w-4xl mx-auto w-full">
+
+          {/* ── Claude API Key ───────────────────────────────────────────── */}
+          <section className="glass rounded-xl p-5 mb-5">
+            <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
+              <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center"
+                style={{ background: claudeApiKey ? '#14532d' : '#1e3a5f' }}>🔑</span>
+              Your Anthropic API Key
+              {claudeApiKey && <span className="text-green-400 text-xs font-normal">● set</span>}
+            </h2>
+            <p className="text-xs text-gray-400 mb-3">Enter your own Claude API key — generation uses your tokens, not ours. <a href="https://console.anthropic.com/account/keys" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Get a key →</a></p>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                placeholder="sk-ant-..."
+                value={claudeApiKey}
+                onChange={e => saveClaudeApiKey(e.target.value)}
+                className="field flex-1 text-sm font-mono"
+                autoComplete="off"
+              />
+              {claudeApiKey && (
+                <button type="button" onClick={() => saveClaudeApiKey('')}
+                  className="btn-secondary text-xs px-3">Clear</button>
+              )}
+            </div>
+          </section>
 
           {/* ── Step 1: Connect ─────────────────────────────────────────── */}
           <section className="glass rounded-xl p-5 mb-5">

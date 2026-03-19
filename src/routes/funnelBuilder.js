@@ -42,6 +42,7 @@ const {
   getStatus,
 } = require('../services/ghlFirebaseService');
 const { savePageData, getPageData, convertSectionsToGHL, extractColors } = require('../services/ghlPageBuilder');
+const { generateWithKey, generateWithVisionWithKey } = require('../services/aiService');
 const { buildPageHtml }             = require('../tools/ghlTools');
 const agentStore                    = require('../services/agentStore');
 const ghlClient                     = require('../services/ghlClient');
@@ -49,6 +50,23 @@ const chroma                        = require('../services/chromaService');
 const https                         = require('https');
 
 // ── savePageData wrapper — passes funnelId hint so Firestore read is non-fatal
+// Returns generate/generateWithVision functions bound to either the user's key or server's aiService
+function resolveAI(req) {
+  const userKey = req.headers['x-anthropic-api-key'];
+  if (userKey) {
+    return {
+      generate:            (sys, usr, opts) => generateWithKey(userKey, sys, usr, opts),
+      generateWithVision:  (sys, usr, b64, mime, opts) => generateWithVisionWithKey(userKey, sys, usr, b64, mime, opts),
+      isUserKey:           true,
+    };
+  }
+  return {
+    generate:           aiService.generate.bind(aiService),
+    generateWithVision: aiService.generateWithVision.bind(aiService),
+    isUserKey:          false,
+  };
+}
+
 function saveWithFunnelHint(locationId, pageId, pageJson, funnelId, colorScheme) {
   return savePageData(locationId, pageId, pageJson, { ...(funnelId ? { funnelId } : {}), ...(colorScheme ? { colorScheme } : {}) });
 }
@@ -450,8 +468,9 @@ router.post('/generate', async (req, res) => {
     ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\nYour training and instructions:\n${selectedAgent.instructions}${ragContext}\n\n---\n\n`
     : '';
 
-  const provider = aiService.getProvider();
-  const isGroq   = provider?.name === 'groq';
+  const ai       = resolveAI(req);
+  const provider = ai.isUserKey ? { name: 'anthropic' } : (aiService.getProvider() || {});
+  const isGroq   = !ai.isUserKey && provider?.name === 'groq';
 
   // Groq compact schema — 3-section skeleton with exact brand colors injected
   const groqSystemPrompt = `${agentIntro}Output ONLY valid JSON. No explanation, no markdown.
@@ -520,7 +539,7 @@ Output ONLY the JSON object. No markdown, no explanation.`;
   // Step 4: Call AI provider
   let pageJson;
   try {
-    const rawText = (await aiService.generate(systemPrompt, userPrompt, { maxTokens: 4096 })).trim();
+    const rawText = (await ai.generate(systemPrompt, userPrompt, { maxTokens: 4096 })).trim();
     pageJson = parseJsonSafe(rawText);
     if (!pageJson.sections || !Array.isArray(pageJson.sections)) {
       throw new Error('AI response missing "sections" array.');
@@ -806,6 +825,7 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     ? `You are ${selectedAgent.name}. ${selectedAgent.persona || ''}\n\n${selectedAgent.instructions}${ragContext}\n\n---\n\n`
     : '';
 
+  const aiDesign    = resolveAI(req);
   const imgKwDesign = (extraContext || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
 
   const systemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. You will be given a screenshot of a Figma design or page mockup. Your job is to faithfully reconstruct it as a complete, production-ready native GHL page JSON — matching the EXACT structure, layout, colors, and content.
@@ -874,7 +894,7 @@ CRITICAL requirements:
 - Match button colors exactly from the design${extraContext ? `\n\nUser notes: ${extraContext}` : ''}
 
 Output ONLY the JSON object. No explanation.`;
-      const rawText = (await aiService.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
+      const rawText = (await aiDesign.generateWithVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 })).trim();
       pageJson = parseJsonSafe(rawText);
       if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('AI response missing "sections" array.');
     } catch (err) {
@@ -1772,7 +1792,9 @@ function getSectionPlan(pageType, imgSrc) {
     },
   };
 
-  return plans[pageType] || plans['Sales Page'];
+  const plan = plans[pageType] || plans['Sales Page'];
+  // TODO: restore full section counts after testing — currently capped at 3 for all types
+  return { sections: 3, groq: plan.groq, full: plan.groq };
 }
 
 const FUNNEL_TYPE_PAGES = {
@@ -1841,11 +1863,12 @@ router.post('/generate-funnel', async (req, res) => {
   // Normalise page objects — GHL returns _id not id
   pages = pages.map(p => ({ ...p, id: p.id || p._id }));
 
-  const provider = aiService.getProvider();
-  const isGroq   = provider?.name === 'groq';
+  const aiFunnel = resolveAI(req);
+  const provider = aiFunnel.isUserKey ? { name: 'claude (user key)', model: 'claude-sonnet-4-6' } : (aiService.getProvider() || {});
+  const isGroq   = !aiFunnel.isUserKey && provider?.name === 'groq';
   const results  = [];
 
-  send('log', { msg: `Using AI provider: ${provider?.name} (${provider?.model})`, level: 'info' });
+  send('log', { msg: `Using AI: ${provider?.name} (${provider?.model || 'claude-sonnet-4-6'})`, level: 'info' });
   send('start', { total: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name, stepOrder: p.stepOrder })) });
   send('log', { msg: `Found ${pages.length} page(s) in funnel`, level: 'info' });
 
@@ -1943,7 +1966,7 @@ Output ONLY the JSON object.`;
           await new Promise(r => setTimeout(r, isGroq ? 5000 : 1000));
         }
         const retryNote = attempt > 1 ? '\n\nIMPORTANT: Your previous response had invalid JSON. Output ONLY a raw JSON object, no text before or after, no code fences, no comments.' : '';
-        const raw = (await aiService.generate(systemPrompt, userPrompt + retryNote, { maxTokens: 4096 })).trim();
+        const raw = (await aiFunnel.generate(systemPrompt, userPrompt + retryNote, { maxTokens: 4096 })).trim();
         pageJson  = parseJsonSafe(raw);
         if (!pageJson.sections) throw new Error('Missing sections array');
         const totalEls = pageJson.sections.reduce((sum, s) => sum + (s.children?.[0]?.children?.[0]?.children?.length || 0), 0);

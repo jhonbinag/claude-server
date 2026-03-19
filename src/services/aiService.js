@@ -278,4 +278,38 @@ async function generateWithVision(system, userText, imageBase64, mimeType, opts 
   }
 }
 
-module.exports = { getProvider, generate, generateWithVision };
+/**
+ * Generate using a caller-supplied Anthropic API key (Claude only).
+ * Used when the user provides their own key in the UI.
+ */
+async function generateWithKey(apiKey, system, userText, opts = {}) {
+  const Anthropic = require('@anthropic-ai/sdk');
+  const client    = new Anthropic({ apiKey });
+  const resp      = await client.messages.create({
+    model:      opts.model || 'claude-sonnet-4-6',
+    max_tokens: opts.maxTokens || 4096,
+    system,
+    messages:   [{ role: 'user', content: userText }],
+  });
+  return resp.content[0]?.text || '';
+}
+
+async function generateWithVisionWithKey(apiKey, system, userText, imageBase64, mimeType, opts = {}) {
+  const Anthropic = require('@anthropic-ai/sdk');
+  const client    = new Anthropic({ apiKey });
+  const resp      = await client.messages.create({
+    model:      opts.model || 'claude-sonnet-4-6',
+    max_tokens: opts.maxTokens || 8192,
+    system,
+    messages: [{
+      role:    'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageBase64 } },
+        { type: 'text',  text: userText },
+      ],
+    }],
+  });
+  return resp.content[0]?.text || '';
+}
+
+module.exports = { getProvider, generate, generateWithVision, generateWithKey, generateWithVisionWithKey };
