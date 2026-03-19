@@ -110,9 +110,23 @@ export default function FunnelBuilder() {
   const [agents,        setAgents]        = useState([]);
   const [selectedAgent, setSelectedAgent] = useState('');
 
-  // User's own Anthropic API key (persisted in localStorage)
-  const [claudeApiKey,  setClaudeApiKey]  = useState(() => localStorage.getItem('funnelBuilderAnthropicKey') || '');
-  const saveClaudeApiKey = (val) => { setClaudeApiKey(val); localStorage.setItem('funnelBuilderAnthropicKey', val); };
+  // User's own AI API key (persisted in localStorage)
+  const [aiApiKey, setAiApiKey] = useState(() => localStorage.getItem('funnelBuilderApiKey') || '');
+  const saveAiApiKey = (val) => { setAiApiKey(val); localStorage.setItem('funnelBuilderApiKey', val); };
+
+  // Detect provider from key prefix
+  const detectProvider = (key) => {
+    if (!key) return null;
+    if (key.startsWith('sk-ant-')) return { name: 'Claude (Anthropic)', header: 'x-anthropic-api-key', color: '#6d28d9', link: 'https://console.anthropic.com/account/keys' };
+    if (key.startsWith('sk-') && !key.startsWith('sk-ant-')) return { name: 'OpenAI (GPT-4o)', header: 'x-openai-api-key', color: '#065f46', link: 'https://platform.openai.com/api-keys' };
+    if (key.startsWith('gsk_')) return { name: 'Groq', header: 'x-groq-api-key', color: '#92400e', link: 'https://console.groq.com/keys' };
+    if (key.startsWith('AIza')) return { name: 'Google Gemini', header: 'x-google-api-key', color: '#1e3a5f', link: 'https://aistudio.google.com/app/apikey' };
+    return { name: 'Unknown', header: null, color: '#374151', link: null };
+  };
+  const detectedProvider = detectProvider(aiApiKey);
+  const aiKeyHeaders = (detectedProvider?.header && aiApiKey)
+    ? { [detectedProvider.header]: aiApiKey }
+    : {};
 
   // Detect the white-label GHL domain from the iframe parent referrer
   const appDomain = (() => {
@@ -229,7 +243,7 @@ export default function FunnelBuilder() {
     try {
       const resp = await fetch(`/funnel-builder/generate-from-design`, {
         method:  'POST',
-        headers: { 'x-location-id': locId, ...(claudeApiKey ? { 'x-anthropic-api-key': claudeApiKey } : {}) },
+        headers: { 'x-location-id': locId, ...aiKeyHeaders },
         body:    formData,
       });
 
@@ -297,7 +311,7 @@ export default function FunnelBuilder() {
     try {
       const res = await fetch('/funnel-builder/generate-funnel', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId, ...(claudeApiKey ? { 'x-anthropic-api-key': claudeApiKey } : {}) },
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId, ...aiKeyHeaders },
         body:    JSON.stringify({
           funnelId:    funnelId.trim(),
           niche:       niche.trim(),
@@ -374,7 +388,7 @@ export default function FunnelBuilder() {
     try {
       const res = await fetch('/funnel-builder/generate-funnel', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId, ...(claudeApiKey ? { 'x-anthropic-api-key': claudeApiKey } : {}) },
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId, ...aiKeyHeaders },
         body:    JSON.stringify({
           funnelId:    fullFunnelId.trim(),
           funnelType:  funnelType || undefined,
@@ -458,26 +472,39 @@ export default function FunnelBuilder() {
 
         <div className="flex-1 overflow-y-auto p-4 max-w-4xl mx-auto w-full">
 
-          {/* ── Claude API Key ───────────────────────────────────────────── */}
+          {/* ── AI API Key ───────────────────────────────────────────────── */}
           <section className="glass rounded-xl p-5 mb-5">
             <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
               <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center"
-                style={{ background: claudeApiKey ? '#14532d' : '#1e3a5f' }}>🔑</span>
-              Your Anthropic API Key
-              {claudeApiKey && <span className="text-green-400 text-xs font-normal">● set</span>}
+                style={{ background: detectedProvider ? '#14532d' : '#1e3a5f' }}>🔑</span>
+              Your AI API Key
+              {detectedProvider && detectedProvider.name !== 'Unknown' && (
+                <span className="text-xs font-normal px-2 py-0.5 rounded-full text-white" style={{ background: detectedProvider.color }}>
+                  {detectedProvider.name}
+                </span>
+              )}
+              {aiApiKey && detectedProvider?.name === 'Unknown' && (
+                <span className="text-yellow-400 text-xs font-normal">⚠ unrecognized key format</span>
+              )}
             </h2>
-            <p className="text-xs text-gray-400 mb-3">Enter your own Claude API key — generation uses your tokens, not ours. <a href="https://console.anthropic.com/account/keys" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Get a key →</a></p>
+            <p className="text-xs text-gray-400 mb-3">
+              Enter your own API key — generation uses your tokens, not ours. Supports Claude, OpenAI, Groq, and Gemini.{' '}
+              {detectedProvider?.link
+                ? <a href={detectedProvider.link} target="_blank" rel="noreferrer" className="text-indigo-400 underline">Manage keys →</a>
+                : <a href="https://console.anthropic.com/account/keys" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Get a Claude key →</a>
+              }
+            </p>
             <div className="flex gap-2">
               <input
                 type="password"
-                placeholder="sk-ant-..."
-                value={claudeApiKey}
-                onChange={e => saveClaudeApiKey(e.target.value)}
+                placeholder="sk-ant-... / sk-... / gsk_... / AIza..."
+                value={aiApiKey}
+                onChange={e => saveAiApiKey(e.target.value)}
                 className="field flex-1 text-sm font-mono"
                 autoComplete="off"
               />
-              {claudeApiKey && (
-                <button type="button" onClick={() => saveClaudeApiKey('')}
+              {aiApiKey && (
+                <button type="button" onClick={() => saveAiApiKey('')}
                   className="btn-secondary text-xs px-3">Clear</button>
               )}
             </div>

@@ -58,20 +58,100 @@ const chroma                        = require('../services/chromaService');
 const https                         = require('https');
 
 // ── savePageData wrapper — passes funnelId hint so Firestore read is non-fatal
-// Returns generate/generateWithVision functions bound to either the user's key or server's aiService
+// Returns generate/generateWithVision functions bound to the user's key (any provider) or server's aiService
 function resolveAI(req) {
-  const userKey = req.headers['x-anthropic-api-key'];
-  if (userKey) {
+  const anthropicKey = req.headers['x-anthropic-api-key'];
+  const openaiKey    = req.headers['x-openai-api-key'];
+  const groqKey      = req.headers['x-groq-api-key'];
+  const googleKey    = req.headers['x-google-api-key'];
+
+  if (anthropicKey) {
     return {
-      generate:            (sys, usr, opts) => generateWithKey(userKey, sys, usr, opts),
-      generateWithVision:  (sys, usr, b64, mime, opts) => generateWithVisionWithKey(userKey, sys, usr, b64, mime, opts),
-      isUserKey:           true,
+      generate:           (sys, usr, opts) => generateWithKey(anthropicKey, sys, usr, opts),
+      generateWithVision: (sys, usr, b64, mime, opts) => generateWithVisionWithKey(anthropicKey, sys, usr, b64, mime, opts),
+      isUserKey: true, provider: 'anthropic',
     };
   }
+  if (openaiKey) {
+    // Temporarily override OPENAI_API_KEY env for this request via aiService with forced provider
+    const { generate: g, generateWithVision: gv } = require('../services/aiService');
+    // Use aiService but force openai calls directly
+    const { httpsPostOpenAI } = (() => {
+      // inline openai call using the user's key
+      const httpsPost = require('https');
+      const makeOpenAI = (key, model, vModel) => ({
+        generate: (sys, usr, opts = {}) => {
+          const payload = JSON.stringify({ model: opts.model || model, max_tokens: opts.maxTokens || 4096, messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] });
+          return new Promise((res, rej) => {
+            const r = require('https').request({ hostname: 'api.openai.com', path: '/v1/chat/completions', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), Authorization: `Bearer ${key}` } }, (resp) => {
+              let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.choices?.[0]?.message?.content || ''); } catch(e) { rej(e); } });
+            }); r.on('error', rej); r.write(payload); r.end();
+          });
+        },
+        generateWithVision: (sys, usr, b64, mime, opts = {}) => {
+          const payload = JSON.stringify({ model: opts.model || vModel, max_tokens: opts.maxTokens || 8192, messages: [{ role: 'system', content: sys }, { role: 'user', content: [{ type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }, { type: 'text', text: usr }] }] });
+          return new Promise((res, rej) => {
+            const r = require('https').request({ hostname: 'api.openai.com', path: '/v1/chat/completions', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), Authorization: `Bearer ${key}` } }, (resp) => {
+              let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.choices?.[0]?.message?.content || ''); } catch(e) { rej(e); } });
+            }); r.on('error', rej); r.write(payload); r.end();
+          });
+        },
+      });
+      return { httpsPostOpenAI: makeOpenAI(openaiKey, 'gpt-4o-mini', 'gpt-4o') };
+    })();
+    return { ...httpsPostOpenAI, isUserKey: true, provider: 'openai' };
+  }
+  if (groqKey) {
+    const makeGroq = (key) => ({
+      generate: (sys, usr, opts = {}) => {
+        const model = opts.model || 'llama-3.3-70b-versatile';
+        const payload = JSON.stringify({ model, max_tokens: Math.min(opts.maxTokens || 1500, 1500), messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] });
+        return new Promise((res, rej) => {
+          const r = require('https').request({ hostname: 'api.groq.com', path: '/openai/v1/chat/completions', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), Authorization: `Bearer ${key}` } }, (resp) => {
+            let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.choices?.[0]?.message?.content || ''); } catch(e) { rej(e); } });
+          }); r.on('error', rej); r.write(payload); r.end();
+        });
+      },
+      generateWithVision: (sys, usr, b64, mime, opts = {}) => {
+        const model = 'meta-llama/llama-4-scout-17b-16e-instruct';
+        const payload = JSON.stringify({ model, max_tokens: opts.maxTokens || 4096, messages: [{ role: 'system', content: sys }, { role: 'user', content: [{ type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }, { type: 'text', text: usr }] }] });
+        return new Promise((res, rej) => {
+          const r = require('https').request({ hostname: 'api.groq.com', path: '/openai/v1/chat/completions', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), Authorization: `Bearer ${key}` } }, (resp) => {
+            let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.choices?.[0]?.message?.content || ''); } catch(e) { rej(e); } });
+          }); r.on('error', rej); r.write(payload); r.end();
+        });
+      },
+    });
+    return { ...makeGroq(groqKey), isUserKey: true, provider: 'groq' };
+  }
+  if (googleKey) {
+    const makeGoogle = (key) => ({
+      generate: (sys, usr, opts = {}) => {
+        const m = opts.model || 'gemini-2.5-flash-preview-05-20';
+        const payload = JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: usr }] }], generationConfig: { maxOutputTokens: opts.maxTokens || 4096 } });
+        return new Promise((res, rej) => {
+          const r = require('https').request({ hostname: 'generativelanguage.googleapis.com', path: `/v1beta/models/${m}:generateContent?key=${key}`, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } }, (resp) => {
+            let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.candidates?.[0]?.content?.parts?.[0]?.text || ''); } catch(e) { rej(e); } });
+          }); r.on('error', rej); r.write(payload); r.end();
+        });
+      },
+      generateWithVision: (sys, usr, b64, mime, opts = {}) => {
+        const m = opts.model || 'gemini-2.5-flash-preview-05-20';
+        const payload = JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ inlineData: { mimeType: mime, data: b64 } }, { text: usr }] }], generationConfig: { maxOutputTokens: opts.maxTokens || 8192 } });
+        return new Promise((res, rej) => {
+          const r = require('https').request({ hostname: 'generativelanguage.googleapis.com', path: `/v1beta/models/${m}:generateContent?key=${key}`, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } }, (resp) => {
+            let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.candidates?.[0]?.content?.parts?.[0]?.text || ''); } catch(e) { rej(e); } });
+          }); r.on('error', rej); r.write(payload); r.end();
+        });
+      },
+    });
+    return { ...makeGoogle(googleKey), isUserKey: true, provider: 'google' };
+  }
+
   return {
     generate:           aiService.generate.bind(aiService),
     generateWithVision: aiService.generateWithVision.bind(aiService),
-    isUserKey:          false,
+    isUserKey: false, provider: aiService.getProvider()?.name || 'server',
   };
 }
 
@@ -785,15 +865,15 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   if (!funnelId) {
     return res.status(400).json({ success: false, error: '"funnelId" is required.' });
   }
-  const userKeyForDesign = req.headers['x-anthropic-api-key'];
-  if (!userKeyForDesign && !aiService.getProvider()) {
-    return res.status(503).json({ success: false, error: 'No AI provider configured. Add your Anthropic API key above or set ANTHROPIC_API_KEY on the server.' });
+  const anyUserKey = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-google-api-key'] || req.headers['x-groq-api-key'];
+  if (!anyUserKey && !aiService.getProvider()) {
+    return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key above (Claude, OpenAI, Groq, or Gemini).' });
   }
-  // Vision/design generation requires a capable model — warn if Groq is the only option
-  if (!userKeyForDesign) {
+  // Vision/design generation requires a capable model — warn if server Groq is the only option
+  if (!anyUserKey) {
     const prov = aiService.getProvider();
     if (prov?.name === 'groq') {
-      return res.status(503).json({ success: false, error: 'Design-from-image requires Claude or GPT-4o. Please enter your Anthropic API key in the field above.' });
+      return res.status(503).json({ success: false, error: 'Design-from-image requires Claude or GPT-4o. Please enter your API key above.' });
     }
   }
 
