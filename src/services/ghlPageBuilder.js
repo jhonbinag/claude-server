@@ -25,6 +25,53 @@ const FIRESTORE_HOST = 'firestore.googleapis.com';
 const STORAGE_HOST   = 'firebasestorage.googleapis.com';
 const STORAGE_BUCKET = 'highlevel-backend.appspot.com';
 
+// ── Color utilities ───────────────────────────────────────────────────────────
+
+/**
+ * Parse a colorScheme string (e.g. "dark navy (#0F172A) background with gold (#F59E0B) accents")
+ * and return structured colors for section backgrounds, buttons, and pageStyles CSS vars.
+ */
+function extractColors(colorScheme) {
+  const str = colorScheme || '';
+  const hexes = [...str.matchAll(/#([0-9A-Fa-f]{6})\b/g)].map(m => '#' + m[1].toUpperCase());
+
+  const luminance = h => {
+    const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16);
+    return r * 0.299 + g * 0.587 + b * 0.114;
+  };
+  const isDark = h => luminance(h) < 160;
+
+  const lc = str.toLowerCase();
+  const hasWhiteBg = lc.includes('white background') || lc.includes('clean white') || lc.includes('on white');
+
+  let heroBg, primary, bodyText, sectionBg;
+
+  if (hexes.length === 0) {
+    heroBg = '#0F172A'; primary = '#1D4ED8'; bodyText = '#111827'; sectionBg = '#F9FAFB';
+  } else if (hasWhiteBg) {
+    heroBg   = '#FFFFFF';
+    primary  = hexes[0];
+    bodyText = '#111827';
+    sectionBg = '#F9FAFB';
+  } else if (isDark(hexes[0])) {
+    heroBg   = hexes[0];
+    primary  = hexes[1] || '#F59E0B';
+    bodyText = '#FFFFFF';
+    sectionBg = '#F9FAFB';
+  } else {
+    heroBg   = '#0F172A';
+    primary  = hexes[0];
+    bodyText = '#111827';
+    sectionBg = '#F9FAFB';
+  }
+
+  const ctaBg       = isDark(heroBg) ? heroBg : (hexes.find(isDark) || '#0F172A');
+  const heroText    = isDark(heroBg) ? '#FFFFFF' : '#111827';
+  const buttonColor = isDark(primary) ? '#FFFFFF' : '#111827';
+
+  return { heroBg, primary, bodyText, sectionBg, ctaBg, heroText, buttonColor };
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function randomId(len = 10) {
@@ -504,15 +551,28 @@ function buildGhlNativeElement(el, textAlign = 'center') {
  * Convert AI sections to GHL's ACTUAL native Storage format.
  * Each section becomes: { id, metaData, elements (flat), sequence, pageId, funnelId, locationId, general }
  */
-function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId = '') {
+function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId = '', colorScheme = '') {
+  const colors  = extractColors(colorScheme);
+  const total   = aiSections.length;
+
   return aiSections.map((aiSection, idx) => {
     const secId    = `section-${sid()}`;
     const rowId    = `row-${sid()}`;
     const colId    = `col-${sid()}`;
-    const bgColor  = aiSection.styles?.backgroundColor?.value || (idx === 0 ? '#ffffff' : idx === 1 ? '#f9fafb' : '#1e3a5f');
-    const padTop   = String(aiSection.styles?.paddingTop?.value    || 80);
-    const padBot   = String(aiSection.styles?.paddingBottom?.value || 80);
-    const textAlign = idx === 1 ? 'left' : 'center'; // benefits section left-align
+
+    // Section background: use AI value if present, otherwise apply smart defaults
+    // based on position: hero=brand dark, middle sections alternate, last=dark CTA
+    const aiBg     = aiSection.styles?.backgroundColor?.value;
+    const isFirst  = idx === 0;
+    const isLast   = idx === total - 1;
+    const isMiddle = !isFirst && !isLast;
+    const bgColor  = aiBg || (isFirst ? colors.heroBg : isLast ? colors.ctaBg : idx % 2 === 1 ? colors.sectionBg : '#FFFFFF');
+
+    const padTop   = String(aiSection.styles?.paddingTop?.value    || (isFirst || isLast ? 100 : 80));
+    const padBot   = String(aiSection.styles?.paddingBottom?.value || (isFirst || isLast ? 100 : 80));
+
+    // Text alignment: hero+CTA centered, middle sections left-aligned
+    const textAlign = isMiddle ? 'left' : 'center';
 
     // Extract leaf elements from AI section (regardless of nesting)
     const leafElems  = flattenElements(aiSection.children || []);
@@ -598,8 +658,11 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   const { funnelId, version: currentVersion, sectionVersion: currentSV, pageVersion: currentPV, versionHistory: existingVH } = docInfo;
   if (!funnelId) throw new Error(`Page ${pageId} missing funnelId — provide funnelId in the request or open the page in GHL builder first.`);
 
+  const colorScheme = hints.colorScheme || '';
+  const palette     = extractColors(colorScheme);
+
   // Convert AI output → GHL's ACTUAL native Storage format (metaData + flat elements[])
-  const allSections = convertSectionsToGHL(aiSections, pageId, funnelId, locationId);
+  const allSections = convertSectionsToGHL(aiSections, pageId, funnelId, locationId, colorScheme);
   // Drop sections with no elements (elements[] has only row+col with no leaves)
   const ghlSections = allSections.filter(s => s.elements && s.elements.length > 2); // row + col + at least 1 leaf
   if (allSections.length !== ghlSections.length) {
@@ -663,7 +726,7 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
     general: {
       general: {
         colors: [
-          { label: 'Primary',   value: '#37ca37' }, { label: 'Secondary', value: '#188bf6' },
+          { label: 'Primary',   value: palette.primary }, { label: 'Secondary', value: palette.heroBg },
           { label: 'White',     value: '#ffffff' }, { label: 'Gray',      value: '#cbd5e0' },
           { label: 'Black',     value: '#000000' }, { label: 'Red',       value: '#e93d3d' },
           { label: 'Orange',    value: '#f6ad55' }, { label: 'Yellow',    value: '#faf089' },
@@ -675,19 +738,19 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
           { label: 'color-18',  value: '#ffffff' }, { label: 'color-19',  value: '#ffffff' },
           { label: 'color-20',  value: '#000000' }, { label: 'color-21',  value: '#000000' },
           { label: 'color-22',  value: '#000000' }, { label: 'color-23',  value: '#000000' },
-          { label: 'color-24',  value: '#ffffff' }, { label: 'color-25',  value: '#37ca37' },
+          { label: 'color-24',  value: '#ffffff' }, { label: 'color-25',  value: palette.primary },
         ],
         fontsForPreview: [],
       },
     },
     pageStyles: `:root{
---primary:#37ca37;--secondary:#188bf6;--white:#ffffff;--gray:#cbd5e0;--black:#000000;
+--primary:${palette.primary};--secondary:${palette.heroBg};--white:#ffffff;--gray:#cbd5e0;--black:#000000;
 --red:#e93d3d;--orange:#f6ad55;--yellow:#faf089;--green:#9ae6b4;--teal:#63b3ed;
 --indigo:#757BBD;--purple:#d6bcfa;--pink:#fbb6ce;--transparent:transparent;
---overlay:rgba(0,0,0,.5);--text-color:#000000;--link-color:#188bf6;
---color-14:#ffffff;--color-15:#000000;--color-16:#ffffff;--color-17:#188bf6;
---color-18:#ffffff;--color-19:#ffffff;--color-20:#000000;--color-21:#000000;
---color-22:#000000;--color-23:#000000;--color-24:#ffffff;--color-25:#37ca37;
+--overlay:rgba(0,0,0,.5);--text-color:${palette.bodyText};--link-color:${palette.primary};
+--color-14:#ffffff;--color-15:#000000;--color-16:#ffffff;--color-17:${palette.primary};
+--color-18:${palette.sectionBg};--color-19:#ffffff;--color-20:${palette.bodyText};--color-21:${palette.bodyText};
+--color-22:${palette.bodyText};--color-23:${palette.bodyText};--color-24:#ffffff;--color-25:${palette.primary};
 --open-sans:'Open Sans',sans-serif;--merriweather:'Merriweather',serif;
 --contentfont:var(--open-sans);--headlinefont:var(--merriweather);
 }`,
@@ -785,4 +848,4 @@ async function getPageData(locationId, pageId) {
   return result.data;
 }
 
-module.exports = { buildBackendHeaders, savePageData, getPageData, convertSectionsToGHL };
+module.exports = { buildBackendHeaders, savePageData, getPageData, convertSectionsToGHL, extractColors };

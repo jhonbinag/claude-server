@@ -41,7 +41,7 @@ const {
   getFirebaseToken,
   getStatus,
 } = require('../services/ghlFirebaseService');
-const { savePageData, getPageData, convertSectionsToGHL } = require('../services/ghlPageBuilder');
+const { savePageData, getPageData, convertSectionsToGHL, extractColors } = require('../services/ghlPageBuilder');
 const { buildPageHtml }             = require('../tools/ghlTools');
 const agentStore                    = require('../services/agentStore');
 const ghlClient                     = require('../services/ghlClient');
@@ -49,8 +49,8 @@ const chroma                        = require('../services/chromaService');
 const https                         = require('https');
 
 // ── savePageData wrapper — passes funnelId hint so Firestore read is non-fatal
-function saveWithFunnelHint(locationId, pageId, pageJson, funnelId) {
-  return savePageData(locationId, pageId, pageJson, funnelId ? { funnelId } : {});
+function saveWithFunnelHint(locationId, pageId, pageJson, funnelId, colorScheme) {
+  return savePageData(locationId, pageId, pageJson, { ...(funnelId ? { funnelId } : {}), ...(colorScheme ? { colorScheme } : {}) });
 }
 
 // Multer: store in memory (we only need the buffer for base64)
@@ -440,6 +440,7 @@ router.post('/generate', async (req, res) => {
   // Step 3: Build Claude prompt
   const pageLabel    = pageType || 'Sales Page';
   const colors       = colorScheme || 'modern, professional — use white, dark navy, and gold accents';
+  const palette      = extractColors(colors);
   const imgKeyword   = (niche || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
   const contextBlock = pageContext
     ? `\nExisting page context (use as reference for any brand/funnel details):\n${JSON.stringify(pageContext, null, 2).slice(0, 1500)}`
@@ -452,22 +453,22 @@ router.post('/generate', async (req, res) => {
   const provider = aiService.getProvider();
   const isGroq   = provider?.name === 'groq';
 
-  // Groq compact schema — 3-section skeleton shown explicitly so model outputs 3 sections
+  // Groq compact schema — 3-section skeleton with exact brand colors injected
   const groqSystemPrompt = `${agentIntro}Output ONLY valid JSON. No explanation, no markdown.
 
 REQUIRED output shape — 3 separate section objects in the array:
 {"sections":[
-  {"id":"section-A1B2C3D4","type":"section","name":"Hero","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#ffffff"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-A1B2C3D4","type":"row","children":[{"id":"col-A1B2C3D4","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[HERO_ELEMENTS]}]}]},
-  {"id":"section-E5F6G7H8","type":"section","name":"Benefits","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#f9fafb"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-E5F6G7H8","type":"row","children":[{"id":"col-E5F6G7H8","type":"column","width":12,"styles":{"textAlign":{"value":"left"}},"mobileStyles":{},"children":[BENEFITS_ELEMENTS]}]}]},
-  {"id":"section-I9J0K1L2","type":"section","name":"CTA","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#1e3a5f"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-I9J0K1L2","type":"row","children":[{"id":"col-I9J0K1L2","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[CTA_ELEMENTS]}]}]}
+  {"id":"section-A1B2C3D4","type":"section","name":"Hero","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"${palette.heroBg}"},"paddingTop":{"value":100,"unit":"px"},"paddingBottom":{"value":100,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"}},"children":[{"id":"row-A1B2C3D4","type":"row","children":[{"id":"col-A1B2C3D4","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[HERO_ELEMENTS]}]}]},
+  {"id":"section-E5F6G7H8","type":"section","name":"Benefits","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"${palette.sectionBg}"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{"paddingTop":{"value":50,"unit":"px"},"paddingBottom":{"value":50,"unit":"px"}},"children":[{"id":"row-E5F6G7H8","type":"row","children":[{"id":"col-E5F6G7H8","type":"column","width":12,"styles":{"textAlign":{"value":"left"}},"mobileStyles":{},"children":[BENEFITS_ELEMENTS]}]}]},
+  {"id":"section-I9J0K1L2","type":"section","name":"CTA","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"${palette.ctaBg}"},"paddingTop":{"value":100,"unit":"px"},"paddingBottom":{"value":100,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"}},"children":[{"id":"row-I9J0K1L2","type":"row","children":[{"id":"col-I9J0K1L2","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[CTA_ELEMENTS]}]}]}
 ]}
 
 Replace HERO_ELEMENTS, BENEFITS_ELEMENTS, CTA_ELEMENTS with real element arrays. Use unique 8-char random IDs. Element types:
-- {"id":"heading-XXXXXXXX","type":"heading","tag":"h1","text":"...","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{"fontSize":{"value":30,"unit":"px"}}}
-- {"id":"sub-heading-XXXXXXXX","type":"sub-heading","text":"...","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
-- {"id":"paragraph-XXXXXXXX","type":"paragraph","text":"Plain text only. No HTML.","styles":{"color":{"value":"#555"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}
-- {"id":"button-XXXXXXXX","type":"button","text":"...","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#fff"},"fontSize":{"value":16,"unit":"px"},"paddingTop":{"value":14,"unit":"px"},"paddingBottom":{"value":14,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
-- {"id":"bulletList-XXXXXXXX","type":"bulletList","items":["Benefit 1","Benefit 2","Benefit 3","Benefit 4"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}`;
+- {"id":"heading-XXXXXXXX","type":"heading","tag":"h1","text":"...","styles":{"color":{"value":"${palette.heroText}"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}}
+- {"id":"sub-heading-XXXXXXXX","type":"sub-heading","text":"...","styles":{"color":{"value":"${palette.heroText}"},"fontSize":{"value":24,"unit":"px"},"fontWeight":{"value":"400"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
+- {"id":"paragraph-XXXXXXXX","type":"paragraph","text":"Plain text only. No HTML.","styles":{"color":{"value":"#555555"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.7}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}
+- {"id":"button-XXXXXXXX","type":"button","text":"...","link":"#","styles":{"backgroundColor":{"value":"${palette.primary}"},"color":{"value":"${palette.buttonColor}"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":18,"unit":"px"},"paddingBottom":{"value":18,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}
+- {"id":"bulletList-XXXXXXXX","type":"bulletList","items":["Benefit 1","Benefit 2","Benefit 3","Benefit 4"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"${palette.bodyText}"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}`;
 
   const fullSystemPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer and copywriter. Generate complete, production-ready native GHL page JSON.
 
@@ -594,7 +595,7 @@ Output ONLY the JSON object. No markdown, no explanation.`;
   // Step 5: Save to GHL backend (Firestore + Storage)
   let saveResult;
   try {
-    saveResult = await saveWithFunnelHint(req.locationId, resolvedPageId, pageJson, funnelId);
+    saveResult = await saveWithFunnelHint(req.locationId, resolvedPageId, pageJson, funnelId, colorScheme);
   } catch (err) {
     console.error('[FunnelBuilder] savePageData error:', err.message);
     return res.status(500).json({
@@ -876,7 +877,7 @@ SCHEMA:
     }
 
     try {
-      const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId);
+      const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId, colorScheme);
       const warn    = saveRes?.firestoreWarning;
       send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, warning: warn || undefined });
       results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length, warning: warn || undefined });
@@ -1735,6 +1736,7 @@ router.post('/generate-funnel', async (req, res) => {
     }
 
     const colors     = colorScheme || 'modern, professional — white, dark navy, and gold accents';
+    const palette2   = extractColors(colors);
     const agentIntro = agentInfo ? `You are ${agentInfo.name}. ${agentInfo.persona || ''}\n${agentInfo.instructions}\n\n---\n\n` : '';
     const imgKw      = (niche || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
     const randId     = () => Math.random().toString(36).slice(2, 10);
@@ -1742,13 +1744,14 @@ router.post('/generate-funnel', async (req, res) => {
     const groqSysPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
 Root: {"sections":[...]}. IDs MUST be unique per element using format {type}-{8 random alphanumeric chars}, e.g. section-${randId()}, row-${randId()}, column-${randId()}, heading-${randId()}. NEVER reuse IDs. Styles: {"value":X,"unit":"px"} or {"value":"#HEX"}.
 CRITICAL: Use EXACTLY these element type names — "heading" (NOT headline), "sub-heading" (NOT sub-headline), "paragraph" (plain text, NO HTML tags), "button", "bulletList" (items = plain string array), "image".
-Section: {"id":"section-${randId()}","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"#fff"},"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{},"children":[{"id":"row-${randId()}","type":"row","children":[{"id":"column-${randId()}","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}
+COLOR SCHEME: Hero/CTA sections use background "${palette2.heroBg}" with text "${palette2.heroText}". Middle sections use "${palette2.sectionBg}" with text "${palette2.bodyText}". Buttons: background "${palette2.primary}", text "${palette2.buttonColor}".
+Section: {"id":"section-${randId()}","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"${palette2.heroBg}"},"paddingTop":{"value":100,"unit":"px"},"paddingBottom":{"value":100,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"}},"children":[{"id":"row-${randId()}","type":"row","children":[{"id":"column-${randId()}","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}
 Elements examples:
-{"id":"heading-${randId()}","type":"heading","tag":"h1","text":"Your headline here","styles":{"color":{"value":"#111"},"fontSize":{"value":48,"unit":"px"}},"mobileStyles":{"fontSize":{"value":30,"unit":"px"}}}
-{"id":"sub-heading-${randId()}","type":"sub-heading","text":"Your subheading here","styles":{"color":{"value":"#444"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
-{"id":"paragraph-${randId()}","type":"paragraph","text":"Plain text body copy. No HTML tags.","styles":{"color":{"value":"#555"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{"fontSize":{"value":15,"unit":"px"}}}
-{"id":"button-${randId()}","type":"button","text":"Click Here","link":"#","styles":{"backgroundColor":{"value":"#1D4ED8"},"color":{"value":"#fff"},"fontSize":{"value":16,"unit":"px"},"paddingTop":{"value":14,"unit":"px"},"paddingBottom":{"value":14,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
-{"id":"bulletList-${randId()}","type":"bulletList","items":["Benefit one","Benefit two","Benefit three"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#111"},"fontSize":{"value":16,"unit":"px"}},"mobileStyles":{}}`;
+{"id":"heading-${randId()}","type":"heading","tag":"h1","text":"Your headline here","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}}
+{"id":"sub-heading-${randId()}","type":"sub-heading","text":"Your subheading here","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":24,"unit":"px"},"fontWeight":{"value":"400"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
+{"id":"paragraph-${randId()}","type":"paragraph","text":"Plain text body copy. No HTML tags.","styles":{"color":{"value":"#555555"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.7}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}
+{"id":"button-${randId()}","type":"button","text":"Click Here","link":"#","styles":{"backgroundColor":{"value":"${palette2.primary}"},"color":{"value":"${palette2.buttonColor}"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":18,"unit":"px"},"paddingBottom":{"value":18,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}
+{"id":"bulletList-${randId()}","type":"bulletList","items":["Benefit one","Benefit two","Benefit three"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"${palette2.bodyText}"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}`;
 
     const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. Generate production-ready native GHL page JSON. Output ONLY valid JSON. Root: {"sections":[...]}.
 CRITICAL: Use EXACTLY these element type names — "heading" (NOT headline), "sub-heading" (NOT sub-headline).
@@ -1818,7 +1821,7 @@ Output ONLY the JSON object.`;
     try {
       // ── Step C: Upload to Storage + write Firestore ──────────────────────
       send('log', { msg: `[${i+1}/${pages.length}] Uploading to Firebase Storage...`, level: 'info' });
-      const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId);
+      const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId, colorScheme);
       const warn    = saveRes?.firestoreWarning;
       if (warn) {
         send('log', { msg: `[${i+1}/${pages.length}] Firestore warning: ${warn.slice(0, 120)}`, level: 'warn' });
