@@ -888,7 +888,10 @@ SCHEMA:
   }
 
   const succeeded = results.filter(r => r.success).length;
-  send('complete', { total: pages.length, succeeded, failed: pages.length - succeeded, results });
+  const firstPageId = results.find(r => r.success)?.pageId;
+  const domain = (req.body.appDomain || 'https://app.gohighlevel.com').replace(/\/$/, '');
+  const previewUrl = firstPageId ? `${domain}/v2/preview/${firstPageId}` : null;
+  send('complete', { total: pages.length, succeeded, failed: pages.length - succeeded, results, previewUrl });
   res.end();
 });
 
@@ -1879,7 +1882,10 @@ Output ONLY the JSON object.`;
 
   const succeeded = results.filter(r => r.success).length;
   send('log', { msg: `All done — ${succeeded}/${pages.length} pages generated successfully`, level: succeeded === pages.length ? 'success' : 'warn' });
-  send('complete', { total: pages.length, succeeded, failed: pages.length - succeeded, results });
+  const firstPageId2 = results.find(r => r.success)?.pageId;
+  const domain2 = (req.body.appDomain || 'https://app.gohighlevel.com').replace(/\/$/, '');
+  const previewUrl2 = firstPageId2 ? `${domain2}/v2/preview/${firstPageId2}` : null;
+  send('complete', { total: pages.length, succeeded, failed: pages.length - succeeded, results, previewUrl: previewUrl2 });
   res.end();
 });
 

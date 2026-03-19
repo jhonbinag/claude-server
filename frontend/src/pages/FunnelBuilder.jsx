@@ -110,6 +110,15 @@ export default function FunnelBuilder() {
   const [agents,        setAgents]        = useState([]);
   const [selectedAgent, setSelectedAgent] = useState('');
 
+  // Detect the white-label GHL domain from the iframe parent referrer
+  const appDomain = (() => {
+    try {
+      const ref = document.referrer;
+      if (ref) return new URL(ref).origin;
+    } catch {}
+    return 'https://app.gohighlevel.com';
+  })();
+
   // ── load Firebase connection status + saved agents ───────────────────────────
 
   const loadStatus = useCallback(async () => {
@@ -256,6 +265,7 @@ export default function FunnelBuilder() {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
             } else if (eventLine === 'complete') {
               toast(setToastState, `Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
+              if (d.previewUrl) window.open(d.previewUrl, '_blank');
             }
           } catch {}
         }
@@ -292,6 +302,7 @@ export default function FunnelBuilder() {
           colorScheme,
           extraContext: extraContext.trim() || undefined,
           agentId:     selectedAgent || undefined,
+          appDomain,
         }),
       });
 
@@ -333,6 +344,7 @@ export default function FunnelBuilder() {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
             } else if (eventLine === 'complete') {
               toast(setToastState, `Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
+              if (d.previewUrl) window.open(d.previewUrl, '_blank');
             }
           } catch {}
         }
@@ -368,6 +380,7 @@ export default function FunnelBuilder() {
           colorScheme,
           extraContext: extraContext.trim() || undefined,
           agentId:     selectedAgent || undefined,
+          appDomain,
         }),
       });
 
@@ -409,6 +422,7 @@ export default function FunnelBuilder() {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
             } else if (eventLine === 'complete') {
               toast(setToastState, `Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
+              if (d.previewUrl) window.open(d.previewUrl, '_blank');
             }
           } catch {}
         }
