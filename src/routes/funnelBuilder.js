@@ -3128,6 +3128,8 @@ ${sectionsNote}
 
 Return ONLY the completed JSON object with real copy. No explanations.`;
 
+    console.log(`[FunnelBuilder] userPrompt for "${page.name}" (first 800 chars):\n${userPrompt.slice(0, 800)}`);
+    console.log(`[FunnelBuilder] systemPrompt for "${page.name}" (first 400 chars):\n${systemPrompt.slice(0, 400)}`);
     send('log', { msg: `[${i+1}/${pages.length}] Calling AI (${provider?.name}) to generate content...`, level: 'info' });
 
     let pageJson;
@@ -3140,8 +3142,14 @@ Return ONLY the completed JSON object with real copy. No explanations.`;
         }
         const retryNote = attempt > 1 ? '\n\nIMPORTANT: Your previous response had invalid JSON. Output ONLY a raw JSON object, no text before or after, no code fences, no comments.' : '';
         const raw = (await aiFunnel.generate(systemPrompt, userPrompt + retryNote, { maxTokens: isGroq ? 1500 : 8000 })).trim();
+        send('log', { msg: `[${i+1}/${pages.length}] Raw AI (${raw.length} chars): ${raw.slice(0, 120)}`, level: 'info' });
         pageJson  = parseJsonSafe(raw);
         if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('Missing sections array');
+        const secSummary = pageJson.sections.map((s, si) => {
+          const kids = s.children || s.elements || [];
+          return `s${si+1}:"${s.name||'?'}" kids=${kids.length} types=[${kids.map(k=>k?.type||'?').slice(0,4).join(',')}]`;
+        }).join(' | ');
+        send('log', { msg: `[${i+1}/${pages.length}] Parsed: ${secSummary}`, level: 'info' });
         // Count total leaf elements across all sections using the same flatten logic as ghlPageBuilder
         const countLeaves = (nodes) => {
           let n = 0;

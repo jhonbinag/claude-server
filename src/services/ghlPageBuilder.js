@@ -582,6 +582,7 @@ function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId
     // Extract leaf elements from AI section (regardless of nesting).
     // Check children first, then elements (alternative AI field name), then rows.
     const rawNodes   = aiSection.children || aiSection.elements || aiSection.rows || [];
+    try { console.log(`[GHLPageBuilder] Section ${idx+1} keys=[${Object.keys(aiSection).join(',')}] children.len=${(aiSection.children||aiSection.elements||[]).length} rawNodes.len=${rawNodes.length} sample=${JSON.stringify(aiSection.children||aiSection.elements||[]).slice(0,150)}`); } catch(e) { console.log(`[GHLPageBuilder] Section ${idx+1} inspect failed:`, e.message); }
     const leafElems  = flattenElements(rawNodes);
     console.log(`[GHLPageBuilder] Section ${idx + 1} (${aiSection.name || ''}): ${leafElems.length} elements (${leafElems.map(e => e.type).join(', ')})`);
 
@@ -645,6 +646,7 @@ function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId
 async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   const aiSections = sectionsJson?.sections || [];
   console.log(`[GHLPageBuilder] Saving page ${pageId} — ${aiSections.length} AI sections`);
+  try { console.log(`[GHLPageBuilder] sections[0] keys=${Object.keys(aiSections[0]||{}).join(',')} children.len=${(aiSections[0]?.children||aiSections[0]?.elements||[]).length} raw=${JSON.stringify(aiSections[0]||{}).slice(0,300)}`); } catch(e) { console.log('[GHLPageBuilder] sections[0] inspect failed:', e.message); }
 
   const idToken   = await getFirebaseToken(locationId);
   const projectId = getProjectIdFromToken(idToken);
