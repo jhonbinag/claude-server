@@ -2609,9 +2609,23 @@ function getSectionPlan(pageType, imgSrc, palette) {
   const primary   = p.primary   || '#1D4ED8';
   const btnColor  = p.buttonColor || '#FFFFFF';
 
-  // Helper: build a single section instruction block
-  const sec = (name, bg, textClr, pad, elements) =>
-    `{"type":"section","name":"${name}","styles":{"backgroundColor":{"value":"${bg}"},"paddingTop":{"value":${pad[0]},"unit":"px"},"paddingBottom":{"value":${pad[1]},"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{"paddingTop":{"value":${Math.round(pad[0]*0.6)},"unit":"px"},"paddingBottom":{"value":${Math.round(pad[1]*0.6)},"unit":"px"}},"children":[\n  ${elements.map(e => JSON.stringify(e)).join(',\n  ')}\n]}`;
+  // Helper: build a single section instruction block (returns object so JSON.stringify works correctly)
+  const sec = (name, bg, textClr, pad, elements) => ({
+    type: 'section',
+    name,
+    styles: {
+      backgroundColor: { value: bg },
+      paddingTop:    { value: pad[0], unit: 'px' },
+      paddingBottom: { value: pad[1], unit: 'px' },
+      paddingLeft:   { value: 20,     unit: 'px' },
+      paddingRight:  { value: 20,     unit: 'px' },
+    },
+    mobileStyles: {
+      paddingTop:    { value: Math.round(pad[0] * 0.6), unit: 'px' },
+      paddingBottom: { value: Math.round(pad[1] * 0.6), unit: 'px' },
+    },
+    children: elements,
+  });
 
   // Element builders
   const h1  = (text, clr=heroText, sz=52)  => ({"type":"heading","tag":"h1","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.15}},"mobileStyles":{"fontSize":{"value":Math.max(sz-18,28),"unit":"px"}}});
