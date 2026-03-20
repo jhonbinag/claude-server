@@ -1553,6 +1553,18 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   pages.sort((a, b) => (a.stepOrder || 0) - (b.stepOrder || 0));
   pages = pages.map(p => ({ ...p, id: p.id || p._id }));
 
+  // SSE setup — start streaming now that we have valid pages
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  send('start', { total: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name, stepOrder: p.stepOrder })) });
+  send('log', { msg: `Found ${pages.length} page${pages.length !== 1 ? 's' : ''} in funnel`, level: 'info' });
+
   // Resolve image: either uploaded file or exported from Figma
   let imageBase64, imageMediaType, figmaContent = { texts: [], colors: [], spec: '', sectionCount: 0, imageNodes: [] };
   let figmaImageUrlMap = {}; // nodeId → GHL media URL
@@ -1561,7 +1573,8 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   if (figmaUrl) {
     figmaAuth = await loadStoredFigmaToken(req.locationId);
     if (!figmaAuth) {
-      return res.status(400).json({ success: false, error: 'Figma not connected. Enter your Figma Personal Access Token in the Design tab first.' });
+      send('error', { error: 'Figma not connected. Enter your Figma Personal Access Token in the Design tab first.' });
+      res.end(); return;
     }
     try {
       const { fileKey, nodeId } = parseFigmaUrl(figmaUrl);
@@ -1570,42 +1583,50 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
       // Step 1: Resolve node ID — auto-discover if missing or is document root (0:1)
       effectiveNodeId = (nodeId && nodeId !== '0:1') ? nodeId : null;
       if (!effectiveNodeId) {
+        send('log', { msg: 'Auto-discovering Figma frame node...', level: 'info' });
         try {
           effectiveNodeId = await figmaFirstFrameNodeId(fileKey, figmaAuth.authHeader);
+          send('log', { msg: `Found frame: ${effectiveNodeId}`, level: 'info' });
           console.log(`[FunnelBuilder] Auto-discovered frame node: ${effectiveNodeId}`);
           await sleep(300); // brief pause before next API call
         } catch (err) {
-          return res.status(400).json({
-            success: false,
-            error: `Could not find a frame in the Figma file: ${err.message}. Right-click a frame in Figma → Copy link to selection → paste that URL.`,
-          });
+          send('error', { error: `Could not find a frame in the Figma file: ${err.message}. Right-click a frame in Figma → Copy link to selection → paste that URL.` });
+          res.end(); return;
         }
+      } else {
+        send('log', { msg: `Using Figma node: ${effectiveNodeId}`, level: 'info' });
       }
       console.log(`[FunnelBuilder] Fetching Figma frame — file: ${fileKey}, node: ${effectiveNodeId}`);
 
       // Step 2: Export frame as PNG (required)
+      send('log', { msg: 'Exporting Figma frame as PNG...', level: 'info' });
       let imgResult;
       try {
         imgResult = await figmaExportImage(fileKey, effectiveNodeId, figmaAuth.authHeader);
       } catch (err) {
         const is403 = err.message.includes('403');
-        return res.status(400).json({
-          success: false,
-          error: is403
-            ? 'Figma file access denied (403). Your PAT is valid but this file is not accessible. In Figma: Share → Invite → add your Figma account email with "can view" access.'
-            : `Figma export error: ${err.message}`,
-        });
+        send('error', { error: is403
+          ? 'Figma file access denied (403). Your PAT is valid but this file is not accessible. In Figma: Share → Invite → add your Figma account email with "can view" access.'
+          : `Figma export error: ${err.message}` });
+        res.end(); return;
       }
       imageBase64    = imgResult.base64;
       imageMediaType = imgResult.mimeType;
+      send('log', { msg: 'Frame exported — extracting design spec...', level: 'info' });
 
-      // Step 2: Extract design spec (non-fatal — falls back to image-only mode on 403)
+      // Step 3: Extract design spec (non-fatal — falls back to image-only mode on 403)
       await sleep(400); // avoid rate limiting between API calls
       figmaContent = await figmaExtractContent(fileKey, effectiveNodeId, figmaAuth.authHeader);
       console.log(`[FunnelBuilder] Figma extract: ${figmaContent.texts.length} texts, ${figmaContent.colors.length} colors, ${figmaContent.imageNodes.length} images, spec:${figmaContent.spec ? 'yes' : 'no (image-only mode)'}`);
+      if (figmaContent.spec) {
+        send('log', { msg: `Spec extracted — ${figmaContent.texts.length} text elements, ${figmaContent.colors.length} colors, ${figmaContent.imageNodes.length} image nodes`, level: 'success' });
+      } else {
+        send('log', { msg: 'Design spec unavailable (file access limited) — using image-only mode', level: 'warn' });
+      }
 
-      // Step 3: Upload image nodes to GHL media (non-fatal)
+      // Step 4: Upload image nodes to GHL media (non-fatal)
       if (figmaContent.imageNodes.length > 0) {
+        send('log', { msg: `Uploading ${figmaContent.imageNodes.length} image${figmaContent.imageNodes.length !== 1 ? 's' : ''} to GHL media library...`, level: 'info' });
         try {
           const bufferMap = await figmaBatchExportImages(fileKey, figmaContent.imageNodes, figmaAuth.authHeader);
           await Promise.all(Object.entries(bufferMap).map(async ([nid, { buffer, name }]) => {
@@ -1614,17 +1635,22 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
             const ghlUrl   = await uploadImageToGHL(req.locationId, buffer, filename);
             if (ghlUrl) figmaImageUrlMap[nid] = ghlUrl;
           }));
-          console.log(`[FunnelBuilder] Uploaded ${Object.keys(figmaImageUrlMap).length}/${figmaContent.imageNodes.length} images to GHL media`);
+          const uploaded = Object.keys(figmaImageUrlMap).length;
+          send('log', { msg: `Uploaded ${uploaded}/${figmaContent.imageNodes.length} images to GHL media`, level: uploaded > 0 ? 'success' : 'warn' });
+          console.log(`[FunnelBuilder] Uploaded ${uploaded}/${figmaContent.imageNodes.length} images to GHL media`);
         } catch (e) {
+          send('log', { msg: `Image upload skipped: ${e.message}`, level: 'warn' });
           console.warn('[FunnelBuilder] Image upload step failed (non-fatal):', e.message);
         }
       }
     } catch (err) {
-      return res.status(400).json({ success: false, error: `Figma error: ${err.message}` });
+      send('error', { error: `Figma error: ${err.message}` });
+      res.end(); return;
     }
   } else {
     imageBase64    = req.file.buffer.toString('base64');
     imageMediaType = req.file.mimetype;
+    send('log', { msg: 'Design image loaded — starting AI analysis', level: 'info' });
   }
 
   const agentIntro = selectedAgent
@@ -1685,23 +1711,13 @@ GHL NATIVE JSON SCHEMA:
    ]}]}
 ]}`;
 
-  // SSE setup
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
-
-  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-
-  send('start', { total: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name, stepOrder: p.stepOrder })) });
-
   const results = [];
 
   for (let i = 0; i < pages.length; i++) {
     const page     = pages[i];
     const pageType = inferPageType(page.name || '');
     send('page_start', { index: i, pageId: page.id, name: page.name, pageType });
+    send('log', { msg: `[${i + 1}/${pages.length}] Analyzing "${page.name}" with AI vision...`, level: 'info' });
 
     let pageJson, genError;
     try {
@@ -1779,6 +1795,7 @@ Output ONLY the JSON object. No explanation.`;
 
       // Attempt 2: truncated spec + image
       if (rawText === null) {
+        send('log', { msg: `Response too large — retrying with truncated spec...`, level: 'warn' });
         console.warn(`[FunnelBuilder] Too large for "${page.name}" — retrying with truncated spec`);
         const truncated = visionText.length > 3000
           ? visionText.slice(0, 3000) + '\n...(truncated)\nOutput ONLY the JSON object.'
@@ -1788,12 +1805,14 @@ Output ONLY the JSON object. No explanation.`;
 
       // Attempt 3: minimal system + image only
       if (rawText === null) {
+        send('log', { msg: `Still too large — switching to image-only mode...`, level: 'warn' });
         console.warn(`[FunnelBuilder] Still too large for "${page.name}" — retrying image-only`);
         rawText = await tryVision(minimalSystem, imageOnlyPrompt, imageBase64, imageMediaType, { maxTokens: 4096 });
       }
 
       // Attempt 4: re-export at scale=0.5 (JPEG, smallest possible) + minimal prompt
       if (rawText === null) {
+        send('log', { msg: `Retrying with half-scale JPEG to reduce image size...`, level: 'warn' });
         console.warn(`[FunnelBuilder] Still too large for "${page.name}" — retrying with half-scale JPEG`);
         try {
           const { fileKey: fk, nodeId: fn } = parseFigmaUrl(figmaUrl || '');
@@ -1812,14 +1831,17 @@ Output ONLY the JSON object. No explanation.`;
       if (rawText === null) throw new Error('Design is too large for AI vision even after all size-reduction attempts. Try selecting a smaller frame in Figma.');
 
       console.log(`[FunnelBuilder] Vision raw output for "${page.name}" (first 300 chars):`, rawText.slice(0, 300));
+      send('log', { msg: `AI response received — parsing JSON...`, level: 'info' });
       pageJson = parseJsonSafe(rawText);
       if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('AI response missing "sections" array.');
+      send('log', { msg: `Parsed ${pageJson.sections.length} sections — saving to GHL...`, level: 'info' });
     } catch (err) {
       genError = err;
       console.error(`[FunnelBuilder] Vision error for "${page.name}":`, err.message);
     }
 
     if (genError) {
+      send('log', { msg: `"${page.name}" failed: ${genError.message}`, level: 'error' });
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `AI generation failed: ${genError.message}` });
       results.push({ pageId: page.id, name: page.name, success: false, error: genError.message });
       continue;
@@ -1828,10 +1850,12 @@ Output ONLY the JSON object. No explanation.`;
     try {
       const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId, colorScheme);
       const warn    = saveRes?.firestoreWarning;
+      send('log', { msg: `"${page.name}" saved — ${pageJson.sections.length} sections`, level: 'success' });
       send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, warning: warn || undefined });
       results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length, warning: warn || undefined });
     } catch (err) {
       console.error(`[FunnelBuilder] Save error for "${page.name}":`, err.message);
+      send('log', { msg: `Save failed for "${page.name}": ${err.message}`, level: 'error' });
       send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
       results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
     }
@@ -2575,143 +2599,321 @@ function inferPageType(name = '') {
  * Returns the section plan (ordered list of sections with element hints)
  * for a given page type. Drives how many sections the AI generates.
  */
-function getSectionPlan(pageType, imgSrc) {
-  const img = `image element using src "${imgSrc}"`;
+function getSectionPlan(pageType, imgSrc, palette) {
+  const p = palette || {};
+  const heroBg    = p.heroBg    || '#0F172A';
+  const heroText  = p.heroText  || '#FFFFFF';
+  const secBg     = p.sectionBg || '#F9FAFB';
+  const bodyText  = p.bodyText  || '#111827';
+  const primary   = p.primary   || '#1D4ED8';
+  const btnColor  = p.buttonColor || '#FFFFFF';
+
+  // Helper: build a single section instruction block
+  const sec = (name, bg, textClr, pad, elements) =>
+    `{"type":"section","name":"${name}","styles":{"backgroundColor":{"value":"${bg}"},"paddingTop":{"value":${pad[0]},"unit":"px"},"paddingBottom":{"value":${pad[1]},"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{"paddingTop":{"value":${Math.round(pad[0]*0.6)},"unit":"px"},"paddingBottom":{"value":${Math.round(pad[1]*0.6)},"unit":"px"}},"children":[\n  ${elements.map(e => JSON.stringify(e)).join(',\n  ')}\n]}`;
+
+  // Element builders
+  const h1  = (text, clr=heroText, sz=52)  => ({"type":"heading","tag":"h1","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.15}},"mobileStyles":{"fontSize":{"value":Math.max(sz-18,28),"unit":"px"}}});
+  const h2  = (text, clr=bodyText, sz=36)  => ({"type":"heading","tag":"h2","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":Math.max(sz-10,24),"unit":"px"}}});
+  const sub = (text, clr=heroText, sz=22)  => ({"type":"sub-heading","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"fontWeight":{"value":"400"},"lineHeight":{"value":1.5}},"mobileStyles":{"fontSize":{"value":Math.max(sz-4,16),"unit":"px"}}});
+  const par = (text, clr=heroText, sz=18)  => ({"type":"paragraph","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"lineHeight":{"value":1.7}},"mobileStyles":{"fontSize":{"value":Math.max(sz-2,15),"unit":"px"}}});
+  const btn = (text, bg=primary, clr=btnColor) => ({"type":"button","text":text,"link":"#","styles":{"backgroundColor":{"value":bg},"color":{"value":clr},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":18,"unit":"px"},"paddingBottom":{"value":18,"unit":"px"},"paddingLeft":{"value":48,"unit":"px"},"paddingRight":{"value":48,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}});
+  const bul = (items, clr=bodyText, sz=18) => ({"type":"bulletList","items":items,"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"}},"mobileStyles":{"fontSize":{"value":Math.max(sz-2,15),"unit":"px"}}});
+  const img = (alt='')                     => ({"type":"image","src":imgSrc,"alt":alt,"styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}}});
+
   const plans = {
+
+    'Sales Page': {
+      groq: `3 sections:\n1. Hero — heading(h1) + sub-heading + image + paragraph + button\n2. Benefits — heading(h2) + bulletList(5 items) + paragraph\n3. Final CTA — heading(h2) + paragraph + button`,
+      sections: [
+        sec('Hero', heroBg, heroText, [100,100], [
+          h1('[COMPELLING HEADLINE — promise the main benefit]'),
+          sub('[Sub-headline — reinforce the promise and build curiosity]', heroText),
+          img('hero image'),
+          par('[1-2 sentence hook: identify the pain and tease the solution]', heroText),
+          btn('Yes! I Want Access Now'),
+        ]),
+        sec('Problem / Agitation', secBg, bodyText, [80,80], [
+          h2('[Problem-focused headline, e.g. "Are You Tired of...?"]', bodyText),
+          par('[Empathy paragraph — describe the problem the audience faces, make them feel seen]', bodyText),
+          bul(['[Pain point 1 — be specific]','[Pain point 2 — be specific]','[Pain point 3 — be specific]','[Pain point 4 — be specific]'], bodyText),
+        ]),
+        sec('Solution / Benefits', '#FFFFFF', bodyText, [80,80], [
+          h2('[Solution headline — introduce the offer as the answer]', bodyText),
+          img('solution image'),
+          par('[Transition paragraph — bridge from the problem to your solution]', bodyText),
+          bul(['[Core benefit 1 — outcome-focused]','[Core benefit 2 — outcome-focused]','[Core benefit 3 — outcome-focused]','[Core benefit 4 — outcome-focused]','[Core benefit 5 — outcome-focused]'], bodyText),
+        ]),
+        sec('Social Proof', secBg, bodyText, [80,80], [
+          h2('[Testimonials / Social Proof headline]', bodyText),
+          par('"[Testimonial 1: specific result in quotes — FirstName L., Title]"', bodyText),
+          par('"[Testimonial 2: specific result in quotes — FirstName L., Title]"', bodyText),
+          par('"[Testimonial 3: specific result in quotes — FirstName L., Title]"', bodyText),
+        ]),
+        sec('Offer Details / Value Stack', '#FFFFFF', bodyText, [80,80], [
+          h2('[Offer headline — everything they get]', bodyText),
+          img('offer image'),
+          bul(['[Deliverable 1 + value statement]','[Deliverable 2 + value statement]','[Deliverable 3 + value statement]','[Bonus 1 + value]','[Bonus 2 + value]'], bodyText),
+          par('[Price reveal paragraph — anchor the full value, then show the actual price]', bodyText),
+        ]),
+        sec('Guarantee', secBg, bodyText, [80,80], [
+          h2('[Guarantee headline, e.g. "100% Risk-Free Guarantee"]', bodyText),
+          img('guarantee badge'),
+          par('[Strong risk-reversal paragraph — describe the guarantee terms and make it feel truly risk-free]', bodyText),
+        ]),
+        sec('FAQ', '#FFFFFF', bodyText, [80,80], [
+          h2('Frequently Asked Questions', bodyText),
+          sub('[Q: Most common objection #1?]', bodyText, 20),
+          par('[A: Clear, confident answer that removes the objection]', bodyText),
+          sub('[Q: Most common objection #2?]', bodyText, 20),
+          par('[A: Clear, confident answer]', bodyText),
+          sub('[Q: Most common objection #3?]', bodyText, 20),
+          par('[A: Clear, confident answer]', bodyText),
+          sub('[Q: Most common objection #4?]', bodyText, 20),
+          par('[A: Clear, confident answer]', bodyText),
+        ]),
+        sec('Final CTA', heroBg, heroText, [100,100], [
+          h2('[Closing urgency headline — "This Offer Won\'t Last..."]', heroText, 40),
+          par('[Scarcity/urgency paragraph — limited time, limited spots, or bonus expiry]', heroText),
+          btn('Get Instant Access Now'),
+          par('[Micro-commitment line below button, e.g. "30-day guarantee · No contracts · Cancel anytime"]', heroText, 14),
+        ]),
+      ],
+    },
+
     'Opt-in / Lead Capture Page': {
-      sections: 3,
-      groq: `3 sections:
-1. Hero — heading(h1) + sub-heading + ${img} + paragraph(plain text) + button(CTA)
-2. Benefits — sub-heading + bulletList(3-4 items: what they get) + paragraph
-3. Trust/CTA — sub-heading + paragraph(social proof / guarantee) + button`,
-      full: `3 sections ONLY:
-1. Hero — bold H1 headline, compelling sub-heading, ${img}, short hook paragraph, opt-in CTA button
-2. Benefits / What You'll Get — sub-heading, 3-4 bullet points on the value, supporting paragraph
-3. Trust & Final CTA — social proof line, guarantee statement, final CTA button`,
+      groq: `3 sections:\n1. Hero — heading(h1) + sub-heading + image + paragraph + button\n2. Benefits — heading(h2) + bulletList(4 items)\n3. Trust CTA — paragraph + button`,
+      sections: [
+        sec('Hero', heroBg, heroText, [100,100], [
+          h1('[Opt-in headline — lead magnet promise, e.g. "Get the Free Guide to..."]'),
+          sub('[Sub-headline — who this is for and what they\'ll get]', heroText),
+          img('lead magnet or hero image'),
+          par('[1-2 sentence hook that makes the free offer irresistible]', heroText),
+          btn('Yes! Send Me The Free Guide'),
+        ]),
+        sec('What You\'ll Get', secBg, bodyText, [80,80], [
+          h2('[Benefits headline, e.g. "Here\'s Exactly What You\'ll Discover Inside..."]', bodyText),
+          bul(['[Specific takeaway 1 — what they\'ll learn/get]','[Specific takeaway 2]','[Specific takeaway 3]','[Specific takeaway 4 — final compelling benefit]'], bodyText),
+          par('[Supporting paragraph — reinforce the value of the free resource]', bodyText),
+        ]),
+        sec('Trust / Final CTA', heroBg, heroText, [80,80], [
+          par('"[Social proof quote or stat — X people have already downloaded this / As seen in...]"', heroText),
+          par('[Privacy reassurance: "We respect your privacy. No spam, ever. Unsubscribe anytime."]', heroText, 14),
+          btn('Get Instant Free Access'),
+        ]),
+      ],
     },
 
     'Thank You Page': {
-      sections: 2,
-      groq: `2 sections:
-1. Confirmation — heading(h1: "You're In!") + sub-heading + paragraph(what happens next) + ${img}
-2. Next Steps — sub-heading + bulletList(3 next steps) + button(optional next action)`,
-      full: `2 sections ONLY:
-1. Confirmation Hero — celebratory H1, sub-heading confirming sign-up, ${img}, paragraph explaining what happens next
-2. Next Steps — sub-heading, 3-step bullet list, optional CTA button for next action`,
-    },
-
-    'Confirmation Page': {
-      sections: 3,
-      groq: `3 sections:
-1. Confirmation — heading(h1: "You're Registered!") + sub-heading + paragraph(event details) + ${img}
-2. What to Expect — sub-heading + bulletList(3-4 items: what they'll learn) + paragraph
-3. Add to Calendar — sub-heading + paragraph(reminder tip) + button("Add to Calendar")`,
-      full: `3 sections ONLY:
-1. Registration Confirmed — celebratory H1, sub-heading with event name/date, ${img}, paragraph with details
-2. What You'll Learn — sub-heading, 4-5 bullet points on webinar content
-3. Prepare & Remind — sub-heading, paragraph about how to prepare, add-to-calendar CTA button`,
-    },
-
-    'Webinar Registration Page': {
-      sections: 5,
-      groq: `3 sections (Groq limit):
-1. Hero — heading(h1: event title) + sub-heading(date/time) + ${img} + paragraph(what you'll learn) + button("Register Free")
-2. What You'll Learn — sub-heading + bulletList(4 items) + paragraph
-3. Register CTA — heading(h2: urgency) + paragraph + button("Secure Your Spot")`,
-      full: `5 sections:
-1. Hero — bold event headline H1, sub-heading with date/time/format, ${img}, short compelling paragraph, "Register Free" CTA button
-2. What You'll Learn — sub-heading, 4-5 learning outcome bullet points, supporting paragraph
-3. About the Presenter — sub-heading, ${img}, bio paragraph, credentials bullet list
-4. Who This Is For — sub-heading, 3-4 audience bullet points, paragraph on prerequisites
-5. Register Now CTA — urgency headline, paragraph on limited spots, final registration button`,
-    },
-
-    'Webinar Replay Page': {
-      sections: 4,
-      groq: `3 sections:
-1. Watch Replay — heading(h1) + sub-heading + ${img} + paragraph(what they'll see)
-2. Key Takeaways — sub-heading + bulletList(4 items)
-3. Special Offer CTA — heading(h2) + paragraph + button("Get Access Now")`,
-      full: `4 sections:
-1. Replay Hero — H1 headline, sub-heading, video/image placeholder (${img}), paragraph on what they'll see
-2. Key Takeaways — sub-heading, 4-5 bullet points on what was covered
-3. Limited-Time Offer — sub-heading, ${img}, paragraph on the offer details and urgency
-4. Final CTA — strong closing headline, scarcity paragraph, CTA button`,
-    },
-
-    'VSL Page': {
-      sections: 4,
-      groq: `3 sections:
-1. Hero — heading(h1) + sub-heading + ${img} + paragraph(tease what the video reveals) + button("Watch Now")
-2. What You'll Discover — sub-heading + bulletList(4 items) + paragraph
-3. CTA — heading(h2) + paragraph + button("Get Instant Access")`,
-      full: `4 sections:
-1. VSL Hero — curiosity headline H1, sub-heading, ${img} (video thumbnail placeholder), paragraph teasing the reveal, "Watch Now" button
-2. What You'll Discover — sub-heading, 4-5 bullet points on video content
-3. Offer Details — sub-heading, ${img}, value stack paragraph, price/bonus details, CTA button
-4. Final CTA — urgency headline, guarantee paragraph, final CTA button`,
+      groq: `2 sections:\n1. Confirmation — heading(h1) + sub-heading + image + paragraph\n2. Next Steps — heading(h2) + bulletList(3 items) + button`,
+      sections: [
+        sec('Confirmation', heroBg, heroText, [100,100], [
+          h1('🎉 You\'re In! Check Your Email Now'),
+          sub('[Sub-headline confirming what they signed up for]', heroText),
+          img('confirmation or success image'),
+          par('[Paragraph explaining: what they\'ll receive, when, and what to do next (check spam etc.)]', heroText),
+        ]),
+        sec('Your Next Steps', secBg, bodyText, [80,80], [
+          h2('Here\'s What Happens Next', bodyText),
+          bul(['[Step 1 — check email and confirm subscription]','[Step 2 — what they receive / where to access]','[Step 3 — optional next action to get even more value]'], bodyText),
+          btn('[Optional next action CTA, e.g. "Watch the Free Training Now"]'),
+        ]),
+      ],
     },
 
     'Order Page': {
-      sections: 3,
-      groq: `3 sections:
-1. Order Summary — heading(h1) + sub-heading + ${img} + bulletList(what they get)
-2. Guarantee — sub-heading + paragraph(risk reversal/guarantee) + ${img}
-3. Complete Order CTA — heading(h2: urgency) + paragraph + button("Complete My Order")`,
-      full: `3 sections:
-1. Order Summary — H1 headline, sub-heading confirming the offer, ${img}, bullet list of what they get, value statement
-2. Guarantee & Trust — sub-heading, ${img} (badge/seal placeholder), guarantee paragraph, trust bullet points
-3. Complete Your Order — urgency headline, scarcity paragraph, final order CTA button`,
+      groq: `3 sections:\n1. Order Summary — heading(h1) + sub-heading + image + bulletList\n2. Guarantee — heading(h2) + image + paragraph\n3. Complete Order CTA — heading(h2) + paragraph + button`,
+      sections: [
+        sec('Order Summary', heroBg, heroText, [80,80], [
+          h1('[Order page headline — confirm the offer, e.g. "Yes! I Want [Product Name]"]'),
+          sub('[Sub-headline recapping the key promise]', heroText),
+          img('product or offer image'),
+          bul(['[What they get — item 1 + value]','[What they get — item 2 + value]','[What they get — item 3 + value]','[Bonus included + value]'], heroText),
+          par('[Value summary: "Total value: $X. Today only: $Y"]', heroText),
+        ]),
+        sec('Our Guarantee', secBg, bodyText, [80,80], [
+          h2('[Guarantee headline, e.g. "You\'re Fully Protected — 30-Day Money-Back Guarantee"]', bodyText),
+          img('guarantee seal / badge'),
+          par('[Guarantee paragraph — specific terms, no-questions-asked, complete reassurance]', bodyText),
+          bul(['[Trust signal 1 — secure checkout / SSL]','[Trust signal 2 — customer support available]','[Trust signal 3 — privacy protection]'], bodyText),
+        ]),
+        sec('Complete Your Order', heroBg, heroText, [80,80], [
+          h2('[Urgency headline — "This Special Price Expires Soon"]', heroText, 36),
+          par('[Scarcity paragraph — why they should act now]', heroText),
+          btn('Complete My Order Now — $[Price]'),
+          par('[Micro-commitment below button: "Secure checkout · 30-day guarantee · Instant access"]', heroText, 13),
+        ]),
+      ],
     },
 
     'Upsell Page': {
-      sections: 5,
-      groq: `3 sections:
-1. Congratulations / OTO — heading(h1: "Wait — Special One-Time Offer!") + sub-heading + ${img} + paragraph
-2. Why You Need This — sub-heading + bulletList(4 benefits) + paragraph
-3. Yes/No CTA — heading(h2: urgency) + paragraph + button("Yes! Add This Now") + paragraph("No thanks, I don't want...")`,
-      full: `5 sections:
-1. Congratulations Hook — H1 ("Wait — Don't Close This Page!"), sub-heading explaining the one-time offer, ${img}
-2. The Offer — sub-heading, detailed offer paragraph, ${img}, what they get bullet list
-3. Why This Works — sub-heading, 4-5 benefit bullets, social proof paragraph
-4. Value Stack — sub-heading, price anchoring paragraph, what's included bullet list, urgency line
-5. Yes/No Decision — urgency headline, yes CTA button, "no thanks" text link`,
+      groq: `4 sections:\n1. Hook — heading(h1) + sub-heading + image\n2. The Offer — heading(h2) + paragraph + bulletList\n3. Value Stack — heading(h2) + paragraph + bulletList\n4. Decision CTA — heading(h2) + button + paragraph`,
+      sections: [
+        sec('One-Time Offer Hook', heroBg, heroText, [80,60], [
+          h1('⚡ Wait — Don\'t Close This Page! Special One-Time Offer:'),
+          sub('[Sub-headline: "Because you just purchased [X], you qualify for this exclusive upgrade..."]', heroText),
+          img('upsell product image'),
+        ]),
+        sec('The Upgrade Offer', secBg, bodyText, [80,80], [
+          h2('[Offer headline — what the upgrade includes]', bodyText),
+          par('[Compelling offer description paragraph — what makes this the perfect complement to what they just bought]', bodyText),
+          bul(['[Upgrade benefit 1 — specific outcome]','[Upgrade benefit 2]','[Upgrade benefit 3]','[Upgrade benefit 4]','[Why this works even better together]'], bodyText),
+        ]),
+        sec('Why Add This Now', '#FFFFFF', bodyText, [80,80], [
+          h2('[Value justification headline]', bodyText),
+          par('[Price anchoring paragraph — full retail value vs. today\'s one-time price]', bodyText),
+          bul(['[Included item 1 + value $X]','[Included item 2 + value $X]','[Bonus + value $X]','[Total value $X — yours for just $Y]'], bodyText),
+          par('[One-time offer caveat — "This offer disappears when you leave this page"]', bodyText),
+        ]),
+        sec('Your Decision', heroBg, heroText, [80,80], [
+          h2('[Urgency headline — "This Upgrade Is Only Available Right Now"]', heroText, 32),
+          btn('YES! Upgrade My Order Now — Add For Just $[Price]'),
+          par('[Separator text: "— or —"]', heroText, 14),
+          par('No thanks, I don\'t want the upgrade. I understand this offer expires when I leave this page.', heroText, 14),
+        ]),
+      ],
+    },
+
+    'VSL Page': {
+      groq: `4 sections:\n1. Hero — heading(h1) + sub-heading + image + paragraph\n2. Discover — heading(h2) + bulletList\n3. Offer — heading(h2) + image + paragraph + button\n4. Final CTA — heading(h2) + paragraph + button`,
+      sections: [
+        sec('VSL Hero', heroBg, heroText, [100,80], [
+          h1('[Curiosity/benefit headline — "Discover How to [Result] Without [Pain Point]"]'),
+          sub('[Sub-headline — who this is for and why they need to watch]', heroText),
+          img('video thumbnail / play button placeholder'),
+          par('[Tease paragraph — hint at the most surprising or counterintuitive thing revealed in the video]', heroText),
+        ]),
+        sec('What You\'ll Discover', secBg, bodyText, [80,80], [
+          h2('In This Free Video You\'ll Discover...', bodyText),
+          bul(['[Revelation 1 — specific and intriguing]','[Revelation 2 — specific and intriguing]','[Revelation 3 — specific and intriguing]','[Revelation 4 — specific and intriguing]','[Big secret / surprising truth revealed in the video]'], bodyText),
+          par('[Urgency note: "Watch the full video above before it comes down."]', bodyText),
+        ]),
+        sec('The Offer', '#FFFFFF', bodyText, [80,80], [
+          h2('[Offer headline — what\'s available after watching]', bodyText),
+          img('offer / product image'),
+          bul(['[What\'s included — item 1]','[What\'s included — item 2]','[What\'s included — item 3]','[Bonus item]'], bodyText),
+          par('[Value + price paragraph — "A $X value, available today for just $Y"]', bodyText),
+          btn('Get Instant Access Now'),
+        ]),
+        sec('Final CTA', heroBg, heroText, [80,80], [
+          h2('[Urgency headline — "This Offer Is Available For a Limited Time Only"]', heroText, 36),
+          par('[Guarantee + scarcity paragraph]', heroText),
+          btn('Yes! I\'m Ready to Get Started'),
+          par('[Trust line: "Secure checkout · 30-day money-back guarantee"]', heroText, 13),
+        ]),
+      ],
+    },
+
+    'Webinar Registration Page': {
+      groq: `3 sections:\n1. Hero — heading(h1) + sub-heading + image + paragraph + button\n2. What You\'ll Learn — heading(h2) + bulletList\n3. Register CTA — heading(h2) + paragraph + button`,
+      sections: [
+        sec('Webinar Hero', heroBg, heroText, [100,100], [
+          h1('[Webinar title — compelling result or revelation headline]'),
+          sub('[Free Live Training: Date · Time · Duration — "Register now, it\'s 100% free"]', heroText),
+          img('webinar / presenter image'),
+          par('[1-2 sentence teaser — what the most valuable insight from the webinar will be]', heroText),
+          btn('Register For Free Now'),
+        ]),
+        sec('What You\'ll Learn', secBg, bodyText, [80,80], [
+          h2('In This Free Training You\'ll Discover...', bodyText),
+          bul(['[Learning outcome 1 — specific and valuable]','[Learning outcome 2]','[Learning outcome 3]','[Learning outcome 4]','[Bonus insight — the surprise takeaway]'], bodyText),
+          par('[Who this is for — brief description of the ideal attendee]', bodyText),
+        ]),
+        sec('About the Host', '#FFFFFF', bodyText, [80,80], [
+          h2('[Host name + credibility headline]', bodyText),
+          img('presenter / host photo'),
+          par('[Brief bio paragraph — 3-5 sentences establishing authority and why they\'re qualified to teach this]', bodyText),
+          bul(['[Credential/achievement 1]','[Credential/achievement 2]','[Credential/achievement 3]'], bodyText),
+        ]),
+        sec('Reserve Your Spot', heroBg, heroText, [80,80], [
+          h2('[Scarcity/urgency headline — "Spots Are Limited — Reserve Yours Now"]', heroText, 36),
+          par('[Final persuasion paragraph — what they lose by not attending]', heroText),
+          btn('Yes! Reserve My Free Spot Now'),
+          par('[Reassurance: "Free to attend · No credit card required · Recording not guaranteed"]', heroText, 13),
+        ]),
+      ],
     },
 
     'Downsell Page': {
-      sections: 4,
-      groq: `3 sections:
-1. Wait — heading(h1: "Hold On — Here's a Better Option") + sub-heading + ${img} + paragraph(downgraded offer)
-2. What You Get — sub-heading + bulletList(3-4 items) + paragraph
-3. CTA — heading(h2) + paragraph + button("Yes, I'll Take This Instead")`,
-      full: `4 sections:
-1. Special Alternative Offer — H1, sub-heading presenting the downsell, ${img}, paragraph explaining the adjusted offer
-2. What's Included — sub-heading, 3-4 bullet points, paragraph on value
-3. Why This Still Works — sub-heading, ${img}, social proof paragraph, guarantee
-4. Final Decision CTA — urgency headline, CTA button, "no thanks" text link`,
+      groq: `3 sections:\n1. Wait — heading(h1) + sub-heading + image + paragraph\n2. What You Get — heading(h2) + bulletList + paragraph\n3. CTA — heading(h2) + button + paragraph`,
+      sections: [
+        sec('Alternative Offer', heroBg, heroText, [80,60], [
+          h1('Hold On — Here\'s a Better Option For You'),
+          sub('[Sub-headline: "We understand [full offer] might not be right for you yet. Here\'s something perfect for where you are now..."]', heroText),
+          img('downsell product image'),
+          par('[Empathy paragraph — acknowledge why they hesitated and introduce the lower-commitment option]', heroText),
+        ]),
+        sec('What\'s Included', secBg, bodyText, [80,80], [
+          h2('[Downsell offer headline — "Get [Core Result] with [Downsell Product]"]', bodyText),
+          bul(['[Core deliverable 1 — what they get]','[Core deliverable 2]','[Core deliverable 3]','[What\'s different from the original offer (honest)]'], bodyText),
+          par('[Value + reduced price paragraph — "Get the core of what you need for just $[lower price]"]', bodyText),
+        ]),
+        sec('Your Decision', heroBg, heroText, [80,80], [
+          h2('[Urgency headline — "This Is Your Last Chance to Get [Result] at This Price"]', heroText, 32),
+          btn('Yes! I\'ll Take This Instead — $[Downsell Price]'),
+          par('[Separator: "— or —"]', heroText, 14),
+          par('No thanks, I\'ll pass on this special offer.', heroText, 14),
+        ]),
+      ],
     },
 
-    'Sales Page': {
-      sections: 8,
-      groq: `3 sections:
-1. Hero — heading(h1) + sub-heading + ${img} + paragraph + button(CTA)
-2. Benefits — sub-heading + ${img} + bulletList(4 items) + paragraph
-3. Final CTA — heading(h2) + paragraph + button`,
-      full: `8 sections:
-1. Hero — bold H1 headline, compelling sub-heading, ${img}, short hook paragraph, primary CTA button
-2. Problem/Agitation — sub-heading, pain point paragraph, bullet list of problems the audience faces
-3. Solution/Benefits — introduce offer as the solution, ${img}, 5-6 benefit bullet points, supporting paragraph
-4. Social Proof — sub-heading, 2-3 testimonial paragraphs with names and results, results stat bullet points
-5. Offer Details / Value Stack — sub-heading, ${img}, what they get bullet list, price anchoring, bonus items, urgency element
-6. Guarantee — sub-heading, ${img} (seal/badge placeholder), strong risk-reversal paragraph
-7. FAQ — sub-heading, 4 common objections answered (sub-heading + paragraph pairs)
-8. Final CTA — strong closing H2 headline, urgency/scarcity paragraph, final CTA button`,
+    'Confirmation Page': {
+      groq: `3 sections:\n1. Confirmed — heading(h1) + sub-heading + image + paragraph\n2. What to Expect — heading(h2) + bulletList\n3. Prepare — heading(h2) + paragraph + button`,
+      sections: [
+        sec('Registration Confirmed', heroBg, heroText, [100,80], [
+          h1('🎉 You\'re Registered! See You There.'),
+          sub('[Event name + date + time + format (Zoom / live / etc.)]', heroText),
+          img('confirmation or event image'),
+          par('[Details paragraph — where/how to join, what to prepare, calendar reminder instructions]', heroText),
+        ]),
+        sec('What You\'ll Learn', secBg, bodyText, [80,80], [
+          h2('Here\'s What We\'ll Cover Together', bodyText),
+          bul(['[Learning point 1 — what they\'ll walk away with]','[Learning point 2]','[Learning point 3]','[Learning point 4]','[Big surprise or bonus topic]'], bodyText),
+          par('[Attendance tip — "Show up live for the bonus Q&A / to qualify for the special offer"]', bodyText),
+        ]),
+        sec('Prepare & Remind', '#FFFFFF', bodyText, [80,80], [
+          h2('Add It To Your Calendar Now', bodyText),
+          par('[Short preparation tip paragraph — what to have ready, what to think about beforehand]', bodyText),
+          btn('Add to Google Calendar'),
+        ]),
+      ],
+    },
+
+    'Webinar Replay Page': {
+      groq: `3 sections:\n1. Watch Replay — heading(h1) + sub-heading + image + paragraph\n2. Key Takeaways — heading(h2) + bulletList\n3. Special Offer CTA — heading(h2) + paragraph + button`,
+      sections: [
+        sec('Watch the Replay', heroBg, heroText, [100,80], [
+          h1('[Replay headline — "Watch: [Webinar Title] — Full Replay Available Now"]'),
+          sub('[Urgency: "This replay will be taken down on [date/time]. Watch it now."]', heroText),
+          img('replay / video thumbnail image'),
+          par('[Brief intro to what they\'ll discover in the replay]', heroText),
+        ]),
+        sec('Key Takeaways', secBg, bodyText, [80,80], [
+          h2('The Biggest Insights From This Training', bodyText),
+          bul(['[Key takeaway 1 — most actionable insight]','[Key takeaway 2]','[Key takeaway 3]','[Key takeaway 4]','[The #1 thing they MUST implement right away]'], bodyText),
+          par('[Bridge paragraph — "If you want help implementing all of this..."]', bodyText),
+        ]),
+        sec('Limited-Time Offer', '#FFFFFF', bodyText, [80,80], [
+          h2('[Special offer headline — available to replay viewers only]', bodyText),
+          img('offer image'),
+          par('[Special offer paragraph — what they get and why this replay-only deal expires soon]', bodyText),
+          btn('Claim Your Replay Special Offer'),
+        ]),
+        sec('Final CTA', heroBg, heroText, [80,80], [
+          h2('[Final urgency headline]', heroText, 36),
+          par('[Guarantee + scarcity paragraph]', heroText),
+          btn('Get Access Before the Replay Comes Down'),
+        ]),
+      ],
     },
   };
 
   const plan = plans[pageType] || plans['Sales Page'];
-  // TODO: restore full section counts after testing — currently capped at 3 for all types
-  return { sections: 3, groq: plan.groq, full: plan.groq };
+  // Build groq-style description from sections for Groq's compressed prompt
+  const groqNote = plan.groq;
+  // Build full structured prompt from section templates
+  const fullNote = `Generate exactly ${plan.sections.length} sections with this EXACT structure (fill in real content for the niche/offer, replace all [PLACEHOLDER] text with actual copy):\n${plan.sections.map((s, i) => `\nSection ${i+1}: ${JSON.stringify(s)}`).join('\n')}`;
+  return { sections: plan.sections.length, groq: groqNote, full: fullNote };
 }
 
 const FUNNEL_TYPE_PAGES = {
@@ -2839,41 +3041,77 @@ router.post('/generate-funnel', async (req, res) => {
     const imgKw      = (niche || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
     const randId     = () => Math.random().toString(36).slice(2, 10);
 
-    const groqSysPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
-Root: {"sections":[...]}. IDs MUST be unique per element using format {type}-{8 random alphanumeric chars}, e.g. section-${randId()}, row-${randId()}, column-${randId()}, heading-${randId()}. NEVER reuse IDs. Styles: {"value":X,"unit":"px"} or {"value":"#HEX"}.
-CRITICAL: Use EXACTLY these element type names — "heading" (NOT headline), "sub-heading" (NOT sub-headline), "paragraph" (plain text, NO HTML tags), "button", "bulletList" (items = plain string array), "image".
-COLOR SCHEME: Hero/CTA sections use background "${palette2.heroBg}" with text "${palette2.heroText}". Middle sections use "${palette2.sectionBg}" with text "${palette2.bodyText}". Buttons: background "${palette2.primary}", text "${palette2.buttonColor}".
-Section: {"id":"section-${randId()}","type":"section","name":"n","allowRowMaxWidth":false,"styles":{"backgroundColor":{"value":"${palette2.heroBg}"},"paddingTop":{"value":100,"unit":"px"},"paddingBottom":{"value":100,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"}},"children":[{"id":"row-${randId()}","type":"row","children":[{"id":"column-${randId()}","type":"column","width":12,"styles":{"textAlign":{"value":"center"}},"mobileStyles":{},"children":[ELEMENTS]}]}]}
-Elements examples:
-{"id":"heading-${randId()}","type":"heading","tag":"h1","text":"Your headline here","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}}
-{"id":"sub-heading-${randId()}","type":"sub-heading","text":"Your subheading here","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":24,"unit":"px"},"fontWeight":{"value":"400"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
-{"id":"paragraph-${randId()}","type":"paragraph","text":"Plain text body copy. No HTML tags.","styles":{"color":{"value":"#555555"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.7}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}
-{"id":"button-${randId()}","type":"button","text":"Click Here","link":"#","styles":{"backgroundColor":{"value":"${palette2.primary}"},"color":{"value":"${palette2.buttonColor}"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":18,"unit":"px"},"paddingBottom":{"value":18,"unit":"px"},"paddingLeft":{"value":40,"unit":"px"},"paddingRight":{"value":40,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}
-{"id":"bulletList-${randId()}","type":"bulletList","items":["Benefit one","Benefit two","Benefit three"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"${palette2.bodyText}"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}`;
+    const imgSrc2      = `https://picsum.photos/seed/${imgKw}/800/450`;
+    const sectionPlan2 = getSectionPlan(pageType, imgSrc2, palette2);
 
-    const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel designer. Generate production-ready native GHL page JSON. Output ONLY valid JSON. Root: {"sections":[...]}.
-CRITICAL: Use EXACTLY these element type names — "heading" (NOT headline), "sub-heading" (NOT sub-headline).
-CRITICAL: paragraph "text" must be plain text — NO HTML tags, no <p>, no <br>.
-CRITICAL: bulletList "items" must be plain string array — ["Item 1","Item 2"] NOT [{text:"Item 1"}].
-Style format: {"value":X,"unit":"px"}. Include mobileStyles with ~60% desktop values.
-For image elements use src "https://picsum.photos/seed/${imgKw}/800/450".`;
+    // Groq system prompt — compact schema (token-limited)
+    const groqSysPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
+Root: {"sections":[...]}. IDs MUST be unique: {type}-${randId()} format.
+CRITICAL element type names: "heading","sub-heading","paragraph","button","bulletList","image". NO HTML in text. bulletList items = plain string array.
+Section children is a FLAT array of elements — NO row/column wrappers needed.
+Section: {"type":"section","name":"n","styles":{"backgroundColor":{"value":"#HEX"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"children":[FLAT_ELEMENTS_ARRAY]}
+Element examples:
+heading: {"type":"heading","tag":"h1","text":"Headline","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}}
+sub-heading: {"type":"sub-heading","text":"Sub","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
+paragraph: {"type":"paragraph","text":"Plain text. No HTML.","styles":{"color":{"value":"${palette2.bodyText}"},"fontSize":{"value":17,"unit":"px"}},"mobileStyles":{"fontSize":{"value":15,"unit":"px"}}}
+button: {"type":"button","text":"CTA Text","link":"#","styles":{"backgroundColor":{"value":"${palette2.primary}"},"color":{"value":"${palette2.buttonColor}"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":18,"unit":"px"},"paddingBottom":{"value":18,"unit":"px"},"paddingLeft":{"value":48,"unit":"px"},"paddingRight":{"value":48,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
+bulletList: {"type":"bulletList","items":["Item 1","Item 2","Item 3"],"styles":{"color":{"value":"${palette2.bodyText}"},"fontSize":{"value":17,"unit":"px"}},"mobileStyles":{}}
+image: {"type":"image","src":"${imgSrc2}","alt":"image","styles":{}}
+COLORS: hero/CTA bg="${palette2.heroBg}" text="${palette2.heroText}", middle bg="${palette2.sectionBg}" text="${palette2.bodyText}", button="${palette2.primary}"`;
+
+    // Full system prompt for Claude/OpenAI/Gemini — includes explicit schema and template sections
+    const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel copywriter and page builder. Your job: take the section templates below and fill in compelling, niche-specific copy for each element.
+
+OUTPUT FORMAT — return ONLY valid JSON:
+{
+  "sections": [
+    {
+      "type": "section",
+      "name": "Section Name",
+      "styles": { "backgroundColor": {"value":"#HEX"}, "paddingTop":{"value":100,"unit":"px"}, "paddingBottom":{"value":100,"unit":"px"}, "paddingLeft":{"value":20,"unit":"px"}, "paddingRight":{"value":20,"unit":"px"} },
+      "mobileStyles": { "paddingTop":{"value":60,"unit":"px"}, "paddingBottom":{"value":60,"unit":"px"} },
+      "children": [ FLAT_ARRAY_OF_ELEMENTS ]
+    }
+  ]
+}
+
+CRITICAL RULES:
+1. "children" is a FLAT array of element objects — NO "row" or "column" wrappers needed
+2. Every section MUST have at least 2 elements in children
+3. Element types: "heading", "sub-heading", "paragraph", "button", "bulletList", "image"
+4. heading tag: "h1" for main headline, "h2" for section headlines
+5. paragraph.text = plain text string, NEVER HTML tags
+6. bulletList.items = plain string array ["Item 1","Item 2"], NEVER objects
+7. Replace ALL [PLACEHOLDER] text with real, niche-specific copy
+8. Keep all backgroundColor, fontSize, color, fontWeight values exactly as in the template
+9. Output ONLY the JSON — no markdown, no explanation, no code fences`;
 
     const systemPrompt = isGroq ? groqSysPrompt : fullSysPrompt;
-
-    const imgSrc2      = `https://picsum.photos/seed/${imgKw}/800/450`;
-    const sectionPlan2 = getSectionPlan(pageType, imgSrc2);
     const sectionsNote = isGroq ? sectionPlan2.groq : sectionPlan2.full;
 
-    const userPrompt = `Generate a native GHL ${pageType} JSON (page ${i + 1} of ${pages.length}).
-Page name: "${page.name}"
-Niche: ${niche}
-Offer: ${offer}
-Audience: ${audience || 'General prospects'}
+    const userPrompt = isGroq
+      ? `Generate a native GHL ${pageType} JSON (page ${i + 1} of ${pages.length}).
+Page name: "${page.name}" | Niche: ${niche} | Offer: ${offer} | Audience: ${audience || 'General prospects'}
 Color scheme: ${colors}
-${extraContext ? `Extra context: ${extraContext}` : ''}
+${extraContext ? `Extra: ${extraContext}\n` : ''}
+${sectionsNote}
+Output ONLY the JSON object.`
+      : `You are filling in real copy for a ${pageType} (page ${i + 1} of ${pages.length}).
+
+BUSINESS CONTEXT:
+- Niche: ${niche}
+- Offer: ${offer}
+- Target audience: ${audience || 'General prospects'}
+- Color scheme: ${colors}
+${extraContext ? `- Additional notes: ${extraContext}` : ''}
+
+INSTRUCTIONS:
+Take the section templates below and fill in compelling, conversion-focused copy for this specific niche and offer.
+Replace every [PLACEHOLDER] with real copy. Keep all styles/colors exactly as specified. Every section must have real elements in "children".
 
 ${sectionsNote}
-Output ONLY the JSON object.`;
+
+Return ONLY the completed JSON object with real copy. No explanations.`;
 
     send('log', { msg: `[${i+1}/${pages.length}] Calling AI (${provider?.name}) to generate content...`, level: 'info' });
 
@@ -2886,10 +3124,22 @@ Output ONLY the JSON object.`;
           await new Promise(r => setTimeout(r, isGroq ? 5000 : 1000));
         }
         const retryNote = attempt > 1 ? '\n\nIMPORTANT: Your previous response had invalid JSON. Output ONLY a raw JSON object, no text before or after, no code fences, no comments.' : '';
-        const raw = (await aiFunnel.generate(systemPrompt, userPrompt + retryNote, { maxTokens: 4096 })).trim();
+        const raw = (await aiFunnel.generate(systemPrompt, userPrompt + retryNote, { maxTokens: isGroq ? 1500 : 8000 })).trim();
         pageJson  = parseJsonSafe(raw);
-        if (!pageJson.sections) throw new Error('Missing sections array');
-        const totalEls = pageJson.sections.reduce((sum, s) => sum + (s.children?.[0]?.children?.[0]?.children?.length || 0), 0);
+        if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('Missing sections array');
+        // Count total leaf elements across all sections using the same flatten logic as ghlPageBuilder
+        const countLeaves = (nodes) => {
+          let n = 0;
+          for (const node of (nodes || [])) {
+            if (!node || typeof node !== 'object') continue;
+            const ch = node.children || node.elements || [];
+            if (node.type === 'row' || node.type === 'column' || node.type === 'section') n += countLeaves(ch);
+            else n += 1;
+          }
+          return n;
+        };
+        const totalEls = pageJson.sections.reduce((sum, s) => sum + countLeaves(s.children || s.elements || []), 0);
+        if (totalEls === 0) throw new Error('AI returned sections with no elements — retrying');
         send('log', { msg: `[${i+1}/${pages.length}] AI generated ${pageJson.sections.length} sections, ${totalEls} elements`, level: 'success' });
         genError = null;
         break;

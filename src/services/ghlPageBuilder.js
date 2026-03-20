@@ -286,12 +286,17 @@ function makeColumn(id, childIds, align = 'center') {
 }
 
 // Recursively collect leaf elements from any nesting depth (section/row/column wrappers).
+// Also handles: n.elements (alternative field name), and direct leaf children without row/column.
 function flattenElements(nodes) {
   const result = [];
   for (const n of (nodes || [])) {
-    if (!n) continue;
+    if (!n || typeof n !== 'object') continue;
+    const children = n.children || n.elements || [];
     if (n.type === 'row' || n.type === 'column' || n.type === 'section') {
-      result.push(...flattenElements(n.children));
+      result.push(...flattenElements(children));
+    } else if (Array.isArray(children) && children.length > 0 && !n.text && !n.items && !n.src) {
+      // Node has nested children but isn't a known wrapper type — recurse into it too
+      result.push(...flattenElements(children));
     } else {
       result.push(n);
     }
@@ -574,8 +579,10 @@ function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId
     // Text alignment: hero+CTA centered, middle sections left-aligned
     const textAlign = isMiddle ? 'left' : 'center';
 
-    // Extract leaf elements from AI section (regardless of nesting)
-    const leafElems  = flattenElements(aiSection.children || []);
+    // Extract leaf elements from AI section (regardless of nesting).
+    // Check children first, then elements (alternative AI field name), then rows.
+    const rawNodes   = aiSection.children || aiSection.elements || aiSection.rows || [];
+    const leafElems  = flattenElements(rawNodes);
     console.log(`[GHLPageBuilder] Section ${idx + 1} (${aiSection.name || ''}): ${leafElems.length} elements (${leafElems.map(e => e.type).join(', ')})`);
 
     // Build GHL native leaf elements

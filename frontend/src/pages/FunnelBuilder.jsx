@@ -301,6 +301,7 @@ export default function FunnelBuilder() {
     setFunnelPages([]);
     setNeedsPages(null);
     setResult(null);
+    setLogLines([]);
 
     try {
       const resp = await fetch(`/funnel-builder/generate-from-design`, {
@@ -335,7 +336,11 @@ export default function FunnelBuilder() {
           if (!eventLine || !dataLine) continue;
           try {
             const d = JSON.parse(dataLine);
-            if (eventLine === 'start') {
+            if (eventLine === 'log') {
+              setLogLines(prev => [...prev, { msg: d.msg, level: d.level || 'info', ts: Date.now() }]);
+            } else if (eventLine === 'error') {
+              toast(setToastState, d.error || 'Design analysis failed.', 'error');
+            } else if (eventLine === 'start') {
               setFunnelPages(d.pages.map(p => ({ ...p, status: 'pending' })));
             } else if (eventLine === 'page_start') {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'running', pageType: d.pageType } : p));
@@ -1086,7 +1091,6 @@ export default function FunnelBuilder() {
                     {funnelPages.map((p, i) => (
                       <div key={p.id} className="flex items-center gap-2">
                         {p.status === 'pending' && <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />}
-                        {p.status === 'pending' && <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />}
                         {p.status === 'running' && <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />}
                         {p.status === 'done'    && <span className="text-emerald-400 flex-shrink-0">✓</span>}
                         {p.status === 'warn'    && <span className="text-yellow-400 flex-shrink-0">⚠</span>}
@@ -1103,6 +1107,43 @@ export default function FunnelBuilder() {
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Inline live log */}
+                {logLines.length > 0 && (
+                  <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Generation Log</p>
+                      {funnelRunning && (
+                        <span className="flex items-center gap-1.5 text-xs text-indigo-400">
+                          <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full" />
+                          Running…
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      ref={logRef}
+                      className="rounded-lg overflow-y-auto text-xs font-mono space-y-0.5"
+                      style={{ background: 'rgba(0,0,0,0.5)', padding: '10px 12px', maxHeight: '220px', border: '1px solid rgba(255,255,255,0.04)' }}
+                    >
+                      {logLines.map((l, i) => (
+                        <div key={i} className="flex items-start gap-2 leading-5">
+                          <span style={{ flexShrink: 0, color: l.level === 'success' ? '#6ee7b7' : l.level === 'error' ? '#f87171' : l.level === 'warn' ? '#fbbf24' : '#6b7280' }}>
+                            {l.level === 'success' ? '✓' : l.level === 'error' ? '✗' : l.level === 'warn' ? '⚠' : '›'}
+                          </span>
+                          <span style={{ color: l.level === 'success' ? '#a7f3d0' : l.level === 'error' ? '#fca5a5' : l.level === 'warn' ? '#fde68a' : '#9ca3af' }}>
+                            {l.msg}
+                          </span>
+                        </div>
+                      ))}
+                      {funnelRunning && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="animate-pulse" style={{ color: '#6b7280' }}>›</span>
+                          <span className="animate-pulse" style={{ color: '#4b5563' }}>_</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </form>
@@ -1295,7 +1336,7 @@ export default function FunnelBuilder() {
             <section className="glass rounded-xl p-4 mb-5">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Generation Log</p>
-                {(generating || funnelRunning) && (
+                {(generating || funnelRunning || analyzing) && (
                   <span className="flex items-center gap-1.5 text-xs text-indigo-400">
                     <span className="animate-spin w-3 h-3 border border-indigo-400 border-t-transparent rounded-full" />
                     Running…
@@ -1317,7 +1358,7 @@ export default function FunnelBuilder() {
                     </span>
                   </div>
                 ))}
-                {(generating || funnelRunning) && (
+                {(generating || funnelRunning || analyzing) && (
                   <div className="flex items-center gap-2 mt-1">
                     <span className="animate-pulse" style={{ color: '#6b7280' }}>›</span>
                     <span className="animate-pulse" style={{ color: '#4b5563' }}>_</span>
