@@ -1854,10 +1854,11 @@ Output ONLY the JSON object. No explanation.`;
       send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, warning: warn || undefined });
       results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length, warning: warn || undefined });
     } catch (err) {
-      console.error(`[FunnelBuilder] Save error for "${page.name}":`, err.message);
-      send('log', { msg: `Save failed for "${page.name}": ${err.message}`, level: 'error' });
-      send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
-      results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
+      const errMsg = err?.message || String(err);
+      console.error(`[FunnelBuilder] Save error for "${page.name}":`, errMsg);
+      send('log', { msg: `Save failed for "${page.name}": ${errMsg}`, level: 'error' });
+      send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${errMsg}` });
+      results.push({ pageId: page.id, name: page.name, success: false, error: errMsg });
     }
   }
 
@@ -3145,7 +3146,7 @@ Return ONLY the completed JSON object with real copy. No explanations.`;
         break;
       } catch (err) {
         genError = err;
-        send('log', { msg: `[${i+1}/${pages.length}] AI attempt ${attempt} failed: ${err.message.slice(0, 80)}`, level: 'warn' });
+        send('log', { msg: `[${i+1}/${pages.length}] AI attempt ${attempt} failed: ${(err?.message || String(err)).slice(0, 80)}`, level: 'warn' });
       }
     }
     if (genError) {
@@ -3202,15 +3203,16 @@ Return ONLY the completed JSON object with real copy. No explanations.`;
           send('log', { msg: `[${i+1}/${pages.length}] GHL copilot save returned ${copilotRes.status} — Firestore write still active`, level: 'warn' });
         }
       } catch (putErr) {
-        send('log', { msg: `[${i+1}/${pages.length}] GHL copilot save error: ${putErr.message.slice(0, 80)}`, level: 'warn' });
+        send('log', { msg: `[${i+1}/${pages.length}] GHL copilot save error: ${(putErr?.message || String(putErr)).slice(0, 80)}`, level: 'warn' });
       }
 
       send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, warning: warn || undefined });
       results.push({ pageId: page.id, name: page.name, pageType, success: true, sectionsCount: pageJson.sections.length, warning: warn || undefined });
     } catch (err) {
-      send('log', { msg: `[${i+1}/${pages.length}] Save error: ${err.message.slice(0, 120)}`, level: 'error' });
-      send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${err.message}` });
-      results.push({ pageId: page.id, name: page.name, success: false, error: err.message });
+      const errMsg = err?.message || String(err);
+      send('log', { msg: `[${i+1}/${pages.length}] Save error: ${errMsg.slice(0, 120)}`, level: 'error' });
+      send('page_error', { index: i, pageId: page.id, name: page.name, error: `Save failed: ${errMsg}` });
+      results.push({ pageId: page.id, name: page.name, success: false, error: errMsg });
     }
 
     // Pace between pages for Groq TPM
