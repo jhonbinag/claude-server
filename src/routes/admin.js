@@ -707,11 +707,20 @@ router.get('/locations/:id/custom-roles', async (req, res) => {
   const locationId = req.params.id;
   try {
     const custom = await roleService.getCustomRoles(locationId);
+    // Merge per-location overrides into built-in role definitions
+    const builtinRoles = Object.values(roleService.BUILTIN_ROLES).map(r => ({
+      ...r,
+      ...(custom[r.id] ? { features: custom[r.id].features, overridden: true } : {}),
+    }));
+    // Only return truly custom (non-builtin) roles in customRoles
+    const customOnly = Object.values(custom).filter(
+      r => !roleService.BUILTIN_ROLE_KEYS.includes(r.id)
+    );
     res.json({
       success: true,
-      builtinRoles: Object.values(roleService.BUILTIN_ROLES),
-      customRoles:  Object.values(custom),
-      allFeatures:  roleService.ALL_FEATURES,
+      builtinRoles,
+      customRoles: customOnly,
+      allFeatures: roleService.ALL_FEATURES,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

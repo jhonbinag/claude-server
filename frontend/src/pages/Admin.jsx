@@ -1309,6 +1309,7 @@ export default function Admin() {
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <span style={{ color, fontWeight: 700, fontSize: 14, textTransform: 'capitalize' }}>{r.name}</span>
                                 <span style={{ background: '#111', color: '#4b5563', fontSize: 10, padding: '1px 7px', borderRadius: 8 }}>built-in</span>
+                                {r.overridden && <span style={{ background: '#78350f', color: '#fbbf24', fontSize: 10, padding: '1px 7px', borderRadius: 8 }}>customized</span>}
                               </div>
                               <button onClick={() => setRoleModal({ mode: 'edit', role: r, isBuiltin: true })}
                                 style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>✏️ Edit</button>
@@ -1389,7 +1390,7 @@ export default function Admin() {
                 onSaved={(saved, isNew) => {
                   setRoleModal(null);
                   if (saved.builtin) {
-                    setBuiltinRoles(prev => prev.map(r => r.id === saved.id ? saved : r));
+                    setBuiltinRoles(prev => prev.map(r => r.id === saved.id ? { ...saved, overridden: true } : r));
                   } else if (isNew) {
                     setCustomRoles(prev => [...prev, saved]);
                   } else {
@@ -1399,7 +1400,7 @@ export default function Admin() {
                 }}
                 onReset={(reset) => {
                   setRoleModal(null);
-                  setBuiltinRoles(prev => prev.map(r => r.id === reset.id ? reset : r));
+                  setBuiltinRoles(prev => prev.map(r => r.id === reset.id ? { ...reset, overridden: false } : r));
                   flash(`✓ "${reset.name}" role reset to defaults`);
                 }}
                 onFlash={flash}
