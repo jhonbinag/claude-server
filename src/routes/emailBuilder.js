@@ -43,29 +43,54 @@ function parseJsonSafe(raw) {
   }
 }
 
-// ─── Render plain HTML for the html field in /emails/builder/data ─────────────
+// ─── Render HTML fallback (used for the html field in /emails/builder/data) ───
 
-function renderEmailHtml(content, colors) {
+function renderEmailHtml(c, colors) {
   const { primaryColor = '#4f46e5', bgColor = '#ffffff', textColor = '#111827' } = colors;
-  const bodyParas = (content.body || '').split('\n').filter(Boolean)
-    .map(p => `<p style="color:${textColor};font-size:15px;line-height:1.7;margin:0 0 14px 0;">${p}</p>`).join('');
-  return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${content.subject || ''}</title></head>
+  const painHtml = (c.painPoints || []).map(p =>
+    `<li style="margin:0 0 8px;font-size:15px;color:${textColor};line-height:1.6;">${p}</li>`).join('');
+  const benefitHtml = (c.benefits || []).map(b =>
+    `<li style="margin:0 0 8px;font-size:15px;color:${textColor};line-height:1.6;"><strong>${b.split(':')[0]}</strong>${b.includes(':') ? ': ' + b.split(':').slice(1).join(':') : ''}</li>`).join('');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>${c.subject || ''}</title></head>
 <body style="margin:0;padding:0;background:${bgColor};font-family:Arial,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:${primaryColor};">
+  <tr><td style="padding:48px 40px 40px;text-align:center;">
+    <p style="margin:0 0 8px;font-size:13px;font-weight:600;letter-spacing:2px;color:rgba(255,255,255,0.7);text-transform:uppercase;">${c.preheadLabel || ''}</p>
+    <h1 style="margin:0 0 16px;font-size:34px;font-weight:bold;line-height:1.2;color:#fff;">${c.headline || ''}</h1>
+    <p style="margin:0;font-size:17px;line-height:1.6;color:rgba(255,255,255,0.88);">${c.subheadline || ''}</p>
+  </td></tr>
+</table>
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:${bgColor};">
-  <tr><td style="padding:30px 40px 10px;">
-    <h1 style="color:${textColor};font-size:32px;font-weight:bold;line-height:1.2;margin:0 0 12px 0;">${content.headline || ''}</h1>
-    <p style="color:#6b7280;font-size:16px;line-height:1.6;margin:0;">${content.subheadline || ''}</p>
+  <tr><td style="padding:36px 40px 10px;">
+    <p style="margin:0 0 16px;font-size:20px;font-weight:bold;color:${textColor};line-height:1.4;">${c.hook || ''}</p>
+    <p style="margin:0;font-size:15px;line-height:1.8;color:${textColor};">${c.openingPara || ''}</p>
   </td></tr>
-  <tr><td style="padding:10px 40px;">${bodyParas}</td></tr>
-  <tr><td style="padding:20px 40px 30px;text-align:center;">
-    <a href="${content.ctaUrl || '#'}" style="display:inline-block;background:${primaryColor};color:#fff;font-size:16px;font-weight:bold;text-decoration:none;padding:14px 40px;border-radius:8px;">${content.ctaText || 'Get Started'}</a>
+  ${painHtml ? `<tr><td style="padding:10px 40px 24px;">
+    <p style="margin:0 0 12px;font-size:16px;font-weight:bold;color:${textColor};">Sound familiar?</p>
+    <ul style="margin:0;padding-left:20px;">${painHtml}</ul>
+  </td></tr>` : ''}
+  <tr><td style="padding:10px 40px 24px;">
+    <p style="margin:0;font-size:15px;line-height:1.8;color:${textColor};">${c.transitionText || ''}</p>
   </td></tr>
-  <tr><td style="padding:20px 40px;background:#f9fafb;border-top:1px solid #e5e7eb;">
-    <p style="color:#9ca3af;font-size:12px;text-align:center;line-height:1.6;margin:0;">
-      ${content.footer || ''}<br><a href="{{unsubscribe_link}}" style="color:#9ca3af;">Unsubscribe</a>
+  <tr><td style="padding:0 40px 24px;">
+    <p style="margin:0;font-size:15px;line-height:1.8;color:${textColor};">${c.solutionPara || ''}</p>
+  </td></tr>
+  ${benefitHtml ? `<tr><td style="padding:0 40px 24px;">
+    <p style="margin:0 0 12px;font-size:16px;font-weight:bold;color:${textColor};">Here's what you get:</p>
+    <ul style="margin:0;padding-left:20px;">${benefitHtml}</ul>
+  </td></tr>` : ''}
+  <tr><td style="padding:0 40px 10px;">
+    <p style="margin:0;font-size:15px;line-height:1.8;color:${textColor};">${c.closingPara || ''}</p>
+  </td></tr>
+  <tr><td style="padding:24px 40px 8px;text-align:center;">
+    <a href="${c.ctaUrl || '#'}" style="display:inline-block;background:${primaryColor};color:#fff;font-size:17px;font-weight:bold;text-decoration:none;padding:16px 44px;border-radius:8px;">${c.ctaText || 'Get Started'}</a>
+    ${c.ctaSubtext ? `<p style="margin:12px 0 0;font-size:13px;color:#6b7280;">${c.ctaSubtext}</p>` : ''}
+  </td></tr>
+  <tr><td style="padding:32px 40px 24px;border-top:1px solid #e5e7eb;margin-top:32px;">
+    <p style="margin:0;font-size:13px;color:#9ca3af;text-align:center;line-height:1.6;">
+      ${c.footer || ''}<br><a href="{{unsubscribe_link}}" style="color:#9ca3af;">Unsubscribe</a>
     </p>
   </td></tr>
 </table></td></tr></table>
@@ -73,23 +98,13 @@ function renderEmailHtml(content, colors) {
 }
 
 // ─── GHL Native MJML DND builder ──────────────────────────────────────────────
-// GHL email builder uses MJML-style elements (mj-section → mj-column → mj-text/mj-button).
-// dnd.elements = tree of {id, tagName, children[]}
-// dnd.attrs    = flat map keyed by id, value = {tagName, attributes[], content?}
 
 function mkId(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
-
-function sectionNode(id, children) {
-  return { id, tagName: 'mj-section', children };
-}
-function columnNode(id, children) {
-  return { id, tagName: 'mj-column', children };
-}
-function leafNode(id, tagName) {
-  return { id, tagName };
-}
+function sectionNode(id, children) { return { id, tagName: 'mj-section', children }; }
+function columnNode(id, children)  { return { id, tagName: 'mj-column', children }; }
+function leafNode(id, tagName)     { return { id, tagName }; }
 
 function sectionAttrs(bgColor, paddingTop = 24, paddingBottom = 24, title = '', desc = '') {
   return {
@@ -98,82 +113,79 @@ function sectionAttrs(bgColor, paddingTop = 24, paddingBottom = 24, title = '', 
       { name: 'data-section-title', default: title },
       { name: 'data-section-description', default: desc },
       { name: 'background-color', default: bgColor },
-      { name: 'padding-top', default: paddingTop, unit: 'px' },
+      { name: 'padding-top',    default: paddingTop,    unit: 'px' },
       { name: 'padding-bottom', default: paddingBottom, unit: 'px' },
-      { name: 'padding-left', default: 20, unit: 'px' },
-      { name: 'padding-right', default: 20, unit: 'px' },
+      { name: 'padding-left',   default: 20, unit: 'px' },
+      { name: 'padding-right',  default: 20, unit: 'px' },
       { name: 'enable-padding', default: true },
       { name: 'background-url', default: '' },
       { name: 'background-size', default: '' },
       { name: 'background-repeat', default: '' },
       { name: 'background-position', default: '' },
       { name: 'text-align', default: 'center' },
-      { name: 'direction', default: 'ltr' },
+      { name: 'direction',  default: 'ltr' },
       { name: 'border-radius', default: 0, unit: 'px' },
       { name: 'full-width', default: false },
     ],
     customFlags: { layoutId: 1 },
   };
 }
-
 function columnAttrs() {
   return {
     tagName: 'mj-column',
     attributes: [
       { name: 'width', default: 100, unit: '%' },
       { name: 'enable-padding', default: true },
-      { name: 'padding-top', default: 0, unit: 'px' },
+      { name: 'padding-top',    default: 0, unit: 'px' },
       { name: 'padding-bottom', default: 0, unit: 'px' },
-      { name: 'padding-left', default: 0, unit: 'px' },
-      { name: 'padding-right', default: 0, unit: 'px' },
+      { name: 'padding-left',   default: 0, unit: 'px' },
+      { name: 'padding-right',  default: 0, unit: 'px' },
       { name: 'background-color', default: '' },
-      { name: 'border-radius', default: 0, unit: 'px' },
-      { name: 'vertical-align', default: 'top' },
+      { name: 'border-radius',    default: 0, unit: 'px' },
+      { name: 'vertical-align',   default: 'top' },
     ],
   };
 }
-
-function textAttrs(html, { align = 'center', fontSize = 14, pt = 12, pb = 12, pl = 24, pr = 24 } = {}) {
+function textAttrs(html, { align = 'left', fontSize = 15, pt = 12, pb = 12, pl = 32, pr = 32 } = {}) {
   return {
     tagName: 'mj-text',
     attributes: [
-      { name: 'align', default: align },
+      { name: 'align',          default: align },
       { name: 'enable-padding', default: true },
-      { name: 'padding-top', default: pt, unit: 'px' },
-      { name: 'padding-bottom', default: pb, unit: 'px' },
-      { name: 'padding-left', default: pl, unit: 'px' },
-      { name: 'padding-right', default: pr, unit: 'px' },
-      { name: 'line-height', default: 1.5 },
-      { name: 'font-family', default: 'Arial, Helvetica, sans-serif' },
-      { name: 'font-size', default: fontSize, unit: 'px' },
-      { name: 'height', default: null, unit: 'px' },
+      { name: 'padding-top',    default: pt,  unit: 'px' },
+      { name: 'padding-bottom', default: pb,  unit: 'px' },
+      { name: 'padding-left',   default: pl,  unit: 'px' },
+      { name: 'padding-right',  default: pr,  unit: 'px' },
+      { name: 'line-height',    default: 1.6 },
+      { name: 'font-family',    default: 'Arial, Helvetica, sans-serif' },
+      { name: 'font-size',      default: fontSize, unit: 'px' },
+      { name: 'height',         default: null, unit: 'px' },
       { name: 'container-background-color', default: '' },
     ],
     content: html,
   };
 }
-
 function buttonAttrs(label, href, bgColor = '#4f46e5', color = '#FFFFFF') {
   return {
     tagName: 'mj-button',
     attributes: [
-      { name: 'href', default: href || '#' },
-      { name: 'align', default: 'center' },
+      { name: 'href',   default: href || '#' },
+      { name: 'align',  default: 'center' },
       { name: 'background-color', default: bgColor },
-      { name: 'color', default: color },
+      { name: 'color',  default: color },
       { name: 'border-radius', default: 8, unit: 'px' },
-      { name: 'border-top-left-radius', default: 8, unit: 'px' },
-      { name: 'border-top-right-radius', default: 8, unit: 'px' },
-      { name: 'border-bottom-left-radius', default: 8, unit: 'px' },
+      { name: 'border-top-left-radius',     default: 8, unit: 'px' },
+      { name: 'border-top-right-radius',    default: 8, unit: 'px' },
+      { name: 'border-bottom-left-radius',  default: 8, unit: 'px' },
       { name: 'border-bottom-right-radius', default: 8, unit: 'px' },
-      { name: 'inner-padding', default: '16px 40px' },
-      { name: 'font-size', default: 16, unit: 'px' },
-      { name: 'font-weight', default: 600 },
+      { name: 'inner-padding', default: '18px 48px' },
+      { name: 'font-size',   default: 17, unit: 'px' },
+      { name: 'font-weight', default: 700 },
       { name: 'enable-padding', default: true },
-      { name: 'padding-top', default: 10, unit: 'px' },
+      { name: 'padding-top',    default: 10, unit: 'px' },
       { name: 'padding-bottom', default: 10, unit: 'px' },
-      { name: 'padding-left', default: 20, unit: 'px' },
-      { name: 'padding-right', default: 20, unit: 'px' },
+      { name: 'padding-left',   default: 20, unit: 'px' },
+      { name: 'padding-right',  default: 20, unit: 'px' },
       { name: 'width', default: '' },
       { name: 'font-family', default: 'Ubuntu, Helvetica, Arial, sans-serif' },
       { name: 'action', default: 'url' },
@@ -183,87 +195,168 @@ function buttonAttrs(label, href, bgColor = '#4f46e5', color = '#FFFFFF') {
   };
 }
 
-function buildMjmlDnd(content, colors) {
+function buildMjmlDnd(c, colors) {
   const { primaryColor = '#4f46e5', bgColor = '#ffffff', textColor = '#111827' } = colors;
-  const bodyParas = (content.body || '').split('\n').filter(Boolean);
+  const painPoints = c.painPoints || [];
+  const benefits   = c.benefits   || [];
 
-  // — IDs —
-  const preSecId  = mkId('mj-section'), preColId  = mkId('mj-column'), preTxtId  = mkId('mj-text');
-  const heroSecId = mkId('mj-section'), heroColId = mkId('mj-column');
-  const heroH1Id  = mkId('mj-text'),   heroSubId  = mkId('mj-text'),   heroBtnId = mkId('mj-button');
-  const bodySecId = mkId('mj-section'), bodyColId = mkId('mj-column');
-  const bodyParaIds = bodyParas.map(() => mkId('mj-text'));
-  const ctaSecId  = mkId('mj-section'), ctaColId  = mkId('mj-column'), ctaBtnId  = mkId('mj-button');
-  const footSecId = mkId('mj-section'), footColId = mkId('mj-column'), footTxtId = mkId('mj-text');
+  // ─ IDs ─
+  const preSecId   = mkId('mj-section'), preColId   = mkId('mj-column'), preTxtId   = mkId('mj-text');
+  const heroSecId  = mkId('mj-section'), heroColId  = mkId('mj-column');
+  const heroLabelId = mkId('mj-text'), heroH1Id = mkId('mj-text'), heroSubId = mkId('mj-text');
+  const hookSecId  = mkId('mj-section'), hookColId  = mkId('mj-column');
+  const hookTxtId  = mkId('mj-text'), openTxtId = mkId('mj-text');
+  const painSecId  = mkId('mj-section'), painColId  = mkId('mj-column');
+  const painHdrId  = mkId('mj-text'),  painListId = mkId('mj-text');
+  const tranSecId  = mkId('mj-section'), tranColId  = mkId('mj-column'), tranTxtId  = mkId('mj-text');
+  const solSecId   = mkId('mj-section'), solColId   = mkId('mj-column'), solTxtId   = mkId('mj-text');
+  const benSecId   = mkId('mj-section'), benColId   = mkId('mj-column');
+  const benHdrId   = mkId('mj-text'),  benListId  = mkId('mj-text');
+  const closeSecId = mkId('mj-section'), closeColId = mkId('mj-column'), closeTxtId = mkId('mj-text');
+  const ctaSecId   = mkId('mj-section'), ctaColId   = mkId('mj-column');
+  const ctaBtnId   = mkId('mj-button'), ctaSubId   = mkId('mj-text');
+  const footSecId  = mkId('mj-section'), footColId  = mkId('mj-column'), footTxtId  = mkId('mj-text');
 
-  // — Tree —
+  // ─ Tree ─
   const elements = [
-    sectionNode(preSecId, [
-      columnNode(preColId, [leafNode(preTxtId, 'mj-text')]),
-    ]),
-    sectionNode(heroSecId, [
-      columnNode(heroColId, [
-        leafNode(heroH1Id,  'mj-text'),
-        leafNode(heroSubId, 'mj-text'),
-        leafNode(heroBtnId, 'mj-button'),
-      ]),
-    ]),
-    sectionNode(bodySecId, [
-      columnNode(bodyColId, bodyParaIds.map(id => leafNode(id, 'mj-text'))),
-    ]),
-    sectionNode(ctaSecId, [
-      columnNode(ctaColId, [leafNode(ctaBtnId, 'mj-button')]),
-    ]),
-    sectionNode(footSecId, [
-      columnNode(footColId, [leafNode(footTxtId, 'mj-text')]),
-    ]),
+    sectionNode(preSecId,  [columnNode(preColId,  [leafNode(preTxtId, 'mj-text')])]),
+    sectionNode(heroSecId, [columnNode(heroColId, [
+      leafNode(heroLabelId, 'mj-text'),
+      leafNode(heroH1Id,    'mj-text'),
+      leafNode(heroSubId,   'mj-text'),
+    ])]),
+    sectionNode(hookSecId, [columnNode(hookColId, [
+      leafNode(hookTxtId,  'mj-text'),
+      leafNode(openTxtId,  'mj-text'),
+    ])]),
+    sectionNode(painSecId, [columnNode(painColId, [
+      leafNode(painHdrId,  'mj-text'),
+      leafNode(painListId, 'mj-text'),
+    ])]),
+    sectionNode(tranSecId, [columnNode(tranColId, [leafNode(tranTxtId, 'mj-text')])]),
+    sectionNode(solSecId,  [columnNode(solColId,  [leafNode(solTxtId,  'mj-text')])]),
+    sectionNode(benSecId,  [columnNode(benColId,  [
+      leafNode(benHdrId,  'mj-text'),
+      leafNode(benListId, 'mj-text'),
+    ])]),
+    sectionNode(closeSecId,[columnNode(closeColId,[leafNode(closeTxtId,'mj-text')])]),
+    sectionNode(ctaSecId,  [columnNode(ctaColId,  [
+      leafNode(ctaBtnId, 'mj-button'),
+      leafNode(ctaSubId, 'mj-text'),
+    ])]),
+    sectionNode(footSecId, [columnNode(footColId, [leafNode(footTxtId, 'mj-text')])]),
   ];
 
-  // — Attrs map —
+  // ─ Bullet HTML helpers ─
+  const painBullets = painPoints.map(p =>
+    `<p style="margin:0 0 10px;padding-left:20px;position:relative;font-size:15px;line-height:1.7;color:${textColor};"><span style="position:absolute;left:0;">❌</span>${p}</p>`
+  ).join('');
+  const benefitBullets = benefits.map(b => {
+    const [title, ...rest] = b.split(':');
+    return `<p style="margin:0 0 10px;padding-left:20px;position:relative;font-size:15px;line-height:1.7;color:${textColor};"><span style="position:absolute;left:0;">✅</span><strong>${title}</strong>${rest.length ? ': ' + rest.join(':') : ''}</p>`;
+  }).join('');
+
+  // ─ Attrs ─
   const attrs = {
     // Preheader
-    [preSecId]:  sectionAttrs('#f9fafb', 10, 10, 'Preheader', 'Preview text shown in inbox'),
-    [preColId]:  columnAttrs(),
-    [preTxtId]:  textAttrs(
-      `<p style="margin:0;text-align:center;"><span style="font-family:Arial,sans-serif;font-size:12px;color:#6b7280;">${content.previewText || ''}</span></p>`,
-      { align: 'center', fontSize: 12, pt: 10, pb: 10 }
+    [preSecId]: sectionAttrs('#f3f4f6', 8, 8, 'Preheader', ''),
+    [preColId]: columnAttrs(),
+    [preTxtId]: textAttrs(
+      `<p style="margin:0;text-align:center;font-size:12px;color:#6b7280;">${c.previewText || ''}</p>`,
+      { align: 'center', fontSize: 12, pt: 8, pb: 8, pl: 20, pr: 20 }
     ),
 
-    // Hero
-    [heroSecId]: sectionAttrs(primaryColor, 50, 50, 'Hero', 'Main headline and CTA'),
-    [heroColId]: columnAttrs(),
-    [heroH1Id]:  textAttrs(
-      `<h1 style="margin:0;text-align:center;"><span style="font-family:Arial,sans-serif;font-size:36px;font-weight:bold;line-height:1.2;color:#ffffff;">${(content.headline || '').replace(/\*\*/g, '')}</span></h1>`,
-      { align: 'center', fontSize: 36, pt: 16, pb: 8 }
+    // Hero (primary color bg)
+    [heroSecId]:   sectionAttrs(primaryColor, 48, 40, 'Hero', 'Main headline'),
+    [heroColId]:   columnAttrs(),
+    [heroLabelId]: textAttrs(
+      `<p style="margin:0;font-size:12px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.65);">${c.preheadLabel || c.brandName || ''}</p>`,
+      { align: 'center', fontSize: 12, pt: 0, pb: 10, pl: 32, pr: 32 }
+    ),
+    [heroH1Id]: textAttrs(
+      `<h1 style="margin:0 0 16px;font-size:34px;font-weight:bold;line-height:1.2;color:#ffffff;">${(c.headline || '').replace(/\*\*/g, '')}</h1>`,
+      { align: 'center', fontSize: 34, pt: 0, pb: 0, pl: 32, pr: 32 }
     ),
     [heroSubId]: textAttrs(
-      `<p style="margin:0;text-align:center;"><span style="font-family:Arial,sans-serif;font-size:16px;line-height:1.6;color:rgba(255,255,255,0.9);">${content.subheadline || ''}</span></p>`,
-      { align: 'center', fontSize: 16, pt: 8, pb: 24 }
+      `<p style="margin:0;font-size:17px;line-height:1.6;color:rgba(255,255,255,0.88);">${c.subheadline || ''}</p>`,
+      { align: 'center', fontSize: 17, pt: 14, pb: 0, pl: 32, pr: 32 }
     ),
-    [heroBtnId]: buttonAttrs(content.ctaText || 'Get Started', content.ctaUrl || '#', '#ffffff', primaryColor),
 
-    // Body
-    [bodySecId]: sectionAttrs(bgColor, 40, 40, 'Body', 'Email body content'),
-    [bodyColId]: columnAttrs(),
-    ...Object.fromEntries(bodyParaIds.map((id, i) => [
-      id,
-      textAttrs(
-        `<p style="margin:0;"><span style="font-family:Arial,sans-serif;font-size:15px;line-height:1.7;color:${textColor};">${bodyParas[i]}</span></p>`,
-        { align: 'left', fontSize: 15, pt: i === 0 ? 0 : 14, pb: 14, pl: 32, pr: 32 }
-      ),
-    ])),
+    // Hook + opening paragraph
+    [hookSecId]: sectionAttrs(bgColor, 36, 8, 'Hook', ''),
+    [hookColId]: columnAttrs(),
+    [hookTxtId]: textAttrs(
+      `<p style="margin:0;font-size:20px;font-weight:bold;line-height:1.4;color:${textColor};">${c.hook || ''}</p>`,
+      { align: 'left', fontSize: 20, pt: 0, pb: 16, pl: 32, pr: 32 }
+    ),
+    [openTxtId]: textAttrs(
+      `<p style="margin:0;font-size:15px;line-height:1.8;color:${textColor};">${c.openingPara || ''}</p>`,
+      { align: 'left', fontSize: 15, pt: 0, pb: 0, pl: 32, pr: 32 }
+    ),
 
-    // CTA section
-    [ctaSecId]:  sectionAttrs('#f3f4f6', 40, 40, 'Call to Action', ''),
-    [ctaColId]:  columnAttrs(),
-    [ctaBtnId]:  buttonAttrs(content.ctaText || 'Get Started', content.ctaUrl || '#', primaryColor, '#ffffff'),
+    // Pain points
+    [painSecId]: sectionAttrs('#fff8f8', 28, 24, 'Pain Points', ''),
+    [painColId]: columnAttrs(),
+    [painHdrId]: textAttrs(
+      `<p style="margin:0;font-size:16px;font-weight:bold;color:${textColor};">Sound familiar? You're probably dealing with...</p>`,
+      { align: 'left', fontSize: 16, pt: 0, pb: 16, pl: 32, pr: 32 }
+    ),
+    [painListId]: textAttrs(
+      painBullets || `<p style="margin:0;color:${textColor};">Common challenges that hold you back.</p>`,
+      { align: 'left', fontSize: 15, pt: 0, pb: 0, pl: 32, pr: 32 }
+    ),
+
+    // Transition
+    [tranSecId]: sectionAttrs(bgColor, 28, 8, 'Transition', ''),
+    [tranColId]: columnAttrs(),
+    [tranTxtId]: textAttrs(
+      `<p style="margin:0;font-size:15px;font-style:italic;line-height:1.8;color:#4b5563;">${c.transitionText || ''}</p>`,
+      { align: 'left', fontSize: 15, pt: 0, pb: 0, pl: 32, pr: 32 }
+    ),
+
+    // Solution
+    [solSecId]: sectionAttrs(bgColor, 20, 8, 'Solution', ''),
+    [solColId]: columnAttrs(),
+    [solTxtId]: textAttrs(
+      `<p style="margin:0;font-size:15px;line-height:1.8;color:${textColor};">${c.solutionPara || ''}</p>`,
+      { align: 'left', fontSize: 15, pt: 0, pb: 0, pl: 32, pr: 32 }
+    ),
+
+    // Benefits
+    [benSecId]: sectionAttrs('#f0fdf4', 28, 24, 'Benefits', ''),
+    [benColId]: columnAttrs(),
+    [benHdrId]: textAttrs(
+      `<p style="margin:0;font-size:16px;font-weight:bold;color:${textColor};">Here's exactly what you get:</p>`,
+      { align: 'left', fontSize: 16, pt: 0, pb: 16, pl: 32, pr: 32 }
+    ),
+    [benListId]: textAttrs(
+      benefitBullets || `<p style="margin:0;color:${textColor};">Everything you need to succeed.</p>`,
+      { align: 'left', fontSize: 15, pt: 0, pb: 0, pl: 32, pr: 32 }
+    ),
+
+    // Closing paragraph
+    [closeSecId]: sectionAttrs(bgColor, 28, 8, 'Closing', ''),
+    [closeColId]: columnAttrs(),
+    [closeTxtId]: textAttrs(
+      `<p style="margin:0;font-size:15px;line-height:1.8;color:${textColor};">${c.closingPara || ''}</p>`,
+      { align: 'left', fontSize: 15, pt: 0, pb: 0, pl: 32, pr: 32 }
+    ),
+
+    // CTA
+    [ctaSecId]: sectionAttrs('#f3f4f6', 36, 36, 'CTA', ''),
+    [ctaColId]: columnAttrs(),
+    [ctaBtnId]: buttonAttrs(c.ctaText || 'Get Started', c.ctaUrl || '#', primaryColor, '#ffffff'),
+    [ctaSubId]: textAttrs(
+      `<p style="margin:0;font-size:13px;color:#6b7280;text-align:center;">${c.ctaSubtext || ''}</p>`,
+      { align: 'center', fontSize: 13, pt: 12, pb: 0, pl: 24, pr: 24 }
+    ),
 
     // Footer
-    [footSecId]: sectionAttrs('#f9fafb', 20, 20, 'Footer', 'Unsubscribe and legal'),
+    [footSecId]: sectionAttrs('#f9fafb', 24, 24, 'Footer', ''),
     [footColId]: columnAttrs(),
     [footTxtId]: textAttrs(
-      `<p style="margin:0;text-align:center;"><span style="font-family:Arial,sans-serif;font-size:12px;line-height:1.6;color:#9ca3af;">${content.footer || ''}<br><a href="{{unsubscribe_link}}" style="color:#9ca3af;">Unsubscribe</a></span></p>`,
-      { align: 'center', fontSize: 12, pt: 10, pb: 10 }
+      `<p style="margin:0;font-size:12px;line-height:1.6;color:#9ca3af;text-align:center;">${c.footer || ''}<br><a href="{{unsubscribe_link}}" style="color:#9ca3af;">Unsubscribe</a></p>`,
+      { align: 'center', fontSize: 12, pt: 10, pb: 10, pl: 20, pr: 20 }
     ),
   };
 
@@ -273,59 +366,91 @@ function buildMjmlDnd(content, colors) {
 // ─── AI: generate email content ───────────────────────────────────────────────
 
 const EMAIL_TYPE_CONTEXT = {
-  welcome:      'Welcome email — warm, celebratory, sets expectations, delivers first value',
-  promotional:  'Promotional email — compelling offer, clear value, urgency, strong CTA',
-  newsletter:   'Newsletter — educational, valuable insights, builds relationship, soft CTA',
-  followup:     'Follow-up email — re-engages, reminds of value, overcomes objections',
-  reengagement: 'Re-engagement — acknowledges silence, offers new value, asks to reconnect',
-  announcement: 'Announcement email — exciting news, clear details, action-oriented',
+  welcome:      'Welcome email — warm, celebratory, feels like a message from a friend, sets expectations, delivers immediate value',
+  promotional:  'Promotional/offer email — creates desire not urgency, leads with value, makes the offer feel obvious',
+  newsletter:   'Newsletter — teaches something genuinely useful, builds trust, soft CTA that feels natural',
+  followup:     'Follow-up — picks up a conversation, acknowledges they haven\'t responded, removes friction and objection',
+  reengagement: 'Re-engagement — acknowledges the gap, brings something new and valuable, makes coming back feel easy',
+  announcement: 'Announcement — big news told with energy, makes the reader feel part of something exciting',
 };
 
 async function generateEmailContent(brief) {
   const { campaignName, subject, emailType, niche, offer, audience, tone, ctaText, ctaUrl, brandName } = brief;
   const typeCtx = EMAIL_TYPE_CONTEXT[emailType] || EMAIL_TYPE_CONTEXT.promotional;
 
-  const system = `You are a world-class email copywriter who writes emails that get opened, read, and clicked. You write in a human, conversational tone — never corporate or generic. Return only valid JSON.`;
+  const system = `You are a direct-response email copywriter with 15+ years of experience writing emails that generate millions in revenue. You write like a human, not a brand. Your emails feel personal, honest, and insightful — never salesy or corporate. You understand buyer psychology deeply: you lead with pain, build empathy, then present the solution as the obvious next step.
 
-  const user = `Write a complete, high-converting email for this campaign:
+Your emails always have:
+- A scroll-stopping hook that makes the reader think "this is about me"
+- Specific pain points that make readers feel understood
+- A clear, logical bridge from problem to solution
+- Benefits written as outcomes, not features
+- A CTA that feels inevitable, not pushy
+
+Return only valid JSON — no markdown, no extra text.`;
+
+  const user = `Write a full direct-response email for this campaign. Make it feel human, personal, and specific — not generic.
 
 Campaign: ${campaignName}
-Subject (hint — you may refine it): ${subject}
 Email Type: ${typeCtx}
-Niche/Topic: ${niche}
-Offer/Product: ${offer || 'their core product/service'}
-Audience: ${audience || 'subscribers'}
-Tone: ${tone || 'professional and warm'}
-Brand Name: ${brandName || 'the brand'}
-CTA Button: "${ctaText || 'Get Started'}" → ${ctaUrl || '#'}
+Niche/Industry: ${niche}
+Offer/Product: ${offer || 'their main product or service'}
+Target Audience: ${audience || 'ideal customers'}
+Tone: ${tone || 'conversational and direct — like a trusted advisor, not a salesperson'}
+Brand: ${brandName || 'the business'}
+CTA: "${ctaText || 'Get Started'}" → ${ctaUrl || '#'}
 
-Rules:
-1. Subject line — specific, curiosity-driven, 6-8 words max
-2. Preview text — expands on subject, creates urgency/curiosity, 80-100 chars
-3. Headline — bold, benefit-focused, 8-12 words, NO markdown bold markers
-4. Subheadline — supports headline, adds specificity, 1 sentence
-5. Body — 3-4 paragraphs, each 2-3 sentences. Conversational, no fluff. Each paragraph on its own line separated by \\n\\n.
-6. Footer — short legal-friendly unsubscribe notice
+Writing rules:
+- Hook: 1 bold punchy sentence that calls out the reader's exact situation. No "Hi" or "I hope this finds you well". Start with something they feel immediately.
+- Opening paragraph: 2-3 sentences of empathy and context. Make them nod their head.
+- Pain points: 3-5 specific, tangible pains this audience actually feels. Be precise. Use their language.
+- Transition: 1-2 sentences that pivot from "here's the problem" to "here's what changed for others"
+- Solution paragraph: 2-3 sentences explaining the offer as a solution — no fluff, no hype
+- Benefits: 4-6 concrete outcomes. Format as "Outcome: brief explanation". Focus on transformation, not features.
+- Closing paragraph: 1-2 sentences creating natural urgency or a final emotional nudge. No fake scarcity.
+- CTA text: Action-oriented and specific. Not just "Click here". Something they want to do.
+- CTA subtext: A short trust line (guarantee, social proof number, or risk reducer)
+- Subject: 6-9 words, curiosity-driven or calls out the pain. No emojis. No all-caps.
+- Preview text: 80-100 chars that expand on the subject and pull them in
 
-Return this exact JSON:
+Return this exact JSON structure:
 {
-  "subject": "refined subject line",
-  "previewText": "90-char preview text",
+  "subject": "subject line",
+  "previewText": "80-100 char preview text",
   "brandName": "${brandName || niche}",
-  "headline": "bold email headline — NO asterisks or markdown",
-  "subheadline": "one supporting sentence",
-  "body": "paragraph 1\\n\\nparagraph 2\\n\\nparagraph 3",
-  "ctaText": "${ctaText || 'Get Started'}",
+  "preheadLabel": "short category label e.g. 'For ${audience || 'Business Owners'}' or the brand name",
+  "headline": "Bold headline — the big promise or transformation (NO asterisks/markdown)",
+  "subheadline": "One sentence that adds specificity or credibility to the headline",
+  "hook": "The opening hook sentence — the one that stops the scroll. Call out their exact situation.",
+  "openingPara": "2-3 sentence empathy paragraph. No line breaks, just one flowing block.",
+  "painPoints": [
+    "Specific pain point 1 — be precise, use their language",
+    "Specific pain point 2",
+    "Specific pain point 3",
+    "Specific pain point 4"
+  ],
+  "transitionText": "1-2 sentence bridge from pain to solution. Empathetic, not dismissive.",
+  "solutionPara": "2-3 sentences on how the offer solves the above. Specific. No hype words like 'revolutionary' or 'game-changing'.",
+  "benefits": [
+    "Outcome title: brief specific explanation of what they gain",
+    "Outcome title: brief specific explanation",
+    "Outcome title: brief specific explanation",
+    "Outcome title: brief specific explanation",
+    "Outcome title: brief specific explanation"
+  ],
+  "closingPara": "1-2 sentences — final emotional nudge or natural urgency. Don't say 'limited time offer'.",
+  "ctaText": "${ctaText || 'specific action-oriented CTA'}",
   "ctaUrl": "${ctaUrl || '#'}",
-  "footer": "short footer / unsubscribe notice",
+  "ctaSubtext": "Short trust line — guarantee, proof, or risk reducer",
+  "footer": "1 sentence — warm sign-off or brand tagline",
   "suggestedColors": {
-    "primaryColor": "#hex",
+    "primaryColor": "#hex that fits this niche and tone",
     "bgColor": "#ffffff",
-    "textColor": "#111827"
+    "textColor": "#1a1a2e"
   }
 }`;
 
-  const raw = await aiService.generate(system, user, { maxTokens: 1200 });
+  const raw = await aiService.generate(system, user, { maxTokens: 2000 });
   return parseJsonSafe(raw);
 }
 
@@ -339,7 +464,7 @@ router.post('/generate', async (req, res) => {
     niche        = '',
     offer        = '',
     audience     = '',
-    tone         = 'professional and warm',
+    tone         = 'conversational and direct',
     ctaText      = 'Get Started',
     ctaUrl       = '',
     brandName    = '',
@@ -349,7 +474,6 @@ router.post('/generate', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Provide at least a niche or subject.' });
   }
 
-  // SSE setup
   res.setHeader('Content-Type',      'text/event-stream');
   res.setHeader('Cache-Control',     'no-cache');
   res.setHeader('Connection',        'keep-alive');
@@ -359,78 +483,60 @@ router.post('/generate', async (req, res) => {
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
   try {
-    // ── Step 1: Generate email content ────────────────────────────────────
-    send('step', { step: 1, total: 3, label: 'Generating email copy with AI…' });
+    send('step', { step: 1, total: 3, label: 'Writing email copy with AI…' });
 
     const content = await generateEmailContent({ campaignName, subject, emailType, niche, offer, audience, tone, ctaText, ctaUrl, brandName });
     send('content', content);
     send('step', { step: 2, total: 3, label: 'Building native GHL email template…' });
 
-    // ── Step 2: Build MJML DND + HTML ─────────────────────────────────────
-    const colors = content.suggestedColors || { primaryColor: '#4f46e5', bgColor: '#ffffff', textColor: '#111827' };
-    const dnd  = buildMjmlDnd(content, colors);
-    const html = renderEmailHtml(content, colors);
+    const colors = content.suggestedColors || { primaryColor: '#4f46e5', bgColor: '#ffffff', textColor: '#1a1a2e' };
+    const dnd    = buildMjmlDnd(content, colors);
+    const html   = renderEmailHtml(content, colors);
 
-    // ── Step 3a: Create template shell ────────────────────────────────────
-    send('step', { step: 3, total: 3, label: 'Saving draft to GHL email builder…' });
+    send('step', { step: 3, total: 3, label: 'Saving to GHL email builder…' });
 
-    const shellPayload = {
-      locationId: req.locationId,
-      type:       'builder',
-      title:      campaignName,
-      name:       campaignName,
-      builderVersion: '2',
-    };
-
+    // Step 3a: create shell
     let emailId = null;
-    console.log('[EmailBuilder] POST /emails/builder (shell)');
     try {
-      const ghlShell = await ghlClient.ghlRequest(req.locationId, 'POST', '/emails/builder', shellPayload);
-      console.log('[EmailBuilder] shell result:', JSON.stringify(ghlShell || '').slice(0, 200));
-      emailId = ghlShell?.id || ghlShell?.templateId || ghlShell?._id || null;
+      const shell = await ghlClient.ghlRequest(req.locationId, 'POST', '/emails/builder', {
+        locationId: req.locationId,
+        type:       'builder',
+        title:      campaignName,
+        name:       campaignName,
+        builderVersion: '2',
+      });
+      emailId = shell?.id || shell?.templateId || shell?._id || null;
     } catch (e) {
-      console.error('[EmailBuilder] shell error:', e.message);
       const is401 = e.message.includes('401');
-      send('error', { error: is401 ? 'Missing scope: emails/builder.write. Reinstall the app to grant it.' : `GHL error: ${e.message}`, needsReinstall: is401 });
+      send('error', { error: is401 ? 'Missing scope: emails/builder.write. Reinstall the app.' : `GHL error: ${e.message}`, needsReinstall: is401 });
       send('done', { success: false, content, needsReinstall: is401 });
       return res.end();
     }
 
     if (!emailId) {
-      send('error', { error: 'GHL created the template but returned no ID.' });
+      send('error', { error: 'GHL returned no template ID.' });
       send('done', { success: false, content });
       return res.end();
     }
 
-    // ── Step 3b: Save MJML DND content ────────────────────────────────────
-    const dataPayload = {
-      locationId:  req.locationId,
-      templateId:  emailId,
-      updatedBy:   req.locationId,
-      editorType:  'builder',
-      dnd,
-      html,
-      previewText: content.previewText || '',
-    };
-    console.log('[EmailBuilder] POST /emails/builder/data for', emailId);
+    // Step 3b: save dnd content
     try {
-      const ghlData = await ghlClient.ghlRequest(req.locationId, 'POST', '/emails/builder/data', dataPayload);
-      console.log('[EmailBuilder] data result:', JSON.stringify(ghlData || '').slice(0, 200));
+      await ghlClient.ghlRequest(req.locationId, 'POST', '/emails/builder/data', {
+        locationId:  req.locationId,
+        templateId:  emailId,
+        updatedBy:   req.locationId,
+        editorType:  'builder',
+        dnd,
+        html,
+        previewText: content.previewText || '',
+      });
     } catch (e) {
       console.error('[EmailBuilder] data save error (non-fatal):', e.message);
       send('warn', { message: `Template created but content may not have saved: ${e.message}` });
     }
 
-    console.log('[EmailBuilder] done — id:', emailId);
     const editUrl = `https://app.gohighlevel.com/v2/location/${req.locationId}/marketing/email-marketing/email-builder/${emailId}`;
-
-    send('done', {
-      success: true,
-      emailId,
-      editUrl,
-      subject:  content.subject,
-      content,
-    });
+    send('done', { success: true, emailId, editUrl, subject: content.subject, content });
 
   } catch (err) {
     console.error('[EmailBuilder] error:', err.message);
@@ -450,6 +556,5 @@ router.get('/list', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 
 module.exports = router;
