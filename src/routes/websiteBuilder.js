@@ -132,7 +132,7 @@ const PAGE_SECTION_PLANS = {
     { name: 'Our Story',          align: 'left',   bg: 'light',  role: 'Origin story — why this business exists. What problem the founder personally faced, how they found the solution, and why they are now dedicated to helping others. Humanise the brand. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
     { name: 'The Solution',       align: 'left',   bg: 'white',  role: 'Introduce the offer/service as the clear solution. What it is, how it works in simple terms, and the transformation it creates. 1 paragraph + 4–5 specific outcome bullets.', elements: ['heading h2', 'paragraph', 'bulletList'] },
     { name: 'Why Choose Us',      align: 'left',   bg: 'light',  role: '3–4 specific differentiators — NOT generic ("we care about clients"). Real reasons backed by numbers, methods, or unique angles. Bullet list.', elements: ['heading h2', 'bulletList'] },
-    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Real client results and testimonials. Include specific outcomes (numbers, timeframes, before/after). 2 paragraphs written as testimonial-style quotes or case study results.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'THREE-COLUMN testimonial grid. Section heading, then 3 card columns: each card has a photo (image src:"placeholder"), star rating paragraph "⭐⭐⭐⭐⭐", a compelling quote with specific outcome, and client name + result. Use layout:"three-column" and a columns[] array.', elements: ['heading h2', 'image', 'paragraph'] },
     { name: 'How It Works',       align: 'center', bg: 'light',  role: '3-step process — simple numbered steps showing exactly what happens after they sign up or reach out. Keep it frictionless. Bullet list formatted as Step 1, Step 2, Step 3.', elements: ['heading h2', 'bulletList'] },
     { name: 'FAQ',                align: 'left',   bg: 'white',  role: '5 real objection-handling questions. Format each as bold Q followed by honest, reassuring A. Cover: cost concern, time commitment, will it work for me, what if I\'m not happy, how to get started.', elements: ['heading h2', 'paragraph'] },
     { name: 'Newsletter',         align: 'center', bg: 'light',  role: 'Email newsletter signup. Lead with the VALUE of subscribing (tips, resources, insider info). Clear benefit headline, 1 sentence why, CTA button to subscribe.', elements: ['heading h2', 'sub-heading', 'button'] },
@@ -144,7 +144,7 @@ const PAGE_SECTION_PLANS = {
     { name: 'Mission & Values',   align: 'left',   bg: 'light',  role: 'What the brand stands for and against. Mission statement in 1 sentence, then 4 core values with a one-line explanation each. Bullet list format.', elements: ['heading h2', 'paragraph', 'bulletList'] },
     { name: 'Who We Help',        align: 'left',   bg: 'white',  role: 'Specific description of the ideal client — their situation, struggles, goals. Make the right people feel seen and the wrong people self-select out. 1 paragraph + bullet list of "this is for you if..." points.', elements: ['heading h2', 'paragraph', 'bulletList'] },
     { name: 'Credentials',        align: 'left',   bg: 'light',  role: 'Trust signals — years of experience, clients served, certifications, media mentions, awards. Bullet list of specific credibility markers.', elements: ['heading h2', 'bulletList'] },
-    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Client results and testimonials with names and specific outcomes. 2 paragraphs in testimonial format.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'THREE-COLUMN testimonial grid. Section heading, then 3 card columns: each card has a photo (image src:"placeholder"), star rating "⭐⭐⭐⭐⭐", quote with specific outcome, client name + result. Use layout:"three-column" and columns[].', elements: ['heading h2', 'image', 'paragraph'] },
     { name: 'Connect CTA',        align: 'center', bg: 'dark',   role: 'Warm invitation to take the next step. Acknowledge they\'ve read about us — now it\'s time to connect. CTA button to book a call or get in touch.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
   services: [
@@ -153,7 +153,7 @@ const PAGE_SECTION_PLANS = {
     { name: 'Core Services',      align: 'left',   bg: 'light',  role: 'Each service with its specific outcome, not just a name. Format: service name as sub-point, followed by what the client gets and the result. 3–5 services as bullets.', elements: ['heading h2', 'bulletList'] },
     { name: 'What Changes',       align: 'left',   bg: 'white',  role: 'Before/after transformation. Left side pain, right side result. Written as "Before working with us... After working with us..." 1 paragraph each + outcome bullets.', elements: ['heading h2', 'paragraph', 'bulletList'] },
     { name: 'How It Works',       align: 'center', bg: 'light',  role: '3-step process showing the journey from enquiry to result. Simple, low-friction. Bullet list: Step 1, Step 2, Step 3 with a one-line description each.', elements: ['heading h2', 'bulletList'] },
-    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Specific client result story — name, situation, what was done, measurable outcome. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'THREE-COLUMN testimonial grid. Section heading, then 3 card columns: each card has a photo (image src:"placeholder"), star rating "⭐⭐⭐⭐⭐", client quote with measurable result, client name + outcome. Use layout:"three-column" and columns[].', elements: ['heading h2', 'image', 'paragraph'] },
     { name: 'FAQ',                align: 'left',   bg: 'light',  role: '4–5 service-specific objection questions. Format as bold Q + honest A. Cover: pricing, timeline, results guarantee, what\'s included, getting started.', elements: ['heading h2', 'paragraph'] },
     { name: 'Book a Call CTA',    align: 'center', bg: 'dark',   role: 'Strong closing CTA. Restate the #1 outcome. Include what happens on the call (no-pressure discovery). CTA button. Guarantee or risk reversal below the button.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
@@ -161,7 +161,7 @@ const PAGE_SECTION_PLANS = {
     { name: 'Hero Hook',          align: 'center', bg: 'dark',   role: 'Attention-grabbing H1 — bold specific claim or provocative question that speaks to the #1 desire or fear of the audience. Subheadline narrows who this is for and the promise. CTA button immediately.', elements: ['headline h1', 'sub-heading', 'button'] },
     { name: 'Problem Agitation',  align: 'left',   bg: 'white',  role: 'Twist the knife on the pain. Name the exact struggle, failed attempts, wasted money, and emotional frustration. 2 paragraphs that make them think "this person gets me". End with: "There\'s a better way."', elements: ['heading h2', 'paragraph'] },
     { name: 'Introduce Solution', align: 'center', bg: 'light',  role: 'Present the offer as the clear answer. Name it confidently. Explain the core mechanism — WHY it works when other things haven\'t. 1 paragraph + 4–5 outcome bullets.', elements: ['heading h2', 'paragraph', 'bulletList'] },
-    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Specific result from a real client. Name, situation, exact outcome with numbers. Formatted as a compelling mini case study in 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'THREE-COLUMN testimonial grid. Section heading, then 3 card columns: each card has a photo (image src:"placeholder"), star rating "⭐⭐⭐⭐⭐", quote with exact outcome numbers, client name + specific result. Use layout:"three-column" and columns[].', elements: ['heading h2', 'image', 'paragraph'] },
     { name: 'What You Get',       align: 'left',   bg: 'light',  role: 'Deliverables list — exactly what\'s included. Each bullet starts with the deliverable name, then its specific benefit. 5–7 bullets. Make the value feel impossible to say no to.', elements: ['heading h2', 'bulletList'] },
     { name: 'Objection Handling', align: 'left',   bg: 'white',  role: '4 FAQ-style objections. Format as bold Q + honest conversational A. Cover: "Is this for me?", "What if it doesn\'t work?", "How much time does it take?", "Why should I trust you?"', elements: ['heading h2', 'paragraph'] },
     { name: 'Guarantee',          align: 'center', bg: 'light',  role: 'Risk reversal — money-back guarantee or results promise. State it confidently. Explain why you can offer it (confidence in the method). 1 paragraph + CTA button.', elements: ['heading h2', 'paragraph', 'button'] },
@@ -198,7 +198,7 @@ const PAGE_SECTION_PLANS = {
     { name: 'Case Study 1',       align: 'left',   bg: 'light',  role: 'First case study — client type, challenge faced, approach taken, specific measurable result. Written as a mini story: Before → During → After. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
     { name: 'Case Study 2',       align: 'left',   bg: 'white',  role: 'Second case study — different client type to show range. Same Before → During → After structure. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
     { name: 'Results by Numbers', align: 'center', bg: 'light',  role: 'Key metrics and results across all clients. Bullet list of specific numbers — averages, totals, records. e.g. "Average 3.2x ROI for ecom clients".', elements: ['heading h2', 'bulletList'] },
-    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Client testimonials — 2 specific quotes with names and outcomes. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'THREE-COLUMN testimonial grid. Section heading, then 3 card columns: each card has a photo (image src:"placeholder"), star rating "⭐⭐⭐⭐⭐", client quote with specific outcome, client name + result. Use layout:"three-column" and columns[].', elements: ['heading h2', 'image', 'paragraph'] },
     { name: 'Work With Us CTA',   align: 'center', bg: 'dark',   role: 'Invite them to be the next success story. CTA to book a discovery call. Reassure it\'s no-pressure — just a conversation.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
   blog: [
@@ -251,6 +251,7 @@ COPYWRITING RULES — follow these exactly:
 7. PARAGRAPHS: Short. Max 3 sentences. Use <strong>bold</strong> for the most important phrase in each paragraph.
 8. NEWSLETTER: Frame as giving VALUE ("Get weekly tips that...") not asking for something.
 9. TEXT ALIGNMENT: Follow the [align] directive per section — centered sections feel bold/impactful, left-aligned sections feel detailed/trustworthy.
+10. THREE-COLUMN SOCIAL PROOF: When the section role says "THREE-COLUMN layout", you MUST output "layout": "three-column" on the section object AND a "columns" array with exactly 3 objects. Each column's "children" must have: image (src:"placeholder"), stars paragraph, quote paragraph, name+result paragraph. The section's "children" array should contain only the heading.
 
 SECTIONS TO WRITE:
 ${sectionList}
@@ -261,16 +262,38 @@ RETURN THIS EXACT JSON:
   "metaDescription": "Compelling meta description 150–160 chars that makes someone click from Google",
   "sections": [
     {
-      "name": "Section Name",
+      "name": "Hero Hook",
       "textAlign": "center",
       "styles": { "backgroundColor": { "value": "#1a1a2e" } },
       "children": [
         { "type": "headline",    "tag": "h1", "text": "Hook headline — bold, specific, stops the scroll", "styles": { "color": { "value": "#ffffff" } } },
         { "type": "sub-heading",              "text": "Clarifying subheadline — who this is for + outcome", "styles": { "color": { "value": "#cbd5e0" } } },
+        { "type": "image",                    "src": "placeholder", "alt": "Hero visual", "styles": {} },
+        { "type": "button",                   "text": "Action + Outcome CTA Text", "styles": { "backgroundColor": { "value": "#e53e3e" }, "color": { "value": "#ffffff" } } }
+      ]
+    },
+    {
+      "name": "Body Section",
+      "textAlign": "left",
+      "styles": { "backgroundColor": { "value": "#ffffff" } },
+      "children": [
         { "type": "heading",     "tag": "h2", "text": "Section H2 heading",  "styles": { "color": { "value": "#1a202c" } } },
         { "type": "paragraph",                "text": "Body copy with <strong>bold key phrase</strong> — short, punchy, human.", "styles": { "color": { "value": "#4a5568" } } },
-        { "type": "bulletList",               "items": ["Specific outcome bullet — verb + result", "Another specific bullet with numbers if possible"], "styles": { "color": { "value": "#4a5568" } } },
-        { "type": "button",                   "text": "Action + Outcome CTA Text", "styles": { "backgroundColor": { "value": "#e53e3e" }, "color": { "value": "#ffffff" } } }
+        { "type": "bulletList",               "items": ["Specific outcome bullet — verb + result", "Another specific bullet with numbers if possible"], "styles": { "color": { "value": "#4a5568" } } }
+      ]
+    },
+    {
+      "name": "Social Proof",
+      "textAlign": "center",
+      "layout": "three-column",
+      "styles": { "backgroundColor": { "value": "#f7fafc" } },
+      "children": [
+        { "type": "heading", "tag": "h2", "text": "What Our Clients Say", "styles": { "color": { "value": "#1a202c" } } }
+      ],
+      "columns": [
+        { "children": [ { "type": "image", "src": "placeholder", "alt": "Client photo" }, { "type": "paragraph", "text": "⭐⭐⭐⭐⭐", "styles": { "color": { "value": "#f59e0b" } } }, { "type": "paragraph", "text": "\"Real quote with specific result here.\"", "styles": { "color": { "value": "#4a5568" } } }, { "type": "paragraph", "text": "— Client Name, Measurable Result", "styles": { "color": { "value": "#1a202c" } } } ] },
+        { "children": [ { "type": "image", "src": "placeholder", "alt": "Client photo" }, { "type": "paragraph", "text": "⭐⭐⭐⭐⭐", "styles": { "color": { "value": "#f59e0b" } } }, { "type": "paragraph", "text": "\"Second quote with specific numbers.\"", "styles": { "color": { "value": "#4a5568" } } }, { "type": "paragraph", "text": "— Client Name, Measurable Result", "styles": { "color": { "value": "#1a202c" } } } ] },
+        { "children": [ { "type": "image", "src": "placeholder", "alt": "Client photo" }, { "type": "paragraph", "text": "⭐⭐⭐⭐⭐", "styles": { "color": { "value": "#f59e0b" } } }, { "type": "paragraph", "text": "\"Third quote — name, numbers, outcome.\"", "styles": { "color": { "value": "#4a5568" } } }, { "type": "paragraph", "text": "— Client Name, Measurable Result", "styles": { "color": { "value": "#1a202c" } } } ] }
       ]
     }
   ]
@@ -282,7 +305,7 @@ COLOR RULES:
 - "light" bg sections: #F7FAFC or #EDF2F7 background — same dark text as white sections
 - Buttons: bright accent color (brand primary, red, orange, or teal) — never gray
 - Never use "#primary" — always a real hex code
-- Extract brand colors from the color scheme hint if hex codes are provided`;
+- Extract brand colors from the color scheme hint if hex codes are provided (e.g. "#1a1a2e background, #f59e0b accent" is valid input — use those exact hex values)`;
 
   const raw    = await aiService.generate(system, user, { maxTokens: 5000 });
   const parsed = parseJsonSafe(raw);
@@ -345,7 +368,7 @@ router.post('/generate', async (req, res) => {
         req.locationId,
         pageId,
         { sections: content.sections || [] },
-        { funnelId: websiteId, colorScheme }
+        { funnelId: websiteId, colorScheme, seoTitle: content.seoTitle || '', metaDescription: content.metaDescription || '' }
       );
       console.log('[WebsiteBuilder] native sections saved for page', pageId);
     } catch (saveErr) {

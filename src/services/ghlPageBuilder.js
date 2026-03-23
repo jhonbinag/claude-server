@@ -220,6 +220,12 @@ function sid() {
   return crypto.randomBytes(4).toString('hex');
 }
 
+let _placeholderN = 0;
+function nextPlaceholderImg(w = 800, h = 500) {
+  _placeholderN += 1;
+  return `https://picsum.photos/seed/${_placeholderN}ph/${w}/${h}`;
+}
+
 // Default extra props shared by most elements
 function defaultExtra(overrides = {}) {
   return {
@@ -277,6 +283,34 @@ function makeColumn(id, childIds, align = 'center', widthPct = 100) {
       paddingRight:  { unit: 'px', value: '15' },
       paddingTop:    { unit: 'px', value: '20' },
       width:         { unit: '%', value: String(widthPct) },
+    },
+    tagName: 'c-column',
+    title:   'Column',
+    type:    'col',
+    wrapper: {},
+  };
+}
+
+function makeCardColumn(id, childIds, align = 'center', widthPct = 32) {
+  return {
+    child: childIds,
+    class: {
+      borderRadius: { value: 'radius10' },
+      borders:      { value: 'noBorder' },
+      boxShadow:    { value: 'medium' },
+    },
+    extra: defaultExtra(),
+    id,
+    meta:    'col',
+    styles: {
+      backgroundColor: { value: '#ffffff' },
+      borderStyle:     { value: 'solid' },
+      borderWidth:     { unit: 'px', value: 0 },
+      paddingBottom:   { unit: 'px', value: '40' },
+      paddingLeft:     { unit: 'px', value: '28' },
+      paddingRight:    { unit: 'px', value: '28' },
+      paddingTop:      { unit: 'px', value: '40' },
+      width:           { unit: '%', value: String(widthPct) },
     },
     tagName: 'c-column',
     title:   'Column',
@@ -500,7 +534,7 @@ function buildGhlNativeElement(el, textAlign = 'center') {
         class: { borderRadius: { value: 'radius0' } },
         extra: {
           desktopFontSize: { unit: 'px', value: '16' },
-          imageProperties: { value: { altText: el.alt || '', url: el.src || '', width: '100%' } },
+          imageProperties: { value: { altText: el.alt || '', url: (!el.src || el.src === 'placeholder') ? nextPlaceholderImg() : el.src, width: '100%' } },
           mobileFontSize:  { unit: 'px', value: '16' },
           nodeId:          `c-image-${id}`,
           typography:      { value: 'var(--contentfont)' },
@@ -636,6 +670,52 @@ function buildGhlNativeElement(el, textAlign = 'center') {
 }
 
 /**
+ * Always returns an ARRAY of GHL native elements.
+ * bulletList → one styled paragraph per item (✓ prefix), so each bullet is individually editable in GHL.
+ * All other types → [buildGhlNativeElement(el, textAlign)].
+ */
+function buildGhlNativeElements(el, textAlign = 'center') {
+  if (el.type !== 'bulletList') {
+    return [buildGhlNativeElement(el, textAlign)];
+  }
+  const rawItems = el.items || (el.children || []).map(c => c.text || c.value || String(c));
+  const items    = rawItems.map(i => typeof i === 'string' ? i : (i.text || i.value || String(i)));
+  const color    = el.styles?.color?.value || '#4a5568';
+  const fSize    = el.styles?.fontSize?.value || 17;
+
+  return items.map(item => {
+    const id   = `paragraph-${sid()}`;
+    const html = `<span style="color:var(--primary,#22c55e);font-weight:700;margin-right:8px;">✓</span>${item}`;
+    return {
+      child: [],
+      class: { borderRadius: { value: 'radius0' }, borders: { value: 'noBorder' } },
+      extra: {
+        desktopFontSize: { unit: 'px', value: String(fSize) },
+        mobileFontSize:  { unit: 'px', value: String(Math.max(fSize - 2, 14)) },
+        nodeId:          `c-paragraph-${id}`,
+        text:            { value: html },
+        typography:      { value: 'var(--contentfont)' },
+        visibility:      { value: { hideDesktop: false, hideMobile: false } },
+      },
+      id,
+      meta:    'paragraph',
+      styles: {
+        boldTextColor: { value: color },
+        color:         { value: color },
+        lineHeight:    { value: '' },
+        marginTop:     { unit: 'px', value: 8 },
+        textAlign:     { value: 'left' },
+      },
+      tag:     'p',
+      tagName: 'c-paragraph',
+      title:   'Paragraph',
+      type:    'element',
+      wrapper: { marginTop: { unit: 'px', value: '8' }, textAlign: { value: 'left' } },
+    };
+  });
+}
+
+/**
  * Convert AI sections to GHL's ACTUAL native Storage format.
  * Each section becomes: { id, metaData, elements (flat), sequence, pageId, funnelId, locationId, general }
  */
@@ -660,53 +740,89 @@ function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId
     console.log(`[GHLPageBuilder] Section ${idx + 1} (${aiSection.name || ''}): ${leafElems.length} elements (${leafElems.map(e => e.type).join(', ')})`);
 
     // ── Layout decision ─────────────────────────────────────────────────────────
-    // Hero (first) and CTA (last): single centered column
-    // Middle sections with image + other elements: two-column split (image | text)
-    // Middle sections without image: single left-aligned column
-    const imageElems = leafElems.filter(e => e.type === 'image');
-    const otherElems = leafElems.filter(e => e.type !== 'image');
-    const useTwoCol  = !isFirst && !isLast && imageElems.length > 0 && otherElems.length >= 2;
+    // three-column: social proof grids (layout === 'three-column' + columns array)
+    // two-column:   middle sections with image + other elements (image | text)
+    // single-column: everything else
 
-    let rowObjects    = [];  // row + col elements to push into flat elements[]
-    let allNative     = [];  // leaf GHL elements
+    const imageElems  = leafElems.filter(e => e.type === 'image');
+    const otherElems  = leafElems.filter(e => e.type !== 'image');
+    const useThreeCol = aiSection.layout === 'three-column' && Array.isArray(aiSection.columns) && aiSection.columns.length > 0;
+    const useTwoCol   = !useThreeCol && !isFirst && !isLast && imageElems.length > 0 && otherElems.length >= 2;
 
-    if (useTwoCol) {
-      // Two-column: alternate image side — even idx = image left, odd idx = image right
+    let rowObjects     = [];
+    let allNative      = [];
+    let topLevelRowIds = [];
+
+    if (useThreeCol) {
+      // ── Three-column card grid ──────────────────────────────────────────────
+      // Row 1: centered heading(s) from section children
+      const hdrTypes  = new Set(['headline', 'heading', 'sub-heading', 'sub-headline']);
+      const hdrLeaves = leafElems.filter(e => hdrTypes.has(e.type));
+      const hdrNative = hdrLeaves.map(e => buildGhlNativeElement(e, 'center'));
+      const hdrColId  = `col-${sid()}`;
+      const hdrRowId  = `row-${sid()}`;
+      const hdrCol    = makeColumn(hdrColId, hdrNative.map(e => e.id), 'center', 100);
+      const hdrRow    = makeRow(hdrRowId, [hdrColId]);
+
+      // Row 2: up to 3 card columns
+      const cardColIds  = [];
+      const cardObjects = [];
+      const cardNatives = [];
+      for (const col of aiSection.columns.slice(0, 3)) {
+        const colChildren = col.children || [];
+        const colLeaves   = flattenElements(colChildren.length ? colChildren : [col]);
+        const colNative   = colLeaves.flatMap(e => buildGhlNativeElements(e, 'center'));
+        const cardColId   = `col-${sid()}`;
+        const cardCol     = makeCardColumn(cardColId, colNative.map(e => e.id), 'center', 32);
+        cardColIds.push(cardColId);
+        cardObjects.push(cardCol);
+        cardNatives.push(...colNative);
+      }
+      const cardRowId = `row-${sid()}`;
+      const cardRow   = makeRow(cardRowId, cardColIds);
+
+      allNative      = [...hdrNative, ...cardNatives];
+      rowObjects     = [hdrRow, hdrCol, cardRow, ...cardObjects];
+      topLevelRowIds = [hdrRowId, cardRowId];
+
+    } else if (useTwoCol) {
+      // ── Two-column: alternate image side ───────────────────────────────────
       const imgLeft  = (idx % 2 === 0);
       const imgColId = `col-${sid()}`;
       const txtColId = `col-${sid()}`;
       const rowId    = `row-${sid()}`;
 
       const imgNative = imageElems.map(e => buildGhlNativeElement(e, 'center'));
-      const txtNative = otherElems.map(e => buildGhlNativeElement(e, 'left'));
+      const txtNative = otherElems.flatMap(e => buildGhlNativeElements(e, 'left'));
       allNative = [...imgNative, ...txtNative];
 
-      const imgCol = makeColumn(imgColId, imgNative.map(e => e.id), 'center', 41.67);
-      const txtCol = makeColumn(txtColId, txtNative.map(e => e.id), 'left',   58.33);
+      const imgCol   = makeColumn(imgColId, imgNative.map(e => e.id), 'center', 41.67);
+      const txtCol   = makeColumn(txtColId, txtNative.map(e => e.id), 'left',   58.33);
       const colOrder = imgLeft ? [imgColId, txtColId] : [txtColId, imgColId];
-      const row = makeRow(rowId, colOrder);
+      const row      = makeRow(rowId, colOrder);
 
-      rowObjects = imgLeft ? [row, imgCol, txtCol] : [row, txtCol, imgCol];
+      rowObjects     = imgLeft ? [row, imgCol, txtCol] : [row, txtCol, imgCol];
+      topLevelRowIds = [rowId];
 
     } else {
-      // Single column — use AI textAlign if provided, otherwise center hero/CTA, left for middle
+      // ── Single column ───────────────────────────────────────────────────────
       const textAlign = aiSection.textAlign || ((isFirst || isLast) ? 'center' : 'left');
       const colId     = `col-${sid()}`;
       const rowId     = `row-${sid()}`;
 
-      allNative = leafElems.map(e => buildGhlNativeElement(e, textAlign));
-      const col = makeColumn(colId, allNative.map(e => e.id), textAlign, 100);
-      const row = makeRow(rowId, [colId]);
-      rowObjects = [row, col];
+      allNative      = leafElems.flatMap(e => buildGhlNativeElements(e, textAlign));
+      const col      = makeColumn(colId, allNative.map(e => e.id), textAlign, 100);
+      const row      = makeRow(rowId, [colId]);
+      rowObjects     = [row, col];
+      topLevelRowIds = [rowId];
     }
 
     // Gradient background — if the AI section specifies one, apply it
     const gradient = aiSection.styles?.backgroundGradient?.value || null;
 
-    // Section metaData — child = the row ID(s) this section contains
-    const rowId    = rowObjects[0]?.id || `row-${sid()}`;
+    // Section metaData — child = the top-level row ID(s) this section contains
     const metaData = {
-      child:   [rowId],
+      child:   topLevelRowIds,
       class:   { borderRadius: { value: 'radius0' }, borders: { value: 'noBorder' } },
       extra:   defaultExtra({
         ...(gradient ? { backgroundGradient: { value: gradient } } : {}),
@@ -780,8 +896,10 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   const { funnelId, version: currentVersion, sectionVersion: currentSV, pageVersion: currentPV, versionHistory: existingVH } = docInfo;
   if (!funnelId) throw new Error(`Page ${pageId} missing funnelId — provide funnelId in the request or open the page in GHL builder first.`);
 
-  const colorScheme = hints.colorScheme || '';
-  const palette     = extractColors(colorScheme);
+  const colorScheme     = hints.colorScheme     || '';
+  const seoTitle        = hints.seoTitle        || '';
+  const metaDescription = hints.metaDescription || '';
+  const palette         = extractColors(colorScheme);
 
   // Convert AI output → GHL's ACTUAL native Storage format (metaData + flat elements[])
   const allSections = convertSectionsToGHL(aiSections, pageId, funnelId, locationId, colorScheme);
@@ -842,6 +960,12 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
             linkColor: { value: { label: 'var(--link-color)', value: 'var(--color-17)' } },
             textColor: { value: { value: 'var(--black)', label: 'var(--text-color)' } },
           },
+        },
+        seo: {
+          pageTitle:       { value: seoTitle },
+          metaDescription: { value: metaDescription },
+          keywords:        { value: '' },
+          favicon:         { value: '' },
         },
       },
     },
@@ -922,6 +1046,8 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
     section_version:        toFirestoreValue(newSV),
     page_version:           toFirestoreValue(newPV),
     date_updated:           { timestampValue: new Date().toISOString() },
+    ...(seoTitle        ? { name:            toFirestoreValue(seoTitle) }        : {}),
+    ...(metaDescription ? { metaDescription: toFirestoreValue(metaDescription) } : {}),
   });
 
   console.log(`[GHLPageBuilder] Firestore updated → ${fsResult.status}`);
