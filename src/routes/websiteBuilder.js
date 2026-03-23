@@ -64,7 +64,7 @@ router.get('/pages', async (req, res) => {
     const data = await ghlClient.ghlRequest(req.locationId, 'GET', '/funnels/page', null, {
       locationId: req.locationId,
       funnelId:   websiteId,
-      limit:      50,
+      limit:      20,
       offset:     '0',
     });
     console.log('[WebsiteBuilder] /pages raw keys:', Object.keys(data || {}), 'raw:', JSON.stringify(data).slice(0, 400));
