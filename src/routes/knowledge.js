@@ -23,6 +23,7 @@ const express       = require('express');
 const router        = express.Router();
 const authenticate  = require('../middleware/authenticate');
 const chroma        = require('../services/chromaService');
+const brain         = require('../services/brainStore');  // Redis-backed, no Chroma needed
 
 router.use(authenticate);
 
@@ -32,7 +33,7 @@ const BRAIN_ID = 'brain';
 
 router.get('/brain/status', async (req, res) => {
   try {
-    const status = await chroma.getStatus(req.locationId, BRAIN_ID);
+    const status = await brain.getStatus(req.locationId, BRAIN_ID);
     res.json({ success: true, ...status });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -41,22 +42,18 @@ router.get('/brain/status', async (req, res) => {
 
 router.get('/brain/docs', async (req, res) => {
   try {
-    const docs = await chroma.listDocuments(req.locationId, BRAIN_ID);
+    const docs = await brain.listDocuments(req.locationId, BRAIN_ID);
     res.json({ success: true, data: docs });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// POST /brain/youtube — ingest a YouTube video transcript
 router.post('/brain/youtube', async (req, res) => {
   const { url, title } = req.body;
   if (!url) return res.status(400).json({ success: false, error: '"url" is required.' });
-  if (!chroma.isEnabled()) {
-    return res.status(503).json({ success: false, error: 'Chroma is not configured. Set CHROMA_API_KEY, CHROMA_TENANT, CHROMA_DATABASE, JINA_API_KEY.' });
-  }
   try {
-    const result = await chroma.addYoutubeVideo(req.locationId, BRAIN_ID, url, title || null);
+    const result = await brain.addYoutubeVideo(req.locationId, BRAIN_ID, url, title || null);
     res.json({ success: true, ...result });
   } catch (err) {
     console.error('[Brain] YouTube ingest error:', err.message);
@@ -67,11 +64,15 @@ router.post('/brain/youtube', async (req, res) => {
 router.post('/brain/docs', async (req, res) => {
   const { text, url, sourceLabel } = req.body;
   if (!text && !url) return res.status(400).json({ success: false, error: 'Provide "text" or "url".' });
-  if (!chroma.isEnabled()) {
-    return res.status(503).json({ success: false, error: 'Chroma is not configured.' });
-  }
   try {
-    const result = await chroma.addDocument(req.locationId, BRAIN_ID, { text, url, sourceLabel });
+    let rawText = text;
+    if (url && !text) {
+      // Try Jina reader if available, otherwise reject
+      if (!chroma.isEnabled()) return res.status(400).json({ success: false, error: 'URL fetching requires Jina API key. Paste the text directly instead.' });
+      const chroDoc = await chroma.addDocument(req.locationId, BRAIN_ID, { url, sourceLabel });
+      return res.json({ success: true, ...chroDoc });
+    }
+    const result = await brain.addDocument(req.locationId, BRAIN_ID, { text: rawText, url, sourceLabel });
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -79,9 +80,8 @@ router.post('/brain/docs', async (req, res) => {
 });
 
 router.delete('/brain/docs/:docId', async (req, res) => {
-  if (!chroma.isEnabled()) return res.status(503).json({ success: false, error: 'Chroma is not configured.' });
   try {
-    const result = await chroma.deleteDocument(req.locationId, BRAIN_ID, req.params.docId);
+    const result = await brain.deleteDocument(req.locationId, BRAIN_ID, req.params.docId);
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -91,9 +91,8 @@ router.delete('/brain/docs/:docId', async (req, res) => {
 router.post('/brain/query', async (req, res) => {
   const { query, k } = req.body;
   if (!query) return res.status(400).json({ success: false, error: '"query" is required.' });
-  if (!chroma.isEnabled()) return res.status(503).json({ success: false, error: 'Chroma is not configured.' });
   try {
-    const results = await chroma.queryKnowledge(req.locationId, BRAIN_ID, query, k || 5);
+    const results = await brain.queryKnowledge(req.locationId, BRAIN_ID, query, k || 5);
     res.json({ success: true, data: results });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

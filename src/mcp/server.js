@@ -46,7 +46,7 @@ const {
 
 const toolRegistry = require('../tools/toolRegistry');
 const tokenStore   = require('../services/tokenStore');
-const chroma       = require('../services/chromaService');
+const brain        = require('../services/brainStore');
 
 const locationId = process.env.MCP_LOCATION_ID;
 const companyId  = process.env.MCP_COMPANY_ID;
@@ -114,11 +114,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   // ── Brain tools ─────────────────────────────────────────────────────────────
   if (name === 'query_brain') {
-    if (!chroma.isEnabled()) {
-      return { content: [{ type: 'text', text: 'Brain is not configured (Chroma not set up).' }], isError: true };
-    }
     try {
-      const results = await chroma.queryKnowledge(locationId, 'brain', args.query, Math.min(args.k || 5, 20));
+      const results = await brain.queryKnowledge(locationId, 'brain', args.query, Math.min(args.k || 5, 20));
       if (!results.length) return { content: [{ type: 'text', text: 'No relevant content found in the Brain for that query.' }] };
       const text = results.map((r, i) =>
         `[${i + 1}] Source: ${r.sourceLabel}\n${r.text}`
@@ -130,11 +127,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === 'ingest_youtube_brain') {
-    if (!chroma.isEnabled()) {
-      return { content: [{ type: 'text', text: 'Brain is not configured (Chroma not set up).' }], isError: true };
-    }
     try {
-      const result = await chroma.addYoutubeVideo(locationId, 'brain', args.url, args.title || null);
+      const result = await brain.addYoutubeVideo(locationId, 'brain', args.url, args.title || null);
       return { content: [{ type: 'text', text: `Video ingested: "${result.title}" — ${result.chunks} chunks stored. DocID: ${result.docId}` }] };
     } catch (err) {
       return { content: [{ type: 'text', text: `YouTube ingest error: ${err.message}` }], isError: true };

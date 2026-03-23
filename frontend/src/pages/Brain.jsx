@@ -166,7 +166,6 @@ export default function Brain() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const chromaOk = status?.enabled !== false;
 
   return (
     <div style={{ minHeight: '100vh', background: '#0d0d0d', color: '#e5e7eb', fontFamily: 'Inter, sans-serif', display: 'flex', flexDirection: 'column' }}>
@@ -189,7 +188,7 @@ export default function Brain() {
             {[
               { label: 'Documents', value: status ? docs.length : '—', icon: '📄' },
               { label: 'Chunks',    value: status?.chunks ?? '—',      icon: '🧩' },
-              { label: 'Vector DB', value: chromaOk ? 'Connected' : 'Not configured', icon: '🔗', color: chromaOk ? '#22c55e' : '#ef4444' },
+              { label: 'Storage', value: status?.backend === 'redis' ? 'Redis' : status?.backend === 'memory' ? 'Memory' : '—', icon: '🔗', color: '#22c55e' },
             ].map(s => (
               <div key={s.label} style={{ background: '#1a1a1a', border: '1px solid #222', borderRadius: 10, padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 18 }}>{s.icon}</span>
@@ -201,9 +200,9 @@ export default function Brain() {
             ))}
           </div>
 
-          {!chromaOk && (
-            <div style={{ marginTop: 12, background: '#1c0a00', border: '1px solid #92400e44', borderRadius: 8, padding: '10px 16px', color: '#fbbf24', fontSize: 13 }}>
-              ⚠️ Chroma vector database is not configured. Set <code>CHROMA_API_KEY</code>, <code>CHROMA_TENANT</code>, <code>CHROMA_DATABASE</code>, and <code>JINA_API_KEY</code> in your environment to enable the Brain.
+          {status?.backend && (
+            <div style={{ marginTop: 8, fontSize: 12, color: '#4b5563' }}>
+              Storage: <span style={{ color: status.backend === 'redis' ? '#22c55e' : '#9ca3af' }}>{status.backend === 'redis' ? 'Redis (Upstash)' : 'In-memory'}</span>
             </div>
           )}
         </div>
@@ -262,8 +261,8 @@ export default function Brain() {
                   onKeyDown={e => e.key === 'Enter' && ingestYoutube()}
                 />
 
-                <button onClick={ingestYoutube} disabled={ingesting || !ytUrl.trim() || !chromaOk}
-                  style={{ ...btnPrimary, width: '100%', opacity: (ingesting || !ytUrl.trim() || !chromaOk) ? 0.5 : 1, cursor: (ingesting || !ytUrl.trim() || !chromaOk) ? 'not-allowed' : 'pointer' }}>
+                <button onClick={ingestYoutube} disabled={ingesting || !ytUrl.trim()}
+                  style={{ ...btnPrimary, width: '100%', opacity: (ingesting || !ytUrl.trim()) ? 0.5 : 1, cursor: (ingesting || !ytUrl.trim()) ? 'not-allowed' : 'pointer' }}>
                   {ingesting ? '⏳ Extracting transcript…' : '🧠 Add to Brain'}
                 </button>
                 <p style={{ margin: '10px 0 0', color: '#4b5563', fontSize: 12 }}>
@@ -296,8 +295,8 @@ export default function Brain() {
                   style={{ ...inputStyle, marginBottom: 16 }}
                 />
 
-                <button onClick={addDocument} disabled={addingDoc || (!docText.trim() && !docUrl.trim()) || !chromaOk}
-                  style={{ ...btnPrimary, width: '100%', opacity: (addingDoc || (!docText.trim() && !docUrl.trim()) || !chromaOk) ? 0.5 : 1, cursor: (addingDoc || (!docText.trim() && !docUrl.trim()) || !chromaOk) ? 'not-allowed' : 'pointer' }}>
+                <button onClick={addDocument} disabled={addingDoc || (!docText.trim() && !docUrl.trim())}
+                  style={{ ...btnPrimary, width: '100%', opacity: (addingDoc || (!docText.trim() && !docUrl.trim())) ? 0.5 : 1, cursor: (addingDoc || (!docText.trim() && !docUrl.trim())) ? 'not-allowed' : 'pointer' }}>
                   {addingDoc ? '⏳ Processing…' : '🧠 Add to Brain'}
                 </button>
               </div>
@@ -316,8 +315,8 @@ export default function Brain() {
                   onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), runQuery())}
                 />
 
-                <button onClick={runQuery} disabled={querying || !query.trim() || !chromaOk}
-                  style={{ ...btnPrimary, width: '100%', opacity: (querying || !query.trim() || !chromaOk) ? 0.5 : 1, cursor: (querying || !query.trim() || !chromaOk) ? 'not-allowed' : 'pointer' }}>
+                <button onClick={runQuery} disabled={querying || !query.trim()}
+                  style={{ ...btnPrimary, width: '100%', opacity: (querying || !query.trim()) ? 0.5 : 1, cursor: (querying || !query.trim()) ? 'not-allowed' : 'pointer' }}>
                   {querying ? '⏳ Searching…' : '🔍 Search Brain'}
                 </button>
 
