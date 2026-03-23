@@ -95,9 +95,11 @@ export default function FunnelBuilder() {
   const [websitesLoading, setWebsitesLoading] = useState(false);
   const [webWebsiteId,    setWebWebsiteId]    = useState('');
   const [webWebsiteName,  setWebWebsiteName]  = useState('');
+  const [webPages,        setWebPages]        = useState([]);
+  const [webPagesLoading, setWebPagesLoading] = useState(false);
+  const [webPageId,       setWebPageId]       = useState('');
   const [webPageName,     setWebPageName]     = useState('');
   const [webPageType,     setWebPageType]     = useState('landing');
-  const [webPageUrl,      setWebPageUrl]      = useState('');
   const [webNiche,        setWebNiche]        = useState('');
   const [webOffer,        setWebOffer]        = useState('');
   const [webAudience,     setWebAudience]     = useState('');
@@ -550,6 +552,22 @@ export default function FunnelBuilder() {
     setWebsitesLoading(false);
   }
 
+  async function loadWebPages(wsId) {
+    setWebPagesLoading(true);
+    setWebPages([]);
+    setWebPageId('');
+    setWebPageName('');
+    try {
+      const res = await fetch(`/website-builder/pages?websiteId=${encodeURIComponent(wsId)}`, { headers: { 'x-location-id': apiKey } });
+      const j = await res.json();
+      setWebPages(j.pages || []);
+      if ((j.pages || []).length === 0) toast(setToastState, 'No pages found. Create a blank page in GHL first.', 'warn');
+    } catch (err) {
+      toast(setToastState, 'Could not load pages: ' + err.message, 'error');
+    }
+    setWebPagesLoading(false);
+  }
+
   async function handleWebGenerate(e) {
     e.preventDefault();
     if (!webNiche.trim() && !webOffer.trim()) { toast(setToastState, 'Enter a niche or offer.', 'error'); return; }
@@ -558,15 +576,17 @@ export default function FunnelBuilder() {
     setWebLog([]);
 
     try {
+      const resolvedPageName = webPageName || (webPages.find(p => p.id === webPageId)?.name)
+        || (webPageType.charAt(0).toUpperCase() + webPageType.slice(1) + ' Page');
       const res = await fetch('/website-builder/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-location-id': apiKey },
         body: JSON.stringify({
           websiteId:   webWebsiteId,
           websiteName: webWebsiteName,
-          pageName:    webPageName || (webPageType.charAt(0).toUpperCase() + webPageType.slice(1) + ' Page'),
+          pageId:      webPageId,
+          pageName:    resolvedPageName,
           pageType:    webPageType,
-          pageUrl:     webPageUrl,
           niche:       webNiche,
           offer:       webOffer,
           audience:    webAudience,
@@ -1850,17 +1870,23 @@ export default function FunnelBuilder() {
               <section className="glass rounded-xl p-5">
                 <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
                   <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center" style={{ background: '#1e3a5f' }}>1</span>
-                  Select Website
+                  Select Website & Page
                 </h2>
-                <div className="flex gap-2 items-end">
+
+                {/* Website picker */}
+                <div className="flex gap-2 items-end mb-3">
                   <div className="flex-1">
-                    <label className="block text-xs text-gray-400 mb-1">Your GHL Websites</label>
+                    <label className="block text-xs text-gray-400 mb-1">GHL Website</label>
                     <select
                       value={webWebsiteId}
                       onChange={e => {
                         const w = websites.find(x => x.id === e.target.value);
                         setWebWebsiteId(e.target.value);
                         setWebWebsiteName(w?.name || '');
+                        setWebPages([]);
+                        setWebPageId('');
+                        setWebPageName('');
+                        if (e.target.value) loadWebPages(e.target.value);
                       }}
                       className="w-full rounded-lg px-3 py-2 text-sm text-white"
                       style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
@@ -1880,11 +1906,53 @@ export default function FunnelBuilder() {
                     {websitesLoading ? '⏳ Loading…' : '↻ Load Websites'}
                   </button>
                 </div>
-                {!webWebsiteId && (
-                  <p className="text-xs text-gray-500 mt-2">Click "Load Websites" to fetch your GHL websites. You can also skip this and get AI copy without auto-saving to GHL.</p>
-                )}
+
+                {/* Page picker — shown once a website is selected */}
                 {webWebsiteId && (
-                  <p className="text-xs text-green-500 mt-2">✓ Selected: <span className="text-green-400 font-medium">{webWebsiteName || webWebsiteId}</span> — page will be created automatically.</p>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Page to write content to</label>
+                    <div className="flex gap-2 items-center">
+                      <select
+                        value={webPageId}
+                        onChange={e => {
+                          const p = webPages.find(x => x.id === e.target.value);
+                          setWebPageId(e.target.value);
+                          setWebPageName(p?.name || '');
+                        }}
+                        className="flex-1 rounded-lg px-3 py-2 text-sm text-white"
+                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                      >
+                        <option value="">— select a page —</option>
+                        {webPages.map(p => (
+                          <option key={p.id} value={p.id}>{p.name || p.title || p.url || p.id}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => loadWebPages(webWebsiteId)}
+                        disabled={webPagesLoading}
+                        className="px-3 py-2 rounded-lg text-xs font-medium text-white"
+                        style={{ background: '#1e3a5f', border: '1px solid rgba(99,102,241,0.3)', whiteSpace: 'nowrap' }}
+                      >
+                        {webPagesLoading ? '⏳' : '↻'}
+                      </button>
+                    </div>
+                    {webPages.length === 0 && !webPagesLoading && (
+                      <p className="text-xs text-amber-400 mt-2">
+                        No pages found. GHL does not allow creating pages via API — open your website in GHL and add a blank page first, then refresh here.
+                      </p>
+                    )}
+                    {webPageId && (
+                      <p className="text-xs text-green-500 mt-2">✓ AI content will be written to: <span className="text-green-400 font-medium">{webPageName || webPageId}</span></p>
+                    )}
+                    {!webPageId && webPages.length > 0 && (
+                      <p className="text-xs text-gray-500 mt-2">Select a page above — AI will write native section content directly into it. You can also leave it blank to just generate copy.</p>
+                    )}
+                  </div>
+                )}
+
+                {!webWebsiteId && (
+                  <p className="text-xs text-gray-500 mt-1">Click "Load Websites" then select a website and a page. You can also skip this to generate copy only.</p>
                 )}
               </section>
 
@@ -1896,27 +1964,15 @@ export default function FunnelBuilder() {
                 </h2>
                 <form onSubmit={handleWebGenerate} className="space-y-4">
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-400 mb-1">Page Name</label>
-                      <input
-                        value={webPageName}
-                        onChange={e => setWebPageName(e.target.value)}
-                        placeholder="e.g. Home Page"
-                        className="w-full rounded-lg px-3 py-2 text-sm text-white"
-                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-400 mb-1">URL Path</label>
-                      <input
-                        value={webPageUrl}
-                        onChange={e => setWebPageUrl(e.target.value)}
-                        placeholder="/about (optional)"
-                        className="w-full rounded-lg px-3 py-2 text-sm text-white"
-                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
-                      />
-                    </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Page Name Override <span className="text-gray-600">(optional — defaults to selected page name)</span></label>
+                    <input
+                      value={webPageName}
+                      onChange={e => setWebPageName(e.target.value)}
+                      placeholder={webPages.find(p => p.id === webPageId)?.name || 'e.g. Home Page'}
+                      className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                      style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                    />
                   </div>
 
                   <div>
@@ -2048,10 +2104,10 @@ export default function FunnelBuilder() {
                   }}>
                     <p className="text-sm font-semibold" style={{ color: webResult.success ? '#6ee7b7' : '#a5b4fc' }}>
                       {webResult.success && !webResult.partial
-                        ? `✅ "${webResult.pageName}" created in GHL with native sections!`
+                        ? `✅ "${webResult.pageName}" written to GHL with native sections!`
                         : webResult.success && webResult.partial
-                        ? `⚠️ "${webResult.pageName}" created — sections saved partially (check logs)`
-                        : `✍️ Page copy generated${webResult.noWebsite ? ' — no website selected' : ''}`}
+                        ? `⚠️ "${webResult.pageName}" — sections partially saved (check logs)`
+                        : `✍️ Page copy generated${webResult.noPage ? ' — no page selected, content not saved' : ''}`}
                     </p>
 
                     {webResult.editUrl && (

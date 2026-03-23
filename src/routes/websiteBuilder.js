@@ -55,6 +55,29 @@ router.get('/websites', async (req, res) => {
   }
 });
 
+// ─── GET /website-builder/pages?websiteId=xxx ─────────────────────────────────
+
+router.get('/pages', async (req, res) => {
+  const { websiteId } = req.query;
+  if (!websiteId) return res.status(400).json({ success: false, error: 'websiteId is required.' });
+  try {
+    const data = await ghlClient.ghlRequest(req.locationId, 'GET', '/funnels/page', null, {
+      locationId: req.locationId,
+      funnelId:   websiteId,
+      limit:      50,
+      offset:     0,
+    });
+    let pages = data?.funnelPages || data?.pages || data?.list || data?.data || (Array.isArray(data) ? data : []);
+    if (pages && !Array.isArray(pages) && Array.isArray(pages.list))        pages = pages.list;
+    if (pages && !Array.isArray(pages) && Array.isArray(pages.funnelPages)) pages = pages.funnelPages;
+    pages = (pages || []).map(p => ({ ...p, id: p.id || p._id }));
+    res.json({ success: true, pages });
+  } catch (err) {
+    console.error('[WebsiteBuilder] list pages error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─── Page type → section plan ─────────────────────────────────────────────────
 // Each section specifies the element types to include — AI fills in the copy.
 
@@ -193,14 +216,16 @@ Color guidance:
 }
 
 // ─── POST /website-builder/generate ──────────────────────────────────────────
+// NOTE: GHL does not support creating pages via API. The user must create a
+// blank page inside GHL first, then provide its pageId here to write content.
 
 router.post('/generate', async (req, res) => {
   const {
     websiteId   = '',
     websiteName = '',
+    pageId      = '',   // existing GHL page ID — must be pre-created in GHL
     pageName    = 'New Page',
     pageType    = 'landing',
-    pageUrl     = '',
     niche       = '',
     offer       = '',
     audience    = '',
@@ -209,7 +234,7 @@ router.post('/generate', async (req, res) => {
     extraNotes  = '',
   } = req.body;
 
-  if (!niche && !offer && !pageName) {
+  if (!niche && !offer) {
     return res.status(400).json({ success: false, error: 'Provide at least niche or offer details.' });
   }
 
@@ -224,60 +249,24 @@ router.post('/generate', async (req, res) => {
 
   try {
     // ── Step 1: Generate native section content with AI ────────────────────
-    send('step', { step: 1, total: 3, label: 'Generating page copy with AI…' });
+    send('step', { step: 1, total: 2, label: 'Generating page copy with AI…' });
 
     const content = await generatePageSections({ pageName, pageType, websiteName, niche, offer, audience, brand, colorScheme, extraNotes });
     send('content', content);
 
-    if (!websiteId) {
-      send('warn', { message: 'No website ID provided — content generated but not saved to GHL.' });
-      send('done', { success: false, noWebsite: true, content, pageName });
+    if (!pageId) {
+      // No page selected — return copy only. User can select a page to write to.
+      send('warn', { message: 'No page selected — copy generated but not saved to GHL. Select an existing page above and regenerate to auto-save.' });
+      send('done', { success: false, noPage: true, content, pageName });
       return res.end();
     }
 
-    // ── Step 2: Create the page shell in GHL ──────────────────────────────
-    send('step', { step: 2, total: 3, label: 'Creating page in GHL…' });
-
-    const slug = (pageUrl || pageName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).replace(/^\//, '');
-
-    const pagePayload = {
-      locationId:  req.locationId,
-      funnelId:    websiteId,
-      name:        pageName,
-      url:         slug,
-      title:       content.seoTitle || pageName,
-      description: content.metaDescription || '',
-      published:   false,
-    };
-
-    let ghlData;
-    try {
-      ghlData = await ghlClient.ghlRequest(req.locationId, 'POST', '/funnels/page', pagePayload);
-      console.log('[WebsiteBuilder] page created:', JSON.stringify(ghlData).slice(0, 300));
-    } catch (e) {
-      console.error('[WebsiteBuilder] create error:', e.message);
-      const is401 = e.message.includes('401');
-      const errMsg = is401
-        ? 'Missing scope: websites.write. Reinstall the GTM AI Toolkit app to grant the new permission, then retry.'
-        : `GHL API error: ${e.message}`;
-      send('error', { error: errMsg, needsReinstall: is401 });
-      send('done', { success: false, content, needsReinstall: is401 });
-      return res.end();
-    }
-
-    const pageId  = ghlData?.id || ghlData?.pageId || ghlData?._id || null;
-    const editUrl = pageId
+    const editUrl = websiteId
       ? `https://app.gohighlevel.com/v2/location/${req.locationId}/sites/website/${websiteId}/page/${pageId}`
       : null;
 
-    if (!pageId) {
-      send('warn', { message: 'Page shell created but no pageId returned — cannot save native sections.' });
-      send('done', { success: true, partial: true, editUrl, slug, content, pageName });
-      return res.end();
-    }
-
-    // ── Step 3: Save native sections to GHL page via Firebase Storage ──────
-    send('step', { step: 3, total: 3, label: 'Saving native section content to GHL…' });
+    // ── Step 2: Save native sections to GHL page via Firebase Storage ──────
+    send('step', { step: 2, total: 2, label: 'Saving native section content to GHL…' });
 
     try {
       await ghlPageBuilder.savePageData(
@@ -289,9 +278,8 @@ router.post('/generate', async (req, res) => {
       console.log('[WebsiteBuilder] native sections saved for page', pageId);
     } catch (saveErr) {
       console.error('[WebsiteBuilder] section save error:', saveErr.message);
-      // Non-fatal — page exists, just without native section content
-      send('warn', { message: `Page created but section content could not be saved: ${saveErr.message}. Open in GHL editor to add content manually.` });
-      send('done', { success: true, partial: true, pageId, editUrl, slug, content, pageName });
+      send('warn', { message: `Content generated but could not be saved: ${saveErr.message}. Open the page in GHL editor to add content manually.` });
+      send('done', { success: true, partial: true, pageId, editUrl, content, pageName });
       return res.end();
     }
 
@@ -299,7 +287,6 @@ router.post('/generate', async (req, res) => {
       success: true,
       pageId,
       editUrl,
-      slug,
       content,
       pageName,
     });
