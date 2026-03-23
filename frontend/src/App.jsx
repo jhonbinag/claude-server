@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, Link } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import { useApp }      from './context/AppContext';
 import Dashboard       from './pages/Dashboard';
@@ -14,31 +14,11 @@ import ManyChatPage   from './pages/ManyChat';
 import GHLAgent       from './pages/GHLAgent';
 import FunnelBuilder  from './pages/FunnelBuilder';
 
-// ── Access-denied screen shown when a user lacks a required feature ────────────
-function AccessDenied({ feature }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0a0a0a', padding: 24 }}>
-      <div style={{ textAlign: 'center', maxWidth: 400 }}>
-        <div style={{ fontSize: 56, marginBottom: 16 }}>🔒</div>
-        <h2 style={{ color: '#fff', margin: '0 0 8px', fontSize: 20 }}>Access Restricted</h2>
-        <p style={{ color: '#6b7280', margin: '0 0 24px', fontSize: 14 }}>
-          Your current role does not include the <strong style={{ color: '#a78bfa' }}>{feature.replace(/_/g, ' ')}</strong> feature.
-          Contact your administrator to request access.
-        </p>
-        <Link to="/" style={{ display: 'inline-block', background: '#7c3aed', color: '#fff', padding: '10px 24px', borderRadius: 8, textDecoration: 'none', fontSize: 14, fontWeight: 600 }}>
-          ← Back to Dashboard
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-// ── Route wrapper: renders page only if user has the required feature ──────────
+// ── Route wrapper: redirects to dashboard if user lacks the required feature ───
 function Gated({ feature, element }) {
   const { canAccess, isAuthenticated } = useApp();
-  // Not authenticated yet — let the page's own AuthGate handle it
-  if (!isAuthenticated) return element;
-  if (!canAccess(feature)) return <AccessDenied feature={feature} />;
+  if (!isAuthenticated) return element; // let the page's own AuthGate handle it
+  if (!canAccess(feature)) return <Navigate to="/" replace />;
   return element;
 }
 

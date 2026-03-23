@@ -12,6 +12,31 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
+// ── Static feature/role defaults (mirrors roleService.js) ─────────────────────
+const ALL_FEATURES_DEFAULT = [
+  { key: 'funnel_builder',   label: 'Funnel Builder',        icon: '🏗️' },
+  { key: 'website_builder',  label: 'Website Builder',       icon: '🌐' },
+  { key: 'ads_generator',    label: 'Bulk Ads Generator',    icon: '🎯' },
+  { key: 'social_planner',   label: 'Social Planner',        icon: '📱' },
+  { key: 'email_builder',    label: 'Email Builder',         icon: '📧' },
+  { key: 'ad_library',       label: 'Ad Library Intel',      icon: '📊' },
+  { key: 'campaign_builder', label: 'Campaign Builder',      icon: '📣' },
+  { key: 'agents',           label: 'AI Agents',             icon: '🤖' },
+  { key: 'ghl_agent',        label: 'GHL Agent',             icon: '⚡' },
+  { key: 'workflows',        label: 'Workflow Builder',      icon: '🔀' },
+  { key: 'manychat',         label: 'ManyChat Integration',  icon: '💬' },
+  { key: 'settings',         label: 'Integration Settings',  icon: '⚙️' },
+];
+
+const ALL_FEATURE_KEYS = ALL_FEATURES_DEFAULT.map(f => f.key);
+
+const BUILTIN_ROLES_DEFAULT = [
+  { id: 'owner',   name: 'Owner',   features: ALL_FEATURE_KEYS, builtin: true },
+  { id: 'admin',   name: 'Admin',   features: ALL_FEATURE_KEYS, builtin: true },
+  { id: 'manager', name: 'Manager', features: ['funnel_builder','website_builder','ads_generator','social_planner','email_builder','ad_library','campaign_builder'], builtin: true },
+  { id: 'member',  name: 'Member',  features: ['ads_generator','social_planner','ad_library'], builtin: true },
+];
+
 function useIsMobile() {
   const [m, setM] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
   useEffect(() => {
@@ -152,8 +177,8 @@ export default function Admin() {
   const [rolesLoading,       setRolesLoading]       = useState(false);
   const [rolesSaving,        setRolesSaving]        = useState({});
   const [rolesSyncMsg,       setRolesSyncMsg]       = useState('');
-  const [allFeatures,        setAllFeatures]        = useState([]);
-  const [builtinRoles,       setBuiltinRoles]       = useState([]);
+  const [allFeatures,        setAllFeatures]        = useState(ALL_FEATURES_DEFAULT);
+  const [builtinRoles,       setBuiltinRoles]       = useState(BUILTIN_ROLES_DEFAULT);
   const [customRoles,        setCustomRoles]        = useState([]);
   const [rolesSubTab,        setRolesSubTab]        = useState('users'); // 'users' | 'roles'
   const [roleModal,          setRoleModal]          = useState(null);   // null | { mode:'create'|'edit', role? }
@@ -1184,7 +1209,8 @@ export default function Admin() {
                   setRolesLocationId(id);
                   setRolesUsers([]);
                   setCustomRoles([]);
-                  setBuiltinRoles([]);
+                  setBuiltinRoles(BUILTIN_ROLES_DEFAULT);
+                  setAllFeatures(ALL_FEATURES_DEFAULT);
                   if (id) loadUsersForLocation(id);
                 }}
                 style={{ flex: 1, minWidth: 240, background: '#111', border: '1px solid #333', borderRadius: 8, color: rolesLocationId ? '#e5e7eb' : '#6b7280', padding: '8px 12px', fontSize: 13 }}
