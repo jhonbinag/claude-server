@@ -1256,6 +1256,7 @@ RULES:
 6. CRITICAL: Use "heading" (NOT "headline") and "sub-heading" (NOT "sub-headline") for element types.
 7. CRITICAL: paragraph "text" must be plain text — NO HTML tags, no <p>, no <br>, no <strong>.
 8. CRITICAL: bulletList "items" must be an array of plain strings — NOT objects. Example: ["Benefit 1","Benefit 2"]
+9. CRITICAL: If a section template has "layout":"three-column" and "columns":[], KEEP both fields and fill in real testimonials in each column's "children" — do NOT flatten columns into "children".
 
 SCHEMA:
 {"sections":[{"id":"section-X","type":"section","name":"name","allowRowMaxWidth":false,
@@ -2936,12 +2937,17 @@ function getSectionPlan(pageType, imgSrc, palette, imgSeeds) {
           par('[Transition paragraph — bridge from the problem to your solution]', bodyText),
           bul(['[Core benefit 1 — outcome-focused]','[Core benefit 2 — outcome-focused]','[Core benefit 3 — outcome-focused]','[Core benefit 4 — outcome-focused]','[Core benefit 5 — outcome-focused]'], bodyText),
         ]),
-        sec('Social Proof', secBg, bodyText, [80,80], [
-          h2('[Testimonials / Social Proof headline]', bodyText),
-          par('"[Testimonial 1: specific result in quotes — FirstName L., Title]"', bodyText),
-          par('"[Testimonial 2: specific result in quotes — FirstName L., Title]"', bodyText),
-          par('"[Testimonial 3: specific result in quotes — FirstName L., Title]"', bodyText),
-        ]),
+        {
+          type: 'section', name: 'Social Proof', layout: 'three-column',
+          styles: { backgroundColor: { value: secBg }, paddingTop: { value: 80, unit: 'px' }, paddingBottom: { value: 80, unit: 'px' }, paddingLeft: { value: 20, unit: 'px' }, paddingRight: { value: 20, unit: 'px' } },
+          mobileStyles: { paddingTop: { value: 48, unit: 'px' }, paddingBottom: { value: 48, unit: 'px' } },
+          children: [h2('[Testimonials headline — "Here\'s What Our Clients Are Saying"]', bodyText)],
+          columns: [
+            { children: [img('client photo'), par('⭐⭐⭐⭐⭐', bodyText, 18), par('"[Testimonial 1: specific result with numbers — FirstName L., Title/Company]"', bodyText)] },
+            { children: [img('client photo'), par('⭐⭐⭐⭐⭐', bodyText, 18), par('"[Testimonial 2: specific result with numbers — FirstName L., Title/Company]"', bodyText)] },
+            { children: [img('client photo'), par('⭐⭐⭐⭐⭐', bodyText, 18), par('"[Testimonial 3: specific result with numbers — FirstName L., Title/Company]"', bodyText)] },
+          ],
+        },
         sec('Offer Details / Value Stack', '#FFFFFF', bodyText, [80,80], [
           h2('[Offer headline — everything they get]', bodyText),
           img('offer image'),
@@ -3562,7 +3568,8 @@ CRITICAL RULES:
 6. bulletList.items = plain string array ["Item 1","Item 2"], NEVER objects
 7. Replace ALL [PLACEHOLDER] text with real, niche-specific copy
 8. Keep all backgroundColor, fontSize, color, fontWeight values exactly as in the template
-9. Output ONLY the JSON — no markdown, no explanation, no code fences`;
+9. CRITICAL: If a section template has "layout":"three-column" and "columns":[], KEEP both fields. Fill in real testimonials in each column's "children" — do NOT flatten columns into "children"
+10. Output ONLY the JSON — no markdown, no explanation, no code fences`;
 
     const systemPrompt = isGroq ? groqSysPrompt : fullSysPrompt;
     const sectionsNote = isGroq ? sectionPlan2.groq : sectionPlan2.full;
@@ -3637,7 +3644,8 @@ paragraph: {"type":"paragraph","text":"TEXT","styles":{"color":{"value":"#HEX"},
 button: {"type":"button","text":"TEXT","link":"#","styles":{"backgroundColor":{"value":"${palette2.primary}"},"color":{"value":"${palette2.buttonColor}"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":20,"unit":"px"},"paddingBottom":{"value":20,"unit":"px"},"paddingLeft":{"value":52,"unit":"px"},"paddingRight":{"value":52,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
 bulletList: {"type":"bulletList","items":["Real item 1","Real item 2"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#HEX"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{}}
 image: {"type":"image","src":"URL","alt":"alt","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
-RULES: All text fields must be real copy (no placeholders). bulletList.items = plain string array. No HTML in text.`;
+RULES: All text fields must be real copy (no placeholders). bulletList.items = plain string array. No HTML in text.
+THREE-COLUMN sections: If the prompt specifies "THREE-COLUMN", output the section with "layout":"three-column" and "columns":[{children:[...]},{children:[...]},{children:[...]}] — do NOT flatten into "children".`;
 
       const generatedSections = [];
       // Use plan sections if available, otherwise fall back to the groq description split
@@ -3655,8 +3663,11 @@ RULES: All text fields must be real copy (no placeholders). bulletList.items = p
 
         // Middle sections get a two-column hint: include an image element
         const isMidSection = !isHero && !isLast;
+        const isThreeCol   = tmpl.layout === 'three-column';
         const secDesc = tmpl._desc || sectionPlan2.groq.split('\n').find(l => l.startsWith(`${si+1}.`)) || `Section ${si+1}`;
-        const imgHint = isMidSection
+        const imgHint = isThreeCol
+          ? `\nLAYOUT: THREE-COLUMN testimonial grid. Output "layout":"three-column" on the section object plus a "columns" array with exactly 3 objects. Each column "children": [image(src:"${imgSeeds2[si % imgSeeds2.length]}"), paragraph("⭐⭐⭐⭐⭐"), paragraph(real quote), paragraph(name+result)]. Section "children" = only the h2 heading.`
+          : isMidSection
           ? `\nLAYOUT: Two-column section — include ONE image element (src="${imgSeeds2[si % imgSeeds2.length]}") plus heading, paragraph/bulletList, and optionally a button.`
           : `\nImage URL (use if adding an image): "${imgSeeds2[si % imgSeeds2.length]}"`;
         const gradHint = secGradient
@@ -3680,9 +3691,15 @@ Write ${stageLabel}. Make copy specific to this section's role ("${tmplName}"). 
             // The response should be a section object, wrap in sections array for parseJsonSafe
             const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
             const parsed = JSON.parse(cleaned.startsWith('{') ? cleaned : `{${cleaned.split('{').slice(1).join('{')}}`);
-            if (parsed.type === 'section' && Array.isArray(parsed.children)) {
-              // Always use the template section name so sections are correctly labelled
+            const validSection = parsed.type === 'section'
+              && (Array.isArray(parsed.children) || (parsed.layout === 'three-column' && Array.isArray(parsed.columns)));
+            if (validSection) {
               parsed.name = tmplName;
+              // Preserve three-column layout from template if AI dropped it
+              if (isThreeCol && !parsed.layout) {
+                parsed.layout  = 'three-column';
+                parsed.columns = tmpl.columns || parsed.columns || [];
+              }
               secResult = parsed;
               break;
             }
@@ -3696,9 +3713,9 @@ Write ${stageLabel}. Make copy specific to this section's role ("${tmplName}"). 
           const kids = secResult.children || [];
           send('log', { msg: `[${i+1}/${pages.length}] Section ${si+1} "${secResult.name}" — ${kids.length} elements`, level: 'info' });
         } else {
-          // Fallback: use the template section with placeholder copy stripped
+          // Fallback: use the template section (preserves layout/columns for 3-col social proof)
           send('log', { msg: `[${i+1}/${pages.length}] Section ${si+1} failed — using template fallback`, level: 'warn' });
-          if (tmpl.type === 'section') generatedSections.push(tmpl);
+          if (tmpl.type === 'section') generatedSections.push({ ...tmpl });
         }
       }
 
