@@ -1917,10 +1917,10 @@ export default function FunnelBuilder() {
 
                 {/* Page picker — shown once a website is selected */}
                 {webWebsiteId && (
-                  <div className="mt-3 space-y-2">
-                    <label className="block text-xs text-gray-400 mb-1">Select page to write content to <span className="text-red-400">*</span></label>
+                  <div className="mt-3 space-y-3">
+                    <label className="block text-xs text-gray-400">Select page to write content to <span className="text-red-400">*</span></label>
 
-                    {/* Dropdown from loaded pages */}
+                    {/* Dropdown — try loading via backend API */}
                     <div className="flex gap-2 items-center">
                       <select
                         value={webPageId}
@@ -1932,7 +1932,7 @@ export default function FunnelBuilder() {
                         className="flex-1 rounded-lg px-3 py-2 text-sm text-white"
                         style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
                       >
-                        <option value="">— select a page —</option>
+                        <option value="">{webPages.length ? '— select a page —' : '— click ↻ to load pages —'}</option>
                         {webPages.map(p => (
                           <option key={p.id} value={p.id}>{p.name || p.title || p.url || p.id}</option>
                         ))}
@@ -1941,35 +1941,38 @@ export default function FunnelBuilder() {
                         type="button"
                         onClick={() => loadWebPages(webWebsiteId)}
                         disabled={webPagesLoading}
-                        title="Reload pages"
+                        title="Load pages from this website"
                         className="px-3 py-2 rounded-lg text-xs font-medium text-white"
                         style={{ background: '#1e3a5f', border: '1px solid rgba(99,102,241,0.3)', whiteSpace: 'nowrap' }}
                       >
-                        {webPagesLoading ? '⏳' : '↻'}
+                        {webPagesLoading ? '⏳' : '↻ Load'}
                       </button>
                     </div>
 
-                    {/* Manual page ID fallback */}
+                    {/* Manual page ID — always visible */}
                     <div>
-                      <label className="block text-xs text-gray-600 mb-1">Or paste Page ID manually</label>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Or paste Page ID from GHL URL
+                        <span className="text-gray-600 ml-1">(.../sites/website/{'{websiteId}'}/page/<strong>{'{'}</strong>pageId<strong>{'}'}</strong>)</span>
+                      </label>
                       <input
                         value={webPages.find(p => p.id === webPageId) ? '' : webPageId}
-                        onChange={e => { setWebPageId(e.target.value); setWebPageName(''); }}
-                        placeholder="e.g. abc123XYZ (from GHL page URL)"
-                        className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                        onChange={e => { setWebPageId(e.target.value.trim()); setWebPageName(''); }}
+                        placeholder="Paste page ID here"
+                        className="w-full rounded-lg px-3 py-2 text-sm text-white font-mono"
                         style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
                       />
                     </div>
 
                     {webPageId
                       ? <p className="text-xs text-green-500">✓ Writing to: <span className="text-green-400 font-medium">{webPageName || webPageId}</span></p>
-                      : <p className="text-xs text-amber-400">⚠ Select a page above or paste a Page ID. GHL requires a pre-existing page — create a blank page in GHL first if needed.</p>
+                      : <p className="text-xs text-amber-400">⚠ Select a page or paste a page ID to save content. Page must already exist in GHL.</p>
                     }
                   </div>
                 )}
 
                 {!webWebsiteId && (
-                  <p className="text-xs text-gray-500 mt-1">Select a website above, then pick a page to write content to. Create a blank page in GHL first if none exist.</p>
+                  <p className="text-xs text-gray-500 mt-1">Select a website above, then choose or paste a page ID.</p>
                 )}
               </section>
 

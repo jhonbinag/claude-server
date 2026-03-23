@@ -56,10 +56,51 @@ router.get('/websites', async (req, res) => {
 });
 
 // ─── GET /website-builder/pages?websiteId=xxx ─────────────────────────────────
+// GHL's OAuth API returns [] for website pages — websites use a different system.
+// We fetch pages via the Firebase backend API instead.
+
+const https = require('https');
 
 router.get('/pages', async (req, res) => {
   const { websiteId } = req.query;
   if (!websiteId) return res.status(400).json({ success: false, error: 'websiteId is required.' });
+
+  // ── Try Firebase backend API first ────────────────────────────────────────
+  try {
+    const { getFirebaseToken } = require('../services/ghlFirebaseService');
+    const idToken = await getFirebaseToken(req.locationId);
+    const { buildBackendHeaders } = ghlPageBuilder;
+    const headers = { ...buildBackendHeaders(idToken) };
+    delete headers['Content-Type'];
+
+    const path = `/funnels/page?locationId=${encodeURIComponent(req.locationId)}&funnelId=${encodeURIComponent(websiteId)}&limit=20&offset=0`;
+
+    const result = await new Promise((resolve, reject) => {
+      const r = https.request(
+        { hostname: 'backend.leadconnectorhq.com', path, method: 'GET', headers },
+        (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve({ status: res.statusCode, data: JSON.parse(d) }); } catch { resolve({ status: res.statusCode, data: d }); } }); }
+      );
+      r.on('error', reject);
+      r.end();
+    });
+
+    console.log('[WebsiteBuilder] backend /pages status:', result.status, 'raw:', JSON.stringify(result.data).slice(0, 400));
+
+    if (result.status < 300) {
+      const d = result.data;
+      let pages = d?.funnelPages || d?.pages || d?.pageList || d?.list || d?.data
+               || (Array.isArray(d) ? d : []);
+      if (pages && !Array.isArray(pages) && Array.isArray(pages.list))        pages = pages.list;
+      if (pages && !Array.isArray(pages) && Array.isArray(pages.funnelPages)) pages = pages.funnelPages;
+      pages = (pages || []).map(p => ({ ...p, id: p.id || p._id }));
+      console.log('[WebsiteBuilder] backend pages resolved:', pages.length);
+      return res.json({ success: true, pages });
+    }
+  } catch (fbErr) {
+    console.warn('[WebsiteBuilder] backend pages fetch failed:', fbErr.message);
+  }
+
+  // ── Fallback: OAuth API ────────────────────────────────────────────────────
   try {
     const data = await ghlClient.ghlRequest(req.locationId, 'GET', '/funnels/page', null, {
       locationId: req.locationId,
@@ -67,15 +108,10 @@ router.get('/pages', async (req, res) => {
       limit:      20,
       offset:     '0',
     });
-    console.log('[WebsiteBuilder] /pages raw keys:', Object.keys(data || {}), 'raw:', JSON.stringify(data).slice(0, 400));
-
-    let pages = data?.funnelPages || data?.pages || data?.pageList || data?.list || data?.data
+    console.log('[WebsiteBuilder] oauth /pages raw:', JSON.stringify(data).slice(0, 400));
+    let pages = data?.funnelPages || data?.pages || data?.pageList || data?.list
              || (Array.isArray(data) ? data : []);
-    if (pages && !Array.isArray(pages) && Array.isArray(pages.list))        pages = pages.list;
-    if (pages && !Array.isArray(pages) && Array.isArray(pages.funnelPages)) pages = pages.funnelPages;
-    if (pages && !Array.isArray(pages) && Array.isArray(pages.pageList))    pages = pages.pageList;
     pages = (pages || []).map(p => ({ ...p, id: p.id || p._id }));
-    console.log('[WebsiteBuilder] /pages resolved:', pages.length, 'pages');
     res.json({ success: true, pages });
   } catch (err) {
     console.error('[WebsiteBuilder] list pages error:', err.message);
