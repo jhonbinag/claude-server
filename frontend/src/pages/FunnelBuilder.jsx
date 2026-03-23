@@ -619,6 +619,7 @@ export default function FunnelBuilder() {
           try {
             const d = JSON.parse(dataLine);
             if (evtLine === 'step')    { setWebLog(l => [...l, { msg: d.label, level: 'info' }]); }
+            if (evtLine === 'log')     { setWebLog(l => [...l, { msg: d.msg, level: d.level || 'info' }]); }
             if (evtLine === 'content') { setWebLog(l => [...l, { msg: `Generated ${d.sections?.length || 0} sections`, level: 'success' }]); }
             if (evtLine === 'warn')    { setWebLog(l => [...l, { msg: d.message, level: 'warn' }]); }
             if (evtLine === 'done')    { setWebResult(d); }
@@ -1909,8 +1910,10 @@ export default function FunnelBuilder() {
 
                 {/* Page picker — shown once a website is selected */}
                 {webWebsiteId && (
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Page to write content to</label>
+                  <div className="mt-3">
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Existing page <span className="text-gray-600">(optional — leave blank to auto-create a new page)</span>
+                    </label>
                     <div className="flex gap-2 items-center">
                       <select
                         value={webPageId}
@@ -1922,7 +1925,7 @@ export default function FunnelBuilder() {
                         className="flex-1 rounded-lg px-3 py-2 text-sm text-white"
                         style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
                       >
-                        <option value="">— select a page —</option>
+                        <option value="">— auto-create new page —</option>
                         {webPages.map(p => (
                           <option key={p.id} value={p.id}>{p.name || p.title || p.url || p.id}</option>
                         ))}
@@ -1931,28 +1934,22 @@ export default function FunnelBuilder() {
                         type="button"
                         onClick={() => loadWebPages(webWebsiteId)}
                         disabled={webPagesLoading}
+                        title="Load existing pages"
                         className="px-3 py-2 rounded-lg text-xs font-medium text-white"
                         style={{ background: '#1e3a5f', border: '1px solid rgba(99,102,241,0.3)', whiteSpace: 'nowrap' }}
                       >
                         {webPagesLoading ? '⏳' : '↻'}
                       </button>
                     </div>
-                    {webPages.length === 0 && !webPagesLoading && (
-                      <p className="text-xs text-amber-400 mt-2">
-                        No pages found. GHL does not allow creating pages via API — open your website in GHL and add a blank page first, then refresh here.
-                      </p>
-                    )}
-                    {webPageId && (
-                      <p className="text-xs text-green-500 mt-2">✓ AI content will be written to: <span className="text-green-400 font-medium">{webPageName || webPageId}</span></p>
-                    )}
-                    {!webPageId && webPages.length > 0 && (
-                      <p className="text-xs text-gray-500 mt-2">Select a page above — AI will write native section content directly into it. You can also leave it blank to just generate copy.</p>
-                    )}
+                    {webPageId
+                      ? <p className="text-xs text-green-500 mt-1">✓ Will overwrite: <span className="text-green-400 font-medium">{webPageName || webPageId}</span></p>
+                      : <p className="text-xs text-gray-500 mt-1">A new page will be created automatically in this website.</p>
+                    }
                   </div>
                 )}
 
                 {!webWebsiteId && (
-                  <p className="text-xs text-gray-500 mt-1">Click "Load Websites" then select a website and a page. You can also skip this to generate copy only.</p>
+                  <p className="text-xs text-gray-500 mt-1">Click "Load Websites" and select a website — a new page will be created automatically.</p>
                 )}
               </section>
 
@@ -2107,7 +2104,7 @@ export default function FunnelBuilder() {
                         ? `✅ "${webResult.pageName}" written to GHL with native sections!`
                         : webResult.success && webResult.partial
                         ? `⚠️ "${webResult.pageName}" — sections partially saved (check logs)`
-                        : `✍️ Page copy generated${webResult.noPage ? ' — no page selected, content not saved' : ''}`}
+                        : `✍️ Page copy generated${webResult.noPage ? ' — page could not be created, check logs' : ''}`}
                     </p>
 
                     {webResult.editUrl && (
