@@ -1751,24 +1751,22 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
   const [resetting,    setResetting]    = useState(false);
   const [selectedTier, setSelectedTier] = useState(role?.tier || '');
 
-  // Filter allFeatures to only those with a valid connected integration (or no integration required)
-  const integrationValidFeatures = enabledIntegrations !== null
-    ? allFeatures.filter(f => {
-        const required = FEATURE_INTEGRATION_MAP[f.key];
-        if (!required) return true; // GHL-native, always available
-        return required.some(r => enabledIntegrations.includes(r));
-      })
-    : allFeatures; // not loaded yet — show all
-
-  // Live tier allowedFeatures from API — null means all tools unlocked (diamond)
+  // Live tier allowedFeatures from API — null means all tools unlocked (diamond / no restriction)
   const activeTierAllowed = selectedTier && tiers?.[selectedTier]?.allowedFeatures !== undefined
     ? tiers[selectedTier].allowedFeatures
     : null;
 
-  // Apply tier filter on top of integration filter
+  // No tier selected → all tools available. Tier selected → filter to tier's tools only.
   const visibleFeatures = activeTierAllowed !== null
-    ? integrationValidFeatures.filter(f => activeTierAllowed.includes(f.key))
-    : integrationValidFeatures;
+    ? allFeatures.filter(f => activeTierAllowed.includes(f.key))
+    : allFeatures;
+
+  // Which features need an integration (informational only — shown as hint, not a gate)
+  const needsIntegration = (key) => {
+    const required = FEATURE_INTEGRATION_MAP[key];
+    if (!required || enabledIntegrations === null) return false;
+    return !required.some(r => enabledIntegrations.includes(r));
+  };
 
   const handleTierChange = (newTier) => {
     setSelectedTier(newTier);
@@ -1874,8 +1872,8 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
               Tools &amp; Features{' '}
               <span style={{ color: '#6366f1', fontWeight: 700 }}>
                 ({features.size}/{visibleFeatures.length} selected
-                {visibleFeatures.length < allFeatures.length
-                  ? ` · ${allFeatures.length - visibleFeatures.length} unavailable`
+                {selectedTier && visibleFeatures.length < allFeatures.length
+                  ? ` · ${allFeatures.length - visibleFeatures.length} locked by tier`
                   : ''})
               </span>
             </label>
@@ -1888,27 +1886,24 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {visibleFeatures.map(f => {
               const checked = features.has(f.key);
+              const missingInt = needsIntegration(f.key);
               return (
                 <label key={f.key} onClick={() => toggle(f.key)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '10px 14px', cursor: 'pointer', transition: 'all .15s' }}>
+                  title={missingInt ? `Integration not connected — user won't be able to use this until it's set up` : ''}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '10px 14px', cursor: 'pointer', transition: 'all .15s', position: 'relative' }}>
                   <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? '#6366f1' : '#444'}`, background: checked ? '#6366f1' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
                     {checked && <span style={{ color: '#fff', fontSize: 11, lineHeight: 1, fontWeight: 700 }}>✓</span>}
                   </div>
                   <span style={{ fontSize: 14, marginRight: 4 }}>{f.icon}</span>
-                  <span style={{ color: checked ? '#e5e7eb' : '#9ca3af', fontSize: 13, fontWeight: checked ? 500 : 400 }}>{f.label}</span>
+                  <span style={{ color: checked ? '#e5e7eb' : '#9ca3af', fontSize: 13, fontWeight: checked ? 500 : 400, flex: 1 }}>{f.label}</span>
+                  {missingInt && <span style={{ fontSize: 10, color: '#78350f', background: '#451a03', padding: '1px 5px', borderRadius: 4 }}>no integration</span>}
                 </label>
               );
             })}
           </div>
-          {visibleFeatures.length < allFeatures.length && (
+          {selectedTier && visibleFeatures.length < allFeatures.length && (
             <p style={{ color: '#4b5563', fontSize: 12, margin: '10px 0 0' }}>
-              {allFeatures.length - visibleFeatures.length} tool{allFeatures.length - visibleFeatures.length !== 1 ? 's' : ''} hidden —
-              {enabledIntegrations !== null && integrationValidFeatures.length < allFeatures.length
-                ? ` ${allFeatures.length - integrationValidFeatures.length} require integrations not yet connected`
-                : ''}
-              {selectedTier && activeTierAllowed
-                ? ` · ${selectedTier} tier restricts remaining tools`
-                : ''}
+              🔒 {allFeatures.length - visibleFeatures.length} tool{allFeatures.length - visibleFeatures.length !== 1 ? 's' : ''} not included in {selectedTier} tier
             </p>
           )}
         </div>
