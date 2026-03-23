@@ -23,6 +23,19 @@ let _cache = null;
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 
+// Full catalog of all supported integration keys
+const ALL_INTEGRATION_KEYS = [
+  'perplexity', 'openai', 'openrouter',
+  'facebook_ads', 'google_ads', 'linkedin',
+  'sendgrid', 'slack', 'apollo', 'heygen',
+  'hubspot', 'keap', 'manychat',
+  'shopify', 'woocommerce',
+  'google_calendar', 'google_forms', 'google_my_business',
+  'airtable', 'monday', 'typeform', 'asana', 'canva', 'gravity_forms',
+  'social_facebook', 'social_instagram', 'social_tiktok_organic',
+  'social_youtube', 'social_linkedin_organic', 'social_pinterest',
+];
+
 const DEFAULT_TIERS = {
   bronze: {
     name:                'Bronze',
@@ -38,7 +51,7 @@ const DEFAULT_TIERS = {
     name:                'Silver',
     icon:                '🥈',
     integrationLimit:    6,
-    allowedIntegrations: ['perplexity', 'openai', 'facebook_ads', 'sendgrid', 'slack', 'apollo'],
+    allowedIntegrations: ['perplexity', 'openai', 'openrouter', 'facebook_ads', 'sendgrid', 'slack', 'apollo', 'heygen', 'google_ads'],
     allowedFeatures:     ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner', 'email_builder', 'ad_library', 'campaign_builder'],
     description:         'Up to 6 integrations — ideal for growing teams.',
     price:               49,
@@ -47,10 +60,10 @@ const DEFAULT_TIERS = {
   gold: {
     name:                'Gold',
     icon:                '🥇',
-    integrationLimit:    10,
-    allowedIntegrations: ['perplexity', 'openai', 'facebook_ads', 'sendgrid', 'slack', 'apollo', 'heygen', 'hubspot', 'keap', 'manychat', 'google_calendar', 'airtable', 'monday', 'typeform', 'asana', 'openrouter', 'shopify', 'social_facebook', 'social_instagram', 'social_tiktok_organic', 'social_youtube', 'social_linkedin_organic', 'social_pinterest'],
+    integrationLimit:    15,
+    allowedIntegrations: ALL_INTEGRATION_KEYS,
     allowedFeatures:     ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner', 'email_builder', 'ad_library', 'campaign_builder', 'agents', 'ghl_agent', 'workflows', 'manychat', 'settings'],
-    description:         'Up to 10 integrations — full toolkit access.',
+    description:         'Up to 15 integrations — full toolkit access.',
     price:               99,
     interval:            'mo',
   },
@@ -158,4 +171,4 @@ async function checkTierAccess(tierKey, integrationCategory, currentEnabledCount
   return { allowed: true, reason: null };
 }
 
-module.exports = { getTiers, getTier, saveTier, checkTierAccess, DEFAULT_TIERS };
+module.exports = { getTiers, getTier, saveTier, checkTierAccess, DEFAULT_TIERS, ALL_INTEGRATION_KEYS };

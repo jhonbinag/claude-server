@@ -202,15 +202,38 @@ export default function Admin() {
   const [ghlProductsLocId,   setGhlProductsLocId]   = useState('');
   const [ghlProductsLoading, setGhlProductsLoading] = useState(false);
 
-  // All available integration keys (hardcoded to match backend)
+  // All available integration keys (must match backend externalTools.js + planTierStore)
   const ALL_INTEGRATIONS = [
-    { key: 'perplexity',   label: 'Perplexity AI',  icon: '🔍' },
-    { key: 'openai',       label: 'OpenAI',          icon: '✨' },
-    { key: 'facebook_ads', label: 'Facebook Ads',    icon: '📘' },
-    { key: 'sendgrid',     label: 'SendGrid',         icon: '📧' },
-    { key: 'slack',        label: 'Slack',            icon: '💬' },
-    { key: 'apollo',       label: 'Apollo.io',        icon: '🚀' },
-    { key: 'heygen',       label: 'HeyGen',           icon: '🎬' },
+    { key: 'perplexity',              label: 'Perplexity AI',       icon: '🔍' },
+    { key: 'openai',                  label: 'OpenAI',              icon: '✨' },
+    { key: 'openrouter',              label: 'OpenRouter',          icon: '🤖' },
+    { key: 'facebook_ads',            label: 'Facebook Ads',        icon: '📘' },
+    { key: 'google_ads',              label: 'Google Ads',          icon: '🎯' },
+    { key: 'sendgrid',                label: 'SendGrid',            icon: '📧' },
+    { key: 'slack',                   label: 'Slack',               icon: '💬' },
+    { key: 'apollo',                  label: 'Apollo.io',           icon: '🚀' },
+    { key: 'heygen',                  label: 'HeyGen',              icon: '🎬' },
+    { key: 'hubspot',                 label: 'HubSpot',             icon: '🟠' },
+    { key: 'keap',                    label: 'Keap',                icon: '📋' },
+    { key: 'manychat',                label: 'ManyChat',            icon: '💬' },
+    { key: 'shopify',                 label: 'Shopify',             icon: '🛍️' },
+    { key: 'woocommerce',             label: 'WooCommerce',         icon: '🛒' },
+    { key: 'google_calendar',         label: 'Google Calendar',     icon: '📅' },
+    { key: 'google_forms',            label: 'Google Forms',        icon: '📋' },
+    { key: 'google_my_business',      label: 'Google My Business',  icon: '🏢' },
+    { key: 'airtable',                label: 'Airtable',            icon: '📊' },
+    { key: 'monday',                  label: 'Monday.com',          icon: '📌' },
+    { key: 'typeform',                label: 'Typeform',            icon: '📝' },
+    { key: 'asana',                   label: 'Asana',               icon: '✅' },
+    { key: 'canva',                   label: 'Canva',               icon: '🎨' },
+    { key: 'gravity_forms',           label: 'Gravity Forms',       icon: '📋' },
+    { key: 'social_facebook',         label: 'Facebook (Social)',    icon: '👍' },
+    { key: 'social_instagram',        label: 'Instagram',           icon: '📸' },
+    { key: 'social_tiktok_organic',   label: 'TikTok',              icon: '🎵' },
+    { key: 'social_youtube',          label: 'YouTube',             icon: '📹' },
+    { key: 'social_linkedin_organic', label: 'LinkedIn (Social)',    icon: '💼' },
+    { key: 'social_pinterest',        label: 'Pinterest',           icon: '📌' },
+    { key: 'linkedin',                label: 'LinkedIn Ads',        icon: '💼' },
   ];
 
   // ── Auth ─────────────────────────────────────────────────────────────────
