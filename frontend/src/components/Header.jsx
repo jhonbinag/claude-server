@@ -3,19 +3,20 @@ import { useApp } from '../context/AppContext';
 
 const NAV = [
   { to: '/',                 label: 'Dashboard',  icon: '🏠' },
-  { to: '/agents',           label: 'Agents',     icon: '🤖' },
-  { to: '/funnel-builder',   label: 'Builder',    icon: '🏗️' },
-  { to: '/workflows',        label: 'Workflows',  icon: '🔀' },
-  { to: '/ads-generator',    label: 'Bulk Ads',   icon: '🎯' },
-  { to: '/ad-library',       label: 'Ad Library', icon: '📊' },
-  { to: '/manychat',         label: 'ManyChat',   icon: '💙' },
-{ to: '/social',           label: 'Social',     icon: '📱' },
+  { to: '/agents',           label: 'Agents',     icon: '🤖',  feature: 'agents' },
+  { to: '/brain',            label: 'Brain',      icon: '🧠' },
+  { to: '/funnel-builder',   label: 'Builder',    icon: '🏗️', feature: 'funnel_builder' },
+  { to: '/workflows',        label: 'Workflows',  icon: '🔀',  feature: 'workflows' },
+  { to: '/ads-generator',    label: 'Bulk Ads',   icon: '🎯',  feature: 'ads_generator' },
+  { to: '/ad-library',       label: 'Ad Library', icon: '📊',  feature: 'ad_library' },
+  { to: '/manychat',         label: 'ManyChat',   icon: '💙',  feature: 'manychat' },
+  { to: '/social',           label: 'Social',     icon: '📱',  feature: 'social_planner' },
   { to: '/billing',          label: 'Billing',    icon: '💳' },
-  { to: '/settings',         label: 'Settings',   icon: '⚙️' },
+  { to: '/settings',         label: 'Settings',   icon: '⚙️',  feature: 'settings' },
 ];
 
 export default function Header({ icon, title, subtitle, onMenuClick }) {
-  const { logout, enabledTools, claudeReady } = useApp();
+  const { logout, enabledTools, claudeReady, canAccess, isAuthenticated } = useApp();
   const { pathname } = useLocation();
 
   return (
@@ -46,7 +47,7 @@ export default function Header({ icon, title, subtitle, onMenuClick }) {
 
       {/* Nav — icons only on mobile, icons + label on lg+ */}
       <nav className="flex items-center gap-0.5 flex-shrink-0">
-        {NAV.map(({ to, label, icon: navIcon }) => (
+        {NAV.filter(({ feature }) => !feature || !isAuthenticated || canAccess(feature)).map(({ to, label, icon: navIcon }) => (
           <Link
             key={to}
             to={to}

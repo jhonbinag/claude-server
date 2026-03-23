@@ -46,6 +46,7 @@ const {
 
 const toolRegistry = require('../tools/toolRegistry');
 const tokenStore   = require('../services/tokenStore');
+const chroma       = require('../services/chromaService');
 
 const locationId = process.env.MCP_LOCATION_ID;
 const companyId  = process.env.MCP_COMPANY_ID;
@@ -64,15 +65,45 @@ const server = new Server(
 
 // ── List Tools ────────────────────────────────────────────────────────────────
 
+const BRAIN_TOOLS = [
+  {
+    name:        'query_brain',
+    description: 'Search the Brain knowledge base — YouTube transcripts, documents, and other content stored for this location. Use this to answer questions about ingested content.',
+    inputSchema: {
+      type:       'object',
+      properties: {
+        query: { type: 'string', description: 'The question or search query to run against the knowledge base.' },
+        k:     { type: 'number', description: 'Number of results to return (default 5, max 20).', default: 5 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name:        'ingest_youtube_brain',
+    description: 'Add a YouTube video transcript to the Brain knowledge base so it can be queried later.',
+    inputSchema: {
+      type:       'object',
+      properties: {
+        url:   { type: 'string', description: 'YouTube video URL or video ID.' },
+        title: { type: 'string', description: 'Optional descriptive title to label this video in the knowledge base.' },
+      },
+      required: ['url'],
+    },
+  },
+];
+
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const defs = await toolRegistry.getTools(locationId);
 
   return {
-    tools: defs.map((tool) => ({
-      name:        tool.name,
-      description: tool.description,
-      inputSchema: tool.input_schema,
-    })),
+    tools: [
+      ...defs.map((tool) => ({
+        name:        tool.name,
+        description: tool.description,
+        inputSchema: tool.input_schema,
+      })),
+      ...BRAIN_TOOLS,
+    ],
   };
 });
 
@@ -81,6 +112,36 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
+  // ── Brain tools ─────────────────────────────────────────────────────────────
+  if (name === 'query_brain') {
+    if (!chroma.isEnabled()) {
+      return { content: [{ type: 'text', text: 'Brain is not configured (Chroma not set up).' }], isError: true };
+    }
+    try {
+      const results = await chroma.queryKnowledge(locationId, 'brain', args.query, Math.min(args.k || 5, 20));
+      if (!results.length) return { content: [{ type: 'text', text: 'No relevant content found in the Brain for that query.' }] };
+      const text = results.map((r, i) =>
+        `[${i + 1}] Source: ${r.sourceLabel}\n${r.text}`
+      ).join('\n\n---\n\n');
+      return { content: [{ type: 'text', text }] };
+    } catch (err) {
+      return { content: [{ type: 'text', text: `Brain query error: ${err.message}` }], isError: true };
+    }
+  }
+
+  if (name === 'ingest_youtube_brain') {
+    if (!chroma.isEnabled()) {
+      return { content: [{ type: 'text', text: 'Brain is not configured (Chroma not set up).' }], isError: true };
+    }
+    try {
+      const result = await chroma.addYoutubeVideo(locationId, 'brain', args.url, args.title || null);
+      return { content: [{ type: 'text', text: `Video ingested: "${result.title}" — ${result.chunks} chunks stored. DocID: ${result.docId}` }] };
+    } catch (err) {
+      return { content: [{ type: 'text', text: `YouTube ingest error: ${err.message}` }], isError: true };
+    }
+  }
+
+  // ── Regular tools ────────────────────────────────────────────────────────────
   try {
     const result = await toolRegistry.executeTool(name, args || {}, locationId, companyId);
     return {

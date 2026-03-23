@@ -13,6 +13,7 @@ import AdLibrary      from './pages/AdLibrary';
 import ManyChatPage   from './pages/ManyChat';
 import GHLAgent       from './pages/GHLAgent';
 import FunnelBuilder  from './pages/FunnelBuilder';
+import Brain          from './pages/Brain';
 
 // ── Route wrapper: redirects to dashboard if user lacks the required feature ───
 function Gated({ feature, element }) {
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/manychat"        element={<Gated feature="manychat"         element={<ManyChatPage />} />} />
         <Route path="/ghl-agent"       element={<Gated feature="ghl_agent"        element={<GHLAgent />} />} />
         <Route path="/funnel-builder"  element={<Gated feature="funnel_builder"   element={<FunnelBuilder />} />} />
+        <Route path="/brain"           element={<Brain />} />
         <Route path="/billing"      element={<Billing />} />
         {/* Admin dashboard — uses separate x-admin-key auth, not RBAC */}
         <Route path="/admin"        element={<Admin />} />

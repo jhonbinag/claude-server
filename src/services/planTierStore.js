@@ -62,7 +62,7 @@ const DEFAULT_TIERS = {
     icon:                '🥇',
     integrationLimit:    15,
     allowedIntegrations: ALL_INTEGRATION_KEYS,
-    allowedFeatures:     ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner', 'email_builder', 'ad_library', 'campaign_builder', 'agents', 'ghl_agent', 'workflows', 'manychat', 'settings'],
+    allowedFeatures:     ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner', 'email_builder', 'ad_library', 'campaign_builder', 'agents', 'ghl_agent', 'workflows', 'manychat', 'settings', 'brain'],
     description:         'Up to 15 integrations — full toolkit access.',
     price:               99,
     interval:            'mo',

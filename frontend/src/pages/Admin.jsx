@@ -26,6 +26,7 @@ const ALL_FEATURES_DEFAULT = [
   { key: 'workflows',        label: 'Workflow Builder',      icon: '🔀' },
   { key: 'manychat',         label: 'ManyChat Integration',  icon: '💬' },
   { key: 'settings',         label: 'Integration Settings',  icon: '⚙️' },
+  { key: 'brain',            label: 'Brain (Knowledge Base)', icon: '🧠' },
 ];
 
 const ALL_FEATURE_KEYS = ALL_FEATURES_DEFAULT.map(f => f.key);
@@ -33,7 +34,7 @@ const ALL_FEATURE_KEYS = ALL_FEATURES_DEFAULT.map(f => f.key);
 const TIER_ALLOWED_FEATURES = {
   bronze:  ['ads_generator', 'ad_library', 'social_planner'],
   silver:  ['funnel_builder','website_builder','ads_generator','social_planner','email_builder','ad_library','campaign_builder'],
-  gold:    ['funnel_builder','website_builder','ads_generator','social_planner','email_builder','ad_library','campaign_builder','agents','ghl_agent','workflows','manychat','settings'],
+  gold:    ['funnel_builder','website_builder','ads_generator','social_planner','email_builder','ad_library','campaign_builder','agents','ghl_agent','workflows','manychat','settings','brain'],
   diamond: null, // all
 };
 
@@ -1739,42 +1740,33 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
   );
 }
 
-// ── Role Editor Modal ─────────────────────────────────────────────────────────
+// ── Role Editor Modal (2-step wizard) ─────────────────────────────────────────
+// Step 1: Role name + tool checkboxes (all 12, no tier filter)
+// Step 2: Tier association — see which selected tools the tier covers
 
 function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locationId, tiers, enabledIntegrations, onClose, onSaved, onReset, onFlash }) {
+  const [step,         setStep]         = useState(1);
   const [name,         setName]         = useState(role?.name     || '');
   const [features,     setFeatures]     = useState(new Set(
-    // If features includes '*', pre-select all for display purposes
     (role?.features || []).includes('*') ? allFeatures.map(f => f.key) : (role?.features || [])
   ));
   const [saving,       setSaving]       = useState(false);
   const [resetting,    setResetting]    = useState(false);
   const [selectedTier, setSelectedTier] = useState(role?.tier || '');
 
-  // Live tier allowedFeatures from API — null means all tools unlocked (diamond / no restriction)
+  // Built-in roles skip the wizard and use a single-step flow
+  const useWizard = !isBuiltin;
+
+  // For step 2: tier's allowed features (null = no restriction / all unlocked)
   const activeTierAllowed = selectedTier && tiers?.[selectedTier]?.allowedFeatures !== undefined
     ? tiers[selectedTier].allowedFeatures
     : null;
 
-  // No tier selected → all tools available. Tier selected → filter to tier's tools only.
-  const visibleFeatures = activeTierAllowed !== null
-    ? allFeatures.filter(f => activeTierAllowed.includes(f.key))
-    : allFeatures;
-
-  // Which features need an integration (informational only — shown as hint, not a gate)
+  // Which features need an integration (informational badge only)
   const needsIntegration = (key) => {
     const required = FEATURE_INTEGRATION_MAP[key];
     if (!required || enabledIntegrations === null) return false;
     return !required.some(r => enabledIntegrations.includes(r));
-  };
-
-  const handleTierChange = (newTier) => {
-    setSelectedTier(newTier);
-    const allowed = newTier && tiers?.[newTier]?.allowedFeatures;
-    if (allowed) {
-      const allowedSet = new Set(allowed);
-      setFeatures(prev => new Set([...prev].filter(k => allowedSet.has(k))));
-    }
   };
 
   const toggle = (key) => {
@@ -1785,8 +1777,13 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
     });
   };
 
-  const selectAll = () => setFeatures(new Set(visibleFeatures.map(f => f.key)));
+  const selectAll = () => setFeatures(new Set(allFeatures.map(f => f.key)));
   const clearAll  = () => setFeatures(new Set());
+
+  const goNext = () => {
+    if (!isBuiltin && !name.trim()) { onFlash('✗ Role name is required.'); return; }
+    setStep(2);
+  };
 
   const save = async () => {
     if (!isBuiltin && !name.trim()) { onFlash('✗ Role name is required.'); return; }
@@ -1815,96 +1812,180 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
     setResetting(false);
   };
 
+  // ── Step 2: tier summary helpers ──────────────────────────────────────────
+  const selectedFeatureObjs = allFeatures.filter(f => features.has(f.key));
+  const tierCoversFeature   = (key) => !activeTierAllowed || activeTierAllowed.includes(key);
+
+  const TIER_OPTIONS = [
+    { key: '', label: 'No Restriction', color: '#6366f1', icon: '∞' },
+    { key: 'bronze',  label: 'Bronze',  color: TIER_COLORS.bronze,  icon: '🥉' },
+    { key: 'silver',  label: 'Silver',  color: TIER_COLORS.silver,  icon: '🥈' },
+    { key: 'gold',    label: 'Gold',    color: TIER_COLORS.gold,    icon: '🥇' },
+    { key: 'diamond', label: 'Diamond', color: TIER_COLORS.diamond, icon: '💎' },
+  ];
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
-      <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 14, width: '100%', maxWidth: 560, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 14, width: '100%', maxWidth: 580, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+
         {/* Header */}
-        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h3 style={{ margin: 0, color: '#fff', fontSize: 16 }}>{mode === 'create' ? '+ Create Custom Role' : `✏️ Edit Role: ${role?.name}`}</h3>
-            {isBuiltin && <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: 12 }}>Editing this built-in role's features for this location only.</p>}
+        <div style={{ padding: '20px 24px 14px', borderBottom: '1px solid #222' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <h3 style={{ margin: 0, color: '#fff', fontSize: 16 }}>
+                {mode === 'create' ? '+ Create Custom Role' : `✏️ Edit Role: ${role?.name}`}
+              </h3>
+              {isBuiltin && <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: 12 }}>Editing this built-in role's features for this location only.</p>}
+            </div>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20, lineHeight: 1, flexShrink: 0 }}>×</button>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
+
+          {/* Step indicator — wizard only */}
+          {useWizard && (
+            <div style={{ display: 'flex', gap: 0, marginTop: 14 }}>
+              {['Select Tools', 'Assign Tier'].map((label, i) => {
+                const stepNum = i + 1;
+                const active  = step === stepNum;
+                const done    = step > stepNum;
+                return (
+                  <div key={stepNum} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{
+                        width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 12, fontWeight: 700, flexShrink: 0,
+                        background: done ? '#22c55e' : active ? '#7c3aed' : '#222',
+                        color: done || active ? '#fff' : '#4b5563',
+                        border: `2px solid ${done ? '#22c55e' : active ? '#7c3aed' : '#333'}`,
+                      }}>
+                        {done ? '✓' : stepNum}
+                      </div>
+                      <span style={{ fontSize: 13, color: active ? '#e5e7eb' : done ? '#9ca3af' : '#4b5563', fontWeight: active ? 600 : 400 }}>{label}</span>
+                    </div>
+                    {i < 1 && <div style={{ flex: 1, height: 1, background: step > 1 ? '#22c55e44' : '#222', margin: '0 10px' }} />}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Body */}
         <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
-          {/* Role name — locked for built-ins */}
-          <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Role Name</label>
-          <input
-            value={name}
-            onChange={e => !isBuiltin && setName(e.target.value)}
-            readOnly={isBuiltin}
-            placeholder="e.g. Sales Team, Content Creator…"
-            style={{ width: '100%', boxSizing: 'border-box', background: isBuiltin ? '#0d0d0d' : '#111', border: '1px solid #333', borderRadius: 8, color: isBuiltin ? '#4b5563' : '#e5e7eb', padding: '9px 12px', fontSize: 14, marginBottom: 20, cursor: isBuiltin ? 'not-allowed' : 'text' }}
-          />
 
-          {/* Tier selector — optional, only for custom roles */}
-          {!isBuiltin && (
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                Plan Tier Restriction <span style={{ color: '#4b5563', fontWeight: 400, textTransform: 'none' }}>(optional — limits features to tier's tools)</span>
-              </label>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {[{ key: '', label: 'No Restriction' }, { key: 'bronze', label: '🥉 Bronze' }, { key: 'silver', label: '🥈 Silver' }, { key: 'gold', label: '🥇 Gold' }, { key: 'diamond', label: '💎 Diamond' }].map(t => (
-                  <button key={t.key} onClick={() => handleTierChange(t.key)}
-                    style={{
-                      padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', border: 'none',
-                      background: selectedTier === t.key ? (t.key ? TIER_COLORS[t.key] + '33' : '#6366f122') : '#111',
-                      color: selectedTier === t.key ? (t.key ? TIER_COLORS[t.key] : '#a5b4fc') : '#6b7280',
-                      outline: selectedTier === t.key ? `1px solid ${t.key ? TIER_COLORS[t.key] : '#6366f1'}` : '1px solid #2a2a2a',
-                    }}>
-                    {t.label}
-                  </button>
-                ))}
+          {/* ── STEP 1: Role name + tool checkboxes ── */}
+          {(!useWizard || step === 1) && (
+            <>
+              <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Role Name</label>
+              <input
+                value={name}
+                onChange={e => !isBuiltin && setName(e.target.value)}
+                readOnly={isBuiltin}
+                placeholder="e.g. Sales Team, Content Creator…"
+                style={{ width: '100%', boxSizing: 'border-box', background: isBuiltin ? '#0d0d0d' : '#111', border: '1px solid #333', borderRadius: 8, color: isBuiltin ? '#4b5563' : '#e5e7eb', padding: '9px 12px', fontSize: 14, marginBottom: 20, cursor: isBuiltin ? 'not-allowed' : 'text' }}
+              />
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <label style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Tools &amp; Features{' '}
+                  <span style={{ color: '#6366f1', fontWeight: 700 }}>({features.size}/{allFeatures.length} selected)</span>
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={selectAll} style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>Select All</button>
+                  <button onClick={clearAll}  style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>Clear</button>
+                </div>
               </div>
-              {selectedTier && activeTierAllowed && (
-                <p style={{ color: '#6b7280', fontSize: 12, margin: '6px 0 0' }}>
-                  Showing {activeTierAllowed.length} of {allFeatures.length} tools available on {selectedTier} tier
-                </p>
-              )}
-            </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {allFeatures.map(f => {
+                  const checked    = features.has(f.key);
+                  const missingInt = needsIntegration(f.key);
+                  return (
+                    <label key={f.key} onClick={() => toggle(f.key)}
+                      title={missingInt ? `Integration not connected — user won't be able to use this until it's set up` : ''}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '10px 14px', cursor: 'pointer', transition: 'all .15s' }}>
+                      <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? '#6366f1' : '#444'}`, background: checked ? '#6366f1' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
+                        {checked && <span style={{ color: '#fff', fontSize: 11, lineHeight: 1, fontWeight: 700 }}>✓</span>}
+                      </div>
+                      <span style={{ fontSize: 14, marginRight: 4 }}>{f.icon}</span>
+                      <span style={{ color: checked ? '#e5e7eb' : '#9ca3af', fontSize: 13, fontWeight: checked ? 500 : 400, flex: 1 }}>{f.label}</span>
+                      {missingInt && <span style={{ fontSize: 10, color: '#78350f', background: '#451a03', padding: '1px 5px', borderRadius: 4 }}>🔗</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </>
           )}
 
-          {/* Feature checkboxes — filtered to tier's allowedFeatures when tier is selected */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <label style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Tools &amp; Features{' '}
-              <span style={{ color: '#6366f1', fontWeight: 700 }}>
-                ({features.size}/{visibleFeatures.length} selected
-                {selectedTier && visibleFeatures.length < allFeatures.length
-                  ? ` · ${allFeatures.length - visibleFeatures.length} locked by tier`
-                  : ''})
-              </span>
-            </label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={selectAll} style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>Select All</button>
-              <button onClick={clearAll}  style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>Clear</button>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {visibleFeatures.map(f => {
-              const checked = features.has(f.key);
-              const missingInt = needsIntegration(f.key);
-              return (
-                <label key={f.key} onClick={() => toggle(f.key)}
-                  title={missingInt ? `Integration not connected — user won't be able to use this until it's set up` : ''}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '10px 14px', cursor: 'pointer', transition: 'all .15s', position: 'relative' }}>
-                  <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? '#6366f1' : '#444'}`, background: checked ? '#6366f1' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
-                    {checked && <span style={{ color: '#fff', fontSize: 11, lineHeight: 1, fontWeight: 700 }}>✓</span>}
-                  </div>
-                  <span style={{ fontSize: 14, marginRight: 4 }}>{f.icon}</span>
-                  <span style={{ color: checked ? '#e5e7eb' : '#9ca3af', fontSize: 13, fontWeight: checked ? 500 : 400, flex: 1 }}>{f.label}</span>
-                  {missingInt && <span style={{ fontSize: 10, color: '#78350f', background: '#451a03', padding: '1px 5px', borderRadius: 4 }}>no integration</span>}
+          {/* ── STEP 2: Tier association ── */}
+          {useWizard && step === 2 && (
+            <>
+              {/* Selected tools summary */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  Selected Tools ({selectedFeatureObjs.length})
                 </label>
-              );
-            })}
-          </div>
-          {selectedTier && visibleFeatures.length < allFeatures.length && (
-            <p style={{ color: '#4b5563', fontSize: 12, margin: '10px 0 0' }}>
-              🔒 {allFeatures.length - visibleFeatures.length} tool{allFeatures.length - visibleFeatures.length !== 1 ? 's' : ''} not included in {selectedTier} tier
-            </p>
+                {selectedFeatureObjs.length === 0
+                  ? <p style={{ color: '#4b5563', fontSize: 13, margin: 0 }}>No tools selected — go back to choose at least one.</p>
+                  : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {selectedFeatureObjs.map(f => (
+                        <span key={f.key} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 20, background: '#6366f115', border: '1px solid #6366f133', color: '#a5b4fc' }}>
+                          {f.icon} {f.label}
+                        </span>
+                      ))}
+                    </div>
+                  )
+                }
+              </div>
+
+              {/* Tier selector */}
+              <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+                Plan Tier <span style={{ color: '#4b5563', fontWeight: 400, textTransform: 'none' }}>(optional — restricts which tools are accessible)</span>
+              </label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                {TIER_OPTIONS.map(t => {
+                  const active = selectedTier === t.key;
+                  return (
+                    <button key={t.key} onClick={() => setSelectedTier(t.key)}
+                      style={{
+                        padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                        background: active ? t.color + '22' : '#111',
+                        color:      active ? t.color : '#6b7280',
+                        border:     `1px solid ${active ? t.color : '#2a2a2a'}`,
+                        transition: 'all .15s',
+                      }}>
+                      {t.icon} {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Coverage breakdown */}
+              {selectedFeatureObjs.length > 0 && (
+                <div style={{ background: '#111', border: '1px solid #222', borderRadius: 10, padding: '14px 16px' }}>
+                  <p style={{ margin: '0 0 10px', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {selectedTier ? `${TIER_OPTIONS.find(t => t.key === selectedTier)?.label} tier coverage` : 'No restriction — all selected tools accessible'}
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {selectedFeatureObjs.map(f => {
+                      const covered = tierCoversFeature(f.key);
+                      return (
+                        <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 16, flexShrink: 0 }}>{covered ? '✅' : '🔒'}</span>
+                          <span style={{ fontSize: 13, color: covered ? '#d1fae5' : '#6b7280', flex: 1 }}>{f.icon} {f.label}</span>
+                          {!covered && <span style={{ fontSize: 11, color: '#92400e', background: '#451a0344', padding: '2px 8px', borderRadius: 4 }}>not in tier</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {selectedTier && activeTierAllowed && (
+                    <p style={{ margin: '10px 0 0', color: '#6b7280', fontSize: 12 }}>
+                      {selectedFeatureObjs.filter(f => tierCoversFeature(f.key)).length} of {selectedFeatureObjs.length} selected tools accessible on this tier.
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -1919,11 +2000,36 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
             )}
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={onClose} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '9px 20px', cursor: 'pointer', fontSize: 14 }}>Cancel</button>
-            <button onClick={save} disabled={saving}
-              style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 24px', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
-              {saving ? 'Saving…' : mode === 'create' ? 'Create Role' : 'Save Changes'}
-            </button>
+            {/* Wizard: step 1 */}
+            {useWizard && step === 1 && (
+              <>
+                <button onClick={onClose} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '9px 20px', cursor: 'pointer', fontSize: 14 }}>Cancel</button>
+                <button onClick={goNext}
+                  style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 24px', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+                  Next: Select Tier →
+                </button>
+              </>
+            )}
+            {/* Wizard: step 2 */}
+            {useWizard && step === 2 && (
+              <>
+                <button onClick={() => setStep(1)} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '9px 20px', cursor: 'pointer', fontSize: 14 }}>← Back</button>
+                <button onClick={save} disabled={saving}
+                  style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 24px', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
+                  {saving ? 'Saving…' : mode === 'create' ? 'Create Role' : 'Save Changes'}
+                </button>
+              </>
+            )}
+            {/* Built-in (single-step) */}
+            {!useWizard && (
+              <>
+                <button onClick={onClose} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '9px 20px', cursor: 'pointer', fontSize: 14 }}>Cancel</button>
+                <button onClick={save} disabled={saving}
+                  style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 24px', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

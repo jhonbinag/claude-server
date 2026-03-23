@@ -632,6 +632,7 @@ export default function Dashboard() {
               {canAccess('social_planner')   && <Link to="/social"           onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">📱 Social Planner</Link>}
               {canAccess('ad_library')       && <Link to="/ad-library"       onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">📊 Ad Library Intel</Link>}
               {canAccess('settings')         && <Link to="/settings"         onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">⚙️ Integration Settings</Link>}
+              <Link to="/brain" onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🧠 Brain</Link>
             </div>
             {userRole && userRole !== 'owner' && (
               <p className="text-xs text-gray-600 mt-2">Role: <span className="text-gray-500 capitalize">{userRole}</span></p>

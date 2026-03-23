@@ -70,7 +70,10 @@ app.get('/debug', (req, res) => {
 // ── Routes ────────────────────────────────────────────────────────────────────
 // Serve React SPA static assets (JS, CSS) before any route handlers
 const path = require('path');
-app.use('/ui', express.static(path.join(__dirname, 'public/ui'), { index: false, maxAge: '1y', immutable: true }));
+// Assets have content-hashed filenames (Vite) — safe to cache long-term.
+// index.html must NOT be immutable so browsers pick up new asset filenames.
+app.use('/ui/assets', express.static(path.join(__dirname, 'public/ui/assets'), { index: false, maxAge: '1y', immutable: true }));
+app.use('/ui', express.static(path.join(__dirname, 'public/ui'), { index: false, maxAge: 0 }));
 
 // ── Privacy Policy (required for Facebook App Live mode) ─────────────────────
 app.get('/privacy', (req, res) => {

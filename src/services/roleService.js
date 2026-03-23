@@ -39,13 +39,14 @@ const ALL_FEATURES = [
   { key: 'workflows',        label: 'Workflow Builder',      icon: '🔀' },
   { key: 'manychat',         label: 'ManyChat Integration',  icon: '💬' },
   { key: 'settings',         label: 'Integration Settings',  icon: '⚙️' },
+  { key: 'brain',            label: 'Brain (Knowledge Base)', icon: '🧠' },
 ];
 
 // ── Built-in role definitions (cannot be edited/deleted) ─────────────────────
 
 const BUILTIN_ROLES = {
   owner:   { id: 'owner',   name: 'Owner',   features: ['*'],                        builtin: true },
-  admin:   { id: 'admin',   name: 'Admin',   features: ALL_FEATURES.map(f => f.key), builtin: true },
+  admin:   { id: 'admin',   name: 'Admin',   features: ALL_FEATURES.map(f => f.key).filter(k => k !== 'brain'), builtin: true },
   manager: { id: 'manager', name: 'Manager', features: ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner', 'email_builder', 'ad_library', 'campaign_builder'], builtin: true },
   member:  { id: 'member',  name: 'Member',  features: ['ads_generator', 'social_planner', 'ad_library'], builtin: true },
 };

@@ -353,12 +353,81 @@ async function getStatus(locationId, agentId) {
   }
 }
 
+// ── YouTube transcript extraction ─────────────────────────────────────────────
+
+/**
+ * Extract video ID from any YouTube URL format.
+ */
+function extractVideoId(url) {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([a-zA-Z0-9_-]{11})/,
+    /^([a-zA-Z0-9_-]{11})$/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/**
+ * Fetch YouTube transcript using youtube-captions-scraper.
+ * Returns plain text of the full transcript.
+ */
+async function fetchYoutubeTranscript(videoUrl) {
+  const videoId = extractVideoId(videoUrl);
+  if (!videoId) throw new Error('Invalid YouTube URL — could not extract video ID.');
+
+  const { getSubtitles } = require('youtube-captions-scraper');
+  let captions;
+  try {
+    captions = await getSubtitles({ videoID: videoId, lang: 'en' });
+  } catch {
+    // Fall back to auto-generated captions
+    captions = await getSubtitles({ videoID: videoId, lang: 'en', auto: true });
+  }
+
+  if (!captions || captions.length === 0) {
+    throw new Error('No captions/transcript available for this video.');
+  }
+
+  // Merge caption segments into readable paragraphs (group every ~10 lines)
+  const lines = captions.map(c => c.text.replace(/\n/g, ' ').trim()).filter(Boolean);
+  const paragraphs = [];
+  for (let i = 0; i < lines.length; i += 10) {
+    paragraphs.push(lines.slice(i, i + 10).join(' '));
+  }
+  return paragraphs.join('\n\n');
+}
+
+/**
+ * Ingest a YouTube video into a knowledge base collection.
+ * Returns { docId, chunks, videoId, title }.
+ */
+async function addYoutubeVideo(locationId, agentId, videoUrl, titleHint) {
+  const videoId   = extractVideoId(videoUrl);
+  if (!videoId) throw new Error('Invalid YouTube URL.');
+
+  const transcript = await fetchYoutubeTranscript(videoUrl);
+  const label      = titleHint || `YouTube: ${videoId}`;
+
+  const result = await addDocument(locationId, agentId, {
+    text:        transcript,
+    url:         `https://www.youtube.com/watch?v=${videoId}`,
+    sourceLabel: label,
+  });
+
+  return { ...result, videoId, title: label };
+}
+
 module.exports = {
-  isEnabled:        () => config.isChromaEnabled,
+  isEnabled:             () => config.isChromaEnabled,
   addDocument,
+  addYoutubeVideo,
   queryKnowledge,
   listDocuments,
   deleteDocument,
   deleteCollection,
   getStatus,
+  extractVideoId,
 };
