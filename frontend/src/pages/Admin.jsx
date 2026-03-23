@@ -1179,7 +1179,14 @@ export default function Admin() {
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
               <select
                 value={rolesLocationId}
-                onChange={e => { setRolesLocationId(e.target.value); setRolesUsers([]); setCustomRoles([]); }}
+                onChange={e => {
+                  const id = e.target.value;
+                  setRolesLocationId(id);
+                  setRolesUsers([]);
+                  setCustomRoles([]);
+                  setBuiltinRoles([]);
+                  if (id) loadUsersForLocation(id);
+                }}
                 style={{ flex: 1, minWidth: 240, background: '#111', border: '1px solid #333', borderRadius: 8, color: rolesLocationId ? '#e5e7eb' : '#6b7280', padding: '8px 12px', fontSize: 13 }}
               >
                 <option value="">— Select a location —</option>
