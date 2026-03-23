@@ -553,6 +553,7 @@ export default function FunnelBuilder() {
   }
 
   async function loadWebPages(wsId) {
+    if (!wsId) return;
     setWebPagesLoading(true);
     setWebPages([]);
     setWebPageId('');
@@ -560,8 +561,12 @@ export default function FunnelBuilder() {
     try {
       const res = await fetch(`/website-builder/pages?websiteId=${encodeURIComponent(wsId)}`, { headers: { 'x-location-id': apiKey } });
       const j = await res.json();
+      if (!res.ok || !j.success) {
+        toast(setToastState, `Pages error: ${j.error || res.status}`, 'error');
+      } else if ((j.pages || []).length === 0) {
+        toast(setToastState, 'No pages found for this website. Create a blank page in GHL first.', 'warn');
+      }
       setWebPages(j.pages || []);
-      if ((j.pages || []).length === 0) toast(setToastState, 'No pages found. Create a blank page in GHL first.', 'warn');
     } catch (err) {
       toast(setToastState, 'Could not load pages: ' + err.message, 'error');
     }
