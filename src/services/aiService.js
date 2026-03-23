@@ -2,10 +2,11 @@
  * src/services/aiService.js
  *
  * Unified AI provider layer — auto-detects which provider is configured:
- *   1. Anthropic (ANTHROPIC_API_KEY)  → Claude Sonnet 4.6
- *   2. OpenAI    (OPENAI_API_KEY)     → GPT-4o-mini
- *   3. Groq      (GROQ_API_KEY)       → llama-3.3-70b-versatile (free tier, fastest)
- *   4. Google    (GOOGLE_API_KEY)     → Gemini 2.5 Flash (free tier)
+ *   1. Anthropic  (ANTHROPIC_API_KEY)  → Claude Sonnet 4.6
+ *   2. OpenAI     (OPENAI_API_KEY)     → GPT-4o-mini
+ *   3. Groq       (GROQ_API_KEY)       → llama-3.1-8b-instant (compact mode, 1500 token cap)
+ *   4. Google     (GOOGLE_API_KEY)     → Gemini 2.5 Flash
+ *   5. Perplexity (PERPLEXITY_API_KEY) → sonar (8192 tokens)
  *
  * Exports:
  *   getProvider()                         → { name, model }
@@ -33,12 +34,16 @@ function getProvider() {
     const m = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
     return { name: 'google', model: m, visionModel: m };
   }
+  if (process.env.PERPLEXITY_API_KEY) {
+    const m = process.env.PERPLEXITY_MODEL || 'sonar';
+    return { name: 'perplexity', model: m, visionModel: m };
+  }
   return null;
 }
 
 function requireProvider() {
   const p = getProvider();
-  if (!p) throw new Error('No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY.');
+  if (!p) throw new Error('No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, GOOGLE_API_KEY, or PERPLEXITY_API_KEY.');
   return p;
 }
 
@@ -241,6 +246,48 @@ async function googleGenerateWithVision(system, userText, imageBase64, mimeType,
   return resp.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
+// ── Perplexity (OpenAI-compatible) ────────────────────────────────────────────
+
+async function perplexityGenerate(system, userText, { model, maxTokens = 8192 } = {}) {
+  const resp = await httpsPost(
+    'api.perplexity.ai',
+    '/chat/completions',
+    { Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}` },
+    {
+      model:      model || process.env.PERPLEXITY_MODEL || 'sonar',
+      max_tokens: maxTokens,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user',   content: userText },
+      ],
+    }
+  );
+  return resp.choices?.[0]?.message?.content || '';
+}
+
+async function perplexityGenerateWithVision(system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
+  const resp = await httpsPost(
+    'api.perplexity.ai',
+    '/chat/completions',
+    { Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}` },
+    {
+      model:      model || process.env.PERPLEXITY_MODEL || 'sonar',
+      max_tokens: maxTokens,
+      messages: [
+        { role: 'system', content: system },
+        {
+          role:    'user',
+          content: [
+            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+            { type: 'text',      text: userText },
+          ],
+        },
+      ],
+    }
+  );
+  return resp.choices?.[0]?.message?.content || '';
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -251,14 +298,15 @@ async function googleGenerateWithVision(system, userText, imageBase64, mimeType,
 async function generate(system, userText, opts = {}) {
   const provider = requireProvider();
   const model    = opts.model || provider.model;
-  // Groq: cap output at 4000 tokens to leave room for input within context window
-  const maxTokens = provider.name === 'groq' ? Math.min(opts.maxTokens || 3000, 4000) : (opts.maxTokens || 4096);
+  // Groq: compact mode — 1500 token cap (fast/testing). All other providers: 8192.
+  const maxTokens = provider.name === 'groq' ? Math.min(opts.maxTokens || 1500, 1500) : (opts.maxTokens || 8192);
 
   switch (provider.name) {
-    case 'anthropic': return anthropicGenerate(system, userText, { ...opts, model, maxTokens });
-    case 'openai':    return openaiGenerate(system, userText, { ...opts, model, maxTokens });
-    case 'groq':      return groqGenerate(system, userText, { ...opts, model, maxTokens });
-    case 'google':    return googleGenerate(system, userText, { ...opts, model, maxTokens });
+    case 'anthropic':  return anthropicGenerate(system, userText, { ...opts, model, maxTokens });
+    case 'openai':     return openaiGenerate(system, userText, { ...opts, model, maxTokens });
+    case 'groq':       return groqGenerate(system, userText, { ...opts, model, maxTokens });
+    case 'google':     return googleGenerate(system, userText, { ...opts, model, maxTokens });
+    case 'perplexity': return perplexityGenerate(system, userText, { ...opts, model, maxTokens });
   }
 }
 
@@ -271,10 +319,11 @@ async function generateWithVision(system, userText, imageBase64, mimeType, opts 
   const model    = opts.model || provider.visionModel;
 
   switch (provider.name) {
-    case 'anthropic': return anthropicGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
-    case 'openai':    return openaiGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
-    case 'groq':      return groqGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
-    case 'google':    return googleGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
+    case 'anthropic':  return anthropicGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
+    case 'openai':     return openaiGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
+    case 'groq':       return groqGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
+    case 'google':     return googleGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
+    case 'perplexity': return perplexityGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
   }
 }
 

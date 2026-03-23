@@ -69,6 +69,7 @@ function detectProviderName(key = '') {
   if (key.startsWith('sk-'))     return 'openai';
   if (key.startsWith('gsk_'))    return 'groq';
   if (key.startsWith('AIza'))    return 'google';
+  if (key.startsWith('pplx-'))   return 'perplexity';
   return 'unknown';
 }
 
@@ -94,18 +95,20 @@ async function loadStoredAiKey(locationId) {
 // Returns generate/generateWithVision functions bound to the user's key (any provider) or server's aiService
 // storedKey: pre-loaded from Redis/Firebase (fallback when no header sent)
 function resolveAI(req, storedKey) {
-  const anthropicKey = req.headers['x-anthropic-api-key'];
-  const openaiKey    = req.headers['x-openai-api-key'];
-  const groqKey      = req.headers['x-groq-api-key'];
-  const googleKey    = req.headers['x-google-api-key'];
+  const anthropicKey  = req.headers['x-anthropic-api-key'];
+  const openaiKey     = req.headers['x-openai-api-key'];
+  const groqKey       = req.headers['x-groq-api-key'];
+  const googleKey     = req.headers['x-google-api-key'];
+  const perplexityKey = req.headers['x-perplexity-api-key'];
 
   // If no header provided but we have a stored key, inject it into the right slot
-  if (!anthropicKey && !openaiKey && !groqKey && !googleKey && storedKey) {
+  if (!anthropicKey && !openaiKey && !groqKey && !googleKey && !perplexityKey && storedKey) {
     const prov = detectProviderName ? detectProviderName(storedKey) : '';
-    if (prov === 'claude')  req.headers['x-anthropic-api-key'] = storedKey;
-    else if (prov === 'openai') req.headers['x-openai-api-key'] = storedKey;
-    else if (prov === 'groq')   req.headers['x-groq-api-key']   = storedKey;
-    else if (prov === 'google') req.headers['x-google-api-key'] = storedKey;
+    if (prov === 'claude')           req.headers['x-anthropic-api-key']  = storedKey;
+    else if (prov === 'openai')      req.headers['x-openai-api-key']     = storedKey;
+    else if (prov === 'groq')        req.headers['x-groq-api-key']       = storedKey;
+    else if (prov === 'google')      req.headers['x-google-api-key']     = storedKey;
+    else if (prov === 'perplexity')  req.headers['x-perplexity-api-key'] = storedKey;
     return resolveAI(req, null); // re-enter without storedKey to pick up header
   }
 
@@ -149,7 +152,7 @@ function resolveAI(req, storedKey) {
     const makeGroq = (key) => ({
       generate: (sys, usr, opts = {}) => {
         const model = opts.model || 'llama-3.3-70b-versatile';
-        const payload = JSON.stringify({ model, max_tokens: Math.min(opts.maxTokens || 4096, 8192), messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] });
+        const payload = JSON.stringify({ model, max_tokens: Math.min(opts.maxTokens || 1500, 1500), messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] });
         return new Promise((res, rej) => {
           const r = require('https').request({ hostname: 'api.groq.com', path: '/openai/v1/chat/completions', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), Authorization: `Bearer ${key}` } }, (resp) => {
             let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.choices?.[0]?.message?.content || ''); } catch(e) { rej(e); } });
@@ -172,7 +175,7 @@ function resolveAI(req, storedKey) {
     const makeGoogle = (key) => ({
       generate: (sys, usr, opts = {}) => {
         const m = opts.model || 'gemini-2.5-flash-preview-05-20';
-        const payload = JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: usr }] }], generationConfig: { maxOutputTokens: opts.maxTokens || 4096 } });
+        const payload = JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: usr }] }], generationConfig: { maxOutputTokens: opts.maxTokens || 8192 } });
         return new Promise((res, rej) => {
           const r = require('https').request({ hostname: 'generativelanguage.googleapis.com', path: `/v1beta/models/${m}:generateContent?key=${key}`, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } }, (resp) => {
             let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.candidates?.[0]?.content?.parts?.[0]?.text || ''); } catch(e) { rej(e); } });
@@ -190,6 +193,29 @@ function resolveAI(req, storedKey) {
       },
     });
     return { ...makeGoogle(googleKey), isUserKey: true, provider: 'google' };
+  }
+  if (perplexityKey) {
+    const makePerplexity = (key) => ({
+      generate: (sys, usr, opts = {}) => {
+        const model = opts.model || 'sonar';
+        const payload = JSON.stringify({ model, max_tokens: opts.maxTokens || 8192, messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] });
+        return new Promise((res, rej) => {
+          const r = require('https').request({ hostname: 'api.perplexity.ai', path: '/chat/completions', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), Authorization: `Bearer ${key}` } }, (resp) => {
+            let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.choices?.[0]?.message?.content || ''); } catch(e) { rej(e); } });
+          }); r.on('error', rej); r.write(payload); r.end();
+        });
+      },
+      generateWithVision: (sys, usr, b64, mime, opts = {}) => {
+        const model = opts.model || 'sonar';
+        const payload = JSON.stringify({ model, max_tokens: opts.maxTokens || 8192, messages: [{ role: 'system', content: sys }, { role: 'user', content: [{ type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }, { type: 'text', text: usr }] }] });
+        return new Promise((res, rej) => {
+          const r = require('https').request({ hostname: 'api.perplexity.ai', path: '/chat/completions', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), Authorization: `Bearer ${key}` } }, (resp) => {
+            let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.choices?.[0]?.message?.content || ''); } catch(e) { rej(e); } });
+          }); r.on('error', rej); r.write(payload); r.end();
+        });
+      },
+    });
+    return { ...makePerplexity(perplexityKey), isUserKey: true, provider: 'perplexity' };
   }
 
   return {
@@ -1135,7 +1161,7 @@ router.post('/generate', async (req, res) => {
 
   // Load stored AI key from Redis/Firebase if no header provided
   const storedAiKey = await loadStoredAiKey(req.locationId);
-  const hasUserKey  = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-groq-api-key'] || req.headers['x-google-api-key'] || storedAiKey;
+  const hasUserKey  = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-groq-api-key'] || req.headers['x-google-api-key'] || req.headers['x-perplexity-api-key'] || storedAiKey;
   if (!hasUserKey && !aiService.getProvider()) {
     return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key in the Funnel Builder.' });
   }
@@ -1226,7 +1252,7 @@ router.post('/generate', async (req, res) => {
 
   const ai       = resolveAI(req, storedAiKey);
   const provider = ai.isUserKey ? { name: ai.provider || 'user' } : (aiService.getProvider() || {});
-  const isGroq   = !ai.isUserKey && provider?.name === 'groq';
+  const isGroq   = ai.provider === 'groq' || (!ai.isUserKey && provider?.name === 'groq');
 
   // Groq compact schema — 3-section skeleton with exact brand colors injected
   const groqSystemPrompt = `${agentIntro}Output ONLY valid JSON. No explanation, no markdown.
@@ -1534,7 +1560,7 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     return res.status(400).json({ success: false, error: '"funnelId" is required.' });
   }
   const storedAiKeyDesign = await loadStoredAiKey(req.locationId);
-  const anyUserKey = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-google-api-key'] || req.headers['x-groq-api-key'] || storedAiKeyDesign;
+  const anyUserKey = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-google-api-key'] || req.headers['x-groq-api-key'] || req.headers['x-perplexity-api-key'] || storedAiKeyDesign;
   if (!anyUserKey && !aiService.getProvider()) {
     return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key in the Funnel Builder (Claude, OpenAI, Groq, or Gemini).' });
   }
@@ -3390,7 +3416,7 @@ router.post('/generate-funnel', async (req, res) => {
   if (!funnelId) return res.status(400).json({ success: false, error: '"funnelId" is required.' });
 
   const storedAiKeyFunnel = await loadStoredAiKey(req.locationId);
-  const hasAnyKeyFunnel   = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-groq-api-key'] || req.headers['x-google-api-key'] || storedAiKeyFunnel;
+  const hasAnyKeyFunnel   = req.headers['x-anthropic-api-key'] || req.headers['x-openai-api-key'] || req.headers['x-groq-api-key'] || req.headers['x-google-api-key'] || req.headers['x-perplexity-api-key'] || storedAiKeyFunnel;
   if (!hasAnyKeyFunnel && !aiService.getProvider()) return res.status(503).json({ success: false, error: 'No AI provider configured. Enter your API key in the Funnel Builder.' });
 
   // Ensure Firebase connected
