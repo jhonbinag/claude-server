@@ -216,15 +216,30 @@ const PAGE_SECTION_PLANS = {
   ],
 };
 
+// ─── Shared nav + footer sections (added to every page type) ─────────────────
+
+const NAV_SECTION = {
+  name: 'Navigation', align: 'left', bg: 'nav', layout: 'nav-header',
+  role: 'Website navigation bar. Logo/brand name on the left as logoText element. Navigation links on the right as navLinks element — include 4–5 page links relevant to this website type (e.g. Home, About, Services, Contact, Blog).',
+  elements: ['logoText', 'navLinks'],
+};
+
+const FOOTER_SECTION = {
+  name: 'Footer', align: 'left', bg: 'dark', layout: 'three-column',
+  role: 'Complete website footer using three-column layout. Section children: brand name as h3 + copyright paragraph. Column 1 "About": h3 heading + 1-sentence brand description. Column 2 "Quick Links": h3 heading + bulletList of 4 page links. Column 3 "Contact Us": h3 heading + bulletList with 📧 email, 📞 phone, 📍 address.',
+  elements: ['heading h3', 'paragraph', 'bulletList'],
+};
+
 // ─── AI: generate native GHL section content ──────────────────────────────────
 
 async function generatePageSections(brief) {
   const { pageName, pageType, websiteName, niche, offer, audience, brand, colorScheme, extraNotes } = brief;
-  const plan     = PAGE_SECTION_PLANS[pageType] || PAGE_SECTION_PLANS.custom;
+  const basePlan = PAGE_SECTION_PLANS[pageType] || PAGE_SECTION_PLANS.custom;
+  const plan     = [NAV_SECTION, ...basePlan, FOOTER_SECTION];
   const provider = await aiService.getProvider();
 
   const sectionList = plan.map((s, i) =>
-    `Section ${i + 1} — "${s.name}" [align: ${s.align}, bg: ${s.bg}]\n  Copy brief: ${s.role}\n  Elements: ${s.elements.join(', ')}`
+    `Section ${i + 1} — "${s.name}" [align: ${s.align}, bg: ${s.bg}${s.layout ? `, layout: ${s.layout}` : ''}]\n  Copy brief: ${s.role}\n  Elements: ${s.elements.join(', ')}`
   ).join('\n\n');
 
   const system = `You are a world-class direct-response copywriter who writes websites that compel, convert, and connect emotionally. You write like the best of David Ogilvy, Gary Halbert, and Alex Hormozi combined — clear, specific, punchy, and human. Return ONLY valid JSON, no markdown fences, no explanation.`;
@@ -252,15 +267,28 @@ COPYWRITING RULES — follow these exactly:
 8. NEWSLETTER: Frame as giving VALUE ("Get weekly tips that...") not asking for something.
 9. TEXT ALIGNMENT: Follow the [align] directive per section — centered sections feel bold/impactful, left-aligned sections feel detailed/trustworthy.
 10. THREE-COLUMN SOCIAL PROOF: When the section role says "THREE-COLUMN layout", you MUST output "layout": "three-column" on the section object AND a "columns" array with exactly 3 objects. Each column's "children" must have: image (src:"placeholder"), stars paragraph, quote paragraph, name+result paragraph. The section's "children" array should contain only the heading.
+11. NAVIGATION SECTION: When section layout is "nav-header", output "layout":"nav-header" and "children" with exactly 2 elements: { "type":"logoText", "text":"BrandName" } and { "type":"navLinks", "items":["Home","About","Services","Contact","Blog"] }. Use the real brand name. No columns array.
+12. FOOTER SECTION: When section name is "Footer" and layout is "three-column", output "layout":"three-column". Put brand h3 + copyright paragraph in "children". Put exactly 3 columns in "columns" (About, Quick Links, Contact Us). Dark background (#0f172a or brand dark). Light gray text (#94a3b8) for footer content, white for headings.
+13. LAYOUT FIELD: Always include the "layout" field on a section if it was specified in the section brief. Never omit it.
 
 SECTIONS TO WRITE:
 ${sectionList}
 
-RETURN THIS EXACT JSON:
+RETURN THIS EXACT JSON STRUCTURE (write ALL sections listed in SECTIONS TO WRITE above):
 {
   "seoTitle": "Keyword-rich SEO title 50–60 chars exactly",
   "metaDescription": "Compelling meta description 150–160 chars that makes someone click from Google",
   "sections": [
+    {
+      "name": "Navigation",
+      "layout": "nav-header",
+      "textAlign": "left",
+      "styles": { "backgroundColor": { "value": "#0f172a" } },
+      "children": [
+        { "type": "logoText", "text": "BrandName", "styles": { "color": { "value": "#ffffff" } } },
+        { "type": "navLinks", "items": ["Home", "About", "Services", "Contact", "Blog"], "styles": { "color": { "value": "rgba(255,255,255,0.85)" } } }
+      ]
+    },
     {
       "name": "Hero Hook",
       "textAlign": "center",
@@ -277,9 +305,9 @@ RETURN THIS EXACT JSON:
       "textAlign": "left",
       "styles": { "backgroundColor": { "value": "#ffffff" } },
       "children": [
-        { "type": "heading",     "tag": "h2", "text": "Section H2 heading",  "styles": { "color": { "value": "#1a202c" } } },
-        { "type": "paragraph",                "text": "Body copy with <strong>bold key phrase</strong> — short, punchy, human.", "styles": { "color": { "value": "#4a5568" } } },
-        { "type": "bulletList",               "items": ["Specific outcome bullet — verb + result", "Another specific bullet with numbers if possible"], "styles": { "color": { "value": "#4a5568" } } }
+        { "type": "heading",    "tag": "h2", "text": "Section H2 heading", "styles": { "color": { "value": "#1a202c" } } },
+        { "type": "paragraph",               "text": "Body copy with <strong>bold key phrase</strong>.", "styles": { "color": { "value": "#4a5568" } } },
+        { "type": "bulletList",              "items": ["Specific outcome bullet", "Another specific bullet"], "styles": { "color": { "value": "#4a5568" } } }
       ]
     },
     {
@@ -291,9 +319,33 @@ RETURN THIS EXACT JSON:
         { "type": "heading", "tag": "h2", "text": "What Our Clients Say", "styles": { "color": { "value": "#1a202c" } } }
       ],
       "columns": [
-        { "children": [ { "type": "image", "src": "placeholder", "alt": "Client photo" }, { "type": "paragraph", "text": "⭐⭐⭐⭐⭐", "styles": { "color": { "value": "#f59e0b" } } }, { "type": "paragraph", "text": "\"Real quote with specific result here.\"", "styles": { "color": { "value": "#4a5568" } } }, { "type": "paragraph", "text": "— Client Name, Measurable Result", "styles": { "color": { "value": "#1a202c" } } } ] },
-        { "children": [ { "type": "image", "src": "placeholder", "alt": "Client photo" }, { "type": "paragraph", "text": "⭐⭐⭐⭐⭐", "styles": { "color": { "value": "#f59e0b" } } }, { "type": "paragraph", "text": "\"Second quote with specific numbers.\"", "styles": { "color": { "value": "#4a5568" } } }, { "type": "paragraph", "text": "— Client Name, Measurable Result", "styles": { "color": { "value": "#1a202c" } } } ] },
-        { "children": [ { "type": "image", "src": "placeholder", "alt": "Client photo" }, { "type": "paragraph", "text": "⭐⭐⭐⭐⭐", "styles": { "color": { "value": "#f59e0b" } } }, { "type": "paragraph", "text": "\"Third quote — name, numbers, outcome.\"", "styles": { "color": { "value": "#4a5568" } } }, { "type": "paragraph", "text": "— Client Name, Measurable Result", "styles": { "color": { "value": "#1a202c" } } } ] }
+        { "children": [ { "type": "image", "src": "placeholder", "alt": "Client photo" }, { "type": "paragraph", "text": "⭐⭐⭐⭐⭐", "styles": { "color": { "value": "#f59e0b" } } }, { "type": "paragraph", "text": "\"Real quote with specific result.\"", "styles": { "color": { "value": "#4a5568" } } }, { "type": "paragraph", "text": "— Client Name, Result", "styles": { "color": { "value": "#1a202c" } } } ] },
+        { "children": [ { "type": "image", "src": "placeholder", "alt": "Client photo" }, { "type": "paragraph", "text": "⭐⭐⭐⭐⭐", "styles": { "color": { "value": "#f59e0b" } } }, { "type": "paragraph", "text": "\"Second quote with numbers.\"",       "styles": { "color": { "value": "#4a5568" } } }, { "type": "paragraph", "text": "— Client Name, Result", "styles": { "color": { "value": "#1a202c" } } } ] },
+        { "children": [ { "type": "image", "src": "placeholder", "alt": "Client photo" }, { "type": "paragraph", "text": "⭐⭐⭐⭐⭐", "styles": { "color": { "value": "#f59e0b" } } }, { "type": "paragraph", "text": "\"Third quote with outcome.\"",         "styles": { "color": { "value": "#4a5568" } } }, { "type": "paragraph", "text": "— Client Name, Result", "styles": { "color": { "value": "#1a202c" } } } ] }
+      ]
+    },
+    {
+      "name": "Footer",
+      "layout": "three-column",
+      "textAlign": "left",
+      "styles": { "backgroundColor": { "value": "#0f172a" } },
+      "children": [
+        { "type": "heading",   "tag": "h3", "text": "BrandName", "styles": { "color": { "value": "#f8fafc" } } },
+        { "type": "paragraph",              "text": "© 2024 BrandName. All rights reserved.", "styles": { "color": { "value": "#64748b" }, "fontSize": { "value": 13 } } }
+      ],
+      "columns": [
+        { "children": [
+          { "type": "heading",   "tag": "h3", "text": "About",       "styles": { "color": { "value": "#f8fafc" } } },
+          { "type": "paragraph",              "text": "Brand tagline and description.", "styles": { "color": { "value": "#94a3b8" } } }
+        ]},
+        { "children": [
+          { "type": "heading",   "tag": "h3", "text": "Quick Links", "styles": { "color": { "value": "#f8fafc" } } },
+          { "type": "bulletList",             "items": ["Home", "About", "Services", "Contact"], "styles": { "color": { "value": "#94a3b8" } } }
+        ]},
+        { "children": [
+          { "type": "heading",   "tag": "h3", "text": "Contact Us",  "styles": { "color": { "value": "#f8fafc" } } },
+          { "type": "bulletList",             "items": ["📧 hello@brand.com", "📞 +1 (555) 000-0000", "📍 City, State"], "styles": { "color": { "value": "#94a3b8" } } }
+        ]}
       ]
     }
   ]
@@ -307,7 +359,7 @@ COLOR RULES:
 - Never use "#primary" — always a real hex code
 - Extract brand colors from the color scheme hint if hex codes are provided (e.g. "#1a1a2e background, #f59e0b accent" is valid input — use those exact hex values)`;
 
-  const raw    = await aiService.generate(system, user, { maxTokens: 5000 });
+  const raw    = await aiService.generate(system, user, { maxTokens: 8192 });
   const parsed = parseJsonSafe(raw);
   parsed._provider = provider;
   return parsed;

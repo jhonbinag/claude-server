@@ -1283,6 +1283,7 @@ RULES:
 7. CRITICAL: paragraph "text" must be plain text — NO HTML tags, no <p>, no <br>, no <strong>.
 8. CRITICAL: bulletList "items" must be an array of plain strings — NOT objects. Example: ["Benefit 1","Benefit 2"]
 9. CRITICAL: If a section template has "layout":"three-column" and "columns":[], KEEP both fields and fill in real testimonials in each column's "children" — do NOT flatten columns into "children".
+10. DESIGN DEPTH: Hero/CTA sections need strong dark or gradient backgrounds — never plain white. Always include an image in hero sections. Buttons use bold accent colors with high contrast.
 
 SCHEMA:
 {"sections":[{"id":"section-X","type":"section","name":"name","allowRowMaxWidth":false,
@@ -3595,7 +3596,8 @@ CRITICAL RULES:
 7. Replace ALL [PLACEHOLDER] text with real, niche-specific copy
 8. Keep all backgroundColor, fontSize, color, fontWeight values exactly as in the template
 9. CRITICAL: If a section template has "layout":"three-column" and "columns":[], KEEP both fields. Fill in real testimonials in each column's "children" — do NOT flatten columns into "children"
-10. Output ONLY the JSON — no markdown, no explanation, no code fences`;
+10. Output ONLY the JSON — no markdown, no explanation, no code fences
+11. DESIGN DEPTH: Hero and CTA sections should have strong background colors (no plain white heroes). Use the provided palette. Images get automatic 3D float animations — always include at least one image in hero sections.`;
 
     const systemPrompt = isGroq ? groqSysPrompt : fullSysPrompt;
     const sectionsNote = isGroq ? sectionPlan2.groq : sectionPlan2.full;

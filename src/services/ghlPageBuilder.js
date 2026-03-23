@@ -637,6 +637,63 @@ function buildGhlNativeElement(el, textAlign = 'center') {
       };
     }
 
+    case 'logoText': {
+      const color = el.styles?.color?.value || '#ffffff';
+      const id    = `paragraph-${sid()}`;
+      const text  = el.text || el.value || 'Brand';
+      return {
+        child: [],
+        class: { borderRadius: { value: 'radius0' }, borders: { value: 'noBorder' } },
+        extra: {
+          desktopFontSize: { unit: 'px', value: '22' },
+          mobileFontSize:  { unit: 'px', value: '20' },
+          nodeId:          `c-paragraph-${id}`,
+          text:            { value: `<strong style="font-size:22px;letter-spacing:-0.5px;font-family:var(--headlinefont);">${text}</strong>` },
+          typography:      { value: 'var(--headlinefont)' },
+          visibility:      { value: { hideDesktop: false, hideMobile: false } },
+        },
+        id,
+        meta:    'paragraph',
+        styles:  { color: { value: color }, lineHeight: { value: '' }, marginTop: { unit: 'px', value: 0 }, textAlign: { value: 'left' } },
+        tag:     'p',
+        tagName: 'c-paragraph',
+        title:   'Logo',
+        type:    'element',
+        wrapper: { marginTop: { unit: 'px', value: '0' }, textAlign: { value: 'left' } },
+      };
+    }
+
+    case 'navLinks': {
+      const items    = el.items || [];
+      const color    = el.styles?.color?.value || 'rgba(255,255,255,0.85)';
+      const id       = `paragraph-${sid()}`;
+      const linksHtml = items.map(link => {
+        const label = typeof link === 'string' ? link : (link.label || link.text || String(link));
+        const href  = typeof link === 'object' ? (link.href || '#') : '#';
+        return `<a href="${href}" style="color:${color};text-decoration:none;margin:0 14px;font-size:15px;font-weight:500;">${label}</a>`;
+      }).join('');
+      return {
+        child: [],
+        class: { borderRadius: { value: 'radius0' }, borders: { value: 'noBorder' } },
+        extra: {
+          desktopFontSize: { unit: 'px', value: '15' },
+          mobileFontSize:  { unit: 'px', value: '14' },
+          nodeId:          `c-paragraph-${id}`,
+          text:            { value: linksHtml },
+          typography:      { value: 'var(--contentfont)' },
+          visibility:      { value: { hideDesktop: false, hideMobile: false } },
+        },
+        id,
+        meta:    'paragraph',
+        styles:  { color: { value: color }, lineHeight: { value: '' }, marginTop: { unit: 'px', value: 0 }, textAlign: { value: 'right' } },
+        tag:     'p',
+        tagName: 'c-paragraph',
+        title:   'Nav Links',
+        type:    'element',
+        wrapper: { marginTop: { unit: 'px', value: '0' }, textAlign: { value: 'right' } },
+      };
+    }
+
     default: {
       // Fallback: render as paragraph
       const id = `paragraph-${sid()}`;
@@ -732,8 +789,10 @@ function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId
     const isLast  = idx === total - 1;
     const bgColor = aiBg || (isFirst ? colors.heroBg : isLast ? colors.ctaBg : idx % 2 === 1 ? colors.sectionBg : '#FFFFFF');
 
-    const padTop = String(aiSection.styles?.paddingTop?.value    || (isFirst || isLast ? 100 : 80));
-    const padBot = String(aiSection.styles?.paddingBottom?.value || (isFirst || isLast ? 100 : 80));
+    const isNavHeader  = aiSection.layout === 'nav-header';
+    const isFooterSec  = (aiSection.name || '').toLowerCase() === 'footer' || aiSection.layout === 'footer';
+    const padTop = String(aiSection.styles?.paddingTop?.value    || (isNavHeader ? 16 : isFirst || isLast ? 100 : 80));
+    const padBot = String(aiSection.styles?.paddingBottom?.value || (isNavHeader ? 16 : isFirst || isLast ? 100 : 80));
 
     const rawNodes  = aiSection.children || aiSection.elements || aiSection.rows || [];
     const leafElems = flattenElements(rawNodes);
@@ -747,17 +806,38 @@ function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId
     const imageElems  = leafElems.filter(e => e.type === 'image');
     const otherElems  = leafElems.filter(e => e.type !== 'image');
     const useThreeCol = aiSection.layout === 'three-column' && Array.isArray(aiSection.columns) && aiSection.columns.length > 0;
-    const useTwoCol   = !useThreeCol && !isFirst && !isLast && imageElems.length > 0 && otherElems.length >= 2;
+    const useTwoCol   = !useThreeCol && !isNavHeader && !isFirst && !isLast && imageElems.length > 0 && otherElems.length >= 2;
 
     let rowObjects     = [];
     let allNative      = [];
     let topLevelRowIds = [];
 
-    if (useThreeCol) {
+    if (isNavHeader) {
+      // ── Nav header: 2-column logo + links ───────────────────────────────────
+      const logoEl     = leafElems.find(e => e.type === 'logoText') || { type: 'logoText', text: 'Brand' };
+      const navLinksEl = leafElems.find(e => e.type === 'navLinks') || { type: 'navLinks', items: [] };
+
+      const logoNative = [buildGhlNativeElement(logoEl, 'left')];
+      const navNative  = [buildGhlNativeElement(navLinksEl, 'right')];
+
+      const logoColId = `col-${sid()}`;
+      const navColId  = `col-${sid()}`;
+      const rowId     = `row-${sid()}`;
+
+      const logoCol = makeColumn(logoColId, logoNative.map(e => e.id), 'left',  25);
+      const navCol  = makeColumn(navColId,  navNative.map(e => e.id),  'right', 75);
+      const navRow  = makeRow(rowId, [logoColId, navColId]);
+
+      allNative      = [...logoNative, ...navNative];
+      rowObjects     = [navRow, logoCol, navCol];
+      topLevelRowIds = [rowId];
+
+    } else if (useThreeCol) {
       // ── Three-column card grid ──────────────────────────────────────────────
       // Row 1: centered heading(s) from section children
-      const hdrTypes  = new Set(['headline', 'heading', 'sub-heading', 'sub-headline']);
-      const hdrLeaves = leafElems.filter(e => hdrTypes.has(e.type));
+      // For footer sections, include ALL child types (heading + copyright paragraph) in the header row
+      const hdrTypes  = isFooterSec ? null : new Set(['headline', 'heading', 'sub-heading', 'sub-headline']);
+      const hdrLeaves = hdrTypes ? leafElems.filter(e => hdrTypes.has(e.type)) : leafElems;
       const hdrNative = hdrLeaves.map(e => buildGhlNativeElement(e, 'center'));
       const hdrColId  = `col-${sid()}`;
       const hdrRowId  = `row-${sid()}`;
@@ -999,7 +1079,19 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
 --color-22:${palette.bodyText};--color-23:${palette.bodyText};--color-24:#ffffff;--color-25:${palette.primary};
 --open-sans:'Open Sans',sans-serif;--merriweather:'Merriweather',serif;
 --contentfont:var(--open-sans);--headlinefont:var(--merriweather);
-}`,
+}
+@keyframes ghl-fade-up{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
+@keyframes ghl-hero-float{0%,100%{transform:translateY(0) rotate(-0.5deg)}50%{transform:translateY(-16px) rotate(0.5deg)}}
+c-section{animation:ghl-fade-up .75s ease both}
+c-section:nth-child(1){animation-delay:.05s}c-section:nth-child(2){animation-delay:.15s}
+c-section:nth-child(3){animation-delay:.25s}c-section:nth-child(4){animation-delay:.35s}
+c-section:nth-child(5){animation-delay:.45s}c-section:nth-child(n+6){animation-delay:.5s}
+c-section:first-child c-image{animation:ghl-hero-float 5s ease-in-out infinite}
+c-column{transition:transform .35s cubic-bezier(.25,.8,.25,1),box-shadow .35s ease;will-change:transform}
+c-column:hover{transform:translateY(-8px) scale(1.02);box-shadow:0 20px 40px rgba(0,0,0,.15)}
+c-button{transition:transform .2s ease,box-shadow .2s ease,background-color .2s ease}
+c-button:hover{transform:translateY(-3px) scale(1.04);box-shadow:0 10px 20px rgba(0,0,0,.25)}
+c-button:active{transform:translateY(1px) scale(.99)}`,
     trackingCode: { headerCode: '', footerCode: '' },
     fontsForPreview: ["'\"Open Sans\"'", "'Merriweather'", "'Open Sans'"],
   };
