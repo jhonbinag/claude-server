@@ -3,12 +3,13 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 const AppContext = createContext(null);
 
 // Base API call using x-location-id header
-async function apiFetch(path, locationId, opts = {}) {
+async function apiFetch(path, locationId, opts = {}, userId = null) {
   const res = await fetch(path, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
       'x-location-id': locationId,
+      ...(userId ? { 'x-user-id': userId } : {}),
       ...(opts.headers || {}),
     },
   });
@@ -18,6 +19,11 @@ async function apiFetch(path, locationId, opts = {}) {
 function getInitialLocationId() {
   const params = new URLSearchParams(window.location.search);
   return params.get('locationId') || localStorage.getItem('gtm_location_id') || '';
+}
+
+function getInitialUserId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('userId') || localStorage.getItem('gtm_user_id') || '';
 }
 
 export function AppProvider({ children }) {
@@ -36,6 +42,11 @@ export function AppProvider({ children }) {
   const [integrations,       setIntegrations]       = useState([]);
   const [integrationsLoaded, setIntegrationsLoaded] = useState(false);
 
+  // ── RBAC state ────────────────────────────────────────────────────────────
+  const [userId,           setUserId]           = useState(getInitialUserId);
+  const [userRole,         setUserRole]         = useState('owner');   // default: full access
+  const [allowedFeatures,  setAllowedFeatures]  = useState(['*']);
+
   // ── Load integrations ─────────────────────────────────────────────────────
   const loadIntegrations = useCallback(async (locId) => {
     const id = locId || locationId;
@@ -48,6 +59,18 @@ export function AppProvider({ children }) {
       }
     } catch {}
   }, [locationId]);
+
+  // ── Fetch role + allowed features ─────────────────────────────────────────
+  const fetchRole = useCallback(async (locId, uid) => {
+    if (!locId) return;
+    try {
+      const data = await apiFetch('/roles/my-features', locId, {}, uid || null);
+      if (data.success) {
+        setUserRole(data.role || 'owner');
+        setAllowedFeatures(data.features || ['*']);
+      }
+    } catch {}
+  }, []);
 
   // ── Fetch status in background (claudeReady, enabledTools) ───────────────
   const fetchStatus = useCallback(async (locId) => {
@@ -74,25 +97,36 @@ export function AppProvider({ children }) {
     } catch {}
   }, []);
 
-  // ── On mount: clean URL, save locationId, fetch background status ─────────
+  // ── On mount: clean URL, save locationId/userId, fetch background status ──
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlLoc = params.get('locationId');
+    const urlUid = params.get('userId');
 
     if (urlLoc) {
       localStorage.setItem('gtm_location_id', urlLoc);
       setLocationId(urlLoc);
       setIsAuthenticated(true);
-      // Clean URL (remove query params)
+    }
+    if (urlUid) {
+      localStorage.setItem('gtm_user_id', urlUid);
+      setUserId(urlUid);
+    }
+
+    // Clean URL (remove query params)
+    if (urlLoc || urlUid) {
       window.history.replaceState({}, '', window.location.pathname);
     }
 
     const locId = urlLoc || locationId;
+    const uid   = urlUid || userId;
     if (!locId) return;
 
-    // Fetch claude status + integrations in background — doesn't block render
+    // Fetch claude status + integrations + role in background
     fetchStatus(locId);
     loadIntegrations(locId);
+    fetchRole(locId, uid);
+
     // Fire-and-forget: sync GHL social accounts → toolRegistry so the
     // command center counts social connections even before Settings is visited.
     fetch('/social/sync', {
@@ -100,6 +134,13 @@ export function AppProvider({ children }) {
       headers: { 'Content-Type': 'application/json', 'x-location-id': locId },
     }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Helper: check if a feature is accessible ─────────────────────────────
+  const canAccess = useCallback((feature) => {
+    if (!feature) return true;
+    if (allowedFeatures.includes('*')) return true;
+    return allowedFeatures.includes(feature);
+  }, [allowedFeatures]);
 
   // ── Activate with Anthropic key ───────────────────────────────────────────
   const activate = async (anthropicKey) => {
@@ -124,11 +165,15 @@ export function AppProvider({ children }) {
   const logout = () => {
     if (locationId) localStorage.removeItem(`claude_ready_${locationId}`);
     localStorage.removeItem('gtm_location_id');
+    localStorage.removeItem('gtm_user_id');
     setLocationId('');
+    setUserId('');
     setIsAuthenticated(false);
     setClaudeReady(false);
     setIntegrations([]);
     setIntegrationsLoaded(false);
+    setUserRole('owner');
+    setAllowedFeatures(['*']);
   };
 
   // ── Refresh status + integrations ────────────────────────────────────────
@@ -149,6 +194,12 @@ export function AppProvider({ children }) {
       enabledTools,
       integrations,
       integrationsLoaded,
+      // RBAC
+      userId,
+      userRole,
+      allowedFeatures,
+      canAccess,
+      // Actions
       activate,
       login: activate,
       logout,

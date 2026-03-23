@@ -136,7 +136,7 @@ function applyEvent(prev, evtType, data) {
 }
 
 export default function Dashboard() {
-  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, enabledTools, integrations, integrationsLoaded } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, enabledTools, integrations, integrationsLoaded, canAccess, userRole } = useApp();
   const [task, setTask]         = useState('');
   const [messages, setMessages] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -626,13 +626,16 @@ export default function Dashboard() {
           <div className="p-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Quick links</p>
             <div className="space-y-1">
-              <Link to="/campaign-builder" onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🏗️ Campaign Builder</Link>
-              <Link to="/workflows"        onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🔀 Workflow Builder</Link>
-              <Link to="/ads-generator"    onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🎯 Bulk Ads Generator</Link>
-              <Link to="/social"            onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">📱 Social Planner</Link>
-              <Link to="/ad-library"       onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">📊 Ad Library Intel</Link>
-              <Link to="/settings"         onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">⚙️ Integration Settings</Link>
+              {canAccess('campaign_builder') && <Link to="/campaign-builder" onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🏗️ Campaign Builder</Link>}
+              {canAccess('workflows')        && <Link to="/workflows"        onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🔀 Workflow Builder</Link>}
+              {canAccess('ads_generator')    && <Link to="/ads-generator"    onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🎯 Bulk Ads Generator</Link>}
+              {canAccess('social_planner')   && <Link to="/social"           onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">📱 Social Planner</Link>}
+              {canAccess('ad_library')       && <Link to="/ad-library"       onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">📊 Ad Library Intel</Link>}
+              {canAccess('settings')         && <Link to="/settings"         onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">⚙️ Integration Settings</Link>}
             </div>
+            {userRole && userRole !== 'owner' && (
+              <p className="text-xs text-gray-600 mt-2">Role: <span className="text-gray-500 capitalize">{userRole}</span></p>
+            )}
           </div>
         </aside>
 

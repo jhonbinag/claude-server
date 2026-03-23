@@ -28,6 +28,8 @@ const tokenStore       = require('../services/tokenStore');
 const appSettings      = require('../services/appSettings');
 const billingStore     = require('../services/billingStore');
 const workflowStore    = require('../services/workflowStore');
+const roleService      = require('../services/roleService');
+const ghlClient        = require('../services/ghlClient');
 const config           = require('../config');
 
 router.use(adminAuth);
@@ -694,6 +696,64 @@ router.put('/billing/:locationId/tier', async (req, res) => {
     await billingStore.updateSubscription(req.params.locationId, { ...rec, tier });
     activityLogger.log({ locationId: req.params.locationId, event: 'billing_tier_update', detail: { tier }, success: true });
     res.json({ success: true, message: `Tier updated to ${tier} for ${req.params.locationId}` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── GET /admin/locations/:id/users — list users for a location ──────────────
+
+router.get('/locations/:id/users', async (req, res) => {
+  const locationId = req.params.id;
+  try {
+    const users = await roleService.getUsersForLocation(locationId);
+    res.json({ success: true, users: Object.values(users) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /admin/locations/:id/users/:userId/role — set user role ─────────────
+
+router.post('/locations/:id/users/:userId/role', async (req, res) => {
+  const { id: locationId, userId } = req.params;
+  const { role } = req.body;
+  if (!role) return res.status(400).json({ success: false, error: 'role is required.' });
+  try {
+    const updated = await roleService.setUserRole(locationId, userId, role);
+    activityLogger.log({
+      locationId,
+      event:   'user_role_update',
+      detail:  { userId, role },
+      success: true,
+      adminId: req.adminId,
+    });
+    res.json({ success: true, user: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /admin/locations/:id/users/sync — sync GHL users ───────────────────
+
+router.post('/locations/:id/users/sync', async (req, res) => {
+  const locationId = req.params.id;
+  try {
+    const record = await tokenStore.getTokenRecord(locationId);
+    if (!record || !record.accessToken) {
+      return res.status(503).json({ success: false, error: 'No GHL token for this location.' });
+    }
+    const ghlReq = (method, endpoint, data, params) =>
+      ghlClient.ghlRequest(locationId, method, endpoint, data, params);
+    const users = await roleService.syncUsers(locationId, ghlReq, record.userId);
+    activityLogger.log({
+      locationId,
+      event:   'user_sync',
+      detail:  { count: Object.keys(users).length },
+      success: true,
+      adminId: req.adminId,
+    });
+    res.json({ success: true, users: Object.values(users) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

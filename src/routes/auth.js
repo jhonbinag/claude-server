@@ -24,6 +24,7 @@ const tokenStore        = require('../services/tokenStore');
 const billingService    = require('../services/billingService');
 const appSettings       = require('../services/appSettings');
 const locationRegistry  = require('../services/locationRegistry');
+const roleService       = require('../services/roleService');
 const config            = require('../config');
 
 // ─── All scopes requested during install ─────────────────────────────────────
@@ -158,11 +159,20 @@ router.get('/callback', async (req, res) => {
     // Register location in Redis so admin dashboard can see it
     locationRegistry.registerLocation(locationId, { companyId: tokenData.companyId }).catch(() => {});
 
+    // Sync GHL users + assign default roles (fire-and-forget)
+    const installingUserId = tokenData.userId || tokenData.user_id || null;
+    roleService.syncUsers(
+      locationId,
+      (method, endpoint, data, params) => ghlClient.ghlRequest(locationId, method, endpoint, data, params),
+      installingUserId,
+    ).catch((e) => console.warn('[Auth] User sync failed:', e.message));
+
     console.log(`[Auth] Installation complete for location: ${locationId}`);
 
     // Redirect to the app UI so the user lands on the dashboard after install.
-    // Pass the apiKey and locationId as query params so the SPA can store them.
-    const appUrl = `${req.protocol}://${req.get('host')}/ui/?locationId=${locationId}&apiKey=${apiKey}`;
+    // Pass the apiKey, locationId, and userId as query params so the SPA can store them.
+    const uidParam = installingUserId ? `&userId=${installingUserId}` : '';
+    const appUrl = `${req.protocol}://${req.get('host')}/ui/?locationId=${locationId}&apiKey=${apiKey}${uidParam}`;
     res.redirect(appUrl);
   } catch (err) {
     console.error('[Auth] Callback error:', err.message);

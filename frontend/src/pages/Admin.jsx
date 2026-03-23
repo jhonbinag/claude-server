@@ -146,6 +146,13 @@ export default function Admin() {
   const [billingModal,    setBillingModal]    = useState(null); // { type, locationId, data }
   const [billingLoading,  setBillingLoading]  = useState(false);
 
+  // Users & Roles state
+  const [rolesLocationId,    setRolesLocationId]    = useState('');
+  const [rolesUsers,         setRolesUsers]         = useState([]);
+  const [rolesLoading,       setRolesLoading]       = useState(false);
+  const [rolesSaving,        setRolesSaving]        = useState({});   // { [userId]: bool }
+  const [rolesSyncMsg,       setRolesSyncMsg]       = useState('');
+
   // Plan Tiers state
   const [tiers,              setTiers]              = useState(null);
   const [tiersLoading,       setTiersLoading]       = useState(false);
@@ -245,6 +252,18 @@ export default function Admin() {
     setTiersLoading(false);
   }, [adminKey]);
 
+  const loadUsersForLocation = useCallback(async (locId) => {
+    const id = locId || rolesLocationId;
+    if (!id) return;
+    setRolesLoading(true);
+    try {
+      const data = await adminFetch(`/admin/locations/${id}/users`, { adminKey });
+      if (data.success) setRolesUsers(data.users || []);
+      else flash(`✗ ${data.error}`);
+    } catch { flash('✗ Failed to load users'); }
+    setRolesLoading(false);
+  }, [adminKey, rolesLocationId]); // eslint-disable-line
+
   useEffect(() => {
     if (!authed) return;
     if (tab === 'overview')     loadStats();
@@ -253,6 +272,8 @@ export default function Admin() {
     if (tab === 'app-settings') loadAppSettings();
     if (tab === 'billing')      loadBilling();
     if (tab === 'plan-tiers')   loadTiers();
+    // Users & Roles tab: ensure locations list is loaded for the dropdown
+    if (tab === 'users-roles' && locations.length === 0) loadLocations();
   }, [authed, tab]); // eslint-disable-line
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -435,6 +456,7 @@ export default function Admin() {
             { key: 'logs',         label: 'Logs' },
             { key: 'billing',      label: '💳 Billing' },
             { key: 'plan-tiers',   label: '🏅 Plan Tiers' },
+            { key: 'users-roles',  label: '👥 Users & Roles' },
             { key: 'app-settings', label: '⚙️ App Settings' },
           ].map((t) => (
             <button key={t.key} onClick={() => setTab(t.key)} style={TAB_STYLE(tab === t.key)}>
@@ -632,6 +654,17 @@ export default function Admin() {
                                 onClick={() => doAction(`/admin/locations/${loc.locationId}/revoke`, `Token revoked for ${loc.locationId}`)}
                               />
                             )}
+                            <ActionBtn
+                              title="Manage user roles"
+                              icon="👥"
+                              color="#f59e0b"
+                              onClick={() => {
+                                setRolesLocationId(loc.locationId);
+                                setRolesUsers([]);
+                                setTab('users-roles');
+                                loadUsersForLocation(loc.locationId);
+                              }}
+                            />
                           </div>
                         </td>
                       </tr>
@@ -1103,6 +1136,145 @@ export default function Admin() {
                 }}
                 onFlash={flash}
               />
+            )}
+          </div>
+        )}
+
+        {/* ── Users & Roles Tab ─────────────────────────────────────── */}
+        {tab === 'users-roles' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <h3 style={{ color: '#fff', margin: '0 0 4px', fontSize: 16 }}>👥 Users &amp; Roles</h3>
+                <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
+                  View and manage user roles per location. Roles control which features each user can access.
+                </p>
+              </div>
+            </div>
+
+            {/* Role reference */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+              {[
+                { role: 'owner',   color: '#a78bfa', desc: 'All features' },
+                { role: 'admin',   color: '#60a5fa', desc: 'All tools (no billing)' },
+                { role: 'manager', color: '#34d399', desc: 'Content tools only' },
+                { role: 'member',  color: '#9ca3af', desc: 'Ads + Social + Library' },
+              ].map(({ role, color, desc }) => (
+                <div key={role} style={{ background: '#1a1a1a', border: `1px solid ${color}33`, borderRadius: 8, padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ color, fontWeight: 700, fontSize: 13, textTransform: 'capitalize' }}>{role}</span>
+                  <span style={{ color: '#6b7280', fontSize: 12 }}>{desc}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Location picker */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select
+                value={rolesLocationId}
+                onChange={e => {
+                  setRolesLocationId(e.target.value);
+                  setRolesUsers([]);
+                }}
+                style={{ flex: 1, minWidth: 240, background: '#111', border: '1px solid #333', borderRadius: 8, color: rolesLocationId ? '#e5e7eb' : '#6b7280', padding: '8px 12px', fontSize: 13 }}
+              >
+                <option value="">— Select a location —</option>
+                {locations.filter(l => l.status !== 'uninstalled').map(l => (
+                  <option key={l.locationId} value={l.locationId}>
+                    {l.locationId}{l.companyId ? ` (${l.companyId.slice(0, 8)}…)` : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => loadUsersForLocation(rolesLocationId)}
+                disabled={!rolesLocationId}
+                style={{ background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 20px', cursor: rolesLocationId ? 'pointer' : 'not-allowed', fontSize: 13, opacity: rolesLocationId ? 1 : 0.5 }}
+              >Load Users</button>
+              <button
+                onClick={async () => {
+                  if (!rolesLocationId) return;
+                  setRolesSyncMsg('');
+                  try {
+                    const data = await adminFetch(`/admin/locations/${rolesLocationId}/users/sync`, { method: 'POST', adminKey });
+                    if (data.success) {
+                      setRolesUsers(data.users || []);
+                      setRolesSyncMsg(`✓ Synced ${data.users?.length || 0} users`);
+                    } else {
+                      setRolesSyncMsg(`✗ ${data.error}`);
+                    }
+                  } catch { setRolesSyncMsg('✗ Sync failed'); }
+                  setTimeout(() => setRolesSyncMsg(''), 3500);
+                }}
+                disabled={!rolesLocationId}
+                style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '8px 16px', cursor: rolesLocationId ? 'pointer' : 'not-allowed', fontSize: 13, opacity: rolesLocationId ? 1 : 0.5 }}
+              >↻ Sync from GHL</button>
+              {rolesSyncMsg && <span style={{ color: rolesSyncMsg.startsWith('✓') ? '#4ade80' : '#f87171', fontSize: 13, alignSelf: 'center' }}>{rolesSyncMsg}</span>}
+            </div>
+
+            {/* Users table */}
+            {rolesLoading ? (
+              <p style={{ color: '#9ca3af', fontSize: 14 }}>Loading users…</p>
+            ) : rolesUsers.length > 0 ? (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #222' }}>
+                      {['Name', 'Email', 'GHL Role', 'App Role', 'Last Synced', 'Action'].map(h => (
+                        <th key={h} style={{ padding: '8px 14px', color: '#6b7280', fontWeight: 600, fontSize: 11, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rolesUsers.map(u => (
+                      <tr key={u.userId} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                        <td style={{ padding: '10px 14px', color: '#e5e7eb' }}>{u.name || '—'}</td>
+                        <td style={{ padding: '10px 14px', color: '#9ca3af' }}>{u.email || '—'}</td>
+                        <td style={{ padding: '10px 14px', color: '#6b7280', textTransform: 'capitalize' }}>{u.ghlRole || '—'}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <select
+                            value={u.role || 'member'}
+                            onChange={async (e) => {
+                              const newRole = e.target.value;
+                              setRolesSaving(prev => ({ ...prev, [u.userId]: true }));
+                              try {
+                                const data = await adminFetch(`/admin/locations/${rolesLocationId}/users/${u.userId}/role`, {
+                                  method: 'POST', adminKey, body: { role: newRole },
+                                });
+                                if (data.success) {
+                                  setRolesUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, role: newRole } : x));
+                                  flash(`✓ ${u.name || u.userId} → ${newRole}`);
+                                } else flash(`✗ ${data.error}`);
+                              } catch { flash('✗ Save failed'); }
+                              setRolesSaving(prev => ({ ...prev, [u.userId]: false }));
+                            }}
+                            disabled={rolesSaving[u.userId]}
+                            style={{
+                              background: '#111', border: '1px solid #333', borderRadius: 6,
+                              color: { owner: '#a78bfa', admin: '#60a5fa', manager: '#34d399', member: '#9ca3af' }[u.role] || '#9ca3af',
+                              padding: '4px 8px', fontSize: 12, cursor: 'pointer',
+                              opacity: rolesSaving[u.userId] ? 0.5 : 1,
+                            }}
+                          >
+                            <option value="owner">owner</option>
+                            <option value="admin">admin</option>
+                            <option value="manager">manager</option>
+                            <option value="member">member</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: '10px 14px', color: '#6b7280', fontSize: 12 }}>
+                          {u.syncedAt ? new Date(u.syncedAt).toLocaleDateString() : '—'}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#4b5563' }}>{u.userId?.slice(0, 12)}…</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ background: '#111', border: '1px solid #222', borderRadius: 10, padding: 32, textAlign: 'center', color: '#4b5563' }}>
+                {rolesLocationId ? 'No users found. Try syncing from GHL.' : 'Enter a location ID above to view its users.'}
+              </div>
             )}
           </div>
         )}

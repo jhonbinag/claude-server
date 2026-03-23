@@ -28,6 +28,7 @@ let funnelBuilderRoutes; try { funnelBuilderRoutes = require('./src/routes/funne
 let emailBuilderRoutes;   try { emailBuilderRoutes   = require('./src/routes/emailBuilder');   } catch (e) { _errors.emailBuilder   = e.message; }
 let websiteBuilderRoutes; try { websiteBuilderRoutes = require('./src/routes/websiteBuilder'); } catch (e) { _errors.websiteBuilder = e.message; }
 let knowledgeRoutes;  try { knowledgeRoutes  = require('./src/routes/knowledge');   } catch (e) { _errors.knowledge  = e.message; }
+let rolesRoutes;      try { rolesRoutes      = require('./src/routes/roles');       } catch (e) { _errors.roles      = e.message; }
 let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui          = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
@@ -52,7 +53,7 @@ app.use(rateLimit({
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-api-key,x-location-id,x-admin-key');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-api-key,x-location-id,x-admin-key,x-user-id');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
@@ -111,6 +112,7 @@ if (funnelBuilderRoutes)  app.use('/funnel-builder', funnelBuilderRoutes);
 if (emailBuilderRoutes)   app.use('/email-builder',   emailBuilderRoutes);
 if (websiteBuilderRoutes) app.use('/website-builder', websiteBuilderRoutes);
 if (knowledgeRoutes)      app.use('/knowledge',      knowledgeRoutes);
+if (rolesRoutes)          app.use('/roles',           rolesRoutes);
 if (uiRoute)         app.use('/',           uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────

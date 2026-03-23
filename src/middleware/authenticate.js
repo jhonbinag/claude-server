@@ -3,13 +3,15 @@
  *
  * Validates requests using:
  *   x-location-id: <locationId>   (required)
+ *   x-user-id:     <userId>       (optional — used for RBAC role lookup)
  *
  * A location is authenticated by its locationId alone.
  * Claude uses the server-level ANTHROPIC_API_KEY env var.
  */
 
-const ghlClient  = require('../services/ghlClient');
-const tokenStore = require('../services/tokenStore');
+const ghlClient   = require('../services/ghlClient');
+const tokenStore  = require('../services/tokenStore');
+const roleService = require('../services/roleService');
 
 async function authenticate(req, res, next) {
   try {
@@ -38,6 +40,21 @@ async function authenticate(req, res, next) {
       }
     } catch (err) {
       console.error(`[Auth] Failed to load token record for ${locationId}:`, err.message);
+    }
+
+    // Attach RBAC role from x-user-id header (optional, non-blocking)
+    const headerUserId = req.headers['x-user-id'];
+    if (headerUserId) {
+      req.userId = headerUserId; // header overrides token record userId
+      try {
+        const roleRecord = await roleService.getUserRole(locationId, headerUserId);
+        req.userRole     = roleRecord?.role || 'member';
+      } catch {
+        req.userRole = 'member';
+      }
+    } else {
+      // No user-id header → treat as owner (location-level auth)
+      req.userRole = 'owner';
     }
 
     next();
