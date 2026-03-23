@@ -843,4 +843,15 @@ router.post('/locations/:id/users/sync', async (req, res) => {
   }
 });
 
+// ─── GET /admin/locations/:id/enabled-integrations ───────────────────────────
+
+router.get('/locations/:id/enabled-integrations', async (req, res) => {
+  try {
+    const enabled = await toolRegistry.getEnabledIntegrations(req.params.id);
+    res.json({ success: true, enabled });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

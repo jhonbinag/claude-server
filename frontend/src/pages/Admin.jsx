@@ -40,6 +40,22 @@ const TIER_ALLOWED_FEATURES = {
 const TIER_COLORS = { bronze: '#cd7f32', silver: '#9ca3af', gold: '#f59e0b', diamond: '#60a5fa' };
 const TIER_ICONS  = { bronze: '🥉', silver: '🥈', gold: '🥇', diamond: '💎' };
 
+// Which external integrations each app feature requires (null = GHL-native, always available)
+const FEATURE_INTEGRATION_MAP = {
+  funnel_builder:   null,
+  website_builder:  null,
+  ads_generator:    ['facebook_ads', 'google_ads', 'tiktok_ads'],
+  social_planner:   ['social_facebook', 'social_instagram', 'social_tiktok_organic', 'social_youtube', 'social_linkedin_organic', 'social_pinterest'],
+  email_builder:    ['sendgrid'],
+  ad_library:       ['facebook_ads', 'google_ads'],
+  campaign_builder: null,
+  agents:           ['openai', 'openrouter', 'perplexity'],
+  ghl_agent:        null,
+  workflows:        null,
+  manychat:         ['manychat'],
+  settings:         null,
+};
+
 const BUILTIN_ROLES_DEFAULT = [
   { id: 'owner',   name: 'Owner',   features: ALL_FEATURE_KEYS, builtin: true },
   { id: 'admin',   name: 'Admin',   features: ALL_FEATURE_KEYS, builtin: true },
@@ -189,6 +205,7 @@ export default function Admin() {
   const [rolesSyncMsg,       setRolesSyncMsg]       = useState('');
   const [allFeatures,        setAllFeatures]        = useState(ALL_FEATURES_DEFAULT);
   const [builtinRoles,       setBuiltinRoles]       = useState(BUILTIN_ROLES_DEFAULT);
+  const [locationEnabledIntegrations, setLocationEnabledIntegrations] = useState(null); // null = not loaded
   const [customRoles,        setCustomRoles]        = useState([]);
   const [rolesSubTab,        setRolesSubTab]        = useState('users'); // 'users' | 'roles'
   const [roleModal,          setRoleModal]          = useState(null);   // null | { mode:'create'|'edit', role? }
@@ -321,9 +338,10 @@ export default function Admin() {
     if (!id) return;
     setRolesLoading(true);
     try {
-      const [usersData, rolesData] = await Promise.all([
+      const [usersData, rolesData, intData] = await Promise.all([
         adminFetch(`/admin/locations/${id}/users`, { adminKey }),
         adminFetch(`/admin/locations/${id}/custom-roles`, { adminKey }),
+        adminFetch(`/admin/locations/${id}/enabled-integrations`, { adminKey }),
       ]);
       if (usersData.success) setRolesUsers(usersData.users || []);
       if (rolesData.success) {
@@ -332,6 +350,7 @@ export default function Admin() {
         setCustomRoles(rolesData.customRoles || []);
         if (rolesData.tiers) setRoleTiers(rolesData.tiers);
       }
+      setLocationEnabledIntegrations(intData.success ? (intData.enabled || []) : []);
     } catch { flash('✗ Failed to load users/roles'); }
     setRolesLoading(false);
   }, [adminKey, rolesLocationId]); // eslint-disable-line
@@ -1144,19 +1163,23 @@ export default function Admin() {
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {ALL_FEATURES_DEFAULT.map(f => {
                               const allowed = tier.allowedFeatures?.includes(f.key);
+                              const requiredInt = FEATURE_INTEGRATION_MAP[f.key];
                               return (
-                                <span key={f.key} style={{
-                                  padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
-                                  background: allowed ? `${tierColor}22` : '#1e1e1e',
-                                  color: allowed ? tierColor : '#4b5563',
-                                  border: `1px solid ${allowed ? tierColor + '44' : '#2a2a2a'}`,
-                                }}>
-                                  {f.icon} {f.label}
+                                <span key={f.key}
+                                  title={requiredInt ? `Requires: ${requiredInt.join(' or ')}` : 'GHL native — no integration required'}
+                                  style={{
+                                    padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+                                    background: allowed ? `${tierColor}22` : '#1e1e1e',
+                                    color: allowed ? tierColor : '#4b5563',
+                                    border: `1px solid ${allowed ? tierColor + '44' : '#2a2a2a'}`,
+                                  }}>
+                                  {f.icon} {f.label}{requiredInt ? ' 🔗' : ''}
                                 </span>
                               );
                             })}
                           </div>
                         )}
+                        <p style={{ color: '#4b5563', fontSize: 11, margin: '6px 0 0' }}>🔗 = requires a connected integration</p>
                       </div>
 
                       {/* GHL Product dropdown — shown directly on card when products are loaded */}
@@ -1273,6 +1296,7 @@ export default function Admin() {
                   setCustomRoles([]);
                   setBuiltinRoles(BUILTIN_ROLES_DEFAULT);
                   setAllFeatures(ALL_FEATURES_DEFAULT);
+                  setLocationEnabledIntegrations(null);
                   if (id) loadUsersForLocation(id);
                 }}
                 style={{ flex: 1, minWidth: 240, background: '#111', border: '1px solid #333', borderRadius: 8, color: rolesLocationId ? '#e5e7eb' : '#6b7280', padding: '8px 12px', fontSize: 13 }}
@@ -1487,6 +1511,7 @@ export default function Admin() {
                 adminKey={adminKey}
                 locationId={rolesLocationId}
                 tiers={roleTiers}
+                enabledIntegrations={locationEnabledIntegrations}
                 onClose={() => setRoleModal(null)}
                 onSaved={(saved, isNew) => {
                   setRoleModal(null);
@@ -1716,7 +1741,7 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
 
 // ── Role Editor Modal ─────────────────────────────────────────────────────────
 
-function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locationId, tiers, onClose, onSaved, onReset, onFlash }) {
+function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locationId, tiers, enabledIntegrations, onClose, onSaved, onReset, onFlash }) {
   const [name,         setName]         = useState(role?.name     || '');
   const [features,     setFeatures]     = useState(new Set(
     // If features includes '*', pre-select all for display purposes
@@ -1726,15 +1751,24 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
   const [resetting,    setResetting]    = useState(false);
   const [selectedTier, setSelectedTier] = useState(role?.tier || '');
 
+  // Filter allFeatures to only those with a valid connected integration (or no integration required)
+  const integrationValidFeatures = enabledIntegrations !== null
+    ? allFeatures.filter(f => {
+        const required = FEATURE_INTEGRATION_MAP[f.key];
+        if (!required) return true; // GHL-native, always available
+        return required.some(r => enabledIntegrations.includes(r));
+      })
+    : allFeatures; // not loaded yet — show all
+
   // Live tier allowedFeatures from API — null means all tools unlocked (diamond)
   const activeTierAllowed = selectedTier && tiers?.[selectedTier]?.allowedFeatures !== undefined
     ? tiers[selectedTier].allowedFeatures
     : null;
 
-  // Only show features the selected tier allows; show all if no tier selected
+  // Apply tier filter on top of integration filter
   const visibleFeatures = activeTierAllowed !== null
-    ? allFeatures.filter(f => activeTierAllowed.includes(f.key))
-    : allFeatures;
+    ? integrationValidFeatures.filter(f => activeTierAllowed.includes(f.key))
+    : integrationValidFeatures;
 
   const handleTierChange = (newTier) => {
     setSelectedTier(newTier);
@@ -1840,7 +1874,9 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
               Tools &amp; Features{' '}
               <span style={{ color: '#6366f1', fontWeight: 700 }}>
                 ({features.size}/{visibleFeatures.length} selected
-                {selectedTier && visibleFeatures.length < allFeatures.length ? ` · ${allFeatures.length - visibleFeatures.length} locked by tier` : ''})
+                {visibleFeatures.length < allFeatures.length
+                  ? ` · ${allFeatures.length - visibleFeatures.length} unavailable`
+                  : ''})
               </span>
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -1864,9 +1900,15 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
               );
             })}
           </div>
-          {selectedTier && visibleFeatures.length < allFeatures.length && (
+          {visibleFeatures.length < allFeatures.length && (
             <p style={{ color: '#4b5563', fontSize: 12, margin: '10px 0 0' }}>
-              🔒 {allFeatures.length - visibleFeatures.length} tool{allFeatures.length - visibleFeatures.length !== 1 ? 's' : ''} not available on {selectedTier} tier — upgrade to unlock
+              {allFeatures.length - visibleFeatures.length} tool{allFeatures.length - visibleFeatures.length !== 1 ? 's' : ''} hidden —
+              {enabledIntegrations !== null && integrationValidFeatures.length < allFeatures.length
+                ? ` ${allFeatures.length - integrationValidFeatures.length} require integrations not yet connected`
+                : ''}
+              {selectedTier && activeTierAllowed
+                ? ` · ${selectedTier} tier restricts remaining tools`
+                : ''}
             </p>
           )}
         </div>
