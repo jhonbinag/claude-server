@@ -689,8 +689,8 @@ function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId
       rowObjects = imgLeft ? [row, imgCol, txtCol] : [row, txtCol, imgCol];
 
     } else {
-      // Single column — centered for hero/CTA, left-aligned for middle sections
-      const textAlign = (isFirst || isLast) ? 'center' : 'left';
+      // Single column — use AI textAlign if provided, otherwise center hero/CTA, left for middle
+      const textAlign = aiSection.textAlign || ((isFirst || isLast) ? 'center' : 'left');
       const colId     = `col-${sid()}`;
       const rowId     = `row-${sid()}`;
 

@@ -122,70 +122,97 @@ router.get('/pages', async (req, res) => {
 // ─── Page type → section plan ─────────────────────────────────────────────────
 // Each section specifies the element types to include — AI fills in the copy.
 
+// ─── Page templates — full structure per page type with alignment + copy role ──
+// align: 'center' = hero/CTA/social proof blocks | 'left' = body/story/FAQ/benefits
+
 const PAGE_SECTION_PLANS = {
   home: [
-    { name: 'Hero',              role: 'First impression — bold benefit-driven headline, supporting subheadline, primary CTA',  elements: ['headline h1', 'sub-heading', 'button'] },
-    { name: 'Value Proposition', role: '3–4 core benefits or reasons to choose this business — bullet list format',            elements: ['heading h2', 'bulletList'] },
-    { name: 'Social Proof',      role: 'Testimonial or results that build trust — 1–2 paragraphs',                            elements: ['heading h2', 'paragraph'] },
-    { name: 'Services Overview', role: 'Brief overview of key services with outcome-focused descriptions',                     elements: ['heading h2', 'paragraph', 'bulletList'] },
-    { name: 'Final CTA',         role: 'Closing call to action with urgency or guarantee — re-state the core benefit',        elements: ['heading h2', 'paragraph', 'button'] },
+    { name: 'Hero Hook',          align: 'center', bg: 'dark',   role: 'Pattern-interrupt opening hook. Bold claim or provocative question as H1 that stops the scroll. Subheadline clarifies who this is for and the #1 outcome. Primary CTA button.', elements: ['headline h1', 'sub-heading', 'button'] },
+    { name: 'Problem Agitation',  align: 'left',   bg: 'white',  role: 'Speak directly to the pain. Name the exact frustrations, struggles, and failed attempts the audience has experienced. Make them feel understood. 2 paragraphs + bullet list of pain points.', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Our Story',          align: 'left',   bg: 'light',  role: 'Origin story — why this business exists. What problem the founder personally faced, how they found the solution, and why they are now dedicated to helping others. Humanise the brand. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'The Solution',       align: 'left',   bg: 'white',  role: 'Introduce the offer/service as the clear solution. What it is, how it works in simple terms, and the transformation it creates. 1 paragraph + 4–5 specific outcome bullets.', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Why Choose Us',      align: 'left',   bg: 'light',  role: '3–4 specific differentiators — NOT generic ("we care about clients"). Real reasons backed by numbers, methods, or unique angles. Bullet list.', elements: ['heading h2', 'bulletList'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Real client results and testimonials. Include specific outcomes (numbers, timeframes, before/after). 2 paragraphs written as testimonial-style quotes or case study results.', elements: ['heading h2', 'paragraph'] },
+    { name: 'How It Works',       align: 'center', bg: 'light',  role: '3-step process — simple numbered steps showing exactly what happens after they sign up or reach out. Keep it frictionless. Bullet list formatted as Step 1, Step 2, Step 3.', elements: ['heading h2', 'bulletList'] },
+    { name: 'FAQ',                align: 'left',   bg: 'white',  role: '5 real objection-handling questions. Format each as bold Q followed by honest, reassuring A. Cover: cost concern, time commitment, will it work for me, what if I\'m not happy, how to get started.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Newsletter',         align: 'center', bg: 'light',  role: 'Email newsletter signup. Lead with the VALUE of subscribing (tips, resources, insider info). Clear benefit headline, 1 sentence why, CTA button to subscribe.', elements: ['heading h2', 'sub-heading', 'button'] },
+    { name: 'Final CTA',          align: 'center', bg: 'dark',   role: 'Closing call to action. Restate the #1 outcome, add urgency or scarcity, include a guarantee or risk-reversal statement, strong CTA button.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
   about: [
-    { name: 'About Hero',    role: 'Brand intro — who you are, who you help, and why it matters',            elements: ['headline h1', 'sub-heading'] },
-    { name: 'Mission',       role: 'Mission statement and core values — bullet list of what you stand for', elements: ['heading h2', 'paragraph', 'bulletList'] },
-    { name: 'Story',         role: 'Founder or team story — humanise the brand, build connection',          elements: ['heading h2', 'paragraph'] },
-    { name: 'Trust Signals', role: 'Credentials, awards, years of experience, key numbers',                 elements: ['heading h2', 'bulletList'] },
-    { name: 'Connect CTA',   role: 'Invite visitor to take the next step — book a call or get in touch',   elements: ['heading h2', 'paragraph', 'button'] },
+    { name: 'About Hero',         align: 'center', bg: 'dark',   role: 'Hook headline — NOT "About Us". Lead with who you help and the transformation you create. Subheadline adds the brand story hook.', elements: ['headline h1', 'sub-heading'] },
+    { name: 'Our Story',          align: 'left',   bg: 'white',  role: 'Full origin story — the founder\'s personal before/after. What life looked like before, the breaking point, the discovery, and the mission that followed. 3 paragraphs, conversational and honest.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Mission & Values',   align: 'left',   bg: 'light',  role: 'What the brand stands for and against. Mission statement in 1 sentence, then 4 core values with a one-line explanation each. Bullet list format.', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Who We Help',        align: 'left',   bg: 'white',  role: 'Specific description of the ideal client — their situation, struggles, goals. Make the right people feel seen and the wrong people self-select out. 1 paragraph + bullet list of "this is for you if..." points.', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Credentials',        align: 'left',   bg: 'light',  role: 'Trust signals — years of experience, clients served, certifications, media mentions, awards. Bullet list of specific credibility markers.', elements: ['heading h2', 'bulletList'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Client results and testimonials with names and specific outcomes. 2 paragraphs in testimonial format.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Connect CTA',        align: 'center', bg: 'dark',   role: 'Warm invitation to take the next step. Acknowledge they\'ve read about us — now it\'s time to connect. CTA button to book a call or get in touch.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
   services: [
-    { name: 'Services Hero',   role: 'Clear headline about what is offered and who it is for',                     elements: ['headline h1', 'sub-heading'] },
-    { name: 'Core Services',   role: 'List of key services with brief outcome-focused descriptions',               elements: ['heading h2', 'bulletList'] },
-    { name: 'Benefits',        role: 'What clients gain — transformation, outcomes, and results',                  elements: ['heading h2', 'paragraph', 'bulletList'] },
-    { name: 'Social Proof',    role: 'Client result or short testimonial that reinforces the service value',       elements: ['heading h2', 'paragraph'] },
-    { name: 'Enquire CTA',     role: 'Strong CTA to book a consultation or enquire about services',               elements: ['heading h2', 'paragraph', 'button'] },
+    { name: 'Services Hero',      align: 'center', bg: 'dark',   role: 'Hook headline naming the transformation delivered, not just the service. Subheadline states who it\'s for and the key result.', elements: ['headline h1', 'sub-heading', 'button'] },
+    { name: 'Who It\'s For',      align: 'left',   bg: 'white',  role: 'Qualification section — describe exactly who gets the best results. "This is for you if..." bullet list. Makes ideal clients feel called out (in a good way).', elements: ['heading h2', 'bulletList'] },
+    { name: 'Core Services',      align: 'left',   bg: 'light',  role: 'Each service with its specific outcome, not just a name. Format: service name as sub-point, followed by what the client gets and the result. 3–5 services as bullets.', elements: ['heading h2', 'bulletList'] },
+    { name: 'What Changes',       align: 'left',   bg: 'white',  role: 'Before/after transformation. Left side pain, right side result. Written as "Before working with us... After working with us..." 1 paragraph each + outcome bullets.', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'How It Works',       align: 'center', bg: 'light',  role: '3-step process showing the journey from enquiry to result. Simple, low-friction. Bullet list: Step 1, Step 2, Step 3 with a one-line description each.', elements: ['heading h2', 'bulletList'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Specific client result story — name, situation, what was done, measurable outcome. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'FAQ',                align: 'left',   bg: 'light',  role: '4–5 service-specific objection questions. Format as bold Q + honest A. Cover: pricing, timeline, results guarantee, what\'s included, getting started.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Book a Call CTA',    align: 'center', bg: 'dark',   role: 'Strong closing CTA. Restate the #1 outcome. Include what happens on the call (no-pressure discovery). CTA button. Guarantee or risk reversal below the button.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
   landing: [
-    { name: 'Hero',             role: 'Single focused offer — concrete benefit headline, key promise, CTA', elements: ['headline h1', 'sub-heading', 'button'] },
-    { name: 'Problem',          role: 'Agitate the pain point this offer solves — specific, relatable',     elements: ['heading h2', 'paragraph'] },
-    { name: 'Solution',         role: 'How this offer solves the problem — 4–5 benefit bullets',            elements: ['heading h2', 'bulletList'] },
-    { name: 'Social Proof',     role: 'Short testimonial or specific result that overcomes objections',     elements: ['heading h2', 'paragraph'] },
-    { name: 'Final CTA',        role: 'Last-chance CTA — urgency, guarantee, or risk reversal statement',  elements: ['heading h2', 'paragraph', 'button'] },
+    { name: 'Hero Hook',          align: 'center', bg: 'dark',   role: 'Attention-grabbing H1 — bold specific claim or provocative question that speaks to the #1 desire or fear of the audience. Subheadline narrows who this is for and the promise. CTA button immediately.', elements: ['headline h1', 'sub-heading', 'button'] },
+    { name: 'Problem Agitation',  align: 'left',   bg: 'white',  role: 'Twist the knife on the pain. Name the exact struggle, failed attempts, wasted money, and emotional frustration. 2 paragraphs that make them think "this person gets me". End with: "There\'s a better way."', elements: ['heading h2', 'paragraph'] },
+    { name: 'Introduce Solution', align: 'center', bg: 'light',  role: 'Present the offer as the clear answer. Name it confidently. Explain the core mechanism — WHY it works when other things haven\'t. 1 paragraph + 4–5 outcome bullets.', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Specific result from a real client. Name, situation, exact outcome with numbers. Formatted as a compelling mini case study in 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'What You Get',       align: 'left',   bg: 'light',  role: 'Deliverables list — exactly what\'s included. Each bullet starts with the deliverable name, then its specific benefit. 5–7 bullets. Make the value feel impossible to say no to.', elements: ['heading h2', 'bulletList'] },
+    { name: 'Objection Handling', align: 'left',   bg: 'white',  role: '4 FAQ-style objections. Format as bold Q + honest conversational A. Cover: "Is this for me?", "What if it doesn\'t work?", "How much time does it take?", "Why should I trust you?"', elements: ['heading h2', 'paragraph'] },
+    { name: 'Guarantee',          align: 'center', bg: 'light',  role: 'Risk reversal — money-back guarantee or results promise. State it confidently. Explain why you can offer it (confidence in the method). 1 paragraph + CTA button.', elements: ['heading h2', 'paragraph', 'button'] },
+    { name: 'Final CTA',          align: 'center', bg: 'dark',   role: 'Last chance CTA. Add urgency (limited spots, deadline, bonus). Restate the outcome. Strong button. 1 line of scarcity or social proof below.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
   contact: [
-    { name: 'Contact Hero',    role: 'Welcoming headline that makes reaching out feel easy and worthwhile', elements: ['headline h1', 'sub-heading'] },
-    { name: 'Contact Methods', role: 'Phone, email, social, address — multiple ways to reach the business', elements: ['heading h2', 'bulletList'] },
-    { name: 'What to Expect',  role: 'What happens after they reach out — the response process',           elements: ['heading h2', 'paragraph'] },
-    { name: 'FAQ',             role: '3–4 common contact questions with brief, friendly answers',           elements: ['heading h2', 'paragraph'] },
+    { name: 'Contact Hero',       align: 'center', bg: 'dark',   role: 'Inviting hook headline — make reaching out feel easy and exciting, not transactional. Subheadline states what happens after they contact you.', elements: ['headline h1', 'sub-heading'] },
+    { name: 'Reasons to Connect', align: 'left',   bg: 'white',  role: 'Why get in touch — bullet list of 4–5 specific reasons that speak to what the visitor wants to discuss. Makes it feel relevant to act.', elements: ['heading h2', 'bulletList'] },
+    { name: 'Contact Details',    align: 'left',   bg: 'light',  role: 'All contact methods — phone, email, address, social profiles, office hours. Bullet list format, each with icon emoji prefix.', elements: ['heading h2', 'bulletList'] },
+    { name: 'What Happens Next',  align: 'left',   bg: 'white',  role: '3-step process showing what happens after they reach out. Reduces anxiety about contacting. Step 1, Step 2, Step 3 bullet list.', elements: ['heading h2', 'bulletList'] },
+    { name: 'FAQ',                align: 'left',   bg: 'light',  role: '4 common questions about getting in touch — response time, who responds, what to include in their message, what the first meeting looks like.', elements: ['heading h2', 'paragraph'] },
+    { name: 'CTA',                align: 'center', bg: 'dark',   role: 'Warm closing — encourage them to take that first step. Reassure it\'s no-pressure. CTA button.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
   pricing: [
-    { name: 'Pricing Hero',     role: 'Value-first headline — transparency and confidence in pricing',         elements: ['headline h1', 'sub-heading'] },
-    { name: 'Plans',            role: 'Plan tiers with included features as bullet lists per plan',           elements: ['heading h2', 'bulletList'] },
-    { name: "What's Included",  role: 'Key inclusions and guarantees across all plans',                      elements: ['heading h2', 'bulletList'] },
-    { name: 'FAQ',              role: 'Common pricing objections and questions answered honestly',             elements: ['heading h2', 'paragraph'] },
-    { name: 'Get Started CTA',  role: 'CTA to sign up, book a demo, or talk to sales',                       elements: ['heading h2', 'paragraph', 'button'] },
+    { name: 'Pricing Hero',       align: 'center', bg: 'dark',   role: 'Confident headline about the value of investing — NOT "our prices". Focus on the outcome they\'re buying. Subheadline: transparent, no hidden fees, here\'s exactly what you get.', elements: ['headline h1', 'sub-heading'] },
+    { name: 'Value Statement',    align: 'left',   bg: 'white',  role: 'Before showing prices — remind them WHAT they\'re investing in. The outcome, the transformation, what life looks like after. 1 paragraph + 4 outcome bullets.', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Plans',              align: 'left',   bg: 'light',  role: '2–3 pricing tiers. For each: plan name, price indicator (starts at X / from X), what\'s included as bullets, who it\'s best for. Format clearly.', elements: ['heading h2', 'bulletList'] },
+    { name: 'Everything Included',align: 'left',   bg: 'white',  role: 'Master list of everything clients get regardless of plan. Bullet list format — make the value feel overwhelming in a good way.', elements: ['heading h2', 'bulletList'] },
+    { name: 'Guarantee',          align: 'center', bg: 'light',  role: 'Risk reversal — money-back or results guarantee. State confidently. Explain the reasoning. Removes the last barrier to saying yes.', elements: ['heading h2', 'paragraph'] },
+    { name: 'FAQ',                align: 'left',   bg: 'white',  role: '5 pricing-specific objections. Bold Q + honest A. Cover: "Is it worth it?", "Can I pay in instalments?", "What if I want to cancel?", "Do prices change?", "What\'s not included?"', elements: ['heading h2', 'paragraph'] },
+    { name: 'Get Started CTA',    align: 'center', bg: 'dark',   role: 'Closing CTA. Remind them of the cost of NOT acting. Strong CTA button. Option to book a call if they want to talk first.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
   faq: [
-    { name: 'FAQ Hero',       role: 'Reassuring intro — this page will answer your questions',          elements: ['headline h1', 'sub-heading'] },
-    { name: 'General FAQs',   role: '4–5 broad questions with conversational, honest answers',          elements: ['heading h2', 'paragraph'] },
-    { name: 'Product FAQs',   role: '4–5 specific questions about the offer with direct answers',       elements: ['heading h2', 'paragraph'] },
-    { name: 'More Questions', role: 'Invite them to reach out if their question was not answered',      elements: ['heading h2', 'paragraph', 'button'] },
+    { name: 'FAQ Hero',           align: 'center', bg: 'dark',   role: 'Headline that validates having questions — normalise the uncertainty. Subheadline: "We\'ve answered the most common ones below."', elements: ['headline h1', 'sub-heading'] },
+    { name: 'Getting Started',    align: 'left',   bg: 'white',  role: '4–5 questions about how to begin. Bold Q + detailed honest A. Cover: how to sign up, what to expect first, prerequisites, timeline to results.', elements: ['heading h2', 'paragraph'] },
+    { name: 'About the Offer',    align: 'left',   bg: 'light',  role: '4–5 questions about the product/service itself. Bold Q + A. Cover: what\'s included, how it works, who it\'s for, customisation, support.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Results & Expectations', align: 'left', bg: 'white', role: '4 questions about outcomes. Bold Q + A. Cover: how long to see results, what results are realistic, what affects results, success stories.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Pricing & Policy',   align: 'left',   bg: 'light',  role: '4 questions about cost and policies. Bold Q + A. Cover: pricing, refunds, cancellation, payment options.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Still Have Questions', align: 'center', bg: 'dark', role: 'Invitation to reach out for unanswered questions. Warm, personal tone. CTA button to contact or book a call.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
   portfolio: [
-    { name: 'Portfolio Hero',   role: 'Showcase intro — what you do and the niche you serve',           elements: ['headline h1', 'sub-heading'] },
-    { name: 'Featured Work',    role: '3–4 project/case study descriptions with outcomes and results',  elements: ['heading h2', 'paragraph', 'bulletList'] },
-    { name: 'Results',          role: 'Specific measurable results achieved for clients',               elements: ['heading h2', 'bulletList'] },
-    { name: 'Work With Us CTA', role: 'CTA to enquire about working together or book a discovery call', elements: ['heading h2', 'paragraph', 'button'] },
+    { name: 'Portfolio Hero',     align: 'center', bg: 'dark',   role: 'Hook headline about the results and transformations delivered — lead with outcomes, not "our work". Subheadline: type of clients helped + niche specialty.', elements: ['headline h1', 'sub-heading', 'button'] },
+    { name: 'What We Do',         align: 'left',   bg: 'white',  role: 'Brief clear explanation of the service and who it\'s for. Sets context before showing work. 1 paragraph + 4 specialisation bullets.', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Case Study 1',       align: 'left',   bg: 'light',  role: 'First case study — client type, challenge faced, approach taken, specific measurable result. Written as a mini story: Before → During → After. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Case Study 2',       align: 'left',   bg: 'white',  role: 'Second case study — different client type to show range. Same Before → During → After structure. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Results by Numbers', align: 'center', bg: 'light',  role: 'Key metrics and results across all clients. Bullet list of specific numbers — averages, totals, records. e.g. "Average 3.2x ROI for ecom clients".', elements: ['heading h2', 'bulletList'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Client testimonials — 2 specific quotes with names and outcomes. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Work With Us CTA',   align: 'center', bg: 'dark',   role: 'Invite them to be the next success story. CTA to book a discovery call. Reassure it\'s no-pressure — just a conversation.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
   blog: [
-    { name: 'Blog Hero',      role: 'Blog index intro — what topics are covered and who it is for',  elements: ['headline h1', 'sub-heading'] },
-    { name: 'Categories',     role: 'Main blog categories or topics covered as a list',              elements: ['heading h2', 'bulletList'] },
-    { name: 'Newsletter CTA', role: 'Subscribe CTA — clear value for joining the email list',        elements: ['heading h2', 'paragraph', 'button'] },
+    { name: 'Blog Hero',          align: 'center', bg: 'dark',   role: 'Hook headline about what the reader will learn — frame the blog as a resource that gives them an edge. Subheadline: topics covered + who it\'s written for.', elements: ['headline h1', 'sub-heading'] },
+    { name: 'What You\'ll Learn', align: 'left',   bg: 'white',  role: 'Topics and categories covered in the blog. Bullet list of 6–8 specific topic areas that deliver real value. Be specific — not "marketing tips" but "step-by-step Facebook ad strategies for coaches".', elements: ['heading h2', 'bulletList'] },
+    { name: 'Why Read This Blog', align: 'left',   bg: 'light',  role: 'Differentiate — what makes this blog different from generic content. Author credibility, practical focus, no-fluff promise. 1 paragraph + 3 differentiation bullets.', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Newsletter Signup',  align: 'center', bg: 'dark',   role: 'Email list CTA — make the value crystal clear. What they get by subscribing (frequency, type of content, exclusive tips). CTA button: "Send Me the Tips" or similar.', elements: ['heading h2', 'sub-heading', 'button'] },
   ],
   custom: [
-    { name: 'Hero',             role: 'Opening hero — main headline, supporting context, primary CTA', elements: ['headline h1', 'sub-heading', 'button'] },
-    { name: 'Main Content',     role: 'Core content — explain the main message with detail',           elements: ['heading h2', 'paragraph', 'bulletList'] },
-    { name: 'Supporting',       role: 'Additional detail, social proof, or secondary message',         elements: ['heading h2', 'paragraph'] },
-    { name: 'CTA',              role: 'Closing call to action — clear next step',                      elements: ['heading h2', 'button'] },
+    { name: 'Hero Hook',          align: 'center', bg: 'dark',   role: 'Bold hook headline, supporting context subheadline, primary CTA button.', elements: ['headline h1', 'sub-heading', 'button'] },
+    { name: 'Core Message',       align: 'left',   bg: 'white',  role: 'Main content — explain the purpose of this page clearly and compellingly. 2 paragraphs + bullet list of key points.', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Supporting Detail',  align: 'left',   bg: 'light',  role: 'Additional context, proof, or explanation that supports the core message. 2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'Social Proof',       align: 'center', bg: 'white',  role: 'Testimonial or result that validates the core message. 1–2 paragraphs.', elements: ['heading h2', 'paragraph'] },
+    { name: 'CTA',                align: 'center', bg: 'dark',   role: 'Clear closing call to action — restate the benefit, CTA button, risk reversal.', elements: ['heading h2', 'paragraph', 'button'] },
   ],
 };
 
@@ -197,60 +224,67 @@ async function generatePageSections(brief) {
   const provider = await aiService.getProvider();
 
   const sectionList = plan.map((s, i) =>
-    `Section ${i + 1}: "${s.name}" — ${s.role}\n  Required elements: ${s.elements.join(', ')}`
+    `Section ${i + 1} — "${s.name}" [align: ${s.align}, bg: ${s.bg}]\n  Copy brief: ${s.role}\n  Elements: ${s.elements.join(', ')}`
   ).join('\n\n');
 
-  const system = `You are an expert direct-response copywriter. Write compelling, specific website copy that converts. Return ONLY valid JSON — no markdown fences, no explanation.`;
+  const system = `You are a world-class direct-response copywriter who writes websites that compel, convert, and connect emotionally. You write like the best of David Ogilvy, Gary Halbert, and Alex Hormozi combined — clear, specific, punchy, and human. Return ONLY valid JSON, no markdown fences, no explanation.`;
 
-  const user = `Write native GHL website page sections for: "${pageName}"
+  const user = `Write a complete high-converting website page for the brief below. Every section must be written for a REAL human who has real problems, desires, and objections — not generic filler copy.
 
-Business/Niche: ${niche || 'the business'}
-Offer/Product: ${offer || 'their main product or service'}
-Target Audience: ${audience || 'ideal customers'}
-Brand Name: ${brand || 'the business'}
-Website Name: ${websiteName || 'the website'}
-Color Scheme Hint: ${colorScheme || 'professional and modern'}
-Extra Notes: ${extraNotes || 'none'}
+PAGE: "${pageName}"
+PAGE TYPE: ${pageType}
+NICHE/INDUSTRY: ${niche || 'the business'}
+OFFER/PRODUCT: ${offer || 'their main product or service'}
+TARGET AUDIENCE: ${audience || 'ideal customers'}
+BRAND NAME: ${brand || 'the business'}
+WEBSITE: ${websiteName || 'the website'}
+COLOR SCHEME: ${colorScheme || 'professional and modern'}
+EXTRA NOTES: ${extraNotes || 'none'}
 
-Copywriting rules:
-1. Write for THIS specific niche — no generic placeholder copy
-2. Every headline states a concrete benefit or outcome (not what you do, but what they GET)
-3. Use real pain points this audience has
-4. CTAs must be action-specific ("Book Your Free Strategy Call" not "Click Here")
-5. Bullet list items: concise, specific, outcome-focused (8–12 words each)
+COPYWRITING RULES — follow these exactly:
+1. HOOK: The H1 must stop the scroll. Use a bold claim, provocative question, or surprising stat. Never lead with the company name.
+2. SPECIFICITY: No generic copy. Use real industry language, real pain points, real outcomes with numbers where possible.
+3. STORY: Where the brief says "story" — write a real before/after narrative. Struggle → discovery → transformation.
+4. FAQ: Write actual objections buyers have, not softball questions. Answer honestly without corporate spin.
+5. CTAs: Every button must be action + outcome specific. "Book My Free Strategy Call" not "Submit". "Get My Custom Plan" not "Click Here".
+6. BULLETS: Each bullet = specific outcome or fact. Maximum 12 words. Start with a strong verb or number.
+7. PARAGRAPHS: Short. Max 3 sentences. Use <strong>bold</strong> for the most important phrase in each paragraph.
+8. NEWSLETTER: Frame as giving VALUE ("Get weekly tips that...") not asking for something.
+9. TEXT ALIGNMENT: Follow the [align] directive per section — centered sections feel bold/impactful, left-aligned sections feel detailed/trustworthy.
 
-Sections to write (follow this exact plan):
+SECTIONS TO WRITE:
 ${sectionList}
 
-Return this exact JSON:
+RETURN THIS EXACT JSON:
 {
-  "seoTitle": "SEO page title 50–60 chars",
-  "metaDescription": "Meta description 150–160 chars",
+  "seoTitle": "Keyword-rich SEO title 50–60 chars exactly",
+  "metaDescription": "Compelling meta description 150–160 chars that makes someone click from Google",
   "sections": [
     {
       "name": "Section Name",
-      "styles": { "backgroundColor": { "value": "#hexcolor" } },
+      "textAlign": "center",
+      "styles": { "backgroundColor": { "value": "#1a1a2e" } },
       "children": [
-        { "type": "headline",    "tag": "h1", "text": "Main headline text",           "styles": { "color": { "value": "#ffffff" } } },
-        { "type": "sub-heading",              "text": "Supporting subheadline text",  "styles": { "color": { "value": "#e5e7eb" } } },
-        { "type": "heading",     "tag": "h2", "text": "Section heading",              "styles": { "color": { "value": "#111827" } } },
-        { "type": "paragraph",                "text": "Body copy — use <strong> for bold emphasis", "styles": { "color": { "value": "#374151" } } },
-        { "type": "bulletList",               "items": ["Bullet one", "Bullet two"],  "styles": { "color": { "value": "#374151" } } },
-        { "type": "button",                   "text": "CTA Button Text",              "styles": { "backgroundColor": { "value": "#primary" }, "color": { "value": "#ffffff" } } }
+        { "type": "headline",    "tag": "h1", "text": "Hook headline — bold, specific, stops the scroll", "styles": { "color": { "value": "#ffffff" } } },
+        { "type": "sub-heading",              "text": "Clarifying subheadline — who this is for + outcome", "styles": { "color": { "value": "#cbd5e0" } } },
+        { "type": "heading",     "tag": "h2", "text": "Section H2 heading",  "styles": { "color": { "value": "#1a202c" } } },
+        { "type": "paragraph",                "text": "Body copy with <strong>bold key phrase</strong> — short, punchy, human.", "styles": { "color": { "value": "#4a5568" } } },
+        { "type": "bulletList",               "items": ["Specific outcome bullet — verb + result", "Another specific bullet with numbers if possible"], "styles": { "color": { "value": "#4a5568" } } },
+        { "type": "button",                   "text": "Action + Outcome CTA Text", "styles": { "backgroundColor": { "value": "#e53e3e" }, "color": { "value": "#ffffff" } } }
       ]
     }
   ]
 }
 
-Color guidance:
-- First section (hero): use a dark branded background color, white or light text
-- Middle sections: alternate white (#ffffff) and very light gray (#F9FAFB)
-- Last section (CTA): use a dark or accent background, contrasting text
-- Button backgrounds: use a bright accent or primary color
-- Never use the literal placeholder "#primary" — always use a real hex color
-- Keep text colors contrasting: white/light on dark backgrounds, dark on light backgrounds`;
+COLOR RULES:
+- "dark" bg sections: use a rich dark color matching the brand (navy, charcoal, deep brand color) — white or light text
+- "white" bg sections: #ffffff background — dark gray text (#1a202c headings, #4a5568 body)
+- "light" bg sections: #F7FAFC or #EDF2F7 background — same dark text as white sections
+- Buttons: bright accent color (brand primary, red, orange, or teal) — never gray
+- Never use "#primary" — always a real hex code
+- Extract brand colors from the color scheme hint if hex codes are provided`;
 
-  const raw    = await aiService.generate(system, user, { maxTokens: 3500 });
+  const raw    = await aiService.generate(system, user, { maxTokens: 5000 });
   const parsed = parseJsonSafe(raw);
   parsed._provider = provider;
   return parsed;
