@@ -2906,7 +2906,12 @@ function getSectionPlan(pageType, imgSrc, palette, imgSeeds) {
   const par = (text, clr=heroText, sz=18)  => ({"type":"paragraph","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"lineHeight":{"value":1.75}},"mobileStyles":{"fontSize":{"value":Math.max(sz-2,15),"unit":"px"}}});
   const btn = (text, bg=primary, clr=btnColor) => ({"type":"button","text":text,"link":"#","styles":{"backgroundColor":{"value":bg},"color":{"value":clr},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":20,"unit":"px"},"paddingBottom":{"value":20,"unit":"px"},"paddingLeft":{"value":52,"unit":"px"},"paddingRight":{"value":52,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"}}});
   const bul = (items, clr=bodyText, sz=18) => ({"type":"bulletList","items":items,"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"lineHeight":{"value":1.8}},"mobileStyles":{"fontSize":{"value":Math.max(sz-2,15),"unit":"px"}}});
-  const img = (alt='')                     => ({"type":"image","src":seeds[seedIdx++ % seeds.length],"alt":alt,"styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}});
+  const img     = (alt='')                          => ({"type":"image","src":seeds[seedIdx++ % seeds.length],"alt":alt,"styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}});
+  const vid     = ()                                 => ({"type":"video","src":"","styles":{}});
+  const frm     = ()                                 => ({"type":"form","styles":{}});
+  const orderFrm= ()                                 => ({"type":"orderForm","styles":{}});
+  const orderConf=()                                 => ({"type":"orderConfirmation","styles":{}});
+  const noThanks= (text, link='#thank-you')          => ({"type":"textLink","text":text,"link":link,"styles":{"fontSize":{"value":14,"unit":"px"}}});
 
   const plans = {
 
@@ -2991,72 +2996,150 @@ function getSectionPlan(pageType, imgSrc, palette, imgSeeds) {
       ],
     },
 
-    'Thank You Page': {
-      groq: `2 sections:\n1. Confirmation — heading(h1) + sub-heading + image + paragraph\n2. Next Steps — heading(h2) + bulletList(3 items) + button`,
+    // ── Lead/Application funnel: general thank you, no order confirmation ─────
+    'Thank You Page (Lead)': {
+      groq: `3 sections:\n1. Hero bg="${heroBg}" — heading(h1) + sub-heading + paragraph(email instructions)\n2. Next Steps bg="${secBg}" — heading(h2) + bulletList(3 next steps)\n3. Community bg="#FFFFFF" — heading(h2) + paragraph + bulletList(social links)`,
       sections: [
-        sec('Confirmation', heroBg, heroText, [100,100], [
+        sec('You\'re In!', heroBg, heroText, [80,60], [
+          h1('🎉 You\'re In! Check Your Inbox Now'),
+          sub('[Sub-headline — confirm what they just signed up for and what\'s on its way]', heroText),
+          par('[Email instructions: "Your [lead magnet / guide / access link] is on its way to [their email]. If you don\'t see it in the next 2 minutes, check your spam folder and mark us as safe sender."]', heroText),
+        ]),
+        sec('What to Do Next', secBg, bodyText, [60,60], [
+          h2('Here\'s What Happens Now', bodyText),
+          bul([
+            '📧 Check your inbox — your [resource] is already on its way',
+            '⭐ Add [sender email] to your contacts so you never miss our emails',
+            '[Next step 3 — an optional action to get even more value: join a group, watch a video, book a call]',
+          ], bodyText),
+        ]),
+        sec('Stay Connected', '#FFFFFF', bodyText, [60,60], [
+          h2('[Community headline — "Join [X]+ [Audience] in Our Community"]', bodyText),
+          par('[Warm invitation to follow on socials: "We share [type of content] every week — tips, behind-the-scenes, and resources you won\'t find anywhere else. Follow us to stay in the loop."]', bodyText),
+          bul([
+            '📘 Facebook Group: [Group name / link — "Join our free community"]',
+            '📸 Instagram: @[handle] — "[What they post: daily tips / inspiration / case studies]"',
+            '▶️ YouTube: [Channel name] — "[What they\'ll find: tutorials / interviews / free training]"',
+            '💬 [Other platform: TikTok / LinkedIn / Podcast — with brief reason to follow]',
+          ], bodyText),
+          par('[Friendly sign-off — "We\'re thrilled to have you here. See you inside! — [Name / Team]"]', bodyText),
+        ]),
+      ],
+    },
+
+    // ── Purchase funnel: order confirmation element + access instructions ─────
+    'Thank You Page (Purchase)': {
+      groq: `3 sections:\n1. Hero bg="${heroBg}" — heading(h1) + sub-heading + paragraph\n2. Order Confirmation bg="#FFFFFF" — heading(h2) + orderConfirmation\n3. Getting Started bg="${secBg}" — heading(h2) + bulletList(access steps) + paragraph`,
+      sections: [
+        sec('Order Confirmed!', heroBg, heroText, [80,60], [
+          h1('🎉 Order Confirmed — Welcome to the Family!'),
+          sub('[Product name + the transformation they just unlocked — "You\'re now a [Program/Product] member"]', heroText),
+          par('[Celebration + reassurance: "You just made a great decision. Your order has been processed successfully. Below you\'ll find your order details and everything you need to get started right away."]', heroText),
+        ]),
+        sec('Your Order Summary', '#FFFFFF', bodyText, [40,40], [
+          h2('Your Purchase Details', bodyText),
+          orderConf(),
+        ]),
+        sec('How to Get Started', secBg, bodyText, [60,60], [
+          h2('Here\'s How to Access Your Purchase', bodyText),
+          bul([
+            '[Step 1 — how to access: "Check your email for your login details / download link / access instructions"]',
+            '[Step 2 — first thing to do: "Log in and [start with / watch / complete] [specific first step]"]',
+            '[Step 3 — where to get help: "If you have any questions, email us at [support email] or visit [help page]"]',
+          ], bodyText),
+          par('[Warm closing: "We\'re so excited for you to experience [product/program]. If you ever need anything, we\'re just one email away. — [Name / Team]"]', bodyText),
+        ]),
+      ],
+    },
+
+    // ── Webinar funnel thank you: after registration action or replay ─────────
+    'Webinar Thank You Page': {
+      groq: `3 sections:\n1. Hero bg="${heroBg}" — heading(h1) + sub-heading + paragraph\n2. What\'s Next bg="${secBg}" — heading(h2) + bulletList\n3. Community bg="#FFFFFF" — heading(h2) + paragraph + bulletList(socials)`,
+      sections: [
+        sec('Thank You!', heroBg, heroText, [80,60], [
+          h1('[Thank you headline — e.g. "Thanks for Joining Us!" or "Thanks for Watching!"]'),
+          sub('[What they just did + what\'s waiting for them next]', heroText),
+          par('[Genuine appreciation + what comes next: "We appreciate you showing up / watching. [What happens next — replay access, offer expiry, next session, etc.]"]', heroText),
+        ]),
+        sec('What\'s Next', secBg, bodyText, [60,60], [
+          h2('Here\'s What to Do Now', bodyText),
+          bul([
+            '[Step 1 — most important next action: claim the offer / check email / implement one thing]',
+            '[Step 2 — where to get the replay / recording if applicable]',
+            '[Step 3 — where to get community support or follow for more value]',
+          ], bodyText),
+        ]),
+        sec('Stay Connected', '#FFFFFF', bodyText, [60,60], [
+          h2('[Community invite headline]', bodyText),
+          par('[Invitation to continue the conversation in the community / on socials — where they\'ll find more free training, Q&As, case studies]', bodyText),
+          bul([
+            '📘 Facebook Group: [Group name] — "[What value they\'ll get in the group]"',
+            '📸 Instagram: @[handle] — "Follow for daily [tips/content type]"',
+            '▶️ YouTube: [Channel] — "[Free training library / weekly videos]"',
+          ], bodyText),
+          par('[Closing line: "Thank you again for being here. See you on the inside! — [Name / Team]"]', bodyText),
+        ]),
+      ],
+    },
+
+    // ── Legacy fallback (kept for backward compat) ────────────────────────────
+    'Thank You Page': {
+      groq: `2 sections:\n1. Confirmation bg="${heroBg}" — heading(h1) + sub-heading + paragraph\n2. Next Steps bg="${secBg}" — heading(h2) + bulletList(3 steps) + button`,
+      sections: [
+        sec('Confirmation', heroBg, heroText, [80,60], [
           h1('🎉 You\'re In! Check Your Email Now'),
           sub('[Sub-headline confirming what they signed up for]', heroText),
-          img('confirmation or success image'),
-          par('[Paragraph explaining: what they\'ll receive, when, and what to do next (check spam etc.)]', heroText),
+          par('[What they\'ll receive, when, and what to do next — check spam, add to contacts]', heroText),
         ]),
-        sec('Your Next Steps', secBg, bodyText, [80,80], [
+        sec('Your Next Steps', secBg, bodyText, [60,60], [
           h2('Here\'s What Happens Next', bodyText),
           bul(['[Step 1 — check email and confirm subscription]','[Step 2 — what they receive / where to access]','[Step 3 — optional next action to get even more value]'], bodyText),
-          btn('[Optional next action CTA, e.g. "Watch the Free Training Now"]'),
+          btn('[Optional next action CTA — e.g. "Watch the Free Training Now"]'),
         ]),
       ],
     },
 
     'Order Page': {
-      groq: `3 sections:\n1. Order Summary — heading(h1) + sub-heading + image + bulletList\n2. Guarantee — heading(h2) + image + paragraph\n3. Complete Order CTA — heading(h2) + paragraph + button`,
+      groq: `2 sections:\n1. Summary bg="${heroBg}" — heading(h1) + sub-heading + bulletList(what they get)\n2. Checkout bg="#FFFFFF" — heading(h2) + paragraph(guarantee) + orderForm + paragraph(trust micro-copy)`,
       sections: [
-        sec('Order Summary', heroBg, heroText, [80,80], [
-          h1('[Order page headline — confirm the offer, e.g. "Yes! I Want [Product Name]"]'),
-          sub('[Sub-headline recapping the key promise]', heroText),
-          img('product or offer image'),
-          bul(['[What they get — item 1 + value]','[What they get — item 2 + value]','[What they get — item 3 + value]','[Bonus included + value]'], heroText),
-          par('[Value summary: "Total value: $X. Today only: $Y"]', heroText),
+        sec('What You Get', heroBg, heroText, [60,60], [
+          h1('[Order confirmation headline — e.g. "Yes! Complete My Order for [Product Name]"]'),
+          sub('[One-line recap of the main transformation or promise]', heroText),
+          bul(['[Item 1 — what\'s included + value]','[Item 2 — what\'s included + value]','[Item 3 — what\'s included + value]','[Bonus included + value]','[30-Day Money-Back Guarantee — Zero risk]'], heroText),
+          par('[Value anchor: "Total value: $X. Your price today: $Y — Save $Z"]', heroText),
         ]),
-        sec('Our Guarantee', secBg, bodyText, [80,80], [
-          h2('[Guarantee headline, e.g. "You\'re Fully Protected — 30-Day Money-Back Guarantee"]', bodyText),
-          img('guarantee seal / badge'),
-          par('[Guarantee paragraph — specific terms, no-questions-asked, complete reassurance]', bodyText),
-          bul(['[Trust signal 1 — secure checkout / SSL]','[Trust signal 2 — customer support available]','[Trust signal 3 — privacy protection]'], bodyText),
-        ]),
-        sec('Complete Your Order', heroBg, heroText, [80,80], [
-          h2('[Urgency headline — "This Special Price Expires Soon"]', heroText, 36),
-          par('[Scarcity paragraph — why they should act now]', heroText),
-          btn('Complete My Order Now — $[Price]'),
-          par('[Micro-commitment below button: "Secure checkout · 30-day guarantee · Instant access"]', heroText, 13),
+        sec('Complete Your Order', '#FFFFFF', bodyText, [40,60], [
+          h2('[Checkout headline — e.g. "Secure Your Spot — Fill In Your Details Below"]', bodyText),
+          par('[Brief guarantee reassurance — "You\'re fully protected by our 30-day no-questions-asked money-back guarantee. If you don\'t love it, you pay nothing."]', bodyText),
+          orderFrm(),
+          par('[Trust micro-copy below form: "🔒 Secure checkout · SSL encrypted · Your information is 100% protected"]', bodyText, 13),
         ]),
       ],
     },
 
     'Upsell Page': {
-      groq: `4 sections:\n1. Hook — heading(h1) + sub-heading + image\n2. The Offer — heading(h2) + paragraph + bulletList\n3. Value Stack — heading(h2) + paragraph + bulletList\n4. Decision CTA — heading(h2) + button + paragraph`,
+      groq: `4 sections:\n1. Hook bg="${heroBg}" — heading(h1) + sub-heading + image\n2. The Offer bg="${secBg}" — heading(h2) + paragraph + bulletList\n3. Value Stack bg="#FFFFFF" — heading(h2) + paragraph + bulletList + paragraph\n4. Decision bg="${heroBg}" — heading(h2) + button + textLink(no thanks)`,
       sections: [
-        sec('One-Time Offer Hook', heroBg, heroText, [80,60], [
-          h1('⚡ Wait — Don\'t Close This Page! Special One-Time Offer:'),
-          sub('[Sub-headline: "Because you just purchased [X], you qualify for this exclusive upgrade..."]', heroText),
+        sec('One-Time Offer Hook', heroBg, heroText, [60,40], [
+          h1('⚡ Wait — One Special Offer Before You Go:'),
+          sub('[Sub-headline: "Because you just purchased [X], you\'ve unlocked this exclusive one-time upgrade — available only right now"]', heroText),
           img('upsell product image'),
         ]),
-        sec('The Upgrade Offer', secBg, bodyText, [80,80], [
-          h2('[Offer headline — what the upgrade includes]', bodyText),
-          par('[Compelling offer description paragraph — what makes this the perfect complement to what they just bought]', bodyText),
-          bul(['[Upgrade benefit 1 — specific outcome]','[Upgrade benefit 2]','[Upgrade benefit 3]','[Upgrade benefit 4]','[Why this works even better together]'], bodyText),
+        sec('The Upgrade', secBg, bodyText, [60,60], [
+          h2('[Offer headline — the specific result this upgrade unlocks]', bodyText),
+          par('[Compelling 2-3 sentence description — what this adds, why it perfectly complements what they just bought, what problem it solves that the core product alone doesn\'t fully address]', bodyText),
+          bul(['[Upgrade benefit 1 — specific outcome they\'ll get]','[Upgrade benefit 2 — what they can do that they couldn\'t before]','[Upgrade benefit 3 — time/money saved]','[Why these two work better together]'], bodyText),
         ]),
-        sec('Why Add This Now', '#FFFFFF', bodyText, [80,80], [
-          h2('[Value justification headline]', bodyText),
-          par('[Price anchoring paragraph — full retail value vs. today\'s one-time price]', bodyText),
-          bul(['[Included item 1 + value $X]','[Included item 2 + value $X]','[Bonus + value $X]','[Total value $X — yours for just $Y]'], bodyText),
-          par('[One-time offer caveat — "This offer disappears when you leave this page"]', bodyText),
+        sec('Everything Included', '#FFFFFF', bodyText, [60,60], [
+          h2('[Value stack headline — "Here\'s Everything You Get With This Upgrade"]', bodyText),
+          bul(['[Deliverable 1 — value $X]','[Deliverable 2 — value $X]','[Bonus — value $X]','[Total value $X — yours for just $Y today]'], bodyText),
+          par('[Price justification + one-time caveat: "This special pricing is ONLY available on this page. Once you leave, this offer is gone for good."]', bodyText),
         ]),
-        sec('Your Decision', heroBg, heroText, [80,80], [
-          h2('[Urgency headline — "This Upgrade Is Only Available Right Now"]', heroText, 32),
-          btn('YES! Upgrade My Order Now — Add For Just $[Price]'),
-          par('[Separator text: "— or —"]', heroText, 14),
-          par('No thanks, I don\'t want the upgrade. I understand this offer expires when I leave this page.', heroText, 14),
+        sec('Your Decision', heroBg, heroText, [60,60], [
+          h2('[Urgency headline — "This Is a One-Time Offer — It Disappears When You Leave"]', heroText, 32),
+          btn('YES! Add This To My Order Now — $[Price]'),
+          par('[Separator: "— or —"]', heroText, 14),
+          noThanks('[No thanks text — e.g. "No thanks, I don\'t want [specific benefit]. I understand this offer expires when I leave this page. Take me to my purchase."]'),
         ]),
       ],
     },
@@ -3092,134 +3175,126 @@ function getSectionPlan(pageType, imgSrc, palette, imgSeeds) {
     },
 
     'Webinar Registration Page': {
-      groq: `3 sections:\n1. Hero bg="${heroBg}" — heading(h1,56px) + sub-heading(date+time,22px) + image + paragraph + button\n2. What You\'ll Learn bg="${secBg}" — heading(h2,38px) + bulletList(5 specific learning outcomes) + paragraph(who this is for)\n3. Reserve bg="${heroBg}" — heading(h2,36px) + paragraph(host authority) + button + paragraph(reassurance,13px)`,
+      groq: `3 sections:\n1. Hero bg="${heroBg}" — heading(h1,56px) + sub-heading(date+time,22px) + image + paragraph\n2. What You\'ll Learn bg="${secBg}" — heading(h2,38px) + bulletList(5 learning outcomes)\n3. Register bg="#FFFFFF" — heading(h2,36px) + paragraph + form + paragraph(reassurance,13px)`,
       sections: [
-        sec('Webinar Hero', heroBg, heroText, [100,100], [
+        sec('Webinar Hero', heroBg, heroText, [80,60], [
           h1('[Webinar title — compelling result or revelation headline]'),
-          sub('[Free Live Training: Date · Time · Duration — "Register now, it\'s 100% free"]', heroText),
+          sub('[Free Live Training: Date · Time · Duration — "100% free, register below"]', heroText),
           img('webinar / presenter image'),
-          par('[1-2 sentence teaser — what the most valuable insight from the webinar will be]', heroText),
-          btn('Register For Free Now'),
+          par('[1-2 sentence teaser — what the most surprising or valuable thing revealed in the training will be]', heroText),
         ]),
-        sec('What You\'ll Learn', secBg, bodyText, [80,80], [
+        sec('What You\'ll Learn', secBg, bodyText, [60,60], [
           h2('In This Free Training You\'ll Discover...', bodyText),
-          bul(['[Learning outcome 1 — specific and valuable]','[Learning outcome 2]','[Learning outcome 3]','[Learning outcome 4]','[Bonus insight — the surprise takeaway]'], bodyText),
-          par('[Who this is for — brief description of the ideal attendee]', bodyText),
+          bul(['[Specific learning outcome 1 — what they\'ll know how to do]','[Learning outcome 2 — a mindset shift or insight]','[Learning outcome 3 — a strategy or framework]','[Learning outcome 4 — a common mistake they\'ll avoid]','[Bonus insight — the big surprise takeaway]'], bodyText),
+          par('[Who this is for: "This free training is perfect if you\'re a [audience description] who wants [outcome] without [common pain]"]', bodyText),
         ]),
-        sec('About the Host', '#FFFFFF', bodyText, [80,80], [
-          h2('[Host name + credibility headline]', bodyText),
-          img('presenter / host photo'),
-          par('[Brief bio paragraph — 3-5 sentences establishing authority and why they\'re qualified to teach this]', bodyText),
-          bul(['[Credential/achievement 1]','[Credential/achievement 2]','[Credential/achievement 3]'], bodyText),
-        ]),
-        sec('Reserve Your Spot', heroBg, heroText, [80,80], [
-          h2('[Scarcity/urgency headline — "Spots Are Limited — Reserve Yours Now"]', heroText, 36),
-          par('[Final persuasion paragraph — what they lose by not attending]', heroText),
-          btn('Yes! Reserve My Free Spot Now'),
-          par('[Reassurance: "Free to attend · No credit card required · Recording not guaranteed"]', heroText, 13),
+        sec('Register Free Below', '#FFFFFF', bodyText, [60,60], [
+          h2('[Registration headline — "Claim Your Free Spot — Register Below Now"]', bodyText),
+          par('[Brief call to action — "Fill in your details below and we\'ll send your confirmation and join link instantly."]', bodyText),
+          frm(),
+          par('[Reassurance below form: "Free to attend · No credit card required · Unsubscribe anytime"]', bodyText, 13),
         ]),
       ],
     },
 
     'Downsell Page': {
-      groq: `3 sections:\n1. Wait — heading(h1) + sub-heading + image + paragraph\n2. What You Get — heading(h2) + bulletList + paragraph\n3. CTA — heading(h2) + button + paragraph`,
+      groq: `3 sections:\n1. Alternative Offer bg="${heroBg}" — heading(h1) + sub-heading + image + paragraph\n2. What You Get bg="${secBg}" — heading(h2) + bulletList + paragraph\n3. Decision bg="${heroBg}" — heading(h2) + button + textLink(no thanks)`,
       sections: [
-        sec('Alternative Offer', heroBg, heroText, [80,60], [
-          h1('Hold On — Here\'s a Better Option For You'),
-          sub('[Sub-headline: "We understand [full offer] might not be right for you yet. Here\'s something perfect for where you are now..."]', heroText),
+        sec('Alternative Offer', heroBg, heroText, [60,40], [
+          h1('Wait — We Have a Better Option For You'),
+          sub('[Sub-headline: "We get it — [full offer] may not be right for you right now. Here\'s a more accessible way to get [core result]..."]', heroText),
           img('downsell product image'),
-          par('[Empathy paragraph — acknowledge why they hesitated and introduce the lower-commitment option]', heroText),
+          par('[Empathy paragraph — acknowledge the hesitation without pressure, introduce the stripped-down version as the smart starting point]', heroText),
         ]),
-        sec('What\'s Included', secBg, bodyText, [80,80], [
-          h2('[Downsell offer headline — "Get [Core Result] with [Downsell Product]"]', bodyText),
-          bul(['[Core deliverable 1 — what they get]','[Core deliverable 2]','[Core deliverable 3]','[What\'s different from the original offer (honest)]'], bodyText),
-          par('[Value + reduced price paragraph — "Get the core of what you need for just $[lower price]"]', bodyText),
+        sec('What\'s Included', secBg, bodyText, [60,60], [
+          h2('[Downsell headline — "Get [Core Result] With [Downsell Product Name]"]', bodyText),
+          bul(['[Core deliverable 1 — what they get]','[Core deliverable 2]','[Core deliverable 3]','[How this gets them the essential outcome]'], bodyText),
+          par('[Value anchor + reduced price: "Normally $X, yours today for just $Y — a fraction of the full program"]', bodyText),
         ]),
-        sec('Your Decision', heroBg, heroText, [80,80], [
-          h2('[Urgency headline — "This Is Your Last Chance to Get [Result] at This Price"]', heroText, 32),
-          btn('Yes! I\'ll Take This Instead — $[Downsell Price]'),
+        sec('Your Decision', heroBg, heroText, [60,60], [
+          h2('[Last-chance headline — "This Is Your Final Opportunity to Grab [Product] at This Price"]', heroText, 32),
+          btn('Yes! I\'ll Take This — $[Downsell Price]'),
           par('[Separator: "— or —"]', heroText, 14),
-          par('No thanks, I\'ll pass on this special offer.', heroText, 14),
+          noThanks('[No thanks text — e.g. "No thanks, I\'ll pass on this offer. I understand I won\'t see this price again. Take me to my purchase."]'),
         ]),
       ],
     },
 
     'Confirmation Page': {
-      groq: `3 sections:\n1. Confirmed — heading(h1) + sub-heading + image + paragraph\n2. What to Expect — heading(h2) + bulletList\n3. Prepare — heading(h2) + paragraph + button`,
+      groq: `3 sections:\n1. Confirmed bg="${heroBg}" — heading(h1) + sub-heading + video/image + paragraph(join details)\n2. While You Wait bg="${secBg}" — heading(h2) + bulletList(what they'll cover) + paragraph(attendance tip)\n3. Calendar bg="#FFFFFF" — heading(h2) + paragraph + button`,
       sections: [
-        sec('Registration Confirmed', heroBg, heroText, [100,80], [
-          h1('🎉 You\'re Registered! See You There.'),
-          sub('[Event name + date + time + format (Zoom / live / etc.)]', heroText),
-          img('confirmation or event image'),
-          par('[Details paragraph — where/how to join, what to prepare, calendar reminder instructions]', heroText),
+        sec('Registration Confirmed', heroBg, heroText, [80,60], [
+          h1('🎉 You\'re Registered! Here\'s How to Join'),
+          sub('[Event name + Date + Time + Format: "Join us live on [platform] — link below"]', heroText),
+          vid(),
+          par('[Join instructions — "Your confirmation + join link has been sent to your email. Here\'s what to do: [1. Check inbox 2. Save the link 3. Add to calendar]"]', heroText),
         ]),
-        sec('What You\'ll Learn', secBg, bodyText, [80,80], [
-          h2('Here\'s What We\'ll Cover Together', bodyText),
-          bul(['[Learning point 1 — what they\'ll walk away with]','[Learning point 2]','[Learning point 3]','[Learning point 4]','[Big surprise or bonus topic]'], bodyText),
-          par('[Attendance tip — "Show up live for the bonus Q&A / to qualify for the special offer"]', bodyText),
+        sec('What We\'ll Cover Together', secBg, bodyText, [60,60], [
+          h2('A Sneak Peek at What\'s Coming...', bodyText),
+          bul(['[What they\'ll learn / topic 1]','[Topic 2 — an insight they\'ve never heard before]','[Topic 3 — a common mistake they\'ve been making]','[Topic 4 — the actionable framework they\'ll leave with]','[Bonus: Live Q&A — bring your toughest questions]'], bodyText),
+          par('[Attendance incentive: "Show up live and stay until the end — we have a special bonus for everyone who attends the full session."]', bodyText),
         ]),
-        sec('Prepare & Remind', '#FFFFFF', bodyText, [80,80], [
-          h2('Add It To Your Calendar Now', bodyText),
-          par('[Short preparation tip paragraph — what to have ready, what to think about beforehand]', bodyText),
+        sec('Don\'t Miss It', '#FFFFFF', bodyText, [60,60], [
+          h2('Add It to Your Calendar So You Don\'t Forget', bodyText),
+          par('[Brief prep tip — "Grab a notebook, clear 60 minutes, and come ready to take action. This training is hands-on."]', bodyText),
           btn('Add to Google Calendar'),
         ]),
       ],
     },
 
     'Webinar Replay Page': {
-      groq: `3 sections:\n1. Watch Replay — heading(h1) + sub-heading + image + paragraph\n2. Key Takeaways — heading(h2) + bulletList\n3. Special Offer CTA — heading(h2) + paragraph + button`,
+      groq: `4 sections:\n1. Watch bg="${heroBg}" — heading(h1) + sub-heading + video + paragraph\n2. Takeaways bg="${secBg}" — heading(h2) + bulletList + paragraph\n3. Offer bg="#FFFFFF" — heading(h2) + bulletList + paragraph + button\n4. Final CTA bg="${heroBg}" — heading(h2) + paragraph + button + paragraph(trust)`,
       sections: [
-        sec('Watch the Replay', heroBg, heroText, [100,80], [
-          h1('[Replay headline — "Watch: [Webinar Title] — Full Replay Available Now"]'),
-          sub('[Urgency: "This replay will be taken down on [date/time]. Watch it now."]', heroText),
-          img('replay / video thumbnail image'),
-          par('[Brief intro to what they\'ll discover in the replay]', heroText),
+        sec('Watch the Replay', heroBg, heroText, [80,60], [
+          h1('[Replay headline — "Watch the Full Replay: [Webinar Title]"]'),
+          sub('[Urgency line — "⚠️ This replay comes down on [Date]. Watch it now before it\'s gone."]', heroText),
+          vid(),
+          par('[Brief intro paragraph — "In this training you\'ll discover [top 2-3 insights]. Watch it all the way through — the most important part is at the end."]', heroText),
         ]),
-        sec('Key Takeaways', secBg, bodyText, [80,80], [
-          h2('The Biggest Insights From This Training', bodyText),
-          bul(['[Key takeaway 1 — most actionable insight]','[Key takeaway 2]','[Key takeaway 3]','[Key takeaway 4]','[The #1 thing they MUST implement right away]'], bodyText),
-          par('[Bridge paragraph — "If you want help implementing all of this..."]', bodyText),
+        sec('What You\'ll Learn In This Training', secBg, bodyText, [60,60], [
+          h2('The Biggest Insights From This Session', bodyText),
+          bul(['[Key takeaway 1 — the most actionable thing they can implement today]','[Key takeaway 2 — a mindset shift or framework]','[Key takeaway 3 — the mistake most people make and how to avoid it]','[Key takeaway 4 — the strategy revealed near the end]','[The #1 thing to do immediately after watching]'], bodyText),
+          par('[Bridge to offer: "If you\'re ready to implement all of this with support and accountability, here\'s what we put together for replay viewers only..."]', bodyText),
         ]),
-        sec('Limited-Time Offer', '#FFFFFF', bodyText, [80,80], [
-          h2('[Special offer headline — available to replay viewers only]', bodyText),
-          img('offer image'),
-          par('[Special offer paragraph — what they get and why this replay-only deal expires soon]', bodyText),
-          btn('Claim Your Replay Special Offer'),
+        sec('Replay-Only Special Offer', '#FFFFFF', bodyText, [60,60], [
+          h2('[Offer headline — what\'s available to replay viewers at a special price]', bodyText),
+          bul(['[What\'s included — item 1 + outcome]','[What\'s included — item 2 + outcome]','[Bonus — only available with this offer]','[Guarantee — complete peace of mind]'], bodyText),
+          par('[Price + urgency: "This special replay pricing expires at midnight. After that, the price goes back to $X."]', bodyText),
+          btn('Claim the Replay Offer Now'),
         ]),
-        sec('Final CTA', heroBg, heroText, [80,80], [
-          h2('[Final urgency headline]', heroText, 36),
-          par('[Guarantee + scarcity paragraph]', heroText),
-          btn('Get Access Before the Replay Comes Down'),
+        sec('Final CTA', heroBg, heroText, [60,60], [
+          h2('[Closing urgency — "This Offer and the Replay Both Come Down at Midnight"]', heroText, 36),
+          par('[Guarantee reminder + final emotional nudge: "You\'re fully protected by our 30-day guarantee. The only risk is doing nothing."]', heroText),
+          btn('Yes — I\'m Ready to Get Started'),
+          par('[Trust line: "Secure checkout · 30-day money-back guarantee · Instant access"]', heroText, 13),
         ]),
       ],
     },
 
     'Application Page': {
-      groq: `4 sections:\n1. Hero — heading(h1,56px) + sub-heading + image + paragraph + button\n2. Qualifiers — heading(h2,38px) + paragraph + bulletList\n3. Transformation — heading(h2,38px) + image + bulletList\n4. Apply CTA — heading(h2,36px) + paragraph + button + paragraph`,
+      groq: `4 sections:\n1. Hero bg="${heroBg}" — heading(h1,56px) + sub-heading + image + paragraph\n2. Qualifiers bg="${secBg}" — heading(h2,38px) + paragraph + bulletList\n3. Transformation bg="#FFFFFF" — heading(h2,38px) + bulletList + paragraph\n4. Apply bg="${heroBg}" — heading(h2,36px) + paragraph + form + paragraph(reassurance)`,
       sections: [
-        sec('Application Hero', heroBg, heroText, [100,100], [
-          h1('[Exclusive opportunity headline — "Apply Now to Work With [Expert/Program Name]"]'),
-          sub('[Sub-headline — who this is ideal for and the transformation available to accepted applicants]', heroText),
+        sec('Application Hero', heroBg, heroText, [80,60], [
+          h1('[Exclusive opportunity headline — "Apply to Work With [Expert/Program Name] — Limited Spots"]'),
+          sub('[Sub-headline — who this is ideal for and what transformation accepted applicants achieve]', heroText),
           img('premium / exclusive program image'),
-          par('[1-2 sentences: establish exclusivity, limited spots, and the transformation promised to accepted applicants]', heroText),
-          btn('Apply Now — Limited Spots Available'),
+          par('[1-2 sentences establishing exclusivity: "We work with a small number of [audience] at a time. If accepted, you\'ll [transformation]. Here\'s how to apply."]', heroText),
         ]),
-        sec('Is This For You?', secBg, bodyText, [80,80], [
-          h2('[Qualification headline — "This Is Exclusively For People Who..."]', bodyText),
-          par('[Empathy paragraph — speak directly to the ideal client\'s current situation and deepest desire]', bodyText),
-          bul(['[Qualifier 1 — specific attribute of the ideal client]','[Qualifier 2 — the level of commitment they\'re ready for]','[Qualifier 3 — a result they\'ve failed to achieve before applying]','[Qualifier 4 — the investment mindset they must have]'], bodyText),
+        sec('Is This Right For You?', secBg, bodyText, [60,60], [
+          h2('[Qualification headline — "This Program Is Exclusively For People Who..."]', bodyText),
+          par('[Empathy paragraph — speak directly to the ideal client: their current frustration, what they\'ve tried, and the deeper desire driving them]', bodyText),
+          bul(['[Qualifier 1 — the mindset: ready to invest in themselves]','[Qualifier 2 — the situation: currently experiencing X problem]','[Qualifier 3 — the commitment: willing to implement, not just learn]','[Qualifier 4 — the goal: serious about achieving [specific result]]'], bodyText),
         ]),
-        sec('Your Transformation', '#FFFFFF', bodyText, [80,80], [
-          h2('[Transformation headline — "By the end of [program/engagement], you will..."]', bodyText),
-          img('results / success image'),
-          bul(['[Outcome 1 — specific, measurable result]','[Outcome 2 — a change in situation or status]','[Outcome 3 — a skill or asset they\'ll have]','[Outcome 4 — the business/life impact]','[The big vision — what their life looks like after]'], bodyText),
-          par('[Social proof sentence — "Our clients have achieved [specific result]. You could be next."]', bodyText),
+        sec('What You\'ll Achieve', '#FFFFFF', bodyText, [60,60], [
+          h2('[Transformation headline — "By the End of [Program/Timeframe], You Will Have..."]', bodyText),
+          bul(['[Outcome 1 — specific, measurable result]','[Outcome 2 — change in situation or status]','[Outcome 3 — skill or asset they\'ll own]','[Outcome 4 — business/life impact]','[The big vision — what their world looks like 90 days in]'], bodyText),
+          par('[Social proof: "Our clients have achieved [specific result in numbers or specifics]. You could be next — if you qualify."]', bodyText),
         ]),
-        sec('Apply Today', heroBg, heroText, [80,80], [
-          h2('[Scarcity headline — "We Only Accept [X] New Clients Per Month"]', heroText, 36),
-          par('[Application process paragraph — describe the steps: apply → review → strategy call → decision. Keep it simple and non-threatening]', heroText),
-          btn('Apply For Your Free Strategy Call'),
-          par('[Reassurance: "No obligation. We\'ll review your application and reach out within 48 hours."]', heroText, 13),
+        sec('Apply Now', heroBg, heroText, [60,60], [
+          h2('[Scarcity headline — "We Only Accept [X] New Applicants Per Month"]', heroText, 36),
+          par('[Application process: "Fill out the short form below. We review every application personally and respond within 48 hours. There\'s no obligation — just a conversation to see if we\'re the right fit for each other."]', heroText),
+          frm(),
+          par('[Reassurance below form: "No sales pressure. No obligation. If we\'re not a good fit, we\'ll tell you honestly."]', heroText, 13),
         ]),
       ],
     },
@@ -3235,49 +3310,49 @@ function getSectionPlan(pageType, imgSrc, palette, imgSeeds) {
 //             stage (TOFU/MOFU/BOFU), copyFocus (guides AI copy tone + angle)
 const FUNNEL_TYPE_PAGES = {
   lead_gen: [
-    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',  stage: 'TOFU', copyFocus: 'Curiosity-driven value promise, frictionless opt-in, zero-commitment' },
-    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 2, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Confirm delivery, set expectations, bridge to next step or community' },
+    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',    stage: 'TOFU', copyFocus: 'Curiosity-driven value promise, frictionless opt-in, zero-commitment' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 2, type: 'Thank You Page (Lead)',           stage: 'BOFU', copyFocus: 'Celebrate the opt-in, deliver clear next steps, invite to community and socials' },
   ],
   sales: [
-    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',  stage: 'TOFU', copyFocus: 'Curiosity, value promise, low-friction entry — capture the lead' },
-    { name: 'Sales Page',          url: 'sales',        stepOrder: 2, type: 'Sales Page',                  stage: 'MOFU', copyFocus: 'Problem-agitation-solution, deep desire, social proof, full offer reveal, risk reversal' },
-    { name: 'Order Page',          url: 'order',        stepOrder: 3, type: 'Order Page',                  stage: 'BOFU', copyFocus: 'Reinforce purchase decision, urgency, trust signals, complete the transaction' },
-    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Celebrate purchase, deliver access instructions, set expectations' },
+    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',    stage: 'TOFU', copyFocus: 'Curiosity, value promise, low-friction entry — capture the lead' },
+    { name: 'Sales Page',          url: 'sales',        stepOrder: 2, type: 'Sales Page',                    stage: 'MOFU', copyFocus: 'Problem-agitation-solution, deep desire, social proof, full offer reveal, risk reversal' },
+    { name: 'Order Page',          url: 'order',        stepOrder: 3, type: 'Order Page',                    stage: 'BOFU', copyFocus: 'Summarize what they\'re getting, reassure with guarantee, show checkout form' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page (Purchase)',      stage: 'BOFU', copyFocus: 'Celebrate the purchase, show order confirmation, deliver access instructions' },
   ],
   vsl: [
-    { name: 'VSL Page',            url: 'watch',        stepOrder: 1, type: 'VSL Page',                    stage: 'TOFU', copyFocus: 'Curiosity/pattern-interrupt headline, engage viewer to watch full video, tease key revelation' },
-    { name: 'Order Page',          url: 'order',        stepOrder: 2, type: 'Order Page',                  stage: 'BOFU', copyFocus: 'Capture video momentum, clear transaction, strong trust signals, no re-selling needed' },
-    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 3, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Confirm order, set access expectations, celebrate the decision' },
+    { name: 'VSL Page',            url: 'watch',        stepOrder: 1, type: 'VSL Page',                      stage: 'TOFU', copyFocus: 'Curiosity/pattern-interrupt headline, engage viewer to watch full video, tease key revelation' },
+    { name: 'Order Page',          url: 'order',        stepOrder: 2, type: 'Order Page',                    stage: 'BOFU', copyFocus: 'Capture video momentum, summarize the offer, show checkout form, strong trust signals' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 3, type: 'Thank You Page (Purchase)',      stage: 'BOFU', copyFocus: 'Confirm order, show order confirmation, set access expectations, celebrate the decision' },
   ],
   webinar: [
-    { name: 'Registration Page',   url: 'register',     stepOrder: 1, type: 'Webinar Registration Page',   stage: 'TOFU', copyFocus: 'Intrigue, free training value promise, low-commitment live event sign-up' },
-    { name: 'Confirmation Page',   url: 'confirmation', stepOrder: 2, type: 'Confirmation Page',            stage: 'MOFU', copyFocus: 'Confirm registration, build anticipation and attendance intent, provide join details' },
-    { name: 'Webinar Replay Page', url: 'replay',       stepOrder: 3, type: 'Webinar Replay Page',          stage: 'MOFU', copyFocus: 'Deliver replay value, bridge education to offer, urgency on limited availability' },
-    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Celebrate action taken, set next expectations, optional community invite' },
+    { name: 'Registration Page',   url: 'register',     stepOrder: 1, type: 'Webinar Registration Page',     stage: 'TOFU', copyFocus: 'Intrigue, free training value promise, low-commitment live event sign-up, form to register' },
+    { name: 'Confirmation Page',   url: 'confirmation', stepOrder: 2, type: 'Confirmation Page',              stage: 'MOFU', copyFocus: 'Confirm registration with video/image, build anticipation, provide join details and calendar add' },
+    { name: 'Webinar Replay Page', url: 'replay',       stepOrder: 3, type: 'Webinar Replay Page',            stage: 'MOFU', copyFocus: 'Deliver replay via embedded video, key takeaways, urgency on limited availability, offer CTA' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Webinar Thank You Page',         stage: 'BOFU', copyFocus: 'Thank them for attending/watching, next steps, community invite and social follow' },
   ],
   tripwire: [
-    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',  stage: 'TOFU', copyFocus: 'Irresistible free/low-cost entry offer, impulse action, capture the lead' },
-    { name: 'Sales Page',          url: 'sales',        stepOrder: 2, type: 'Sales Page',                  stage: 'MOFU', copyFocus: 'Core offer value stack, benefits-heavy, build desire and justify the low price' },
-    { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3, type: 'Upsell Page',                 stage: 'BOFU', copyFocus: 'Amplify purchase decision momentum, exclusive one-time upgrade while buyer is hot' },
-    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Celebrate, deliver access, set program expectations' },
+    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',    stage: 'TOFU', copyFocus: 'Irresistible free/low-cost entry offer, impulse action, capture the lead' },
+    { name: 'Sales Page',          url: 'sales',        stepOrder: 2, type: 'Sales Page',                    stage: 'MOFU', copyFocus: 'Core offer value stack, benefits-heavy, build desire and justify the low price' },
+    { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3, type: 'Upsell Page',                   stage: 'BOFU', copyFocus: 'Amplify purchase momentum, exclusive one-time upgrade, no-thanks text link to thank you' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page (Purchase)',      stage: 'BOFU', copyFocus: 'Celebrate purchase, show order confirmation, deliver access instructions' },
   ],
   product_launch: [
-    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',  stage: 'TOFU', copyFocus: 'Build anticipation for launch, exclusive early-access feel, qualify warm prospects' },
-    { name: 'Sales Page',          url: 'sales',        stepOrder: 2, type: 'Sales Page',                  stage: 'MOFU', copyFocus: 'Full launch copy — story, proof, value stack, scarcity, FOMO, risk reversal' },
-    { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3, type: 'Upsell Page',                 stage: 'BOFU', copyFocus: 'Maximize cart value with complementary upgrade while buyer is in full purchase mode' },
-    { name: 'Downsell Page',       url: 'downsell',     stepOrder: 4, type: 'Downsell Page',               stage: 'BOFU', copyFocus: 'Recover declined upsell with a smaller-commitment, lower-price alternative' },
-    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 5, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Confirm purchase, celebrate decision, set access + onboarding expectations' },
+    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',    stage: 'TOFU', copyFocus: 'Build anticipation for launch, exclusive early-access feel, qualify warm prospects' },
+    { name: 'Sales Page',          url: 'sales',        stepOrder: 2, type: 'Sales Page',                    stage: 'MOFU', copyFocus: 'Full launch copy — story, proof, value stack, scarcity, FOMO, risk reversal' },
+    { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3, type: 'Upsell Page',                   stage: 'BOFU', copyFocus: 'Maximize cart value, complementary upgrade, no-thanks text link skips to thank you' },
+    { name: 'Downsell Page',       url: 'downsell',     stepOrder: 4, type: 'Downsell Page',                 stage: 'BOFU', copyFocus: 'Recover declined upsell with lower-price alternative, no-thanks text link to thank you' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 5, type: 'Thank You Page (Purchase)',      stage: 'BOFU', copyFocus: 'Confirm purchase, show order confirmation, celebrate decision, set access expectations' },
   ],
   application: [
-    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',  stage: 'TOFU', copyFocus: 'Qualify and intrigue premium prospects, position exclusivity and selectivity of the program' },
-    { name: 'Application Page',    url: 'apply',        stepOrder: 2, type: 'Application Page',            stage: 'MOFU', copyFocus: 'Build desire through exclusivity, pre-qualify applicants, escalate commitment before the call' },
-    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 3, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Confirm application received, set expectations for review timeline and call scheduling' },
+    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',    stage: 'TOFU', copyFocus: 'Qualify and intrigue premium prospects, position exclusivity and selectivity of the program' },
+    { name: 'Application Page',    url: 'apply',        stepOrder: 2, type: 'Application Page',              stage: 'MOFU', copyFocus: 'Build desire through exclusivity, pre-qualify with form, escalate commitment before call' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 3, type: 'Thank You Page (Lead)',          stage: 'BOFU', copyFocus: 'Confirm application received, set review timeline expectations, invite to community' },
   ],
   free_shipping: [
-    { name: 'Sales Page',          url: 'free-offer',   stepOrder: 1, type: 'Sales Page',                  stage: 'TOFU', copyFocus: 'Irresistible free + pay-shipping offer, FOMO and impulse, minimize friction' },
-    { name: 'Order Page',          url: 'order',        stepOrder: 2, type: 'Order Page',                  stage: 'BOFU', copyFocus: 'Complete transaction, order bump offer, strong trust signals' },
-    { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3, type: 'Upsell Page',                 stage: 'BOFU', copyFocus: 'Maximize order value while buyer is in active purchase mode, complementary product' },
-    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Confirm order, set shipping expectations, deliver on the promise' },
+    { name: 'Sales Page',          url: 'free-offer',   stepOrder: 1, type: 'Sales Page',                    stage: 'TOFU', copyFocus: 'Irresistible free + pay-shipping offer, FOMO and impulse, minimize friction' },
+    { name: 'Order Page',          url: 'order',        stepOrder: 2, type: 'Order Page',                    stage: 'BOFU', copyFocus: 'Summarize free item + shipping, show checkout form, trust signals' },
+    { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3, type: 'Upsell Page',                   stage: 'BOFU', copyFocus: 'Maximize order value while buyer is in active purchase mode, no-thanks link to thank you' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page (Purchase)',      stage: 'BOFU', copyFocus: 'Confirm order + shipping, show order confirmation, set delivery expectations' },
   ],
 };
 

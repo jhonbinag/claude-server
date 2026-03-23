@@ -521,6 +521,88 @@ function buildGhlNativeElement(el, textAlign = 'center') {
       };
     }
 
+    case 'orderForm': {
+      const id = `order-form-${sid()}`;
+      return {
+        child: [], class: {},
+        extra: { nodeId: `c-order-form-${id}`, visibility: { value: { hideDesktop: false, hideMobile: false } } },
+        id, meta: 'order-form',
+        styles: { marginTop: { unit: 'px', value: 20 } },
+        tag: '', tagName: 'c-order-form', title: 'Order Form', type: 'element',
+        wrapper: { marginTop: { unit: 'px', value: '20' }, textAlign: { value: 'center' } },
+      };
+    }
+
+    case 'orderConfirmation': {
+      const id = `order-confirmation-${sid()}`;
+      return {
+        child: [], class: {},
+        extra: { nodeId: `c-order-confirmation-${id}`, visibility: { value: { hideDesktop: false, hideMobile: false } } },
+        id, meta: 'order-confirmation',
+        styles: { marginTop: { unit: 'px', value: 20 } },
+        tag: '', tagName: 'c-order-confirmation', title: 'Order Confirmation', type: 'element',
+        wrapper: { marginTop: { unit: 'px', value: '20' }, textAlign: { value: 'center' } },
+      };
+    }
+
+    case 'form': {
+      const id = `form-${sid()}`;
+      return {
+        child: [], class: {},
+        extra: { nodeId: `c-form-${id}`, visibility: { value: { hideDesktop: false, hideMobile: false } } },
+        id, meta: 'form',
+        styles: { marginTop: { unit: 'px', value: 20 } },
+        tag: '', tagName: 'c-form', title: 'Form', type: 'element',
+        wrapper: { marginTop: { unit: 'px', value: '20' }, textAlign: { value: 'center' } },
+      };
+    }
+
+    case 'video': {
+      const id = `video-${sid()}`;
+      return {
+        child: [], class: {},
+        extra: {
+          desktopFontSize: { unit: 'px', value: '16' },
+          mobileFontSize:  { unit: 'px', value: '16' },
+          nodeId: `c-video-${id}`,
+          videoProperties: { value: { url: el.src || '', autoplay: false, loop: false, muted: false, controls: true, type: 'youtube' } },
+          visibility: { value: { hideDesktop: false, hideMobile: false } },
+        },
+        id, meta: 'video',
+        styles: { marginTop: { unit: 'px', value: 20 }, textAlign: { value: 'center' } },
+        tag: '', tagName: 'c-video', title: 'Video', type: 'element',
+        wrapper: { marginTop: { unit: 'px', value: '20' }, textAlign: { value: 'center' } },
+      };
+    }
+
+    case 'textLink': {
+      const fSize = el.styles?.fontSize?.value || 14;
+      const id    = `paragraph-${sid()}`;
+      const linkHtml = el.link
+        ? `<a href="${el.link}" style="color:#9CA3AF;text-decoration:underline;">${el.text || 'No thanks'}</a>`
+        : el.text || 'No thanks';
+      return {
+        child: [], class: { borderRadius: { value: 'radius0' }, borders: { value: 'noBorder' } },
+        extra: {
+          desktopFontSize: { unit: 'px', value: String(fSize) },
+          mobileFontSize:  { unit: 'px', value: String(Math.max(fSize - 2, 12)) },
+          nodeId:   `c-paragraph-${id}`,
+          text:     { value: linkHtml },
+          typography: { value: 'var(--contentfont)' },
+          visibility: { value: { hideDesktop: false, hideMobile: false } },
+        },
+        id, meta: 'paragraph',
+        styles: {
+          color:     { value: '#9CA3AF' },
+          lineHeight:{ value: '' },
+          marginTop: { unit: 'px', value: 16 },
+          textAlign: { value: 'center' },
+        },
+        tag: 'p', tagName: 'c-paragraph', title: 'Paragraph', type: 'element',
+        wrapper: { marginTop: { unit: 'px', value: '16' }, textAlign: { value: 'center' } },
+      };
+    }
+
     default: {
       // Fallback: render as paragraph
       const id = `paragraph-${sid()}`;
