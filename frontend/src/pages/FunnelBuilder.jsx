@@ -1953,12 +1953,12 @@ export default function FunnelBuilder() {
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">
                         Or paste Page ID from GHL URL
-                        <span className="text-gray-600 ml-1">(.../sites/website/{'{websiteId}'}/page/<strong>{'{'}</strong>pageId<strong>{'}'}</strong>)</span>
+                        <span className="text-gray-600 ml-1">— open the page in GHL editor, copy the ID from: <code className="text-yellow-400">/page-builder/<strong>VNF7fG84...</strong>?source=website</code></span>
                       </label>
                       <input
                         value={webPages.find(p => p.id === webPageId) ? '' : webPageId}
                         onChange={e => { setWebPageId(e.target.value.trim()); setWebPageName(''); }}
-                        placeholder="Paste page ID here"
+                        placeholder="e.g. VNF7fG84sJv2nsY0m771"
                         className="w-full rounded-lg px-3 py-2 text-sm text-white font-mono"
                         style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
                       />
