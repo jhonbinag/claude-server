@@ -701,6 +701,65 @@ router.put('/billing/:locationId/tier', async (req, res) => {
   }
 });
 
+// ─── GET /admin/locations/:id/custom-roles — list custom roles ───────────────
+
+router.get('/locations/:id/custom-roles', async (req, res) => {
+  const locationId = req.params.id;
+  try {
+    const custom = await roleService.getCustomRoles(locationId);
+    res.json({
+      success: true,
+      builtinRoles: Object.values(roleService.BUILTIN_ROLES),
+      customRoles:  Object.values(custom),
+      allFeatures:  roleService.ALL_FEATURES,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /admin/locations/:id/custom-roles — create custom role ──────────────
+
+router.post('/locations/:id/custom-roles', async (req, res) => {
+  const locationId = req.params.id;
+  const { name, features } = req.body;
+  if (!name) return res.status(400).json({ success: false, error: 'name is required.' });
+  try {
+    const role = await roleService.saveCustomRole(locationId, null, name, features || []);
+    activityLogger.log({ locationId, event: 'role_create', detail: { roleId: role.id, name }, success: true, adminId: req.adminId });
+    res.json({ success: true, role });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ─── PUT /admin/locations/:id/custom-roles/:roleId — update custom role ───────
+
+router.put('/locations/:id/custom-roles/:roleId', async (req, res) => {
+  const { id: locationId, roleId } = req.params;
+  const { name, features } = req.body;
+  try {
+    const role = await roleService.saveCustomRole(locationId, roleId, name, features || []);
+    activityLogger.log({ locationId, event: 'role_update', detail: { roleId, name }, success: true, adminId: req.adminId });
+    res.json({ success: true, role });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ─── DELETE /admin/locations/:id/custom-roles/:roleId — delete custom role ───
+
+router.delete('/locations/:id/custom-roles/:roleId', async (req, res) => {
+  const { id: locationId, roleId } = req.params;
+  try {
+    await roleService.deleteCustomRole(locationId, roleId);
+    activityLogger.log({ locationId, event: 'role_delete', detail: { roleId }, success: true, adminId: req.adminId });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 // ─── GET /admin/locations/:id/users — list users for a location ──────────────
 
 router.get('/locations/:id/users', async (req, res) => {

@@ -3,37 +3,56 @@
  *
  * Role-Based Access Control (RBAC) for per-location users.
  *
- * Roles:
+ * Built-in roles (read-only):
  *   owner   — all features
- *   admin   — all tools except billing management
+ *   admin   — all tools except billing
  *   manager — content tools only
- *   member  — basic read/post tools
+ *   member  — basic tools
+ *
+ * Custom roles: stored per-location in Firestore/memory.
+ *   Admin can create any role with any combination of features.
  *
  * Firestore schema:
  *   Collection: locationRoles
  *   Document:   {locationId}
  *   Fields:
- *     users: map { [userId]: { userId, name, email, role, ghlRole, syncedAt } }
- *     updatedAt: timestamp
+ *     users:       { [userId]: { userId, name, email, role, ghlRole, syncedAt } }
+ *     customRoles: { [roleId]: { id, name, features, createdAt, updatedAt } }
+ *     updatedAt:   timestamp
  */
 
+const crypto = require('crypto');
 const config = require('../config');
 
-// ── Role definitions ──────────────────────────────────────────────────────────
+// ── All available features (shown as checkboxes in role editor) ───────────────
 
-const ROLE_FEATURES = {
-  owner:   ['*'],
-  admin:   ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner',
-            'email_builder', 'ad_library', 'agents', 'ghl_agent', 'workflows',
-            'settings', 'manychat', 'campaign_builder'],
-  manager: ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner',
-            'email_builder', 'ad_library', 'campaign_builder'],
-  member:  ['ads_generator', 'social_planner', 'ad_library'],
+const ALL_FEATURES = [
+  { key: 'funnel_builder',   label: 'Funnel Builder',        icon: '🏗️' },
+  { key: 'website_builder',  label: 'Website Builder',       icon: '🌐' },
+  { key: 'ads_generator',    label: 'Bulk Ads Generator',    icon: '🎯' },
+  { key: 'social_planner',   label: 'Social Planner',        icon: '📱' },
+  { key: 'email_builder',    label: 'Email Builder',         icon: '📧' },
+  { key: 'ad_library',       label: 'Ad Library Intel',      icon: '📊' },
+  { key: 'campaign_builder', label: 'Campaign Builder',      icon: '📣' },
+  { key: 'agents',           label: 'AI Agents',             icon: '🤖' },
+  { key: 'ghl_agent',        label: 'GHL Agent',             icon: '⚡' },
+  { key: 'workflows',        label: 'Workflow Builder',      icon: '🔀' },
+  { key: 'manychat',         label: 'ManyChat Integration',  icon: '💬' },
+  { key: 'settings',         label: 'Integration Settings',  icon: '⚙️' },
+];
+
+// ── Built-in role definitions (cannot be edited/deleted) ─────────────────────
+
+const BUILTIN_ROLES = {
+  owner:   { id: 'owner',   name: 'Owner',   features: ['*'],                        builtin: true },
+  admin:   { id: 'admin',   name: 'Admin',   features: ALL_FEATURES.map(f => f.key), builtin: true },
+  manager: { id: 'manager', name: 'Manager', features: ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner', 'email_builder', 'ad_library', 'campaign_builder'], builtin: true },
+  member:  { id: 'member',  name: 'Member',  features: ['ads_generator', 'social_planner', 'ad_library'], builtin: true },
 };
 
-const VALID_ROLES = Object.keys(ROLE_FEATURES);
+const BUILTIN_ROLE_KEYS = Object.keys(BUILTIN_ROLES);
 
-// ── Firebase setup (mirrors firebaseStore.js pattern) ────────────────────────
+// ── Firebase setup ────────────────────────────────────────────────────────────
 
 let _db = null;
 
@@ -42,7 +61,6 @@ function getDb() {
   if (!config.isFirebaseEnabled) return null;
   try {
     const admin = require('firebase-admin');
-    // Reuse existing initialized app from firebaseStore
     _db = admin.firestore();
     return _db;
   } catch {
@@ -61,66 +79,189 @@ function mapGhlRole(ghlRole) {
   return 'member';
 }
 
-// ── Firestore helpers ─────────────────────────────────────────────────────────
-
-async function getLocationDoc(locationId) {
-  const db = getDb();
-  if (!db) return null;
-  const snap = await db.collection('locationRoles').doc(locationId).get();
-  return snap.exists ? snap.data() : null;
-}
-
-async function setLocationDoc(locationId, data) {
-  const db = getDb();
-  if (!db) return;
-  await db.collection('locationRoles').doc(locationId).set(data, { merge: true });
-}
-
-// ── In-memory fallback (when Firebase not configured) ─────────────────────────
+// ── Firestore / memory helpers ────────────────────────────────────────────────
 
 const _memStore = {};
 
-function memGet(locationId) {
+async function getLocationDoc(locationId) {
+  if (config.isFirebaseEnabled) {
+    const db = getDb();
+    if (!db) return null;
+    const snap = await db.collection('locationRoles').doc(locationId).get();
+    return snap.exists ? snap.data() : null;
+  }
   return _memStore[locationId] || null;
 }
 
-function memSet(locationId, data) {
-  _memStore[locationId] = data;
+async function setLocationDoc(locationId, data) {
+  if (config.isFirebaseEnabled) {
+    const db = getDb();
+    if (!db) return;
+    await db.collection('locationRoles').doc(locationId).set(data, { merge: true });
+  } else {
+    _memStore[locationId] = { ...(_memStore[locationId] || {}), ...data };
+  }
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// ── Custom roles API ──────────────────────────────────────────────────────────
 
 /**
- * Sync GHL users for a location (called after OAuth install).
- * Fetches users from GHL API and stores them with default roles.
- * Existing role overrides are preserved.
- *
- * @param {string} locationId
- * @param {function} ghlRequest - bound ghlRequest(method, endpoint, data, params)
- * @param {string} [ownerUserId] - userId from the OAuth token (gets owner role)
+ * Get all custom roles for a location.
+ * @returns {object} map of roleId → { id, name, features, builtin?, createdAt }
  */
+async function getCustomRoles(locationId) {
+  try {
+    const doc = await getLocationDoc(locationId);
+    return doc?.customRoles || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Get all roles (built-in + custom) for a location.
+ * @returns {{ id, name, features, builtin? }[]}
+ */
+async function getAllRoles(locationId) {
+  const custom = await getCustomRoles(locationId);
+  return [
+    ...Object.values(BUILTIN_ROLES),
+    ...Object.values(custom),
+  ];
+}
+
+/**
+ * Create or update a custom role.
+ * @param {string} locationId
+ * @param {string|null} roleId  — null to auto-generate ID for new roles
+ * @param {string} name
+ * @param {string[]} features
+ * @returns {{ id, name, features, createdAt, updatedAt }}
+ */
+async function saveCustomRole(locationId, roleId, name, features) {
+  if (!name || !name.trim()) throw new Error('Role name is required.');
+  if (!Array.isArray(features))  throw new Error('features must be an array.');
+
+  // Validate feature keys
+  const validKeys = new Set(ALL_FEATURES.map(f => f.key));
+  const invalid = features.filter(f => f !== '*' && !validKeys.has(f));
+  if (invalid.length) throw new Error(`Unknown features: ${invalid.join(', ')}`);
+
+  // Prevent overwriting built-in roles
+  const id = roleId || `custom_${crypto.randomBytes(4).toString('hex')}`;
+  if (BUILTIN_ROLE_KEYS.includes(id)) throw new Error(`Cannot override built-in role: ${id}`);
+
+  const existing = await getCustomRoles(locationId);
+  const now = Date.now();
+  const role = {
+    id,
+    name: name.trim(),
+    features,
+    createdAt: existing[id]?.createdAt || now,
+    updatedAt: now,
+  };
+
+  existing[id] = role;
+  await setLocationDoc(locationId, { customRoles: existing, updatedAt: now });
+  return role;
+}
+
+/**
+ * Delete a custom role.
+ */
+async function deleteCustomRole(locationId, roleId) {
+  if (BUILTIN_ROLE_KEYS.includes(roleId)) throw new Error('Cannot delete built-in roles.');
+  const existing = await getCustomRoles(locationId);
+  if (!existing[roleId]) throw new Error(`Role not found: ${roleId}`);
+  delete existing[roleId];
+  await setLocationDoc(locationId, { customRoles: existing, updatedAt: Date.now() });
+}
+
+// ── Users API ─────────────────────────────────────────────────────────────────
+
+async function getUsersForLocation(locationId) {
+  try {
+    const doc = await getLocationDoc(locationId);
+    return doc?.users || {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveUsersForLocation(locationId, users) {
+  await setLocationDoc(locationId, { users, updatedAt: Date.now() });
+}
+
+async function getUserRole(locationId, userId) {
+  const users = await getUsersForLocation(locationId);
+  return users[userId] || null;
+}
+
+async function setUserRole(locationId, userId, role) {
+  // Accept built-in roles OR any custom role that exists for this location
+  const isBuiltin = BUILTIN_ROLE_KEYS.includes(role);
+  if (!isBuiltin) {
+    const custom = await getCustomRoles(locationId);
+    if (!custom[role]) throw new Error(`Invalid role: "${role}". Must be a built-in role or an existing custom role for this location.`);
+  }
+
+  const users = await getUsersForLocation(locationId);
+  if (!users[userId]) {
+    users[userId] = { userId, name: 'Unknown', email: '', ghlRole: 'user', syncedAt: Date.now() };
+  }
+  users[userId].role      = role;
+  users[userId].updatedAt = Date.now();
+  await saveUsersForLocation(locationId, users);
+  return users[userId];
+}
+
+// ── Feature resolution ────────────────────────────────────────────────────────
+
+/**
+ * Get features for a role — looks up built-in first, then custom roles.
+ * @param {string} locationId  (needed to look up custom roles)
+ * @param {string} role
+ * @returns {Promise<string[]>}
+ */
+async function getFeaturesForRole(locationId, role) {
+  if (BUILTIN_ROLES[role]) return BUILTIN_ROLES[role].features;
+  const custom = await getCustomRoles(locationId);
+  return custom[role]?.features || BUILTIN_ROLES.member.features;
+}
+
+/**
+ * Synchronous version — only works for built-in roles (used by middleware).
+ */
+function getFeaturesForBuiltinRole(role) {
+  return (BUILTIN_ROLES[role] || BUILTIN_ROLES.member).features;
+}
+
+function canAccess(role, feature) {
+  const features = getFeaturesForBuiltinRole(role);
+  return features.includes('*') || features.includes(feature);
+}
+
+// ── GHL User Sync ─────────────────────────────────────────────────────────────
+
 async function syncUsers(locationId, ghlRequest, ownerUserId) {
   try {
-    const resp = await ghlRequest('GET', '/users/', null, { locationId });
+    const resp     = await ghlRequest('GET', '/users/', null, { locationId });
     const ghlUsers = resp?.users || [];
-
     const existing = await getUsersForLocation(locationId);
 
     const merged = {};
     for (const u of ghlUsers) {
       const id = u.id || u.userId;
       if (!id) continue;
-      const ghlRole = u.roles?.type || u.role || 'user';
+      const ghlRole    = u.roles?.type || u.role || 'user';
       const defaultRole = id === ownerUserId ? 'owner' : mapGhlRole(ghlRole);
-      // Preserve any manually-set role override
-      const existingRole = existing[id]?.role;
       merged[id] = {
-        userId:    id,
-        name:      u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown',
-        email:     u.email || '',
-        role:      existingRole || defaultRole,
+        userId:   id,
+        name:     u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown',
+        email:    u.email || '',
+        role:     existing[id]?.role || defaultRole,
         ghlRole,
-        syncedAt:  Date.now(),
+        syncedAt: Date.now(),
       };
     }
 
@@ -133,84 +274,23 @@ async function syncUsers(locationId, ghlRequest, ownerUserId) {
   }
 }
 
-/**
- * Get all users for a location.
- * @returns {object} map of userId → user record
- */
-async function getUsersForLocation(locationId) {
-  try {
-    const doc = config.isFirebaseEnabled
-      ? await getLocationDoc(locationId)
-      : memGet(locationId);
-    return doc?.users || {};
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Save the full users map for a location.
- */
-async function saveUsersForLocation(locationId, users) {
-  const data = { users, updatedAt: Date.now() };
-  if (config.isFirebaseEnabled) {
-    await setLocationDoc(locationId, data);
-  } else {
-    memSet(locationId, data);
-  }
-}
-
-/**
- * Get a single user's role record.
- * @returns {{ userId, name, email, role, ghlRole, syncedAt } | null}
- */
-async function getUserRole(locationId, userId) {
-  const users = await getUsersForLocation(locationId);
-  return users[userId] || null;
-}
-
-/**
- * Set a user's role (admin override).
- */
-async function setUserRole(locationId, userId, role) {
-  if (!VALID_ROLES.includes(role)) throw new Error(`Invalid role: ${role}. Must be one of: ${VALID_ROLES.join(', ')}`);
-  const users = await getUsersForLocation(locationId);
-  if (!users[userId]) {
-    users[userId] = { userId, name: 'Unknown', email: '', ghlRole: 'user', syncedAt: Date.now() };
-  }
-  users[userId].role = role;
-  users[userId].updatedAt = Date.now();
-  await saveUsersForLocation(locationId, users);
-  return users[userId];
-}
-
-/**
- * Get allowed features for a role.
- * @param {string} role
- * @returns {string[]}
- */
-function getFeaturesForRole(role) {
-  return ROLE_FEATURES[role] || ROLE_FEATURES.member;
-}
-
-/**
- * Check if a role can access a feature.
- * @param {string} role
- * @param {string} feature
- */
-function canAccess(role, feature) {
-  const features = getFeaturesForRole(role);
-  return features.includes('*') || features.includes(feature);
-}
-
 module.exports = {
-  VALID_ROLES,
-  ROLE_FEATURES,
+  ALL_FEATURES,
+  BUILTIN_ROLES,
+  BUILTIN_ROLE_KEYS,
+  // Custom roles
+  getCustomRoles,
+  getAllRoles,
+  saveCustomRole,
+  deleteCustomRole,
+  // Users
   syncUsers,
   getUsersForLocation,
   saveUsersForLocation,
   getUserRole,
   setUserRole,
+  // Features
   getFeaturesForRole,
+  getFeaturesForBuiltinRole,
   canAccess,
 };

@@ -37,21 +37,9 @@ router.get('/my-features', async (req, res) => {
 
   try {
     const record = await roleService.getUserRole(locationId, userId);
-    if (!record) {
-      // Unknown user — default to member
-      return res.json({
-        success:  true,
-        userId,
-        role:     'member',
-        features: roleService.getFeaturesForRole('member'),
-      });
-    }
-    return res.json({
-      success:  true,
-      userId,
-      role:     record.role,
-      features: roleService.getFeaturesForRole(record.role),
-    });
+    const role   = record?.role || 'member';
+    const features = await roleService.getFeaturesForRole(locationId, role);
+    return res.json({ success: true, userId, role, features });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

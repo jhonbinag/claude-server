@@ -150,8 +150,13 @@ export default function Admin() {
   const [rolesLocationId,    setRolesLocationId]    = useState('');
   const [rolesUsers,         setRolesUsers]         = useState([]);
   const [rolesLoading,       setRolesLoading]       = useState(false);
-  const [rolesSaving,        setRolesSaving]        = useState({});   // { [userId]: bool }
+  const [rolesSaving,        setRolesSaving]        = useState({});
   const [rolesSyncMsg,       setRolesSyncMsg]       = useState('');
+  const [allFeatures,        setAllFeatures]        = useState([]);
+  const [builtinRoles,       setBuiltinRoles]       = useState([]);
+  const [customRoles,        setCustomRoles]        = useState([]);
+  const [rolesSubTab,        setRolesSubTab]        = useState('users'); // 'users' | 'roles'
+  const [roleModal,          setRoleModal]          = useState(null);   // null | { mode:'create'|'edit', role? }
 
   // Plan Tiers state
   const [tiers,              setTiers]              = useState(null);
@@ -257,11 +262,31 @@ export default function Admin() {
     if (!id) return;
     setRolesLoading(true);
     try {
-      const data = await adminFetch(`/admin/locations/${id}/users`, { adminKey });
-      if (data.success) setRolesUsers(data.users || []);
-      else flash(`✗ ${data.error}`);
-    } catch { flash('✗ Failed to load users'); }
+      const [usersData, rolesData] = await Promise.all([
+        adminFetch(`/admin/locations/${id}/users`, { adminKey }),
+        adminFetch(`/admin/locations/${id}/custom-roles`, { adminKey }),
+      ]);
+      if (usersData.success) setRolesUsers(usersData.users || []);
+      if (rolesData.success) {
+        setAllFeatures(rolesData.allFeatures || []);
+        setBuiltinRoles(rolesData.builtinRoles || []);
+        setCustomRoles(rolesData.customRoles || []);
+      }
+    } catch { flash('✗ Failed to load users/roles'); }
     setRolesLoading(false);
+  }, [adminKey, rolesLocationId]); // eslint-disable-line
+
+  const loadCustomRoles = useCallback(async (locId) => {
+    const id = locId || rolesLocationId;
+    if (!id) return;
+    try {
+      const data = await adminFetch(`/admin/locations/${id}/custom-roles`, { adminKey });
+      if (data.success) {
+        setAllFeatures(data.allFeatures || []);
+        setBuiltinRoles(data.builtinRoles || []);
+        setCustomRoles(data.customRoles || []);
+      }
+    } catch {}
   }, [adminKey, rolesLocationId]); // eslint-disable-line
 
   useEffect(() => {
@@ -1143,38 +1168,18 @@ export default function Admin() {
         {/* ── Users & Roles Tab ─────────────────────────────────────── */}
         {tab === 'users-roles' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ color: '#fff', margin: '0 0 4px', fontSize: 16 }}>👥 Users &amp; Roles</h3>
-                <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
-                  View and manage user roles per location. Roles control which features each user can access.
-                </p>
+                <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>Create custom roles with fine-grained feature access, then assign them to users per location.</p>
               </div>
-            </div>
-
-            {/* Role reference */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-              {[
-                { role: 'owner',   color: '#a78bfa', desc: 'All features' },
-                { role: 'admin',   color: '#60a5fa', desc: 'All tools (no billing)' },
-                { role: 'manager', color: '#34d399', desc: 'Content tools only' },
-                { role: 'member',  color: '#9ca3af', desc: 'Ads + Social + Library' },
-              ].map(({ role, color, desc }) => (
-                <div key={role} style={{ background: '#1a1a1a', border: `1px solid ${color}33`, borderRadius: 8, padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color, fontWeight: 700, fontSize: 13, textTransform: 'capitalize' }}>{role}</span>
-                  <span style={{ color: '#6b7280', fontSize: 12 }}>{desc}</span>
-                </div>
-              ))}
             </div>
 
             {/* Location picker */}
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
               <select
                 value={rolesLocationId}
-                onChange={e => {
-                  setRolesLocationId(e.target.value);
-                  setRolesUsers([]);
-                }}
+                onChange={e => { setRolesLocationId(e.target.value); setRolesUsers([]); setCustomRoles([]); }}
                 style={{ flex: 1, minWidth: 240, background: '#111', border: '1px solid #333', borderRadius: 8, color: rolesLocationId ? '#e5e7eb' : '#6b7280', padding: '8px 12px', fontSize: 13 }}
               >
                 <option value="">— Select a location —</option>
@@ -1184,97 +1189,206 @@ export default function Admin() {
                   </option>
                 ))}
               </select>
-              <button
-                onClick={() => loadUsersForLocation(rolesLocationId)}
-                disabled={!rolesLocationId}
-                style={{ background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 20px', cursor: rolesLocationId ? 'pointer' : 'not-allowed', fontSize: 13, opacity: rolesLocationId ? 1 : 0.5 }}
-              >Load Users</button>
-              <button
-                onClick={async () => {
+              <button onClick={() => loadUsersForLocation(rolesLocationId)} disabled={!rolesLocationId}
+                style={{ background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 20px', cursor: rolesLocationId ? 'pointer' : 'not-allowed', fontSize: 13, opacity: rolesLocationId ? 1 : 0.5 }}>
+                Load
+              </button>
+              <button onClick={async () => {
                   if (!rolesLocationId) return;
                   setRolesSyncMsg('');
                   try {
                     const data = await adminFetch(`/admin/locations/${rolesLocationId}/users/sync`, { method: 'POST', adminKey });
-                    if (data.success) {
-                      setRolesUsers(data.users || []);
-                      setRolesSyncMsg(`✓ Synced ${data.users?.length || 0} users`);
-                    } else {
-                      setRolesSyncMsg(`✗ ${data.error}`);
-                    }
+                    if (data.success) { setRolesUsers(data.users || []); setRolesSyncMsg(`✓ Synced ${data.users?.length || 0} users`); }
+                    else setRolesSyncMsg(`✗ ${data.error}`);
                   } catch { setRolesSyncMsg('✗ Sync failed'); }
-                  setTimeout(() => setRolesSyncMsg(''), 3500);
-                }}
-                disabled={!rolesLocationId}
-                style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '8px 16px', cursor: rolesLocationId ? 'pointer' : 'not-allowed', fontSize: 13, opacity: rolesLocationId ? 1 : 0.5 }}
-              >↻ Sync from GHL</button>
-              {rolesSyncMsg && <span style={{ color: rolesSyncMsg.startsWith('✓') ? '#4ade80' : '#f87171', fontSize: 13, alignSelf: 'center' }}>{rolesSyncMsg}</span>}
+                  setTimeout(() => setRolesSyncMsg(''), 3000);
+                }} disabled={!rolesLocationId}
+                style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '8px 14px', cursor: rolesLocationId ? 'pointer' : 'not-allowed', fontSize: 13, opacity: rolesLocationId ? 1 : 0.5 }}>
+                ↻ Sync GHL
+              </button>
+              {rolesSyncMsg && <span style={{ color: rolesSyncMsg.startsWith('✓') ? '#4ade80' : '#f87171', fontSize: 13 }}>{rolesSyncMsg}</span>}
             </div>
 
-            {/* Users table */}
-            {rolesLoading ? (
-              <p style={{ color: '#9ca3af', fontSize: 14 }}>Loading users…</p>
-            ) : rolesUsers.length > 0 ? (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #222' }}>
-                      {['Name', 'Email', 'GHL Role', 'App Role', 'Last Synced', 'Action'].map(h => (
-                        <th key={h} style={{ padding: '8px 14px', color: '#6b7280', fontWeight: 600, fontSize: 11, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rolesUsers.map(u => (
-                      <tr key={u.userId} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                        <td style={{ padding: '10px 14px', color: '#e5e7eb' }}>{u.name || '—'}</td>
-                        <td style={{ padding: '10px 14px', color: '#9ca3af' }}>{u.email || '—'}</td>
-                        <td style={{ padding: '10px 14px', color: '#6b7280', textTransform: 'capitalize' }}>{u.ghlRole || '—'}</td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <select
-                            value={u.role || 'member'}
-                            onChange={async (e) => {
-                              const newRole = e.target.value;
-                              setRolesSaving(prev => ({ ...prev, [u.userId]: true }));
-                              try {
-                                const data = await adminFetch(`/admin/locations/${rolesLocationId}/users/${u.userId}/role`, {
-                                  method: 'POST', adminKey, body: { role: newRole },
-                                });
-                                if (data.success) {
-                                  setRolesUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, role: newRole } : x));
-                                  flash(`✓ ${u.name || u.userId} → ${newRole}`);
-                                } else flash(`✗ ${data.error}`);
-                              } catch { flash('✗ Save failed'); }
-                              setRolesSaving(prev => ({ ...prev, [u.userId]: false }));
-                            }}
-                            disabled={rolesSaving[u.userId]}
-                            style={{
-                              background: '#111', border: '1px solid #333', borderRadius: 6,
-                              color: { owner: '#a78bfa', admin: '#60a5fa', manager: '#34d399', member: '#9ca3af' }[u.role] || '#9ca3af',
-                              padding: '4px 8px', fontSize: 12, cursor: 'pointer',
-                              opacity: rolesSaving[u.userId] ? 0.5 : 1,
-                            }}
-                          >
-                            <option value="owner">owner</option>
-                            <option value="admin">admin</option>
-                            <option value="manager">manager</option>
-                            <option value="member">member</option>
-                          </select>
-                        </td>
-                        <td style={{ padding: '10px 14px', color: '#6b7280', fontSize: 12 }}>
-                          {u.syncedAt ? new Date(u.syncedAt).toLocaleDateString() : '—'}
-                        </td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#4b5563' }}>{u.userId?.slice(0, 12)}…</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div style={{ background: '#111', border: '1px solid #222', borderRadius: 10, padding: 32, textAlign: 'center', color: '#4b5563' }}>
-                {rolesLocationId ? 'No users found. Try syncing from GHL.' : 'Enter a location ID above to view its users.'}
-              </div>
+            {rolesLocationId && (
+              <>
+                {/* Sub-tabs */}
+                <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #222', paddingBottom: 0 }}>
+                  {[{ key: 'users', label: '👤 Users' }, { key: 'roles', label: '🎭 Manage Roles' }].map(st => (
+                    <button key={st.key} onClick={() => setRolesSubTab(st.key)}
+                      style={{ padding: '8px 20px', background: 'none', border: 'none', borderBottom: rolesSubTab === st.key ? '2px solid #7c3aed' : '2px solid transparent', color: rolesSubTab === st.key ? '#a78bfa' : '#6b7280', cursor: 'pointer', fontSize: 13, fontWeight: rolesSubTab === st.key ? 600 : 400, marginBottom: -1 }}>
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── Users sub-tab ── */}
+                {rolesSubTab === 'users' && (
+                  rolesLoading ? <p style={{ color: '#9ca3af', fontSize: 14 }}>Loading…</p>
+                  : rolesUsers.length > 0 ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid #222' }}>
+                            {['Name', 'Email', 'GHL Role', 'App Role', 'Synced'].map(h => (
+                              <th key={h} style={{ padding: '8px 14px', color: '#6b7280', fontWeight: 600, fontSize: 11, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rolesUsers.map(u => {
+                            const allRoleOptions = [
+                              ...builtinRoles,
+                              ...customRoles,
+                            ];
+                            const roleColors = { owner: '#a78bfa', admin: '#60a5fa', manager: '#34d399', member: '#9ca3af' };
+                            const curColor = roleColors[u.role] || '#f59e0b';
+                            return (
+                              <tr key={u.userId} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                                <td style={{ padding: '10px 14px', color: '#e5e7eb' }}>{u.name || '—'}</td>
+                                <td style={{ padding: '10px 14px', color: '#9ca3af' }}>{u.email || '—'}</td>
+                                <td style={{ padding: '10px 14px', color: '#6b7280', textTransform: 'capitalize' }}>{u.ghlRole || '—'}</td>
+                                <td style={{ padding: '10px 14px' }}>
+                                  <select
+                                    value={u.role || 'member'}
+                                    disabled={rolesSaving[u.userId]}
+                                    onChange={async (e) => {
+                                      const newRole = e.target.value;
+                                      setRolesSaving(prev => ({ ...prev, [u.userId]: true }));
+                                      try {
+                                        const data = await adminFetch(`/admin/locations/${rolesLocationId}/users/${u.userId}/role`, { method: 'POST', adminKey, body: { role: newRole } });
+                                        if (data.success) { setRolesUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, role: newRole } : x)); flash(`✓ ${u.name || u.userId} → ${newRole}`); }
+                                        else flash(`✗ ${data.error}`);
+                                      } catch { flash('✗ Save failed'); }
+                                      setRolesSaving(prev => ({ ...prev, [u.userId]: false }));
+                                    }}
+                                    style={{ background: '#111', border: '1px solid #333', borderRadius: 6, color: curColor, padding: '4px 8px', fontSize: 12, cursor: 'pointer', opacity: rolesSaving[u.userId] ? 0.5 : 1 }}
+                                  >
+                                    {allRoleOptions.map(r => (
+                                      <option key={r.id} value={r.id}>{r.name}{r.builtin ? '' : ' ★'}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td style={{ padding: '10px 14px', color: '#4b5563', fontSize: 12 }}>
+                                  {u.syncedAt ? new Date(u.syncedAt).toLocaleDateString() : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ background: '#111', border: '1px solid #222', borderRadius: 10, padding: 32, textAlign: 'center', color: '#4b5563' }}>
+                      Click <strong style={{ color: '#6366f1' }}>Load</strong> above to fetch users, or <strong style={{ color: '#9ca3af' }}>Sync GHL</strong> to pull fresh from GoHighLevel.
+                    </div>
+                  )
+                )}
+
+                {/* ── Roles sub-tab ── */}
+                {rolesSubTab === 'roles' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                      <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
+                        Built-in roles are read-only. Create custom roles with any combination of tools.
+                      </p>
+                      <button onClick={() => setRoleModal({ mode: 'create' })}
+                        style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        + New Role
+                      </button>
+                    </div>
+
+                    {/* Built-in roles */}
+                    <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Built-in Roles</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, marginBottom: 24 }}>
+                      {builtinRoles.map(r => {
+                        const roleColors = { owner: '#a78bfa', admin: '#60a5fa', manager: '#34d399', member: '#9ca3af' };
+                        const color = roleColors[r.id] || '#6b7280';
+                        return (
+                          <div key={r.id} style={{ background: '#1a1a1a', border: `1px solid ${color}33`, borderRadius: 10, padding: 16 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                              <span style={{ color, fontWeight: 700, fontSize: 14, textTransform: 'capitalize' }}>{r.name}</span>
+                              <span style={{ background: '#111', color: '#4b5563', fontSize: 10, padding: '1px 7px', borderRadius: 8 }}>built-in</span>
+                            </div>
+                            {r.features.includes('*') ? (
+                              <span style={{ color: '#4ade80', fontSize: 12 }}>✓ All features</span>
+                            ) : (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                {r.features.map(f => (
+                                  <span key={f} style={{ background: `${color}15`, color, fontSize: 10, padding: '2px 7px', borderRadius: 6, border: `1px solid ${color}33` }}>{f.replace(/_/g, ' ')}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Custom roles */}
+                    <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Custom Roles</p>
+                    {customRoles.length === 0 ? (
+                      <div style={{ background: '#111', border: '1px dashed #333', borderRadius: 10, padding: 24, textAlign: 'center', color: '#4b5563' }}>
+                        No custom roles yet. Click <strong style={{ color: '#7c3aed' }}>+ New Role</strong> to create one.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+                        {customRoles.map(r => (
+                          <div key={r.id} style={{ background: '#1a1a1a', border: '1px solid #f59e0b33', borderRadius: 10, padding: 16 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: 14 }}>{r.name}</span>
+                                <span style={{ background: '#111', color: '#f59e0b', fontSize: 10, padding: '1px 7px', borderRadius: 8 }}>custom</span>
+                              </div>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <button onClick={() => setRoleModal({ mode: 'edit', role: r })}
+                                  style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>✏️ Edit</button>
+                                <button onClick={async () => {
+                                    if (!confirm(`Delete role "${r.name}"?`)) return;
+                                    try {
+                                      const data = await adminFetch(`/admin/locations/${rolesLocationId}/custom-roles/${r.id}`, { method: 'DELETE', adminKey });
+                                      if (data.success) { setCustomRoles(prev => prev.filter(x => x.id !== r.id)); flash(`✓ Role "${r.name}" deleted`); }
+                                      else flash(`✗ ${data.error}`);
+                                    } catch { flash('✗ Delete failed'); }
+                                  }}
+                                  style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#f87171', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>✕</button>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                              {(r.features || []).length === 0
+                                ? <span style={{ color: '#4b5563', fontSize: 12 }}>No features assigned</span>
+                                : r.features.map(f => (
+                                    <span key={f} style={{ background: '#f59e0b15', color: '#f59e0b', fontSize: 10, padding: '2px 7px', borderRadius: 6, border: '1px solid #f59e0b33' }}>{f.replace(/_/g, ' ')}</span>
+                                  ))
+                              }
+                            </div>
+                            <p style={{ color: '#4b5563', fontSize: 11, margin: '8px 0 0' }}>
+                              {r.features?.length || 0} of {allFeatures.length} tools enabled
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── Role Editor Modal ── */}
+            {roleModal && (
+              <RoleEditorModal
+                mode={roleModal.mode}
+                role={roleModal.role}
+                allFeatures={allFeatures}
+                adminKey={adminKey}
+                locationId={rolesLocationId}
+                onClose={() => setRoleModal(null)}
+                onSaved={(saved, isNew) => {
+                  setRoleModal(null);
+                  if (isNew) setCustomRoles(prev => [...prev, saved]);
+                  else setCustomRoles(prev => prev.map(r => r.id === saved.id ? saved : r));
+                  flash(`✓ Role "${saved.name}" ${isNew ? 'created' : 'updated'}`);
+                }}
+                onFlash={flash}
+              />
             )}
           </div>
         )}
@@ -1476,6 +1590,101 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
             style={{ padding: '10px 20px', background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}
           >
             Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Role Editor Modal ─────────────────────────────────────────────────────────
+
+function RoleEditorModal({ mode, role, allFeatures, adminKey, locationId, onClose, onSaved, onFlash }) {
+  const [name,     setName]     = useState(role?.name     || '');
+  const [features, setFeatures] = useState(new Set(role?.features || []));
+  const [saving,   setSaving]   = useState(false);
+
+  const toggle = (key) => {
+    setFeatures(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
+  const selectAll  = () => setFeatures(new Set(allFeatures.map(f => f.key)));
+  const clearAll   = () => setFeatures(new Set());
+
+  const save = async () => {
+    if (!name.trim()) { onFlash('✗ Role name is required.'); return; }
+    setSaving(true);
+    try {
+      const isNew = mode === 'create';
+      const path  = isNew
+        ? `/admin/locations/${locationId}/custom-roles`
+        : `/admin/locations/${locationId}/custom-roles/${role.id}`;
+      const method = isNew ? 'POST' : 'PUT';
+      const data = await adminFetch(path, { method, adminKey, body: { name: name.trim(), features: [...features] } });
+      if (data.success) onSaved(data.role, isNew);
+      else onFlash(`✗ ${data.error}`);
+    } catch { onFlash('✗ Save failed'); }
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 14, width: '100%', maxWidth: 560, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0, color: '#fff', fontSize: 16 }}>{mode === 'create' ? '+ Create Custom Role' : `✏️ Edit Role: ${role?.name}`}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
+          {/* Role name */}
+          <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Role Name</label>
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g. Sales Team, Content Creator…"
+            style={{ width: '100%', boxSizing: 'border-box', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', padding: '9px 12px', fontSize: 14, marginBottom: 20 }}
+          />
+
+          {/* Feature checkboxes */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <label style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Tools &amp; Features <span style={{ color: '#6366f1', fontWeight: 700 }}>({features.size}/{allFeatures.length} selected)</span>
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={selectAll} style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>Select All</button>
+              <button onClick={clearAll}  style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>Clear</button>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {allFeatures.map(f => {
+              const checked = features.has(f.key);
+              return (
+                <label key={f.key} onClick={() => toggle(f.key)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '10px 14px', cursor: 'pointer', transition: 'all .15s' }}>
+                  <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? '#6366f1' : '#444'}`, background: checked ? '#6366f1' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
+                    {checked && <span style={{ color: '#fff', fontSize: 11, lineHeight: 1, fontWeight: 700 }}>✓</span>}
+                  </div>
+                  <span style={{ fontSize: 14, marginRight: 4 }}>{f.icon}</span>
+                  <span style={{ color: checked ? '#e5e7eb' : '#9ca3af', fontSize: 13, fontWeight: checked ? 500 : 400 }}>{f.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '16px 24px', borderTop: '1px solid #222', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '9px 20px', cursor: 'pointer', fontSize: 14 }}>Cancel</button>
+          <button onClick={save} disabled={saving}
+            style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 24px', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
+            {saving ? 'Saving…' : mode === 'create' ? 'Create Role' : 'Save Changes'}
           </button>
         </div>
       </div>
