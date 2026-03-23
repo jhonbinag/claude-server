@@ -1305,9 +1305,13 @@ export default function Admin() {
                         const color = roleColors[r.id] || '#6b7280';
                         return (
                           <div key={r.id} style={{ background: '#1a1a1a', border: `1px solid ${color}33`, borderRadius: 10, padding: 16 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <span style={{ color, fontWeight: 700, fontSize: 14, textTransform: 'capitalize' }}>{r.name}</span>
-                              <span style={{ background: '#111', color: '#4b5563', fontSize: 10, padding: '1px 7px', borderRadius: 8 }}>built-in</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ color, fontWeight: 700, fontSize: 14, textTransform: 'capitalize' }}>{r.name}</span>
+                                <span style={{ background: '#111', color: '#4b5563', fontSize: 10, padding: '1px 7px', borderRadius: 8 }}>built-in</span>
+                              </div>
+                              <button onClick={() => setRoleModal({ mode: 'edit', role: r, isBuiltin: true })}
+                                style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>✏️ Edit</button>
                             </div>
                             {r.features.includes('*') ? (
                               <span style={{ color: '#4ade80', fontSize: 12 }}>✓ All features</span>
@@ -1377,15 +1381,26 @@ export default function Admin() {
               <RoleEditorModal
                 mode={roleModal.mode}
                 role={roleModal.role}
+                isBuiltin={roleModal.isBuiltin || false}
                 allFeatures={allFeatures}
                 adminKey={adminKey}
                 locationId={rolesLocationId}
                 onClose={() => setRoleModal(null)}
                 onSaved={(saved, isNew) => {
                   setRoleModal(null);
-                  if (isNew) setCustomRoles(prev => [...prev, saved]);
-                  else setCustomRoles(prev => prev.map(r => r.id === saved.id ? saved : r));
+                  if (saved.builtin) {
+                    setBuiltinRoles(prev => prev.map(r => r.id === saved.id ? saved : r));
+                  } else if (isNew) {
+                    setCustomRoles(prev => [...prev, saved]);
+                  } else {
+                    setCustomRoles(prev => prev.map(r => r.id === saved.id ? saved : r));
+                  }
                   flash(`✓ Role "${saved.name}" ${isNew ? 'created' : 'updated'}`);
+                }}
+                onReset={(reset) => {
+                  setRoleModal(null);
+                  setBuiltinRoles(prev => prev.map(r => r.id === reset.id ? reset : r));
+                  flash(`✓ "${reset.name}" role reset to defaults`);
                 }}
                 onFlash={flash}
               />
@@ -1599,10 +1614,14 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
 
 // ── Role Editor Modal ─────────────────────────────────────────────────────────
 
-function RoleEditorModal({ mode, role, allFeatures, adminKey, locationId, onClose, onSaved, onFlash }) {
-  const [name,     setName]     = useState(role?.name     || '');
-  const [features, setFeatures] = useState(new Set(role?.features || []));
-  const [saving,   setSaving]   = useState(false);
+function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locationId, onClose, onSaved, onReset, onFlash }) {
+  const [name,      setName]      = useState(role?.name     || '');
+  const [features,  setFeatures]  = useState(new Set(
+    // If features includes '*', pre-select all for display purposes
+    (role?.features || []).includes('*') ? allFeatures.map(f => f.key) : (role?.features || [])
+  ));
+  const [saving,    setSaving]    = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const toggle = (key) => {
     setFeatures(prev => {
@@ -1612,11 +1631,11 @@ function RoleEditorModal({ mode, role, allFeatures, adminKey, locationId, onClos
     });
   };
 
-  const selectAll  = () => setFeatures(new Set(allFeatures.map(f => f.key)));
-  const clearAll   = () => setFeatures(new Set());
+  const selectAll = () => setFeatures(new Set(allFeatures.map(f => f.key)));
+  const clearAll  = () => setFeatures(new Set());
 
   const save = async () => {
-    if (!name.trim()) { onFlash('✗ Role name is required.'); return; }
+    if (!isBuiltin && !name.trim()) { onFlash('✗ Role name is required.'); return; }
     setSaving(true);
     try {
       const isNew = mode === 'create';
@@ -1631,24 +1650,39 @@ function RoleEditorModal({ mode, role, allFeatures, adminKey, locationId, onClos
     setSaving(false);
   };
 
+  const reset = async () => {
+    if (!confirm(`Reset "${role?.name}" to its default features? This will remove any customization.`)) return;
+    setResetting(true);
+    try {
+      const data = await adminFetch(`/admin/locations/${locationId}/custom-roles/${role.id}/reset`, { method: 'POST', adminKey });
+      if (data.success) onReset(data.role);
+      else onFlash(`✗ ${data.error}`);
+    } catch { onFlash('✗ Reset failed'); }
+    setResetting(false);
+  };
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
       <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 14, width: '100%', maxWidth: 560, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ margin: 0, color: '#fff', fontSize: 16 }}>{mode === 'create' ? '+ Create Custom Role' : `✏️ Edit Role: ${role?.name}`}</h3>
+          <div>
+            <h3 style={{ margin: 0, color: '#fff', fontSize: 16 }}>{mode === 'create' ? '+ Create Custom Role' : `✏️ Edit Role: ${role?.name}`}</h3>
+            {isBuiltin && <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: 12 }}>Editing this built-in role's features for this location only.</p>}
+          </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
         </div>
 
         {/* Body */}
         <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
-          {/* Role name */}
+          {/* Role name — locked for built-ins */}
           <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Role Name</label>
           <input
             value={name}
-            onChange={e => setName(e.target.value)}
+            onChange={e => !isBuiltin && setName(e.target.value)}
+            readOnly={isBuiltin}
             placeholder="e.g. Sales Team, Content Creator…"
-            style={{ width: '100%', boxSizing: 'border-box', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', padding: '9px 12px', fontSize: 14, marginBottom: 20 }}
+            style={{ width: '100%', boxSizing: 'border-box', background: isBuiltin ? '#0d0d0d' : '#111', border: '1px solid #333', borderRadius: 8, color: isBuiltin ? '#4b5563' : '#e5e7eb', padding: '9px 12px', fontSize: 14, marginBottom: 20, cursor: isBuiltin ? 'not-allowed' : 'text' }}
           />
 
           {/* Feature checkboxes */}
@@ -1680,12 +1714,22 @@ function RoleEditorModal({ mode, role, allFeatures, adminKey, locationId, onClos
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '16px 24px', borderTop: '1px solid #222', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '9px 20px', cursor: 'pointer', fontSize: 14 }}>Cancel</button>
-          <button onClick={save} disabled={saving}
-            style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 24px', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
-            {saving ? 'Saving…' : mode === 'create' ? 'Create Role' : 'Save Changes'}
-          </button>
+        <div style={{ padding: '16px 24px', borderTop: '1px solid #222', display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            {isBuiltin && (
+              <button onClick={reset} disabled={resetting}
+                style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 8, color: '#f87171', padding: '9px 16px', cursor: resetting ? 'not-allowed' : 'pointer', fontSize: 13, opacity: resetting ? 0.6 : 1 }}>
+                {resetting ? 'Resetting…' : '↺ Reset to Default'}
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={onClose} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '9px 20px', cursor: 'pointer', fontSize: 14 }}>Cancel</button>
+            <button onClick={save} disabled={saving}
+              style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 24px', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
+              {saving ? 'Saving…' : mode === 'create' ? 'Create Role' : 'Save Changes'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

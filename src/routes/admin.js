@@ -760,6 +760,19 @@ router.delete('/locations/:id/custom-roles/:roleId', async (req, res) => {
   }
 });
 
+// ─── POST /admin/locations/:id/custom-roles/:roleId/reset — reset built-in role ─
+
+router.post('/locations/:id/custom-roles/:roleId/reset', async (req, res) => {
+  const { id: locationId, roleId } = req.params;
+  try {
+    const role = await roleService.resetBuiltinRole(locationId, roleId);
+    activityLogger.log({ locationId, event: 'role_reset', detail: { roleId }, success: true, adminId: req.adminId });
+    res.json({ success: true, role });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 // ─── GET /admin/locations/:id/users — list users for a location ──────────────
 
 router.get('/locations/:id/users', async (req, res) => {

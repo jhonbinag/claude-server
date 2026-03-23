@@ -131,12 +131,15 @@ async function getAllRoles(locationId) {
 }
 
 /**
- * Create or update a custom role.
+ * Create or update a role (built-in or custom).
+ * Built-in roles can be overridden per-location; their override is stored
+ * in customRoles under the same key (e.g. 'owner', 'admin').
+ *
  * @param {string} locationId
- * @param {string|null} roleId  — null to auto-generate ID for new roles
+ * @param {string|null} roleId  — null to auto-generate ID for new custom roles
  * @param {string} name
  * @param {string[]} features
- * @returns {{ id, name, features, createdAt, updatedAt }}
+ * @returns {{ id, name, features, createdAt, updatedAt, builtin? }}
  */
 async function saveCustomRole(locationId, roleId, name, features) {
   if (!name || !name.trim()) throw new Error('Role name is required.');
@@ -147,9 +150,8 @@ async function saveCustomRole(locationId, roleId, name, features) {
   const invalid = features.filter(f => f !== '*' && !validKeys.has(f));
   if (invalid.length) throw new Error(`Unknown features: ${invalid.join(', ')}`);
 
-  // Prevent overwriting built-in roles
   const id = roleId || `custom_${crypto.randomBytes(4).toString('hex')}`;
-  if (BUILTIN_ROLE_KEYS.includes(id)) throw new Error(`Cannot override built-in role: ${id}`);
+  const isBuiltin = BUILTIN_ROLE_KEYS.includes(id);
 
   const existing = await getCustomRoles(locationId);
   const now = Date.now();
@@ -157,6 +159,7 @@ async function saveCustomRole(locationId, roleId, name, features) {
     id,
     name: name.trim(),
     features,
+    ...(isBuiltin ? { builtin: true } : {}),
     createdAt: existing[id]?.createdAt || now,
     updatedAt: now,
   };
@@ -164,6 +167,18 @@ async function saveCustomRole(locationId, roleId, name, features) {
   existing[id] = role;
   await setLocationDoc(locationId, { customRoles: existing, updatedAt: now });
   return role;
+}
+
+/**
+ * Reset a built-in role back to its default features for this location
+ * (removes the per-location override).
+ */
+async function resetBuiltinRole(locationId, roleId) {
+  if (!BUILTIN_ROLE_KEYS.includes(roleId)) throw new Error(`${roleId} is not a built-in role.`);
+  const existing = await getCustomRoles(locationId);
+  delete existing[roleId];
+  await setLocationDoc(locationId, { customRoles: existing, updatedAt: Date.now() });
+  return BUILTIN_ROLES[roleId];
 }
 
 /**
@@ -283,6 +298,7 @@ module.exports = {
   getAllRoles,
   saveCustomRole,
   deleteCustomRole,
+  resetBuiltinRole,
   // Users
   syncUsers,
   getUsersForLocation,
