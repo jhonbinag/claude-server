@@ -50,8 +50,12 @@ const ALL_SCOPES = [
   'blogs/posts.readonly', 'blogs/list.readonly',
   // Forms & Surveys
   'forms.readonly', 'forms.write', 'surveys.readonly',
-  // Funnels
-  'funnels/funnel.readonly', 'funnels/page.readonly',
+  // Email Builder
+  'emails/builder.readonly', 'emails/builder.write',
+  // Websites
+  'websites.readonly', 'websites.write',
+  // Funnels + Websites (websites use the funnels API under the hood)
+  'funnels/funnel.readonly', 'funnels/page.readonly', 'funnels/page.write',
   'funnels/pagecount.readonly',
   'funnels/redirect.readonly', 'funnels/redirect.write',
   // Knowledge Bases

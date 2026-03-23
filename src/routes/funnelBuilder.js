@@ -601,11 +601,30 @@ async function figmaFirstFrameNodeId(fileKey, authHeader) {
   for (const page of pages) {
     for (const child of (page.children || [])) {
       if (child.type === 'FRAME' || child.type === 'COMPONENT' || child.type === 'GROUP') {
-        return child.id; // e.g. "1:2"
+        return child.id;
       }
     }
   }
   throw new Error('No frames found in this Figma file. Make sure the file has at least one frame on a page.');
+}
+
+/**
+ * Get ALL top-level frames from a Figma file, in order.
+ * Each frame represents one page/screen in the design.
+ * Returns: [{ id, name, pageName }]
+ */
+async function figmaGetAllFrames(fileKey, authHeader) {
+  const data = await httpsGet('api.figma.com', `/v1/files/${fileKey}?depth=2`, authHeader);
+  const docPages = data.document?.children || [];
+  const frames = [];
+  for (const page of docPages) {
+    for (const child of (page.children || [])) {
+      if (child.type === 'FRAME' || child.type === 'COMPONENT' || child.type === 'GROUP') {
+        frames.push({ id: child.id, name: child.name, pageName: page.name });
+      }
+    }
+  }
+  return frames;
 }
 
 async function figmaExportImage(fileKey, nodeId, authHeader) {
@@ -1190,8 +1209,12 @@ router.post('/generate', async (req, res) => {
 
   // Step 3: Build Claude prompt
   const pageLabel    = pageType || 'Sales Page';
-  const colors       = colorScheme || 'modern, professional — use white, dark navy, and gold accents';
-  const palette      = extractColors(colors);
+  const colors      = colorScheme || '';
+  const hasCustomColors = colors && /#[0-9A-Fa-f]{6}/i.test(colors);
+  const design      = selectFunnelDesign(niche, offer);
+  const palette     = hasCustomColors ? extractColors(colors) : design.palette;
+  if (!hasCustomColors) { palette.heroGradient = design.palette.heroGradient; palette.ctaGradient = design.palette.ctaGradient; }
+  const imgSeeds    = buildImgSeeds(niche, offer);
   const imgKeyword   = (niche || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
   const contextBlock = pageContext
     ? `\nExisting page context (use as reference for any brand/funnel details):\n${JSON.stringify(pageContext, null, 2).slice(0, 1500)}`
@@ -1251,9 +1274,8 @@ SCHEMA:
 
   const systemPrompt = isGroq ? groqSystemPrompt : fullSystemPrompt;
 
-  // Groq has tight token limits — generate a compact 3-section page; other providers get all 7
-  const imgSrc = `https://picsum.photos/seed/${imgKeyword}/800/450`;
-  const sectionPlan = getSectionPlan(pageLabel, imgSrc);
+  const imgSrc = imgSeeds[0];
+  const sectionPlan = getSectionPlan(pageLabel, imgSrc, palette, imgSeeds);
   const sectionsInstruction = isGroq ? sectionPlan.groq : sectionPlan.full;
 
   const userPrompt = `Generate a native GHL ${pageLabel} JSON for:
@@ -1566,10 +1588,63 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   send('log', { msg: `Found ${pages.length} page${pages.length !== 1 ? 's' : ''} in funnel`, level: 'info' });
 
   // Resolve image: either uploaded file or exported from Figma
-  let imageBase64, imageMediaType, figmaContent = { texts: [], colors: [], spec: '', sectionCount: 0, imageNodes: [] };
-  let figmaImageUrlMap = {}; // nodeId → GHL media URL
-  let figmaAuth = null;
-  let effectiveNodeId = null;
+  let imageBase64, imageMediaType;
+  let figmaContent    = { texts: [], colors: [], spec: '', sectionCount: 0, imageNodes: [] };
+  let figmaImageUrlMap = {};
+  let figmaAuth       = null;
+  let figmaFileKey    = null;   // kept for per-page frame loading in multi-frame mode
+  let figmaFrames     = [];     // all top-level frames discovered
+  let isMultiFrame    = false;  // true when we have N frames → N pages
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  /**
+   * Load a single Figma frame: export PNG + extract spec + upload images.
+   * Sets imageBase64, imageMediaType, figmaContent, figmaImageUrlMap in scope.
+   */
+  async function loadFigmaFrame(fileKey, nodeId, auth, logPrefix) {
+    // Export PNG
+    let imgResult;
+    try {
+      imgResult = await figmaExportImage(fileKey, nodeId, auth.authHeader);
+    } catch (err) {
+      const is403 = err.message.includes('403');
+      throw new Error(is403
+        ? 'Figma file access denied (403). In Figma: Share → Invite your Figma account with "can view" access.'
+        : `Figma export error: ${err.message}`);
+    }
+    imageBase64    = imgResult.base64;
+    imageMediaType = imgResult.mimeType;
+    send('log', { msg: `${logPrefix}Frame exported — extracting design spec...`, level: 'info' });
+
+    await sleep(400);
+    const content = await figmaExtractContent(fileKey, nodeId, auth.authHeader);
+    figmaContent  = content;
+    if (content.spec) {
+      send('log', { msg: `${logPrefix}Spec: ${content.texts.length} texts, ${content.colors.length} colors, ${content.imageNodes.length} images`, level: 'success' });
+    } else {
+      send('log', { msg: `${logPrefix}Spec unavailable — using image-only mode`, level: 'warn' });
+    }
+
+    // Upload image nodes to GHL media
+    figmaImageUrlMap = {};
+    if (content.imageNodes.length > 0) {
+      try {
+        const bufferMap = await figmaBatchExportImages(fileKey, content.imageNodes, auth.authHeader);
+        await Promise.all(Object.entries(bufferMap).map(async ([nid, { buffer, name }]) => {
+          const slug     = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+          const filename = `figma-${slug}-${nid.replace(/:/g, '-')}.png`;
+          const ghlUrl   = await uploadImageToGHL(req.locationId, buffer, filename);
+          if (ghlUrl) figmaImageUrlMap[nid] = ghlUrl;
+        }));
+        const uploaded = Object.keys(figmaImageUrlMap).length;
+        send('log', { msg: `${logPrefix}Uploaded ${uploaded}/${content.imageNodes.length} image(s) to GHL media`, level: uploaded > 0 ? 'success' : 'warn' });
+      } catch (e) {
+        send('log', { msg: `${logPrefix}Image upload skipped: ${e.message}`, level: 'warn' });
+      }
+    }
+  }
+
   if (figmaUrl) {
     figmaAuth = await loadStoredFigmaToken(req.locationId);
     if (!figmaAuth) {
@@ -1578,70 +1653,37 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     }
     try {
       const { fileKey, nodeId } = parseFigmaUrl(figmaUrl);
-      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      figmaFileKey = fileKey;
 
-      // Step 1: Resolve node ID — auto-discover if missing or is document root (0:1)
-      effectiveNodeId = (nodeId && nodeId !== '0:1') ? nodeId : null;
-      if (!effectiveNodeId) {
-        send('log', { msg: 'Auto-discovering Figma frame node...', level: 'info' });
-        try {
-          effectiveNodeId = await figmaFirstFrameNodeId(fileKey, figmaAuth.authHeader);
-          send('log', { msg: `Found frame: ${effectiveNodeId}`, level: 'info' });
-          console.log(`[FunnelBuilder] Auto-discovered frame node: ${effectiveNodeId}`);
-          await sleep(300); // brief pause before next API call
-        } catch (err) {
-          send('error', { error: `Could not find a frame in the Figma file: ${err.message}. Right-click a frame in Figma → Copy link to selection → paste that URL.` });
+      if (!nodeId || nodeId === '0:1') {
+        // No specific node pinned — discover all frames
+        send('log', { msg: 'Discovering Figma frames...', level: 'info' });
+        figmaFrames = await figmaGetAllFrames(fileKey, figmaAuth.authHeader);
+        if (figmaFrames.length === 0) {
+          send('error', { error: 'No frames found in this Figma file. Create at least one frame and try again.' });
           res.end(); return;
         }
-      } else {
-        send('log', { msg: `Using Figma node: ${effectiveNodeId}`, level: 'info' });
-      }
-      console.log(`[FunnelBuilder] Fetching Figma frame — file: ${fileKey}, node: ${effectiveNodeId}`);
 
-      // Step 2: Export frame as PNG (required)
-      send('log', { msg: 'Exporting Figma frame as PNG...', level: 'info' });
-      let imgResult;
-      try {
-        imgResult = await figmaExportImage(fileKey, effectiveNodeId, figmaAuth.authHeader);
-      } catch (err) {
-        const is403 = err.message.includes('403');
-        send('error', { error: is403
-          ? 'Figma file access denied (403). Your PAT is valid but this file is not accessible. In Figma: Share → Invite → add your Figma account email with "can view" access.'
-          : `Figma export error: ${err.message}` });
-        res.end(); return;
-      }
-      imageBase64    = imgResult.base64;
-      imageMediaType = imgResult.mimeType;
-      send('log', { msg: 'Frame exported — extracting design spec...', level: 'info' });
-
-      // Step 3: Extract design spec (non-fatal — falls back to image-only mode on 403)
-      await sleep(400); // avoid rate limiting between API calls
-      figmaContent = await figmaExtractContent(fileKey, effectiveNodeId, figmaAuth.authHeader);
-      console.log(`[FunnelBuilder] Figma extract: ${figmaContent.texts.length} texts, ${figmaContent.colors.length} colors, ${figmaContent.imageNodes.length} images, spec:${figmaContent.spec ? 'yes' : 'no (image-only mode)'}`);
-      if (figmaContent.spec) {
-        send('log', { msg: `Spec extracted — ${figmaContent.texts.length} text elements, ${figmaContent.colors.length} colors, ${figmaContent.imageNodes.length} image nodes`, level: 'success' });
-      } else {
-        send('log', { msg: 'Design spec unavailable (file access limited) — using image-only mode', level: 'warn' });
-      }
-
-      // Step 4: Upload image nodes to GHL media (non-fatal)
-      if (figmaContent.imageNodes.length > 0) {
-        send('log', { msg: `Uploading ${figmaContent.imageNodes.length} image${figmaContent.imageNodes.length !== 1 ? 's' : ''} to GHL media library...`, level: 'info' });
-        try {
-          const bufferMap = await figmaBatchExportImages(fileKey, figmaContent.imageNodes, figmaAuth.authHeader);
-          await Promise.all(Object.entries(bufferMap).map(async ([nid, { buffer, name }]) => {
-            const slug     = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
-            const filename = `figma-${slug}-${nid.replace(/:/g, '-')}.png`;
-            const ghlUrl   = await uploadImageToGHL(req.locationId, buffer, filename);
-            if (ghlUrl) figmaImageUrlMap[nid] = ghlUrl;
-          }));
-          const uploaded = Object.keys(figmaImageUrlMap).length;
-          send('log', { msg: `Uploaded ${uploaded}/${figmaContent.imageNodes.length} images to GHL media`, level: uploaded > 0 ? 'success' : 'warn' });
-          console.log(`[FunnelBuilder] Uploaded ${uploaded}/${figmaContent.imageNodes.length} images to GHL media`);
-        } catch (e) {
-          send('log', { msg: `Image upload skipped: ${e.message}`, level: 'warn' });
-          console.warn('[FunnelBuilder] Image upload step failed (non-fatal):', e.message);
+        if (figmaFrames.length > 1 && pages.length > 1) {
+          // Multi-frame mode: map frame[i] → page[i]
+          isMultiFrame = true;
+          send('log', { msg: `Found ${figmaFrames.length} frame(s) — mapping to ${pages.length} funnel page(s)`, level: 'success' });
+          figmaFrames.slice(0, pages.length).forEach((f, i) =>
+            send('log', { msg: `  Frame ${i + 1}: "${f.name}" → Page ${i + 1}: "${pages[i]?.name || '?'}"`, level: 'info' })
+          );
+          if (figmaFrames.length < pages.length) {
+            send('log', { msg: `  ⚠️ Fewer frames than pages — last frame will be reused for remaining pages`, level: 'warn' });
+          }
+        } else {
+          // Single-frame mode: use first frame for all pages
+          const frame = figmaFrames[0];
+          send('log', { msg: `Using frame: "${frame.name}"`, level: 'info' });
+          await loadFigmaFrame(fileKey, frame.id, figmaAuth, '');
         }
+      } else {
+        // Specific node pinned in URL — single-frame mode
+        send('log', { msg: `Using pinned Figma node: ${nodeId}`, level: 'info' });
+        await loadFigmaFrame(fileKey, nodeId, figmaAuth, '');
       }
     } catch (err) {
       send('error', { error: `Figma error: ${err.message}` });
@@ -1717,6 +1759,18 @@ GHL NATIVE JSON SCHEMA:
     const page     = pages[i];
     const pageType = inferPageType(page.name || '');
     send('page_start', { index: i, pageId: page.id, name: page.name, pageType });
+
+    // Multi-frame mode: load the Figma frame for this specific page
+    if (isMultiFrame && figmaFileKey && figmaAuth) {
+      const frame = figmaFrames[i] || figmaFrames[figmaFrames.length - 1];
+      send('log', { msg: `[${i + 1}/${pages.length}] Loading Figma frame: "${frame.name}"`, level: 'info' });
+      try {
+        await loadFigmaFrame(figmaFileKey, frame.id, figmaAuth, `[${i + 1}/${pages.length}] `);
+      } catch (err) {
+        send('log', { msg: `[${i + 1}/${pages.length}] Frame load failed: ${err.message} — using previous frame design`, level: 'warn' });
+      }
+    }
+
     send('log', { msg: `[${i + 1}/${pages.length}] Analyzing "${page.name}" with AI vision...`, level: 'info' });
 
     let pageJson, genError;
@@ -2581,6 +2635,213 @@ router.get('/list-pages', async (req, res) => {
 
 // ── POST /generate-funnel — list all funnel pages then generate each ──────────
 
+/**
+ * Curated design templates — each maps a niche pattern to a complete visual spec
+ * including gradient backgrounds, accent colors, section alternation, and emphasis style.
+ * Used as the "reference design" before content generation begins.
+ */
+const FUNNEL_DESIGN_TEMPLATES = [
+  {
+    id: 'fitness-transform',
+    niches: /fitness|health|gym|weight|workout|nutrition|diet|sport|body|muscle|slim/,
+    name: 'Fitness Transformation',
+    palette: {
+      heroBg: '#0A1628',
+      heroGradient: 'linear-gradient(135deg, #0A1628 0%, #064E3B 100%)',
+      ctaGradient:  'linear-gradient(135deg, #064E3B 0%, #0A1628 100%)',
+      primary: '#10B981', buttonColor: '#FFFFFF',
+      sectionBg: '#F0FDF4', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'transformation results, before/after, speed of results',
+    ctaStyle: 'urgency + social proof counter',
+  },
+  {
+    id: 'beauty-luxury',
+    niches: /beauty|spa|skin|hair|wellness|luxury|fashion|style|cosmetic|aesthetic/,
+    name: 'Beauty & Luxury',
+    palette: {
+      heroBg: '#1A0A1C',
+      heroGradient: 'linear-gradient(135deg, #1A0A1C 0%, #3B0764 100%)',
+      ctaGradient:  'linear-gradient(135deg, #3B0764 0%, #1A0A1C 100%)',
+      primary: '#D946EF', buttonColor: '#FFFFFF',
+      sectionBg: '#FDF4FF', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'transformation, confidence, exclusive experience',
+    ctaStyle: 'elegance + scarcity',
+  },
+  {
+    id: 'real-estate',
+    niches: /real.?estate|property|home|realt|mortgage|house|land|invest.*prop/,
+    name: 'Real Estate Pro',
+    palette: {
+      heroBg: '#0C1A2E',
+      heroGradient: 'linear-gradient(135deg, #0C1A2E 0%, #1E3A5F 100%)',
+      ctaGradient:  'linear-gradient(135deg, #1E3A5F 0%, #0C1A2E 100%)',
+      primary: '#F59E0B', buttonColor: '#111827',
+      sectionBg: '#FFFBF0', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'ROI, market data, local expertise, trust',
+    ctaStyle: 'authority + urgency (limited inventory)',
+  },
+  {
+    id: 'coaching-education',
+    niches: /coach|consult|mentor|training|course|education|teach|learn|certif|program/,
+    name: 'Expert Coaching',
+    palette: {
+      heroBg: '#1E1B4B',
+      heroGradient: 'linear-gradient(135deg, #1E1B4B 0%, #312E81 100%)',
+      ctaGradient:  'linear-gradient(135deg, #4338CA 0%, #1E1B4B 100%)',
+      primary: '#7C3AED', buttonColor: '#FFFFFF',
+      sectionBg: '#F5F3FF', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'authority, transformation stories, curriculum value',
+    ctaStyle: 'enrollment urgency + community',
+  },
+  {
+    id: 'finance-wealth',
+    niches: /finance|invest|money|wealth|crypto|trading|insurance|loan|debt|retire/,
+    name: 'Finance & Wealth',
+    palette: {
+      heroBg: '#0F2027',
+      heroGradient: 'linear-gradient(135deg, #0F2027 0%, #203A43 50%, #2C5364 100%)',
+      ctaGradient:  'linear-gradient(135deg, #2C5364 0%, #0F2027 100%)',
+      primary: '#059669', buttonColor: '#FFFFFF',
+      sectionBg: '#F0FDF4', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'ROI, security, proven track record, risk reversal',
+    ctaStyle: 'data-driven + guarantee',
+  },
+  {
+    id: 'food-restaurant',
+    niches: /restaurant|food|chef|catering|cafe|bakery|dining|meal|recipe/,
+    name: 'Food & Hospitality',
+    palette: {
+      heroBg: '#1C0A0A',
+      heroGradient: 'linear-gradient(135deg, #1C0A0A 0%, #7F1D1D 100%)',
+      ctaGradient:  'linear-gradient(135deg, #7F1D1D 0%, #1C0A0A 100%)',
+      primary: '#DC2626', buttonColor: '#FFFFFF',
+      sectionBg: '#FFF5F5', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'taste, experience, freshness, atmosphere',
+    ctaStyle: 'appetite + exclusivity',
+  },
+  {
+    id: 'tech-saas',
+    niches: /tech|software|saas|app|digital|agency|marketing|seo|ads|automation|ai|crm/,
+    name: 'Tech & SaaS',
+    palette: {
+      heroBg: '#0F172A',
+      heroGradient: 'linear-gradient(135deg, #0F172A 0%, #1E1B4B 100%)',
+      ctaGradient:  'linear-gradient(135deg, #4338CA 0%, #0F172A 100%)',
+      primary: '#6366F1', buttonColor: '#FFFFFF',
+      sectionBg: '#EEF2FF', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'ROI metrics, integrations, time saved, scale',
+    ctaStyle: 'free trial + social proof logos',
+  },
+  {
+    id: 'medical-clinic',
+    niches: /dental|medical|clinic|therapy|mental|psychology|doctor|chiro|physio|health.*care/,
+    name: 'Medical & Wellness',
+    palette: {
+      heroBg: '#0C1F3D',
+      heroGradient: 'linear-gradient(135deg, #0C1F3D 0%, #0369A1 100%)',
+      ctaGradient:  'linear-gradient(135deg, #0369A1 0%, #0C1F3D 100%)',
+      primary: '#0EA5E9', buttonColor: '#FFFFFF',
+      sectionBg: '#F0F9FF', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'credentials, patient results, compassion, trust',
+    ctaStyle: 'consultation booking + reassurance',
+  },
+  {
+    id: 'legal-professional',
+    niches: /law|legal|attorney|lawyer|accountant|cpa|tax|compliance|audit/,
+    name: 'Legal & Professional',
+    palette: {
+      heroBg: '#1A1A2E',
+      heroGradient: 'linear-gradient(135deg, #1A1A2E 0%, #16213E 50%, #0F3460 100%)',
+      ctaGradient:  'linear-gradient(135deg, #0F3460 0%, #1A1A2E 100%)',
+      primary: '#E2B04A', buttonColor: '#111827',
+      sectionBg: '#FDFAF3', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'track record, credentials, confidentiality, results',
+    ctaStyle: 'authority + free consultation',
+  },
+  {
+    id: 'ecommerce-product',
+    niches: /ecommerce|product|store|shop|brand|merch|dropship|amazon|etsy/,
+    name: 'E-Commerce & Product',
+    palette: {
+      heroBg: '#18181B',
+      heroGradient: 'linear-gradient(135deg, #18181B 0%, #27272A 100%)',
+      ctaGradient:  'linear-gradient(135deg, #3F3F46 0%, #18181B 100%)',
+      primary: '#F97316', buttonColor: '#FFFFFF',
+      sectionBg: '#FFF7ED', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'product quality, reviews, fast shipping, guarantee',
+    ctaStyle: 'scarcity + bundle offer',
+  },
+  // Default fallback
+  {
+    id: 'professional-default',
+    niches: /.*/,
+    name: 'Professional Business',
+    palette: {
+      heroBg: '#0F172A',
+      heroGradient: 'linear-gradient(135deg, #0F172A 0%, #1E3A5F 100%)',
+      ctaGradient:  'linear-gradient(135deg, #1E3A5F 0%, #0F172A 100%)',
+      primary: '#1D4ED8', buttonColor: '#FFFFFF',
+      sectionBg: '#F9FAFB', altSectionBg: '#FFFFFF',
+      heroText: '#FFFFFF', bodyText: '#111827',
+    },
+    emphasis: 'value, results, credibility, trust',
+    ctaStyle: 'strong guarantee + clear CTA',
+  },
+];
+
+/**
+ * Selects the best-matching design template for the given niche.
+ * Returns a full design spec with palette, gradient, and copy emphasis hints.
+ */
+function selectFunnelDesign(niche = '', offer = '') {
+  const query = `${niche} ${offer}`.toLowerCase();
+  return FUNNEL_DESIGN_TEMPLATES.find(t => t.niches.test(query)) || FUNNEL_DESIGN_TEMPLATES[FUNNEL_DESIGN_TEMPLATES.length - 1];
+}
+
+/**
+ * Returns a professional brand palette keyed to the niche.
+ * Now delegates to selectFunnelDesign for consistency.
+ */
+function nicheAccentPalette(niche = '', offer = '') {
+  return selectFunnelDesign(niche, offer).palette;
+}
+
+/**
+ * Builds an array of 4 niche-specific picsum image URLs so each section
+ * can have a visually distinct (but thematically related) image.
+ */
+function buildImgSeeds(niche = '', offer = '') {
+  const stopWords = new Set(['your','this','that','with','from','have','will','they','what','when','where','which','their','these','about','into']);
+  const words = `${niche} ${offer}`.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !stopWords.has(w));
+  const base = words.length > 0 ? words.slice(0, 4) : ['business', 'success', 'team', 'office'];
+  // Pad to 4 if fewer words
+  while (base.length < 4) base.push(['team', 'office', 'growth', 'results'][base.length]);
+  return base.map((kw, i) => `https://picsum.photos/seed/${kw}${i + 1}/800/450`);
+}
+
 // Infer page type from page name
 function inferPageType(name = '') {
   const n = name.toLowerCase();
@@ -2600,46 +2861,57 @@ function inferPageType(name = '') {
  * Returns the section plan (ordered list of sections with element hints)
  * for a given page type. Drives how many sections the AI generates.
  */
-function getSectionPlan(pageType, imgSrc, palette) {
+function getSectionPlan(pageType, imgSrc, palette, imgSeeds) {
   const p = palette || {};
-  const heroBg    = p.heroBg    || '#0F172A';
-  const heroText  = p.heroText  || '#FFFFFF';
-  const secBg     = p.sectionBg || '#F9FAFB';
-  const bodyText  = p.bodyText  || '#111827';
-  const primary   = p.primary   || '#1D4ED8';
-  const btnColor  = p.buttonColor || '#FFFFFF';
+  const heroBg      = p.heroBg      || '#0F172A';
+  const heroText    = p.heroText    || '#FFFFFF';
+  const secBg       = p.sectionBg  || '#F9FAFB';
+  const bodyText    = p.bodyText    || '#111827';
+  const primary     = p.primary     || '#1D4ED8';
+  const btnColor    = p.buttonColor || '#FFFFFF';
+  const heroGrad    = p.heroGradient || null;
+  const ctaGrad     = p.ctaGradient  || null;
+  const seeds       = (imgSeeds && imgSeeds.length) ? imgSeeds : [imgSrc, imgSrc, imgSrc, imgSrc];
+  let   seedIdx     = 0;
 
-  // Helper: build a single section instruction block (returns object so JSON.stringify works correctly)
-  const sec = (name, bg, textClr, pad, elements) => ({
-    type: 'section',
-    name,
-    styles: {
-      backgroundColor: { value: bg },
-      paddingTop:    { value: pad[0], unit: 'px' },
-      paddingBottom: { value: pad[1], unit: 'px' },
-      paddingLeft:   { value: 20,     unit: 'px' },
-      paddingRight:  { value: 20,     unit: 'px' },
-    },
-    mobileStyles: {
-      paddingTop:    { value: Math.round(pad[0] * 0.6), unit: 'px' },
-      paddingBottom: { value: Math.round(pad[1] * 0.6), unit: 'px' },
-    },
-    children: elements,
-  });
+  // Helper: build a section — auto-applies gradient when bg matches heroBg (hero/CTA dark sections)
+  const sec = (name, bg, textClr, pad, elements) => {
+    // Apply hero gradient when bg matches the dark hero color, CTA gradient for last-section bg
+    const gradient = (bg === heroBg && heroGrad) ? heroGrad
+                   : (bg === (p.ctaBg || heroBg) && ctaGrad) ? ctaGrad
+                   : null;
+    return {
+      type: 'section',
+      name,
+      styles: {
+        backgroundColor: { value: bg },
+        ...(gradient ? { backgroundGradient: { value: gradient } } : {}),
+        paddingTop:    { value: pad[0], unit: 'px' },
+        paddingBottom: { value: pad[1], unit: 'px' },
+        paddingLeft:   { value: 20,     unit: 'px' },
+        paddingRight:  { value: 20,     unit: 'px' },
+      },
+      mobileStyles: {
+        paddingTop:    { value: Math.round(pad[0] * 0.6), unit: 'px' },
+        paddingBottom: { value: Math.round(pad[1] * 0.6), unit: 'px' },
+      },
+      children: elements,
+    };
+  };
 
   // Element builders
-  const h1  = (text, clr=heroText, sz=52)  => ({"type":"heading","tag":"h1","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.15}},"mobileStyles":{"fontSize":{"value":Math.max(sz-18,28),"unit":"px"}}});
-  const h2  = (text, clr=bodyText, sz=36)  => ({"type":"heading","tag":"h2","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":Math.max(sz-10,24),"unit":"px"}}});
-  const sub = (text, clr=heroText, sz=22)  => ({"type":"sub-heading","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"fontWeight":{"value":"400"},"lineHeight":{"value":1.5}},"mobileStyles":{"fontSize":{"value":Math.max(sz-4,16),"unit":"px"}}});
-  const par = (text, clr=heroText, sz=18)  => ({"type":"paragraph","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"lineHeight":{"value":1.7}},"mobileStyles":{"fontSize":{"value":Math.max(sz-2,15),"unit":"px"}}});
-  const btn = (text, bg=primary, clr=btnColor) => ({"type":"button","text":text,"link":"#","styles":{"backgroundColor":{"value":bg},"color":{"value":clr},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":18,"unit":"px"},"paddingBottom":{"value":18,"unit":"px"},"paddingLeft":{"value":48,"unit":"px"},"paddingRight":{"value":48,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}});
-  const bul = (items, clr=bodyText, sz=18) => ({"type":"bulletList","items":items,"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"}},"mobileStyles":{"fontSize":{"value":Math.max(sz-2,15),"unit":"px"}}});
-  const img = (alt='')                     => ({"type":"image","src":imgSrc,"alt":alt,"styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}}});
+  const h1  = (text, clr=heroText, sz=56)  => ({"type":"heading","tag":"h1","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.1}},"mobileStyles":{"fontSize":{"value":Math.max(sz-20,30),"unit":"px"}}});
+  const h2  = (text, clr=bodyText, sz=38)  => ({"type":"heading","tag":"h2","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":Math.max(sz-12,24),"unit":"px"}}});
+  const sub = (text, clr=heroText, sz=22)  => ({"type":"sub-heading","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"fontWeight":{"value":"400"},"lineHeight":{"value":1.6}},"mobileStyles":{"fontSize":{"value":Math.max(sz-4,16),"unit":"px"}}});
+  const par = (text, clr=heroText, sz=18)  => ({"type":"paragraph","text":text,"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"lineHeight":{"value":1.75}},"mobileStyles":{"fontSize":{"value":Math.max(sz-2,15),"unit":"px"}}});
+  const btn = (text, bg=primary, clr=btnColor) => ({"type":"button","text":text,"link":"#","styles":{"backgroundColor":{"value":bg},"color":{"value":clr},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":20,"unit":"px"},"paddingBottom":{"value":20,"unit":"px"},"paddingLeft":{"value":52,"unit":"px"},"paddingRight":{"value":52,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"},"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"}}});
+  const bul = (items, clr=bodyText, sz=18) => ({"type":"bulletList","items":items,"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":clr},"fontSize":{"value":sz,"unit":"px"},"lineHeight":{"value":1.8}},"mobileStyles":{"fontSize":{"value":Math.max(sz-2,15),"unit":"px"}}});
+  const img = (alt='')                     => ({"type":"image","src":seeds[seedIdx++ % seeds.length],"alt":alt,"styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}});
 
   const plans = {
 
     'Sales Page': {
-      groq: `3 sections:\n1. Hero — heading(h1) + sub-heading + image + paragraph + button\n2. Benefits — heading(h2) + bulletList(5 items) + paragraph\n3. Final CTA — heading(h2) + paragraph + button`,
+      groq: `3 sections:\n1. Hero bg="${heroBg}" — heading(h1,56px) + sub-heading(22px) + image + paragraph + button\n2. Benefits bg="${secBg}" — heading(h2,38px) + paragraph + bulletList(6 compelling outcome items) + button\n3. Final CTA bg="${heroBg}" — heading(h2,40px) + paragraph(powerful testimonial in quotes) + button + paragraph(trust line,13px)`,
       sections: [
         sec('Hero', heroBg, heroText, [100,100], [
           h1('[COMPELLING HEADLINE — promise the main benefit]'),
@@ -2697,7 +2969,7 @@ function getSectionPlan(pageType, imgSrc, palette) {
     },
 
     'Opt-in / Lead Capture Page': {
-      groq: `3 sections:\n1. Hero — heading(h1) + sub-heading + image + paragraph + button\n2. Benefits — heading(h2) + bulletList(4 items)\n3. Trust CTA — paragraph + button`,
+      groq: `3 sections:\n1. Hero bg="${heroBg}" — heading(h1,56px) + sub-heading(22px) + image + paragraph + button\n2. What You Get bg="${secBg}" — heading(h2,38px) + bulletList(5 specific takeaway items) + paragraph\n3. Trust CTA bg="${heroBg}" — paragraph(social proof stat) + button + paragraph(privacy note,13px)`,
       sections: [
         sec('Hero', heroBg, heroText, [100,100], [
           h1('[Opt-in headline — lead magnet promise, e.g. "Get the Free Guide to..."]'),
@@ -2790,7 +3062,7 @@ function getSectionPlan(pageType, imgSrc, palette) {
     },
 
     'VSL Page': {
-      groq: `4 sections:\n1. Hero — heading(h1) + sub-heading + image + paragraph\n2. Discover — heading(h2) + bulletList\n3. Offer — heading(h2) + image + paragraph + button\n4. Final CTA — heading(h2) + paragraph + button`,
+      groq: `3 sections:\n1. VSL Hero bg="${heroBg}" — heading(h1,56px) + sub-heading(22px) + image(video thumbnail) + paragraph(curiosity teaser)\n2. Discoveries bg="${secBg}" — heading(h2,38px) + bulletList(5 specific revelation items) + paragraph(urgency)\n3. Offer + CTA bg="${heroBg}" — heading(h2,38px) + image + bulletList(4 included items) + paragraph(price anchor) + button + paragraph(guarantee,13px)`,
       sections: [
         sec('VSL Hero', heroBg, heroText, [100,80], [
           h1('[Curiosity/benefit headline — "Discover How to [Result] Without [Pain Point]"]'),
@@ -2820,7 +3092,7 @@ function getSectionPlan(pageType, imgSrc, palette) {
     },
 
     'Webinar Registration Page': {
-      groq: `3 sections:\n1. Hero — heading(h1) + sub-heading + image + paragraph + button\n2. What You\'ll Learn — heading(h2) + bulletList\n3. Register CTA — heading(h2) + paragraph + button`,
+      groq: `3 sections:\n1. Hero bg="${heroBg}" — heading(h1,56px) + sub-heading(date+time,22px) + image + paragraph + button\n2. What You\'ll Learn bg="${secBg}" — heading(h2,38px) + bulletList(5 specific learning outcomes) + paragraph(who this is for)\n3. Reserve bg="${heroBg}" — heading(h2,36px) + paragraph(host authority) + button + paragraph(reassurance,13px)`,
       sections: [
         sec('Webinar Hero', heroBg, heroText, [100,100], [
           h1('[Webinar title — compelling result or revelation headline]'),
@@ -2921,26 +3193,113 @@ function getSectionPlan(pageType, imgSrc, palette) {
         ]),
       ],
     },
+
+    'Application Page': {
+      groq: `4 sections:\n1. Hero — heading(h1,56px) + sub-heading + image + paragraph + button\n2. Qualifiers — heading(h2,38px) + paragraph + bulletList\n3. Transformation — heading(h2,38px) + image + bulletList\n4. Apply CTA — heading(h2,36px) + paragraph + button + paragraph`,
+      sections: [
+        sec('Application Hero', heroBg, heroText, [100,100], [
+          h1('[Exclusive opportunity headline — "Apply Now to Work With [Expert/Program Name]"]'),
+          sub('[Sub-headline — who this is ideal for and the transformation available to accepted applicants]', heroText),
+          img('premium / exclusive program image'),
+          par('[1-2 sentences: establish exclusivity, limited spots, and the transformation promised to accepted applicants]', heroText),
+          btn('Apply Now — Limited Spots Available'),
+        ]),
+        sec('Is This For You?', secBg, bodyText, [80,80], [
+          h2('[Qualification headline — "This Is Exclusively For People Who..."]', bodyText),
+          par('[Empathy paragraph — speak directly to the ideal client\'s current situation and deepest desire]', bodyText),
+          bul(['[Qualifier 1 — specific attribute of the ideal client]','[Qualifier 2 — the level of commitment they\'re ready for]','[Qualifier 3 — a result they\'ve failed to achieve before applying]','[Qualifier 4 — the investment mindset they must have]'], bodyText),
+        ]),
+        sec('Your Transformation', '#FFFFFF', bodyText, [80,80], [
+          h2('[Transformation headline — "By the end of [program/engagement], you will..."]', bodyText),
+          img('results / success image'),
+          bul(['[Outcome 1 — specific, measurable result]','[Outcome 2 — a change in situation or status]','[Outcome 3 — a skill or asset they\'ll have]','[Outcome 4 — the business/life impact]','[The big vision — what their life looks like after]'], bodyText),
+          par('[Social proof sentence — "Our clients have achieved [specific result]. You could be next."]', bodyText),
+        ]),
+        sec('Apply Today', heroBg, heroText, [80,80], [
+          h2('[Scarcity headline — "We Only Accept [X] New Clients Per Month"]', heroText, 36),
+          par('[Application process paragraph — describe the steps: apply → review → strategy call → decision. Keep it simple and non-threatening]', heroText),
+          btn('Apply For Your Free Strategy Call'),
+          par('[Reassurance: "No obligation. We\'ll review your application and reach out within 48 hours."]', heroText, 13),
+        ]),
+      ],
+    },
   };
 
   const plan = plans[pageType] || plans['Sales Page'];
-  // Build groq-style description from sections for Groq's compressed prompt
   const groqNote = plan.groq;
-  // Build full structured prompt from section templates
   const fullNote = `Generate exactly ${plan.sections.length} sections with this EXACT structure (fill in real content for the niche/offer, replace all [PLACEHOLDER] text with actual copy):\n${plan.sections.map((s, i) => `\nSection ${i+1}: ${JSON.stringify(s)}`).join('\n')}`;
-  return { sections: plan.sections.length, groq: groqNote, full: fullNote };
+  return { sections: plan.sections.length, groq: groqNote, full: fullNote, _sections: plan.sections };
 }
 
+// Each entry: name (display), url, stepOrder, type (maps to getSectionPlan key),
+//             stage (TOFU/MOFU/BOFU), copyFocus (guides AI copy tone + angle)
 const FUNNEL_TYPE_PAGES = {
-  lead_gen:       [{ name: 'Opt-in Page',        url: 'opt-in',       stepOrder: 1 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 2 }],
-  sales:          [{ name: 'Opt-in Page',        url: 'opt-in',       stepOrder: 1 }, { name: 'Sales Page',          url: 'sales',        stepOrder: 2 }, { name: 'Order Page',          url: 'order',        stepOrder: 3 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4 }],
-  vsl:            [{ name: 'VSL Page',           url: 'watch',        stepOrder: 1 }, { name: 'Order Page',          url: 'order',        stepOrder: 2 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 3 }],
-  webinar:        [{ name: 'Registration Page',  url: 'register',     stepOrder: 1 }, { name: 'Confirmation Page',   url: 'confirmation', stepOrder: 2 }, { name: 'Webinar Replay Page', url: 'replay',       stepOrder: 3 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4 }],
-  tripwire:       [{ name: 'Opt-in Page',        url: 'opt-in',       stepOrder: 1 }, { name: 'Sales Page',          url: 'sales',        stepOrder: 2 }, { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4 }],
-  product_launch: [{ name: 'Opt-in Page',        url: 'opt-in',       stepOrder: 1 }, { name: 'Sales Page',          url: 'sales',        stepOrder: 2 }, { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3 }, { name: 'Downsell Page',       url: 'downsell',     stepOrder: 4 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 5 }],
-  application:    [{ name: 'Opt-in Page',        url: 'opt-in',       stepOrder: 1 }, { name: 'Application Page',    url: 'apply',        stepOrder: 2 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 3 }],
-  free_shipping:  [{ name: 'Sales Page',         url: 'free-offer',   stepOrder: 1 }, { name: 'Order Page',          url: 'order',        stepOrder: 2 }, { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3 }, { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4 }],
+  lead_gen: [
+    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',  stage: 'TOFU', copyFocus: 'Curiosity-driven value promise, frictionless opt-in, zero-commitment' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 2, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Confirm delivery, set expectations, bridge to next step or community' },
+  ],
+  sales: [
+    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',  stage: 'TOFU', copyFocus: 'Curiosity, value promise, low-friction entry — capture the lead' },
+    { name: 'Sales Page',          url: 'sales',        stepOrder: 2, type: 'Sales Page',                  stage: 'MOFU', copyFocus: 'Problem-agitation-solution, deep desire, social proof, full offer reveal, risk reversal' },
+    { name: 'Order Page',          url: 'order',        stepOrder: 3, type: 'Order Page',                  stage: 'BOFU', copyFocus: 'Reinforce purchase decision, urgency, trust signals, complete the transaction' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Celebrate purchase, deliver access instructions, set expectations' },
+  ],
+  vsl: [
+    { name: 'VSL Page',            url: 'watch',        stepOrder: 1, type: 'VSL Page',                    stage: 'TOFU', copyFocus: 'Curiosity/pattern-interrupt headline, engage viewer to watch full video, tease key revelation' },
+    { name: 'Order Page',          url: 'order',        stepOrder: 2, type: 'Order Page',                  stage: 'BOFU', copyFocus: 'Capture video momentum, clear transaction, strong trust signals, no re-selling needed' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 3, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Confirm order, set access expectations, celebrate the decision' },
+  ],
+  webinar: [
+    { name: 'Registration Page',   url: 'register',     stepOrder: 1, type: 'Webinar Registration Page',   stage: 'TOFU', copyFocus: 'Intrigue, free training value promise, low-commitment live event sign-up' },
+    { name: 'Confirmation Page',   url: 'confirmation', stepOrder: 2, type: 'Confirmation Page',            stage: 'MOFU', copyFocus: 'Confirm registration, build anticipation and attendance intent, provide join details' },
+    { name: 'Webinar Replay Page', url: 'replay',       stepOrder: 3, type: 'Webinar Replay Page',          stage: 'MOFU', copyFocus: 'Deliver replay value, bridge education to offer, urgency on limited availability' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Celebrate action taken, set next expectations, optional community invite' },
+  ],
+  tripwire: [
+    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',  stage: 'TOFU', copyFocus: 'Irresistible free/low-cost entry offer, impulse action, capture the lead' },
+    { name: 'Sales Page',          url: 'sales',        stepOrder: 2, type: 'Sales Page',                  stage: 'MOFU', copyFocus: 'Core offer value stack, benefits-heavy, build desire and justify the low price' },
+    { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3, type: 'Upsell Page',                 stage: 'BOFU', copyFocus: 'Amplify purchase decision momentum, exclusive one-time upgrade while buyer is hot' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Celebrate, deliver access, set program expectations' },
+  ],
+  product_launch: [
+    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',  stage: 'TOFU', copyFocus: 'Build anticipation for launch, exclusive early-access feel, qualify warm prospects' },
+    { name: 'Sales Page',          url: 'sales',        stepOrder: 2, type: 'Sales Page',                  stage: 'MOFU', copyFocus: 'Full launch copy — story, proof, value stack, scarcity, FOMO, risk reversal' },
+    { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3, type: 'Upsell Page',                 stage: 'BOFU', copyFocus: 'Maximize cart value with complementary upgrade while buyer is in full purchase mode' },
+    { name: 'Downsell Page',       url: 'downsell',     stepOrder: 4, type: 'Downsell Page',               stage: 'BOFU', copyFocus: 'Recover declined upsell with a smaller-commitment, lower-price alternative' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 5, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Confirm purchase, celebrate decision, set access + onboarding expectations' },
+  ],
+  application: [
+    { name: 'Opt-in Page',         url: 'opt-in',       stepOrder: 1, type: 'Opt-in / Lead Capture Page',  stage: 'TOFU', copyFocus: 'Qualify and intrigue premium prospects, position exclusivity and selectivity of the program' },
+    { name: 'Application Page',    url: 'apply',        stepOrder: 2, type: 'Application Page',            stage: 'MOFU', copyFocus: 'Build desire through exclusivity, pre-qualify applicants, escalate commitment before the call' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 3, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Confirm application received, set expectations for review timeline and call scheduling' },
+  ],
+  free_shipping: [
+    { name: 'Sales Page',          url: 'free-offer',   stepOrder: 1, type: 'Sales Page',                  stage: 'TOFU', copyFocus: 'Irresistible free + pay-shipping offer, FOMO and impulse, minimize friction' },
+    { name: 'Order Page',          url: 'order',        stepOrder: 2, type: 'Order Page',                  stage: 'BOFU', copyFocus: 'Complete transaction, order bump offer, strong trust signals' },
+    { name: 'Upsell Page',         url: 'upsell',       stepOrder: 3, type: 'Upsell Page',                 stage: 'BOFU', copyFocus: 'Maximize order value while buyer is in active purchase mode, complementary product' },
+    { name: 'Thank You Page',      url: 'thank-you',    stepOrder: 4, type: 'Thank You Page',               stage: 'BOFU', copyFocus: 'Confirm order, set shipping expectations, deliver on the promise' },
+  ],
 };
+
+/**
+ * Resolves the correct page type, funnel stage (TOFU/MOFU/BOFU), and copy focus
+ * for a given page based on its funnel type and step position.
+ * Priority: funnel type map → name-based inference.
+ */
+function inferPageTypeFromFunnel(funnelType, stepOrder, pageName) {
+  const typePages = FUNNEL_TYPE_PAGES[funnelType];
+  if (typePages && typePages.length) {
+    // Exact match by stepOrder
+    const match = typePages.find(p => p.stepOrder === stepOrder);
+    if (match) return { type: match.type, stage: match.stage, copyFocus: match.copyFocus, roleName: match.name };
+    // Position-based fallback (stepOrder might be 0-indexed or non-sequential in GHL)
+    const idx = Math.min(Math.max(stepOrder - 1, 0), typePages.length - 1);
+    const p   = typePages[idx];
+    return { type: p.type, stage: p.stage, copyFocus: p.copyFocus, roleName: p.name };
+  }
+  // Name-based inference when funnel type unknown
+  return { type: inferPageType(pageName), stage: 'MOFU', copyFocus: 'Conversion-focused copy appropriate for this page type', roleName: pageName };
+}
 
 router.post('/generate-funnel', async (req, res) => {
   const { funnelId, funnelType, audience, colorScheme, extraContext, agentId } = req.body;
@@ -2958,6 +3317,15 @@ router.post('/generate-funnel', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Firebase not connected. Connect first.', detail: err.message });
   }
 
+  // Open SSE stream immediately so UI gets live feedback (including page creation progress)
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
   // List pages in the funnel
   let pages;
   try {
@@ -2969,40 +3337,35 @@ router.post('/generate-funnel', async (req, res) => {
     });
     pages = result?.funnelPages || result?.pages || result?.pageList || result?.list || result?.data
          || (Array.isArray(result) ? result : []);
+    // Unwrap nested array-like objects (e.g. { funnelPages: { list: [...] } })
+    if (pages && !Array.isArray(pages) && Array.isArray(pages.list))       pages = pages.list;
+    if (pages && !Array.isArray(pages) && Array.isArray(pages.funnelPages)) pages = pages.funnelPages;
   } catch (err) {
-    return res.status(502).json({ success: false, error: `Failed to list funnel pages: ${err.message}` });
+    send('error', { error: `Failed to list funnel pages: ${err.message}` });
+    return res.end();
   }
 
-  // If funnel has no pages, tell user which pages to create in GHL
+  // If funnel has no pages, instruct user to create blank pages in GHL first
   if (!Array.isArray(pages) || pages.length === 0) {
     const typePages = FUNNEL_TYPE_PAGES[funnelType] || FUNNEL_TYPE_PAGES.sales;
-    const pageNames = typePages.map((p, i) => `${i + 1}. ${p.name}`).join(', ');
-    return res.status(400).json({
-      success: false,
+    const pageList  = typePages.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
+    send('error', {
+      error: `This funnel has no pages yet. GHL does not allow creating pages via API — please create them manually first:\n\nIn GHL → Funnels → open your funnel → click "+ Add New Step" for each:\n${pageList}\n\nThen run Full Funnel again.`,
       needsPages: true,
-      error: `This funnel has no pages yet. Go to GHL → Funnels → open your funnel → add these pages: ${pageNames}. Then run Full Funnel again.`,
       pagesToCreate: typePages,
     });
+    return res.end();
   }
 
   // Sort by stepOrder
   pages.sort((a, b) => (a.stepOrder || 0) - (b.stepOrder || 0));
-
-  // Set up SSE so UI gets live per-page progress
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
-
-  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
   // Normalise page objects — GHL returns _id not id
   pages = pages.map(p => ({ ...p, id: p.id || p._id }));
 
   const aiFunnel = resolveAI(req, storedAiKeyFunnel);
   const provider = aiFunnel.isUserKey ? { name: aiFunnel.provider || 'user', model: 'user-key' } : (aiService.getProvider() || {});
-  const isGroq   = !aiFunnel.isUserKey && provider?.name === 'groq';
+  const isGroq   = aiFunnel.provider === 'groq' || (!aiFunnel.isUserKey && provider?.name === 'groq');
   const results  = [];
 
   send('log', { msg: `Using AI: ${provider?.name} (${provider?.model || 'claude-sonnet-4-6'})`, level: 'info' });
@@ -3015,10 +3378,15 @@ router.post('/generate-funnel', async (req, res) => {
   }
 
   for (let i = 0; i < pages.length; i++) {
-    const page     = pages[i];
-    const pageType = inferPageType(page.name || '');
-    send('page_start', { index: i, pageId: page.id, name: page.name, pageType });
-    send('log', { msg: `[${i+1}/${pages.length}] "${page.name}" — type: ${pageType}`, level: 'info' });
+    const page      = pages[i];
+    // Resolve page type, TOFU/MOFU/BOFU stage, and copy focus from funnel position
+    const pageInfo  = inferPageTypeFromFunnel(funnelType, page.stepOrder || (i + 1), page.name || '');
+    const pageType  = pageInfo.type;
+    const pageStage = pageInfo.stage;           // 'TOFU' | 'MOFU' | 'BOFU'
+    const pageFocus = pageInfo.copyFocus;       // AI copy angle for this page
+    const pageRole  = pageInfo.roleName;        // friendly page role label
+    send('page_start', { index: i, pageId: page.id, name: page.name, pageType, stage: pageStage });
+    send('log', { msg: `[${i+1}/${pages.length}] "${page.name}" → ${pageRole} | ${pageType} [${pageStage}]`, level: 'info' });
 
     // ── Step A: Read current page via Firebase backend to verify step ID ────
     send('log', { msg: `[${i+1}/${pages.length}] Reading current page from GHL...`, level: 'info' });
@@ -3051,28 +3419,48 @@ router.post('/generate-funnel', async (req, res) => {
     }
 
     const colors     = colorScheme || 'modern, professional — white, dark navy, and gold accents';
-    const palette2   = extractColors(colors);
+    // ── Template selection: pick the best design template BEFORE generating ─────
+    const design     = selectFunnelDesign(niche, offer);
+    const hasCustomColors = colors && /#[0-9A-Fa-f]{6}/i.test(colors);
+    const palette2   = hasCustomColors ? extractColors(colors) : design.palette;
+    // Attach gradient strings to palette so section builder can apply them
+    if (!hasCustomColors) {
+      palette2.heroGradient = design.palette.heroGradient;
+      palette2.ctaGradient  = design.palette.ctaGradient;
+    }
+    send('log', { msg: `Design template: "${design.name}" — ${design.emphasis}`, level: 'info' });
+
     const agentIntro = agentInfo ? `You are ${agentInfo.name}. ${agentInfo.persona || ''}\n${agentInfo.instructions}\n\n---\n\n` : '';
-    const imgKw      = (niche || 'business').toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').find(Boolean) || 'business';
     const randId     = () => Math.random().toString(36).slice(2, 10);
 
-    const imgSrc2      = `https://picsum.photos/seed/${imgKw}/800/450`;
-    const sectionPlan2 = getSectionPlan(pageType, imgSrc2, palette2);
+    const imgSeeds2    = buildImgSeeds(niche, offer);
+    const imgSrc2      = imgSeeds2[0];
+    const sectionPlan2 = getSectionPlan(pageType, imgSrc2, palette2, imgSeeds2);
 
-    // Groq system prompt — compact schema (token-limited)
-    const groqSysPrompt = `${agentIntro}You are a GHL funnel page JSON generator. Output ONLY valid JSON, no explanation.
-Root: {"sections":[...]}. IDs MUST be unique: {type}-${randId()} format.
-CRITICAL element type names: "heading","sub-heading","paragraph","button","bulletList","image". NO HTML in text. bulletList items = plain string array.
-Section children is a FLAT array of elements — NO row/column wrappers needed.
-Section: {"type":"section","name":"n","styles":{"backgroundColor":{"value":"#HEX"},"paddingTop":{"value":80,"unit":"px"},"paddingBottom":{"value":80,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"children":[FLAT_ELEMENTS_ARRAY]}
-Element examples:
-heading: {"type":"heading","tag":"h1","text":"Headline","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":52,"unit":"px"},"fontWeight":{"value":"700"}},"mobileStyles":{"fontSize":{"value":32,"unit":"px"}}}
-sub-heading: {"type":"sub-heading","text":"Sub","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":22,"unit":"px"}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
-paragraph: {"type":"paragraph","text":"Plain text. No HTML.","styles":{"color":{"value":"${palette2.bodyText}"},"fontSize":{"value":17,"unit":"px"}},"mobileStyles":{"fontSize":{"value":15,"unit":"px"}}}
-button: {"type":"button","text":"CTA Text","link":"#","styles":{"backgroundColor":{"value":"${palette2.primary}"},"color":{"value":"${palette2.buttonColor}"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":18,"unit":"px"},"paddingBottom":{"value":18,"unit":"px"},"paddingLeft":{"value":48,"unit":"px"},"paddingRight":{"value":48,"unit":"px"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
-bulletList: {"type":"bulletList","items":["Item 1","Item 2","Item 3"],"styles":{"color":{"value":"${palette2.bodyText}"},"fontSize":{"value":17,"unit":"px"}},"mobileStyles":{}}
-image: {"type":"image","src":"${imgSrc2}","alt":"image","styles":{}}
-COLORS: hero/CTA bg="${palette2.heroBg}" text="${palette2.heroText}", middle bg="${palette2.sectionBg}" text="${palette2.bodyText}", button="${palette2.primary}"`;
+    // Groq system prompt — compact but rich schema
+    const groqSysPrompt = `${agentIntro}You are a professional GHL funnel page JSON generator. Output ONLY valid JSON, no explanation, no markdown.
+Root object: {"sections":[...]}. IDs MUST be unique: use {type}-${randId()} format for every id field.
+CRITICAL element type names (exact): "heading","sub-heading","paragraph","button","bulletList","image". NO HTML in text fields. bulletList.items = array of plain strings ONLY.
+Section children = FLAT array of elements — NO "row" or "column" wrapper objects.
+
+Section schema: {"type":"section","name":"Name","styles":{"backgroundColor":{"value":"#HEX"},"paddingTop":{"value":100,"unit":"px"},"paddingBottom":{"value":100,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"}},"children":[...]}
+
+Element schemas — use EXACTLY these shapes, fill "text" field with real copy:
+heading(h1): {"type":"heading","tag":"h1","text":"REAL HEADLINE","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":56,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.1}},"mobileStyles":{"fontSize":{"value":34,"unit":"px"}}}
+heading(h2): {"type":"heading","tag":"h2","text":"REAL SECTION HEADLINE","styles":{"color":{"value":"${palette2.bodyText}"},"fontSize":{"value":38,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.2}},"mobileStyles":{"fontSize":{"value":26,"unit":"px"}}}
+sub-heading: {"type":"sub-heading","text":"REAL SUBHEAD","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":22,"unit":"px"},"fontWeight":{"value":"400"},"lineHeight":{"value":1.6}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
+paragraph: {"type":"paragraph","text":"REAL body text. Plain text only, no HTML.","styles":{"color":{"value":"${palette2.heroText}"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.75}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}
+button: {"type":"button","text":"REAL CTA TEXT","link":"#","styles":{"backgroundColor":{"value":"${palette2.primary}"},"color":{"value":"${palette2.buttonColor}"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":20,"unit":"px"},"paddingBottom":{"value":20,"unit":"px"},"paddingLeft":{"value":52,"unit":"px"},"paddingRight":{"value":52,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{"paddingLeft":{"value":32,"unit":"px"},"paddingRight":{"value":32,"unit":"px"}}}
+bulletList: {"type":"bulletList","items":["Real benefit 1","Real benefit 2","Real benefit 3"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"${palette2.bodyText}"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.8}},"mobileStyles":{}}
+image: {"type":"image","src":"${imgSrc2}","alt":"relevant alt text","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
+
+DESIGN RULES:
+- Hero and CTA sections: bg="${palette2.heroBg}", all text color="${palette2.heroText}"
+- Middle content sections: alternate bg="${palette2.sectionBg}" and "#FFFFFF", text color="${palette2.bodyText}"
+- Buttons always: bg="${palette2.primary}", color="${palette2.buttonColor}"
+- Write compelling, conversion-focused copy specific to the niche and offer — NO placeholders
+- Every section needs at least 3 children; hero needs at least 4
+- You MUST generate the exact number of sections specified in the user message — no more, no less`;
 
     // Full system prompt for Claude/OpenAI/Gemini — includes explicit schema and template sections
     const fullSysPrompt = `${agentIntro}You are an expert GoHighLevel funnel copywriter and page builder. Your job: take the section templates below and fill in compelling, niche-specific copy for each element.
@@ -3104,14 +3492,26 @@ CRITICAL RULES:
     const systemPrompt = isGroq ? groqSysPrompt : fullSysPrompt;
     const sectionsNote = isGroq ? sectionPlan2.groq : sectionPlan2.full;
 
+    const stageLabel = pageStage === 'TOFU'
+      ? 'awareness and curiosity — the reader may not know your offer yet; attract and engage'
+      : pageStage === 'MOFU'
+      ? 'education and desire — the reader is warm; build authority, address objections, and deepen desire'
+      : 'conversion and commitment — the reader is ready to buy; drive action with urgency and trust';
+
     const userPrompt = isGroq
-      ? `Generate a native GHL ${pageType} JSON (page ${i + 1} of ${pages.length}).
-Page name: "${page.name}" | Niche: ${niche} | Offer: ${offer} | Audience: ${audience || 'General prospects'}
-Color scheme: ${colors}
-${extraContext ? `Extra: ${extraContext}\n` : ''}
+      ? `Generate a native GHL ${pageType} JSON (page ${i + 1} of ${pages.length} — ${pageStage} stage).
+Page role: "${pageRole}" | Copy focus: ${pageFocus}
+Niche: ${niche} | Offer: ${offer} | Audience: ${audience || 'General prospects'}
+Write ${stageLabel}.
+${extraContext ? `Extra context: ${extraContext}\n` : ''}
 ${sectionsNote}
 Output ONLY the JSON object.`
-      : `You are filling in real copy for a ${pageType} (page ${i + 1} of ${pages.length}).
+      : `You are filling in real copy for a ${pageType} — this is page ${i + 1} of ${pages.length} in the funnel.
+
+FUNNEL POSITION:
+- Page role: ${pageRole}
+- Funnel stage: ${pageStage} — ${stageLabel}
+- Copy focus: ${pageFocus}
 
 BUSINESS CONTEXT:
 - Niche: ${niche}
@@ -3121,8 +3521,9 @@ BUSINESS CONTEXT:
 ${extraContext ? `- Additional notes: ${extraContext}` : ''}
 
 INSTRUCTIONS:
-Take the section templates below and fill in compelling, conversion-focused copy for this specific niche and offer.
-Replace every [PLACEHOLDER] with real copy. Keep all styles/colors exactly as specified. Every section must have real elements in "children".
+Take the section templates below and fill in compelling copy for this specific niche, offer, and funnel stage.
+Every section must serve the page's goal: ${pageFocus}
+Replace every [PLACEHOLDER] with real copy. Keep all styles/colors exactly as specified.
 
 ${sectionsNote}
 
@@ -3132,44 +3533,139 @@ Return ONLY the completed JSON object with real copy. No explanations.`;
     console.log(`[FunnelBuilder] systemPrompt for "${page.name}" (first 400 chars):\n${systemPrompt.slice(0, 400)}`);
     send('log', { msg: `[${i+1}/${pages.length}] Calling AI (${provider?.name}) to generate content...`, level: 'info' });
 
+    // Count leaf elements for validation
+    const countLeaves = (nodes) => {
+      let n = 0;
+      for (const node of (nodes || [])) {
+        if (!node || typeof node !== 'object') continue;
+        const ch = node.children || node.elements || [];
+        if (node.type === 'row' || node.type === 'column' || node.type === 'section') n += countLeaves(ch);
+        else n += 1;
+      }
+      return n;
+    };
+
     let pageJson;
     let genError;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        if (attempt > 1) {
-          send('log', { msg: `[${i+1}/${pages.length}] Retry attempt ${attempt}/3...`, level: 'warn' });
-          await new Promise(r => setTimeout(r, isGroq ? 5000 : 1000));
-        }
-        const retryNote = attempt > 1 ? '\n\nIMPORTANT: Your previous response had invalid JSON. Output ONLY a raw JSON object, no text before or after, no code fences, no comments.' : '';
-        const raw = (await aiFunnel.generate(systemPrompt, userPrompt + retryNote, { maxTokens: isGroq ? 1500 : 8000 })).trim();
-        send('log', { msg: `[${i+1}/${pages.length}] Raw AI (${raw.length} chars): ${raw.slice(0, 120)}`, level: 'info' });
-        pageJson  = parseJsonSafe(raw);
-        if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('Missing sections array');
-        const secSummary = pageJson.sections.map((s, si) => {
-          const kids = s.children || s.elements || [];
-          return `s${si+1}:"${s.name||'?'}" kids=${kids.length} types=[${kids.map(k=>k?.type||'?').slice(0,4).join(',')}]`;
-        }).join(' | ');
-        send('log', { msg: `[${i+1}/${pages.length}] Parsed: ${secSummary}`, level: 'info' });
-        // Count total leaf elements across all sections using the same flatten logic as ghlPageBuilder
-        const countLeaves = (nodes) => {
-          let n = 0;
-          for (const node of (nodes || [])) {
-            if (!node || typeof node !== 'object') continue;
-            const ch = node.children || node.elements || [];
-            if (node.type === 'row' || node.type === 'column' || node.type === 'section') n += countLeaves(ch);
-            else n += 1;
+
+    if (isGroq) {
+      // ── Groq: generate one section at a time to avoid the model stopping early ──
+      // Build per-section prompts from the plan's sections array
+      const planSections = sectionPlan2._sections; // raw section objects from the plan
+      const groqSingleSys = `You are a GHL funnel section generator. Output ONLY a single valid JSON section object.
+Return EXACTLY this structure — a raw JSON object, no array wrapper, no markdown:
+{"type":"section","name":"NAME","styles":{"backgroundColor":{"value":"#HEX"},"paddingTop":{"value":100,"unit":"px"},"paddingBottom":{"value":100,"unit":"px"},"paddingLeft":{"value":20,"unit":"px"},"paddingRight":{"value":20,"unit":"px"}},"mobileStyles":{"paddingTop":{"value":60,"unit":"px"},"paddingBottom":{"value":60,"unit":"px"}},"children":[FLAT_ELEMENT_ARRAY]}
+Element types: "heading","sub-heading","paragraph","button","bulletList","image"
+heading: {"type":"heading","tag":"h1","text":"TEXT","styles":{"color":{"value":"#HEX"},"fontSize":{"value":56,"unit":"px"},"fontWeight":{"value":"700"},"lineHeight":{"value":1.1}},"mobileStyles":{"fontSize":{"value":34,"unit":"px"}}}
+sub-heading: {"type":"sub-heading","text":"TEXT","styles":{"color":{"value":"#HEX"},"fontSize":{"value":22,"unit":"px"},"lineHeight":{"value":1.6}},"mobileStyles":{"fontSize":{"value":18,"unit":"px"}}}
+paragraph: {"type":"paragraph","text":"TEXT","styles":{"color":{"value":"#HEX"},"fontSize":{"value":18,"unit":"px"},"lineHeight":{"value":1.75}},"mobileStyles":{"fontSize":{"value":16,"unit":"px"}}}
+button: {"type":"button","text":"TEXT","link":"#","styles":{"backgroundColor":{"value":"${palette2.primary}"},"color":{"value":"${palette2.buttonColor}"},"fontSize":{"value":18,"unit":"px"},"fontWeight":{"value":"700"},"paddingTop":{"value":20,"unit":"px"},"paddingBottom":{"value":20,"unit":"px"},"paddingLeft":{"value":52,"unit":"px"},"paddingRight":{"value":52,"unit":"px"},"borderRadius":{"value":6,"unit":"px"}},"mobileStyles":{}}
+bulletList: {"type":"bulletList","items":["Real item 1","Real item 2"],"icon":{"name":"check","unicode":"f00c","fontFamily":"Font Awesome 5 Free"},"styles":{"color":{"value":"#HEX"},"fontSize":{"value":18,"unit":"px"}},"mobileStyles":{}}
+image: {"type":"image","src":"URL","alt":"alt","styles":{"width":{"value":100,"unit":"%"},"borderRadius":{"value":8,"unit":"px"}},"mobileStyles":{}}
+RULES: All text fields must be real copy (no placeholders). bulletList.items = plain string array. No HTML in text.`;
+
+      const generatedSections = [];
+      // Use plan sections if available, otherwise fall back to the groq description split
+      const sectionTemplates = planSections && planSections.length
+        ? planSections
+        : sectionPlan2.groq.split('\n').filter(l => /^\d+\./.test(l)).map((l, idx) => ({ name: `Section ${idx+1}`, _desc: l }));
+
+      for (let si = 0; si < sectionTemplates.length; si++) {
+        const tmpl = sectionTemplates[si];
+        const isHero = si === 0;
+        const isLast = si === sectionTemplates.length - 1;
+        const secBgColor   = isHero || isLast ? palette2.heroBg : (si % 2 === 0 ? '#FFFFFF' : palette2.sectionBg);
+        const secTextColor = (isHero || isLast) ? palette2.heroText : palette2.bodyText;
+        const secGradient  = isHero ? (palette2.heroGradient || null) : isLast ? (palette2.ctaGradient || null) : null;
+
+        // Middle sections get a two-column hint: include an image element
+        const isMidSection = !isHero && !isLast;
+        const secDesc = tmpl._desc || sectionPlan2.groq.split('\n').find(l => l.startsWith(`${si+1}.`)) || `Section ${si+1}`;
+        const imgHint = isMidSection
+          ? `\nLAYOUT: Two-column section — include ONE image element (src="${imgSeeds2[si % imgSeeds2.length]}") plus heading, paragraph/bulletList, and optionally a button.`
+          : `\nImage URL (use if adding an image): "${imgSeeds2[si % imgSeeds2.length]}"`;
+        const gradHint = secGradient
+          ? `\nGRADIENT: Add "backgroundGradient":{"value":"${secGradient}"} inside this section's styles object.`
+          : '';
+        const tmplName = tmpl.name || `Section ${si+1}`;
+        const singleUserPrompt = `Generate section ${si+1} of ${sectionTemplates.length} for a "${pageType}" page.
+This is page ${i+1} of ${pages.length} in a ${funnelType || 'sales'} funnel — ${pageStage} stage.
+Page role: ${pageRole} | Page goal: ${pageFocus}
+Section name: "${tmplName}" — the JSON "name" field MUST be exactly "${tmplName}".
+Design theme: ${design.name} | Niche: ${niche} | Offer: ${offer} | Audience: ${audience || 'General prospects'}
+Section structure and elements: ${secDesc}
+Background: "${secBgColor}" | Text: "${secTextColor}" | Button: "${palette2.primary}"${gradHint}${imgHint}
+Write ${stageLabel}. Make copy specific to this section's role ("${tmplName}"). No placeholders. Output ONLY the raw JSON section object.`;
+
+        let secResult = null;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            if (attempt > 1) await new Promise(r => setTimeout(r, 3000));
+            const raw = (await aiFunnel.generate(groqSingleSys, singleUserPrompt, { maxTokens: 1500 })).trim();
+            // The response should be a section object, wrap in sections array for parseJsonSafe
+            const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+            const parsed = JSON.parse(cleaned.startsWith('{') ? cleaned : `{${cleaned.split('{').slice(1).join('{')}}`);
+            if (parsed.type === 'section' && Array.isArray(parsed.children)) {
+              // Always use the template section name so sections are correctly labelled
+              parsed.name = tmplName;
+              secResult = parsed;
+              break;
+            }
+          } catch (e) {
+            send('log', { msg: `[${i+1}/${pages.length}] Section ${si+1} attempt ${attempt} failed: ${(e?.message||String(e)).slice(0,60)}`, level: 'warn' });
           }
-          return n;
-        };
-        const totalEls = pageJson.sections.reduce((sum, s) => sum + countLeaves(s.children || s.elements || []), 0);
-        if (totalEls === 0) throw new Error('AI returned sections with no elements — retrying');
-        send('log', { msg: `[${i+1}/${pages.length}] AI generated ${pageJson.sections.length} sections, ${totalEls} elements`, level: 'success' });
-        genError = null;
-        break;
-      } catch (err) {
-        genError = err;
-        send('log', { msg: `[${i+1}/${pages.length}] AI attempt ${attempt} failed: ${(err?.message || String(err)).slice(0, 80)}`, level: 'warn' });
+        }
+
+        if (secResult) {
+          generatedSections.push(secResult);
+          const kids = secResult.children || [];
+          send('log', { msg: `[${i+1}/${pages.length}] Section ${si+1} "${secResult.name}" — ${kids.length} elements`, level: 'info' });
+        } else {
+          // Fallback: use the template section with placeholder copy stripped
+          send('log', { msg: `[${i+1}/${pages.length}] Section ${si+1} failed — using template fallback`, level: 'warn' });
+          if (tmpl.type === 'section') generatedSections.push(tmpl);
+        }
       }
+
+      if (generatedSections.length > 0) {
+        pageJson = { sections: generatedSections };
+        genError = null;
+      } else {
+        genError = new Error('No sections generated by Groq');
+      }
+
+    } else {
+      // ── Non-Groq (Claude/OpenAI/Gemini): single call with full template ──────
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          if (attempt > 1) {
+            send('log', { msg: `[${i+1}/${pages.length}] Retry attempt ${attempt}/3...`, level: 'warn' });
+            await new Promise(r => setTimeout(r, 1000));
+          }
+          const retryNote = attempt > 1 ? '\n\nIMPORTANT: Your previous response had invalid JSON. Output ONLY a raw JSON object, no text before or after, no code fences, no comments.' : '';
+          const raw = (await aiFunnel.generate(systemPrompt, userPrompt + retryNote, { maxTokens: 8000 })).trim();
+          send('log', { msg: `[${i+1}/${pages.length}] Raw AI (${raw.length} chars): ${raw.slice(0, 120)}`, level: 'info' });
+          pageJson  = parseJsonSafe(raw);
+          if (!pageJson.sections || !Array.isArray(pageJson.sections)) throw new Error('Missing sections array');
+          const totalEls = pageJson.sections.reduce((sum, s) => sum + countLeaves(s.children || s.elements || []), 0);
+          if (totalEls === 0) throw new Error('AI returned sections with no elements — retrying');
+          genError = null;
+          break;
+        } catch (err) {
+          genError = err;
+          send('log', { msg: `[${i+1}/${pages.length}] AI attempt ${attempt} failed: ${(err?.message || String(err)).slice(0, 80)}`, level: 'warn' });
+        }
+      }
+    }
+
+    if (pageJson) {
+      const secSummary = pageJson.sections.map((s, si) => {
+        const kids = s.children || s.elements || [];
+        return `s${si+1}:"${s.name||'?'}" kids=${kids.length} types=[${kids.map(k=>k?.type||'?').slice(0,4).join(',')}]`;
+      }).join(' | ');
+      send('log', { msg: `[${i+1}/${pages.length}] Parsed: ${secSummary}`, level: 'info' });
+      const totalEls = pageJson.sections.reduce((sum, s) => sum + countLeaves(s.children || s.elements || []), 0);
+      send('log', { msg: `[${i+1}/${pages.length}] AI generated ${pageJson.sections.length} sections, ${totalEls} elements`, level: 'success' });
     }
     if (genError) {
       send('log', { msg: `[${i+1}/${pages.length}] All AI attempts failed — skipping page`, level: 'error' });

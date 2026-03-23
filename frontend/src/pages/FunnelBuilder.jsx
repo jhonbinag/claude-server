@@ -69,8 +69,44 @@ export default function FunnelBuilder() {
   const [fbStatus,      setFbStatus]      = useState(null);
   const [fbLoading,     setFbLoading]     = useState(true);
 
+  // Top-level builder mode: 'funnel' | 'email' | 'website'
+  const [builderMode,   setBuilderMode]   = useState('funnel');
+
   // Tab: 'text' | 'design' | 'funnel'
   const [genMode,       setGenMode]       = useState('text');
+
+  // Email campaign state
+  const [emailName,     setEmailName]     = useState('');
+  const [emailSubject,  setEmailSubject]  = useState('');
+  const [emailType,     setEmailType]     = useState('promotional');
+  const [emailNiche,    setEmailNiche]    = useState('');
+  const [emailOffer,    setEmailOffer]    = useState('');
+  const [emailAudience, setEmailAudience] = useState('');
+  const [emailTone,     setEmailTone]     = useState('professional and warm');
+  const [emailCtaText,  setEmailCtaText]  = useState('Get Started');
+  const [emailCtaUrl,   setEmailCtaUrl]   = useState('');
+  const [emailBrand,    setEmailBrand]    = useState('');
+  const [emailGenerating, setEmailGenerating] = useState(false);
+  const [emailResult,   setEmailResult]   = useState(null);
+  const [emailLog,      setEmailLog]      = useState([]);
+
+  // Website builder state
+  const [websites,        setWebsites]        = useState([]);
+  const [websitesLoading, setWebsitesLoading] = useState(false);
+  const [webWebsiteId,    setWebWebsiteId]    = useState('');
+  const [webWebsiteName,  setWebWebsiteName]  = useState('');
+  const [webPageName,     setWebPageName]     = useState('');
+  const [webPageType,     setWebPageType]     = useState('landing');
+  const [webPageUrl,      setWebPageUrl]      = useState('');
+  const [webNiche,        setWebNiche]        = useState('');
+  const [webOffer,        setWebOffer]        = useState('');
+  const [webAudience,     setWebAudience]     = useState('');
+  const [webBrand,        setWebBrand]        = useState('');
+  const [webColorScheme,  setWebColorScheme]  = useState('');
+  const [webNotes,        setWebNotes]        = useState('');
+  const [webGenerating,   setWebGenerating]   = useState(false);
+  const [webResult,       setWebResult]       = useState(null);
+  const [webLog,          setWebLog]          = useState([]);
 
   // Connect panel
   const [token,         setToken]         = useState('');
@@ -381,6 +417,7 @@ export default function FunnelBuilder() {
         headers: { 'Content-Type': 'application/json', 'x-location-id': locationId, ...aiKeyHeaders },
         body:    JSON.stringify({
           funnelId:    funnelId.trim(),
+          funnelType:  'lead_gen',
           niche:       niche.trim(),
           offer:       offer.trim(),
           audience:    audience.trim() || undefined,
@@ -393,11 +430,6 @@ export default function FunnelBuilder() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        if (errData.needsPages && errData.pagesToCreate) {
-          setNeedsPages(errData.pagesToCreate);
-          setGenerating(false);
-          return;
-        }
         throw new Error(errData.error || `Server error ${res.status}`);
       }
 
@@ -419,6 +451,9 @@ export default function FunnelBuilder() {
             const d = JSON.parse(dataLine);
             if (eventLine === 'log') {
               setLogLines(prev => [...prev, { msg: d.msg, level: d.level || 'info', ts: Date.now() }]);
+            } else if (eventLine === 'error') {
+              if (d.needsPages) setNeedsPages(d.pagesToCreate || []);
+              else toast(setToastState, d.error || 'Generation failed.', 'error');
             } else if (eventLine === 'start') {
               setFunnelPages(d.pages.map(p => ({ ...p, status: 'pending' })));
             } else if (eventLine === 'page_start') {
@@ -438,6 +473,143 @@ export default function FunnelBuilder() {
       toast(setToastState, err.message || 'Generation failed.', 'error');
     }
     setGenerating(false);
+  }
+
+  // ── Email Campaign Generator ──────────────────────────────────────────────
+  async function handleEmailGenerate(e) {
+    e.preventDefault();
+    if (!emailNiche.trim()) { toast(setToastState, 'Niche/topic is required.', 'error'); return; }
+    setEmailGenerating(true);
+    setEmailResult(null);
+    setEmailLog([]);
+
+    try {
+      const res = await fetch('/email-builder/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-location-id': apiKey },
+        body: JSON.stringify({
+          campaignName: emailName || emailNiche + ' Campaign',
+          subject:      emailSubject,
+          emailType,
+          niche:        emailNiche,
+          offer:        emailOffer,
+          audience:     emailAudience,
+          tone:         emailTone,
+          ctaText:      emailCtaText,
+          ctaUrl:       emailCtaUrl,
+          brandName:    emailBrand,
+        }),
+      });
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast(setToastState, j.error || `Error ${res.status}`, 'error');
+        setEmailGenerating(false);
+        return;
+      }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        for (const part of parts) {
+          const evtLine  = part.match(/^event: (.+)$/m)?.[1];
+          const dataLine = part.match(/^data: (.+)$/m)?.[1];
+          if (!evtLine || !dataLine) continue;
+          try {
+            const d = JSON.parse(dataLine);
+            if (evtLine === 'step')    { setEmailLog(l => [...l, { msg: d.label, level: 'info' }]); }
+            if (evtLine === 'content') { setEmailLog(l => [...l, { msg: `Subject: ${d.subject}`, level: 'success' }]); }
+            if (evtLine === 'done')    { setEmailResult(d); }
+            if (evtLine === 'error')   { setEmailLog(l => [...l, { msg: `Error: ${d.error}`, level: 'error' }]); toast(setToastState, d.error, 'error'); }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      toast(setToastState, err.message, 'error');
+    }
+    setEmailGenerating(false);
+  }
+
+  // ── Website Builder ───────────────────────────────────────────────────────
+  async function loadWebsites() {
+    setWebsitesLoading(true);
+    try {
+      const res = await fetch('/website-builder/websites', { headers: { 'x-location-id': apiKey } });
+      const j = await res.json();
+      setWebsites(j.websites || []);
+      if ((j.websites || []).length === 0) toast(setToastState, 'No websites found for this location.', 'error');
+    } catch (err) {
+      toast(setToastState, 'Could not load websites: ' + err.message, 'error');
+    }
+    setWebsitesLoading(false);
+  }
+
+  async function handleWebGenerate(e) {
+    e.preventDefault();
+    if (!webNiche.trim() && !webOffer.trim()) { toast(setToastState, 'Enter a niche or offer.', 'error'); return; }
+    setWebGenerating(true);
+    setWebResult(null);
+    setWebLog([]);
+
+    try {
+      const res = await fetch('/website-builder/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-location-id': apiKey },
+        body: JSON.stringify({
+          websiteId:   webWebsiteId,
+          websiteName: webWebsiteName,
+          pageName:    webPageName || (webPageType.charAt(0).toUpperCase() + webPageType.slice(1) + ' Page'),
+          pageType:    webPageType,
+          pageUrl:     webPageUrl,
+          niche:       webNiche,
+          offer:       webOffer,
+          audience:    webAudience,
+          brand:       webBrand,
+          colorScheme: webColorScheme,
+          extraNotes:  webNotes,
+        }),
+      });
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast(setToastState, j.error || `Error ${res.status}`, 'error');
+        setWebGenerating(false);
+        return;
+      }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        for (const part of parts) {
+          const evtLine  = part.match(/^event: (.+)$/m)?.[1];
+          const dataLine = part.match(/^data: (.+)$/m)?.[1];
+          if (!evtLine || !dataLine) continue;
+          try {
+            const d = JSON.parse(dataLine);
+            if (evtLine === 'step')    { setWebLog(l => [...l, { msg: d.label, level: 'info' }]); }
+            if (evtLine === 'content') { setWebLog(l => [...l, { msg: `Generated ${d.sections?.length || 0} sections`, level: 'success' }]); }
+            if (evtLine === 'warn')    { setWebLog(l => [...l, { msg: d.message, level: 'warn' }]); }
+            if (evtLine === 'done')    { setWebResult(d); }
+            if (evtLine === 'error')   { setWebLog(l => [...l, { msg: `Error: ${d.error}`, level: 'error' }]); toast(setToastState, d.error, 'error'); }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      toast(setToastState, err.message, 'error');
+    }
+    setWebGenerating(false);
   }
 
   // ── Full Funnel Generator ─────────────────────────────────────────────────
@@ -525,7 +697,34 @@ export default function FunnelBuilder() {
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
-        <Header icon="🏗️" title="Native Funnel Builder" subtitle="AI-powered GHL page generation" />
+        <Header icon="🏗️" title="Native Builder" subtitle="AI-powered GHL funnel pages, email campaigns & websites" />
+
+        {/* Builder mode switcher */}
+        <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 flex-wrap" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(0,0,0,0.2)' }}>
+          {[
+            { key: 'funnel',  label: '🏗️ Funnel Builder' },
+            { key: 'email',   label: '📧 Email Campaign' },
+            { key: 'website', label: '🌐 Website Builder' },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setBuilderMode(key)}
+              className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={{
+                background: builderMode === key ? '#4f46e5' : 'rgba(255,255,255,0.05)',
+                color:      builderMode === key ? '#fff'    : '#9ca3af',
+                border: `1px solid ${builderMode === key ? '#4f46e5' : 'rgba(255,255,255,0.08)'}`,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+          <span className="text-xs text-gray-600 ml-1">
+            {builderMode === 'email' ? 'AI generates native GHL email template → saved as draft'
+              : builderMode === 'website' ? 'AI generates website page copy → creates page in GHL'
+              : 'AI generates native GHL funnel pages'}
+          </span>
+        </div>
 
         {/* Toast */}
         {toastState && (
@@ -538,6 +737,183 @@ export default function FunnelBuilder() {
         )}
 
         <div className="flex-1 overflow-y-auto p-4 max-w-4xl mx-auto w-full">
+
+          {/* ── EMAIL CAMPAIGN MODE ───────────────────────────────────────── */}
+          {builderMode === 'email' && (
+            <div className="space-y-5">
+              {/* Step 1: Connect (same as funnel) */}
+              <section className="glass rounded-xl p-5">
+                <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
+                  <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center" style={{ background: fbStatus?.connected ? '#14532d' : '#1e3a5f' }}>1</span>
+                  Connect GHL Builder
+                  {fbStatus?.connected && <span className="ml-2 text-xs text-green-400 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400" />Connected</span>}
+                </h2>
+                {!fbStatus?.connected && (
+                  <p className="text-xs text-gray-400">Connect your GHL Firebase token in the Funnel Builder tab first, then come back here to generate email campaigns.</p>
+                )}
+                {fbStatus?.connected && <p className="text-xs text-green-600">Firebase token active — ready to create email templates.</p>}
+              </section>
+
+              {/* Step 2: Email Campaign Form */}
+              <section
+                className="glass rounded-xl p-5"
+                style={{ opacity: fbStatus?.connected ? 1 : 0.45, pointerEvents: fbStatus?.connected ? 'auto' : 'none' }}
+              >
+                <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
+                  <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center" style={{ background: '#1e3a5f' }}>2</span>
+                  📧 Generate Email Campaign
+                </h2>
+
+                <form onSubmit={handleEmailGenerate} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Campaign Name</label>
+                      <input value={emailName} onChange={e => setEmailName(e.target.value)} placeholder="e.g. Summer Promo Launch" className="field w-full text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Brand Name</label>
+                      <input value={emailBrand} onChange={e => setEmailBrand(e.target.value)} placeholder="e.g. FitLife Co." className="field w-full text-sm" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Niche / Topic <span className="text-red-500">*</span></label>
+                    <input value={emailNiche} onChange={e => setEmailNiche(e.target.value)} placeholder="e.g. fitness coaching, SaaS onboarding" className="field w-full text-sm" />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Subject Line Hint</label>
+                    <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="AI will refine this — or leave blank" className="field w-full text-sm" />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1.5">Email Type</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { key: 'promotional',  label: '🎯 Promotional' },
+                        { key: 'welcome',      label: '👋 Welcome' },
+                        { key: 'newsletter',   label: '📰 Newsletter' },
+                        { key: 'followup',     label: '🔁 Follow-up' },
+                        { key: 'reengagement', label: '💤 Re-engagement' },
+                        { key: 'announcement', label: '📢 Announcement' },
+                      ].map(t => (
+                        <button
+                          key={t.key}
+                          type="button"
+                          onClick={() => setEmailType(t.key)}
+                          className="text-xs py-2 rounded-xl transition-all"
+                          style={{
+                            background: emailType === t.key ? 'rgba(99,102,241,0.18)' : 'rgba(255,255,255,0.03)',
+                            border: `1px solid ${emailType === t.key ? 'rgba(99,102,241,0.55)' : 'rgba(255,255,255,0.06)'}`,
+                            color: emailType === t.key ? '#a5b4fc' : '#9ca3af',
+                          }}
+                        >{t.label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Offer / Product</label>
+                      <input value={emailOffer} onChange={e => setEmailOffer(e.target.value)} placeholder="e.g. 12-week program" className="field w-full text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Target Audience</label>
+                      <input value={emailAudience} onChange={e => setEmailAudience(e.target.value)} placeholder="e.g. women 30-45" className="field w-full text-sm" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">CTA Button Text</label>
+                      <input value={emailCtaText} onChange={e => setEmailCtaText(e.target.value)} placeholder="Get Started" className="field w-full text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">CTA URL</label>
+                      <input value={emailCtaUrl} onChange={e => setEmailCtaUrl(e.target.value)} placeholder="https://…" className="field w-full text-sm" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Tone</label>
+                    <select value={emailTone} onChange={e => setEmailTone(e.target.value)} className="field w-full text-sm">
+                      {['professional and warm','direct and urgent','friendly and casual','authoritative and educational','empathetic and motivational'].map(t => (
+                        <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={emailGenerating || !emailNiche.trim()}
+                    className="btn-primary w-full py-3 text-sm"
+                  >
+                    {emailGenerating ? '⏳ Generating email…' : '📧 Generate Email Campaign Draft'}
+                  </button>
+                </form>
+
+                {/* Live log */}
+                {emailLog.length > 0 && (
+                  <div className="mt-4 rounded-xl p-3 space-y-1" style={{ background: 'rgba(0,0,0,0.3)', fontFamily: 'monospace' }}>
+                    {emailLog.map((l, i) => (
+                      <p key={i} className="text-xs" style={{ color: l.level === 'success' ? '#6ee7b7' : l.level === 'error' ? '#f87171' : '#9ca3af' }}>
+                        {l.level === 'success' ? '✓' : l.level === 'error' ? '✗' : '›'} {l.msg}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                {/* Result */}
+                {emailResult && (
+                  <div className="mt-4 rounded-xl p-4 space-y-3" style={{
+                    background: emailResult.success ? 'rgba(16,185,129,0.07)' : 'rgba(251,191,36,0.07)',
+                    border: `1px solid ${emailResult.success ? 'rgba(16,185,129,0.2)' : 'rgba(251,191,36,0.2)'}`,
+                  }}>
+                    <p className="text-sm font-semibold" style={{ color: emailResult.success ? '#6ee7b7' : '#fbbf24' }}>
+                      {emailResult.success ? '✅ Email draft created in GHL!' : '⚠️ Email content generated — GHL save failed'}
+                    </p>
+
+                    {emailResult.subject && (
+                      <p className="text-gray-300 text-xs"><span className="text-gray-500">Subject: </span>{emailResult.subject || emailResult.content?.subject}</p>
+                    )}
+
+                    {emailResult.editUrl && (
+                      <a href={emailResult.editUrl} target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 text-xs font-medium">
+                        ↗ Open in GHL Email Builder
+                      </a>
+                    )}
+
+                    {!emailResult.success && emailResult.needsReinstall && (
+                      <div className="mt-2 p-3 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+                        <p className="text-xs text-red-400 font-semibold mb-1">Action required: Reinstall the app</p>
+                        <p className="text-xs text-gray-400">The <code className="text-yellow-300">emails/builder.write</code> scope was added recently. Go to your GHL marketplace, uninstall and reinstall the GTM AI Toolkit app, then try again.</p>
+                      </div>
+                    )}
+
+                    {!emailResult.success && emailResult.templateJson && (
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(JSON.stringify(emailResult.templateJson, null, 2)); toast(setToastState, 'Template JSON copied!', 'success'); }}
+                        className="mt-1 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
+                        style={{ background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.4)' }}>
+                        📋 Copy Template JSON
+                      </button>
+                    )}
+
+                    {emailResult.content && (
+                      <div className="mt-2 p-3 rounded-lg text-xs space-y-1" style={{ background: 'rgba(0,0,0,0.3)' }}>
+                        <p className="text-white font-semibold">{emailResult.content.headline}</p>
+                        <p className="text-gray-400 line-clamp-3">{emailResult.content.body?.split('\n')[0]}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {/* ── FUNNEL BUILDER MODE ───────────────────────────────────────── */}
+          {builderMode === 'funnel' && <>
 
           {/* ── AI API Key ───────────────────────────────────────────────── */}
           <section className="glass rounded-xl p-5 mb-5">
@@ -770,7 +1146,7 @@ export default function FunnelBuilder() {
             {genMode === 'design' && (
               <form onSubmit={handleAnalyzeDesign} className="space-y-4">
                 <p className="text-xs text-gray-400">
-                  Analyze a Figma link or upload a screenshot — AI Vision will extract all elements, text, images, and colors and recreate them as native GHL sections.
+                  Upload a design screenshot or paste a Figma link to generate native GHL funnel pages from your design.
                 </p>
 
                 {/* Mode toggle */}
@@ -884,7 +1260,7 @@ export default function FunnelBuilder() {
 
                     <div className="rounded-lg px-3 py-2 text-xs text-indigo-300 flex gap-2" style={{ background: 'rgba(99,102,241,0.08)' }}>
                       <span>ℹ️</span>
-                      <span>We export your Figma frame as PNG and extract all text + colors — then reconstruct them as native GHL sections.</span>
+                      <span>Paste a link to a single frame <em>or</em> a file with multiple frames — each frame maps to one funnel page. Images are fetched from Figma, uploaded to your GHL media library, and injected as real image blocks. Text, colors, backgrounds, and layout are all reconstructed as native GHL sections.</span>
                     </div>
                   </div>
                 )}
@@ -1154,6 +1530,15 @@ export default function FunnelBuilder() {
 
             <form onSubmit={handleGenerate} className="space-y-4">
 
+              {/* Lead gen funnel badge */}
+              <div className="rounded-lg px-3 py-2 flex items-center gap-2" style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}>
+                <span className="text-indigo-400 text-sm">📋</span>
+                <div>
+                  <p className="text-xs font-semibold text-indigo-300">Lead Gen Funnel — 2 pages</p>
+                  <p className="text-xs text-gray-500">Generates: <strong className="text-gray-400">1. Opt-in Page</strong> (TOFU) → <strong className="text-gray-400">2. Thank You Page</strong> (BOFU)</p>
+                </div>
+              </div>
+
               {/* Funnel ID */}
               <div>
                 <label className="block text-xs text-gray-400 mb-1">
@@ -1166,7 +1551,7 @@ export default function FunnelBuilder() {
                   placeholder="e.g. abc123xyz"
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
                 />
-                <p className="text-xs text-gray-600 mt-1">AI will auto-generate all pages in this funnel from your brief.</p>
+                <p className="text-xs text-gray-600 mt-1">The funnel must have 2 blank pages already created in GHL (any name).</p>
               </div>
 
               {/* Niche + offer */}
@@ -1288,16 +1673,23 @@ export default function FunnelBuilder() {
                 {generating ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                    Generating all pages…
+                    Generating Opt-in + Thank You pages…
                   </span>
-                ) : '🏗️ Generate All Funnel Pages'}
+                ) : '📋 Generate Lead Gen Funnel'}
               </button>
 
               {/* Needs pages instruction */}
               {needsPages && (
                 <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)' }}>
                   <p className="text-xs font-semibold text-yellow-400">⚠️ This funnel has no pages yet</p>
-                  <p className="text-xs text-gray-400">Go to <strong className="text-white">GHL → Funnels → open your funnel</strong>, add pages, then <strong className="text-white">open each in the native builder once</strong> to initialize it. Then click Generate again.</p>
+                  <p className="text-xs text-gray-400">
+                    Go to <strong className="text-white">GHL → Funnels → open your funnel</strong> and add <strong className="text-white">2 blank steps</strong>:
+                  </p>
+                  <div className="text-xs text-gray-300 space-y-0.5 pl-2">
+                    <p>1. <strong>Opt-in Page</strong> — any name, any URL slug</p>
+                    <p>2. <strong>Thank You Page</strong> — any name, any URL slug</p>
+                  </div>
+                  <p className="text-xs text-gray-500">Then click Generate again — the system will fill both pages automatically.</p>
                 </div>
               )}
 
@@ -1447,6 +1839,279 @@ export default function FunnelBuilder() {
               ))}
             </div>
           </section>
+
+          </> /* end builderMode === 'funnel' */}
+
+          {/* ── WEBSITE BUILDER MODE ──────────────────────────────────────── */}
+          {builderMode === 'website' && (
+            <div className="space-y-5">
+
+              {/* Step 1: Pick website */}
+              <section className="glass rounded-xl p-5">
+                <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
+                  <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center" style={{ background: '#1e3a5f' }}>1</span>
+                  Select Website
+                </h2>
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-400 mb-1">Your GHL Websites</label>
+                    <select
+                      value={webWebsiteId}
+                      onChange={e => {
+                        const w = websites.find(x => x.id === e.target.value);
+                        setWebWebsiteId(e.target.value);
+                        setWebWebsiteName(w?.name || '');
+                      }}
+                      className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                      style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                    >
+                      <option value="">— select a website —</option>
+                      {websites.map(w => (
+                        <option key={w.id} value={w.id}>{w.name || w.title || w.id}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={loadWebsites}
+                    disabled={websitesLoading}
+                    className="px-4 py-2 rounded-lg text-xs font-medium text-white"
+                    style={{ background: '#1e3a5f', border: '1px solid rgba(99,102,241,0.3)', whiteSpace: 'nowrap' }}
+                  >
+                    {websitesLoading ? '⏳ Loading…' : '↻ Load Websites'}
+                  </button>
+                </div>
+                {!webWebsiteId && (
+                  <p className="text-xs text-gray-500 mt-2">Click "Load Websites" to fetch your GHL websites. You can also skip this and get AI copy without auto-saving to GHL.</p>
+                )}
+                {webWebsiteId && (
+                  <p className="text-xs text-green-500 mt-2">✓ Selected: <span className="text-green-400 font-medium">{webWebsiteName || webWebsiteId}</span> — page will be created automatically.</p>
+                )}
+              </section>
+
+              {/* Step 2: Page details form */}
+              <section className="glass rounded-xl p-5">
+                <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
+                  <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center" style={{ background: '#1e3a5f' }}>2</span>
+                  Page Details
+                </h2>
+                <form onSubmit={handleWebGenerate} className="space-y-4">
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Page Name</label>
+                      <input
+                        value={webPageName}
+                        onChange={e => setWebPageName(e.target.value)}
+                        placeholder="e.g. Home Page"
+                        className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">URL Path</label>
+                      <input
+                        value={webPageUrl}
+                        onChange={e => setWebPageUrl(e.target.value)}
+                        placeholder="/about (optional)"
+                        className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-2">Page Type</label>
+                    <div className="grid grid-cols-5 gap-2">
+                      {[
+                        { v: 'home',      l: '🏠 Home' },
+                        { v: 'landing',   l: '🎯 Landing' },
+                        { v: 'about',     l: '👤 About' },
+                        { v: 'services',  l: '⚙️ Services' },
+                        { v: 'pricing',   l: '💰 Pricing' },
+                        { v: 'contact',   l: '📞 Contact' },
+                        { v: 'portfolio', l: '🖼️ Portfolio' },
+                        { v: 'faq',       l: '❓ FAQ' },
+                        { v: 'blog',      l: '📝 Blog' },
+                        { v: 'custom',    l: '✏️ Custom' },
+                      ].map(({ v, l }) => (
+                        <button
+                          key={v} type="button"
+                          onClick={() => setWebPageType(v)}
+                          className="py-2 px-1 rounded-lg text-xs font-medium text-center transition-all"
+                          style={{
+                            background: webPageType === v ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.05)',
+                            border: `1px solid ${webPageType === v ? '#6366f1' : 'rgba(255,255,255,0.08)'}`,
+                            color: webPageType === v ? '#a5b4fc' : '#6b7280',
+                          }}
+                        >
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Business / Niche <span className="text-red-400">*</span></label>
+                      <input
+                        value={webNiche}
+                        onChange={e => setWebNiche(e.target.value)}
+                        placeholder="e.g. Online fitness coaching"
+                        className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Brand / Business Name</label>
+                      <input
+                        value={webBrand}
+                        onChange={e => setWebBrand(e.target.value)}
+                        placeholder="e.g. FitPro Elite"
+                        className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Offer / Service</label>
+                    <input
+                      value={webOffer}
+                      onChange={e => setWebOffer(e.target.value)}
+                      placeholder="e.g. 12-week 1-on-1 coaching program for busy professionals"
+                      className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                      style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Target Audience</label>
+                      <input
+                        value={webAudience}
+                        onChange={e => setWebAudience(e.target.value)}
+                        placeholder="e.g. Busy professionals 35-55"
+                        className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Color Scheme</label>
+                      <input
+                        value={webColorScheme}
+                        onChange={e => setWebColorScheme(e.target.value)}
+                        placeholder="e.g. dark navy & gold, clean white"
+                        className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Extra Notes / Tone</label>
+                    <textarea
+                      value={webNotes}
+                      onChange={e => setWebNotes(e.target.value)}
+                      placeholder="Any specific messaging, tone, sections you want, or content to include…"
+                      rows={2}
+                      className="w-full rounded-lg px-3 py-2 text-sm text-white resize-none"
+                      style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={webGenerating}
+                    className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all"
+                    style={{ background: webGenerating ? '#374151' : 'linear-gradient(135deg, #6366f1, #8b5cf6)', cursor: webGenerating ? 'not-allowed' : 'pointer' }}
+                  >
+                    {webGenerating ? '⏳ Generating page…' : '🌐 Generate Website Page'}
+                  </button>
+                </form>
+
+                {/* Log */}
+                {webLog.length > 0 && (
+                  <div className="mt-4 rounded-xl p-3 space-y-1" style={{ background: 'rgba(0,0,0,0.3)', fontFamily: 'monospace' }}>
+                    {webLog.map((l, i) => (
+                      <p key={i} className="text-xs" style={{ color: l.level === 'success' ? '#6ee7b7' : l.level === 'error' ? '#f87171' : l.level === 'warn' ? '#fbbf24' : '#9ca3af' }}>
+                        {l.level === 'success' ? '✓' : l.level === 'error' ? '✗' : l.level === 'warn' ? '⚠' : '›'} {l.msg}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                {/* Result */}
+                {webResult && (
+                  <div className="mt-4 rounded-xl p-4 space-y-4" style={{
+                    background: webResult.success ? 'rgba(16,185,129,0.07)' : 'rgba(99,102,241,0.07)',
+                    border: `1px solid ${webResult.success ? 'rgba(16,185,129,0.2)' : 'rgba(99,102,241,0.2)'}`,
+                  }}>
+                    <p className="text-sm font-semibold" style={{ color: webResult.success ? '#6ee7b7' : '#a5b4fc' }}>
+                      {webResult.success ? `✅ "${webResult.pageName}" created in GHL!` : `✍️ Page copy generated${webResult.noWebsite ? ' — no website selected' : ''}`}
+                    </p>
+
+                    {webResult.editUrl && (
+                      <a href={webResult.editUrl} target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 text-xs font-medium">
+                        ↗ Open in GHL Website Builder
+                      </a>
+                    )}
+
+                    {webResult.needsReinstall && (
+                      <div className="p-3 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+                        <p className="text-xs text-red-400 font-semibold mb-1">Action required: Reinstall the app</p>
+                        <p className="text-xs text-gray-400">The <code className="text-yellow-300">websites.write</code> scope was added recently. Reinstall the GTM AI Toolkit to grant it, then retry.</p>
+                      </div>
+                    )}
+
+                    {/* AI-generated sections preview */}
+                    {webResult.content?.sections && (
+                      <div className="space-y-3">
+                        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Generated Page Sections</p>
+                        {webResult.content.sections.map((s, i) => (
+                          <div key={i} className="p-3 rounded-lg" style={{ background: 'rgba(0,0,0,0.3)' }}>
+                            <p className="text-xs text-indigo-400 font-semibold uppercase mb-1">{s.type?.replace(/_/g, ' ')}</p>
+                            {s.headline && <p className="text-sm text-white font-semibold mb-1">{s.headline}</p>}
+                            {s.subheadline && <p className="text-xs text-gray-400 mb-2">{s.subheadline}</p>}
+                            {s.body && <p className="text-xs text-gray-400 line-clamp-3">{s.body}</p>}
+                            {s.ctaText && (
+                              <span className="mt-2 inline-block px-3 py-1 rounded text-xs font-medium text-white" style={{ background: webResult.content?.suggestedColors?.primary || '#6366f1' }}>
+                                {s.ctaText}
+                              </span>
+                            )}
+                            {s.items && (
+                              <div className="mt-2 space-y-1">
+                                {s.items.slice(0, 3).map((item, j) => (
+                                  <p key={j} className="text-xs text-gray-400">
+                                    {item.icon && <span className="mr-1">{item.icon}</span>}
+                                    <span className="text-gray-300 font-medium">{item.title || item.author}: </span>
+                                    {item.body || item.quote || item.result}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                            {s.bullets && (
+                              <ul className="mt-2 space-y-0.5">
+                                {s.bullets.slice(0, 4).map((b, j) => <li key={j} className="text-xs text-gray-400">• {b}</li>)}
+                              </ul>
+                            )}
+                          </div>
+                        ))}
+
+                        {webResult.content?.seoTitle && (
+                          <div className="p-3 rounded-lg" style={{ background: 'rgba(0,0,0,0.3)' }}>
+                            <p className="text-xs text-indigo-400 font-semibold uppercase mb-1">SEO</p>
+                            <p className="text-xs text-gray-300 font-medium">{webResult.content.seoTitle}</p>
+                            <p className="text-xs text-gray-500 mt-1">{webResult.content.metaDescription}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            </div>
+          )} {/* end builderMode === 'website' */}
 
         </div>
       </div>

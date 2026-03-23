@@ -56,7 +56,7 @@ function extractColors(colorScheme) {
   } else if (isDark(hexes[0])) {
     heroBg   = hexes[0];
     primary  = hexes[1] || '#F59E0B';
-    bodyText = '#FFFFFF';
+    bodyText = '#111827';  // always dark for light content sections
     sectionBg = '#F9FAFB';
   } else {
     heroBg   = '#0F172A';
@@ -262,7 +262,7 @@ function makeRow(id, colIds) {
   };
 }
 
-function makeColumn(id, childIds, align = 'center') {
+function makeColumn(id, childIds, align = 'center', widthPct = 100) {
   return {
     child: childIds,
     class: { borderRadius: { value: 'radius0' }, borders: { value: 'noBorder' } },
@@ -276,7 +276,7 @@ function makeColumn(id, childIds, align = 'center') {
       paddingLeft:   { unit: 'px', value: '15' },
       paddingRight:  { unit: 'px', value: '15' },
       paddingTop:    { unit: 'px', value: '20' },
-      width:         { unit: '%', value: '100' },
+      width:         { unit: '%', value: String(widthPct) },
     },
     tagName: 'c-column',
     title:   'Column',
@@ -324,7 +324,7 @@ function buildGhlNativeElement(el, textAlign = 'center') {
           desktopFontSize: { unit: 'px', value: String(dSize) },
           mobileFontSize:  { unit: 'px', value: String(mSize) },
           nodeId:          `c-heading-${id}`,
-          text:            { value: el.text || '' },
+          text:            { value: el.text || el.value || '' },
           typography:      { value: 'var(--headlinefont)' },
           visibility:      { value: { hideDesktop: false, hideMobile: false } },
         },
@@ -357,7 +357,7 @@ function buildGhlNativeElement(el, textAlign = 'center') {
           desktopFontSize: { unit: 'px', value: String(fSize) },
           mobileFontSize:  { unit: 'px', value: String(Math.max(fSize - 4, 16)) },
           nodeId:          `c-sub-heading-${id}`,
-          text:            { value: el.text || '' },
+          text:            { value: el.text || el.value || '' },
           typography:      { value: 'var(--headlinefont)' },
           visibility:      { value: { hideDesktop: false, hideMobile: false } },
         },
@@ -389,7 +389,7 @@ function buildGhlNativeElement(el, textAlign = 'center') {
           desktopFontSize: { unit: 'px', value: String(fSize) },
           mobileFontSize:  { unit: 'px', value: String(Math.max(fSize - 2, 14)) },
           nodeId:          `c-paragraph-${id}`,
-          text:            { value: el.text || '' },
+          text:            { value: el.text || el.value || '' },
           typography:      { value: 'var(--contentfont)' },
           visibility:      { value: { hideDesktop: false, hideMobile: false } },
         },
@@ -414,7 +414,8 @@ function buildGhlNativeElement(el, textAlign = 'center') {
     }
 
     case 'bulletList': {
-      const items = (el.items || []).map(i => typeof i === 'string' ? i : (i.text || String(i)));
+      const rawItems = el.items || (el.children || []).map(c => c.text || c.value || String(c));
+      const items = rawItems.map(i => typeof i === 'string' ? i : (i.text || i.value || String(i)));
       const htmlList = '<ul>' + items.map(i => `<li>${i}</li>`).join('') + '</ul>';
       const fSize    = el.styles?.fontSize?.value || 17;
       const id       = `paragraph-${sid()}`;
@@ -464,7 +465,7 @@ function buildGhlNativeElement(el, textAlign = 'center') {
           mobileFontSize:  { unit: 'px', value: String(Math.max(fSize - 2, 14)) },
           nodeId:          `c-button-${id}`,
           subText:         { value: '' },
-          text:            { value: el.text || 'Get Started' },
+          text:            { value: el.text || el.value || 'Get Started' },
           typography:      { value: 'var(--contentfont)' },
           visibility:      { value: { hideDesktop: false, hideMobile: false } },
         },
@@ -561,48 +562,78 @@ function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId
   const total   = aiSections.length;
 
   return aiSections.map((aiSection, idx) => {
-    const secId    = `section-${sid()}`;
-    const rowId    = `row-${sid()}`;
-    const colId    = `col-${sid()}`;
+    const secId = `section-${sid()}`;
 
     // Section background: use AI value if present, otherwise apply smart defaults
-    // based on position: hero=brand dark, middle sections alternate, last=dark CTA
-    const aiBg     = aiSection.styles?.backgroundColor?.value;
-    const isFirst  = idx === 0;
-    const isLast   = idx === total - 1;
-    const isMiddle = !isFirst && !isLast;
-    const bgColor  = aiBg || (isFirst ? colors.heroBg : isLast ? colors.ctaBg : idx % 2 === 1 ? colors.sectionBg : '#FFFFFF');
+    const aiBg    = aiSection.styles?.backgroundColor?.value;
+    const isFirst = idx === 0;
+    const isLast  = idx === total - 1;
+    const bgColor = aiBg || (isFirst ? colors.heroBg : isLast ? colors.ctaBg : idx % 2 === 1 ? colors.sectionBg : '#FFFFFF');
 
-    const padTop   = String(aiSection.styles?.paddingTop?.value    || (isFirst || isLast ? 100 : 80));
-    const padBot   = String(aiSection.styles?.paddingBottom?.value || (isFirst || isLast ? 100 : 80));
+    const padTop = String(aiSection.styles?.paddingTop?.value    || (isFirst || isLast ? 100 : 80));
+    const padBot = String(aiSection.styles?.paddingBottom?.value || (isFirst || isLast ? 100 : 80));
 
-    // Text alignment: hero+CTA centered, middle sections left-aligned
-    const textAlign = isMiddle ? 'left' : 'center';
-
-    // Extract leaf elements from AI section (regardless of nesting).
-    // Check children first, then elements (alternative AI field name), then rows.
-    const rawNodes   = aiSection.children || aiSection.elements || aiSection.rows || [];
-    try { console.log(`[GHLPageBuilder] Section ${idx+1} keys=[${Object.keys(aiSection).join(',')}] children.len=${(aiSection.children||aiSection.elements||[]).length} rawNodes.len=${rawNodes.length} sample=${JSON.stringify(aiSection.children||aiSection.elements||[]).slice(0,150)}`); } catch(e) { console.log(`[GHLPageBuilder] Section ${idx+1} inspect failed:`, e.message); }
-    const leafElems  = flattenElements(rawNodes);
+    const rawNodes  = aiSection.children || aiSection.elements || aiSection.rows || [];
+    const leafElems = flattenElements(rawNodes);
     console.log(`[GHLPageBuilder] Section ${idx + 1} (${aiSection.name || ''}): ${leafElems.length} elements (${leafElems.map(e => e.type).join(', ')})`);
 
-    // Build GHL native leaf elements
-    const nativeElems = leafElems.map(e => buildGhlNativeElement(e, textAlign));
-    const leafIds     = nativeElems.map(e => e.id);
+    // ── Layout decision ─────────────────────────────────────────────────────────
+    // Hero (first) and CTA (last): single centered column
+    // Middle sections with image + other elements: two-column split (image | text)
+    // Middle sections without image: single left-aligned column
+    const imageElems = leafElems.filter(e => e.type === 'image');
+    const otherElems = leafElems.filter(e => e.type !== 'image');
+    const useTwoCol  = !isFirst && !isLast && imageElems.length > 0 && otherElems.length >= 2;
 
-    // Build column and row
-    const col = makeColumn(colId, leafIds, textAlign);
-    const row = makeRow(rowId, [colId]);
+    let rowObjects    = [];  // row + col elements to push into flat elements[]
+    let allNative     = [];  // leaf GHL elements
 
-    // Section metaData
+    if (useTwoCol) {
+      // Two-column: alternate image side — even idx = image left, odd idx = image right
+      const imgLeft  = (idx % 2 === 0);
+      const imgColId = `col-${sid()}`;
+      const txtColId = `col-${sid()}`;
+      const rowId    = `row-${sid()}`;
+
+      const imgNative = imageElems.map(e => buildGhlNativeElement(e, 'center'));
+      const txtNative = otherElems.map(e => buildGhlNativeElement(e, 'left'));
+      allNative = [...imgNative, ...txtNative];
+
+      const imgCol = makeColumn(imgColId, imgNative.map(e => e.id), 'center', 41.67);
+      const txtCol = makeColumn(txtColId, txtNative.map(e => e.id), 'left',   58.33);
+      const colOrder = imgLeft ? [imgColId, txtColId] : [txtColId, imgColId];
+      const row = makeRow(rowId, colOrder);
+
+      rowObjects = imgLeft ? [row, imgCol, txtCol] : [row, txtCol, imgCol];
+
+    } else {
+      // Single column — centered for hero/CTA, left-aligned for middle sections
+      const textAlign = (isFirst || isLast) ? 'center' : 'left';
+      const colId     = `col-${sid()}`;
+      const rowId     = `row-${sid()}`;
+
+      allNative = leafElems.map(e => buildGhlNativeElement(e, textAlign));
+      const col = makeColumn(colId, allNative.map(e => e.id), textAlign, 100);
+      const row = makeRow(rowId, [colId]);
+      rowObjects = [row, col];
+    }
+
+    // Gradient background — if the AI section specifies one, apply it
+    const gradient = aiSection.styles?.backgroundGradient?.value || null;
+
+    // Section metaData — child = the row ID(s) this section contains
+    const rowId    = rowObjects[0]?.id || `row-${sid()}`;
     const metaData = {
       child:   [rowId],
       class:   { borderRadius: { value: 'radius0' }, borders: { value: 'noBorder' } },
-      extra:   defaultExtra(),
+      extra:   defaultExtra({
+        ...(gradient ? { backgroundGradient: { value: gradient } } : {}),
+      }),
       id:      secId,
       meta:    'section',
       styles:  {
-        backgroundColor: { value: bgColor },
+        backgroundColor: { value: gradient ? 'transparent' : bgColor },
+        ...(gradient ? { backgroundImage: { value: gradient } } : {}),
         borderStyle:     { value: 'solid' },
         borderWidth:     { unit: 'px', value: 3 },
         paddingBottom:   { unit: 'px', value: padBot },
@@ -618,9 +649,9 @@ function convertSectionsToGHL(aiSections, pageId = '', funnelId = '', locationId
     return {
       id:          secId,
       metaData,
-      elements:    [row, col, ...nativeElems],
+      elements:    [...rowObjects, ...allNative],
       sequence:    idx,
-      pageId:      pageId  || '',
+      pageId:      pageId    || '',
       funnelId:    funnelId  || '',
       locationId:  locationId || '',
       general: {

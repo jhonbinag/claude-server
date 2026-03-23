@@ -1,133 +1,241 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp }         from '../context/AppContext';
 import { useStreamFetch } from '../hooks/useStreamFetch';
-import AuthGate     from '../components/AuthGate';
-import Header       from '../components/Header';
-import StreamOutput from '../components/StreamOutput';
-import Spinner      from '../components/Spinner';
+import AuthGate  from '../components/AuthGate';
+import Header    from '../components/Header';
+import Spinner   from '../components/Spinner';
 
-const AD_TYPES = [
-  { value: 'facebook',   label: '📘 Facebook Ads',    desc: 'Campaigns, ad sets & creatives' },
-  { value: 'google',     label: '🔎 Google Ads',       desc: 'Search, display & video' },
-  { value: 'instagram',  label: '📸 Instagram Ads',    desc: 'Stories, reels & feed' },
-  { value: 'linkedin',   label: '💼 LinkedIn Ads',     desc: 'Sponsored content & InMail' },
-];
-
-const OBJECTIVES = [
-  'Brand Awareness', 'Lead Generation', 'Website Traffic',
-  'Conversions', 'Engagement', 'App Installs', 'Video Views',
+const FORMATS = [
+  { value: 'feed',  label: '🖼️ Feed',  desc: '1200×628' },
+  { value: 'story', label: '📱 Story', desc: '1080×1920' },
+  { value: 'reel',  label: '🎬 Reel',  desc: '1080×1920' },
 ];
 
 const TONES = [
-  'Professional', 'Friendly', 'Urgent', 'Inspirational',
-  'Humorous', 'Educational', 'Authoritative',
+  { value: 'direct_response', label: '🎯 Direct Response', desc: 'Hard-hitting, conversion-first' },
+  { value: 'emotional',       label: '❤️ Emotional',       desc: 'Empathy & transformation' },
+  { value: 'pas',             label: '🔥 PAS Framework',   desc: 'Problem → Agitate → Solution' },
+  { value: 'storytelling',    label: '📖 Storytelling',    desc: 'Narrative, relatable journey' },
+  { value: 'curiosity',       label: '🤔 Curiosity',       desc: 'Pattern interrupt, open loops' },
+  { value: 'social_proof',    label: '⭐ Social Proof',    desc: 'Results, numbers, testimonials' },
+  { value: 'fomo',            label: '⏰ FOMO',            desc: 'Urgency & scarcity' },
+  { value: 'educational',     label: '🎓 Educational',     desc: 'Authority, how-to, value-first' },
 ];
 
-const TEMPLATES = [
-  {
-    name: '🛍️ Product Launch',
-    adType: 'facebook', objective: 'Conversions', tone: 'Urgent',
-    product: 'New SaaS Product', audience: 'Marketing professionals aged 25-45',
-    budget: '50', variants: '3', extra: 'Include a limited-time offer and strong CTA.',
-  },
-  {
-    name: '🎓 Lead Gen Course',
-    adType: 'facebook', objective: 'Lead Generation', tone: 'Educational',
-    product: 'Online Marketing Course', audience: 'Small business owners interested in digital marketing',
-    budget: '30', variants: '3', extra: 'Emphasize transformation and results from past students.',
-  },
-  {
-    name: '🏪 Local Business',
-    adType: 'instagram', objective: 'Brand Awareness', tone: 'Friendly',
-    product: 'Local Restaurant / Service Business', audience: 'People within 10 miles of [city], ages 18-55',
-    budget: '20', variants: '2', extra: 'Highlight community involvement and local values.',
-  },
-  {
-    name: '💼 B2B SaaS',
-    adType: 'linkedin', objective: 'Lead Generation', tone: 'Professional',
-    product: 'B2B Software Solution', audience: 'C-suite executives and department heads at companies with 50+ employees',
-    budget: '100', variants: '2', extra: 'Focus on ROI, efficiency gains, and enterprise features.',
-  },
+const QUICK_NICHES = [
+  '🏋️ Fitness Coaching', '💰 Make Money Online', '🏠 Real Estate',
+  '💆 Health & Wellness', '📚 Online Courses', '🛍️ eCommerce',
 ];
 
-function applyEvent(prev, evtType, data) {
-  if (evtType === 'text') {
-    const last = prev[prev.length - 1];
-    if (last?.type === 'text') {
-      return [...prev.slice(0, -1), { ...last, text: last.text + data.text }];
-    }
-    return [...prev, { type: 'text', text: data.text }];
-  }
-  if (evtType === 'tool_call')   return [...prev, { type: 'tool_call',   name: data.name,   input:  data.input }];
-  if (evtType === 'tool_result') return [...prev, { type: 'tool_result', name: data.name,   result: data.result }];
-  if (evtType === 'done')        return [...prev, { type: 'done',  turns: data.turns, toolCallCount: data.toolCallCount }];
-  if (evtType === 'error')       return [...prev, { type: 'error', error: data.error }];
-  return prev;
+// ─── Ad Card ─────────────────────────────────────────────────────────────────
+
+function AdCard({ ad, index }) {
+  const [expanded, setExpanded] = useState(false);
+  const { copy } = ad;
+  if (!copy) return null;
+
+  return (
+    <div
+      className="rounded-2xl overflow-hidden flex flex-col"
+      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+    >
+      {/* Image placeholder */}
+      <div
+        className="flex flex-col items-center justify-center gap-1 flex-shrink-0"
+        style={{ background: 'rgba(0,0,0,0.25)', height: 90, borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+      >
+        <span style={{ fontSize: 22 }}>🖼️</span>
+        <p className="text-xs text-gray-600">Creative placeholder</p>
+      </div>
+
+      {/* Card body */}
+      <div className="flex flex-col flex-1 p-3 gap-2">
+        {/* Badge row */}
+        <div className="flex items-center justify-between gap-1">
+          <span className="text-xs font-bold text-indigo-300 uppercase tracking-wider">Ad #{index + 1}</span>
+          <span
+            className="text-xs px-2 py-0.5 rounded-full truncate"
+            style={{ background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', maxWidth: 100 }}
+          >
+            {copy.angle || 'direct'}
+          </span>
+        </div>
+
+        {/* Headline */}
+        <p className="text-sm font-bold text-white leading-snug">{copy.headline}</p>
+
+        {/* Primary text */}
+        <p
+          className="text-xs text-gray-400 leading-relaxed whitespace-pre-line"
+          style={{
+            display: '-webkit-box',
+            WebkitLineClamp: expanded ? 'unset' : 3,
+            WebkitBoxOrient: 'vertical',
+            overflow: expanded ? 'visible' : 'hidden',
+          }}
+        >
+          {copy.primaryText}
+        </p>
+
+        {copy.primaryText?.length > 100 && (
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="text-xs text-left"
+            style={{ color: '#818cf8' }}
+          >
+            {expanded ? '▲ less' : '▼ more'}
+          </button>
+        )}
+
+        {/* CTA */}
+        <div className="mt-auto pt-1">
+          <span
+            className="inline-block px-3 py-1 rounded-lg text-xs font-semibold"
+            style={{ background: '#1877f2', color: '#fff' }}
+          >
+            {copy.callToAction || 'Learn More'}
+          </span>
+        </div>
+
+        {/* Why it works */}
+        {copy.whyItWorks && (
+          <div
+            className="text-xs px-2.5 py-2 rounded-xl leading-snug"
+            style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.15)', color: '#6ee7b7' }}
+          >
+            💡 {copy.whyItWorks}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
-function buildPrompt({ adType, objective, tone, product, audience, budget, variants, extra }) {
-  const platform = AD_TYPES.find(t => t.value === adType)?.label || adType;
-  return `Generate ${variants} ${platform} ad variants for the following campaign:
+// ─── Analysis Card ────────────────────────────────────────────────────────────
 
-Product/Service: ${product}
-Target Audience: ${audience}
-Campaign Objective: ${objective}
-Tone: ${tone}
-Daily Budget: $${budget}
-
-For each variant provide:
-1. Headline (max 40 chars)
-2. Primary Text / Body copy (max 125 chars for feed, 90 for stories)
-3. Call-to-Action button text
-4. Image/creative direction (describe what the visual should look like)
-5. Targeting suggestions (interests, behaviours, demographics)
-
-${extra ? `Additional requirements: ${extra}` : ''}
-
-Format each variant clearly as "Variant 1:", "Variant 2:", etc. with all elements labelled.`;
+function AnalysisCard({ analysis }) {
+  const [open, setOpen] = useState(false);
+  if (!analysis) return null;
+  return (
+    <div
+      className="rounded-2xl overflow-hidden mb-3"
+      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
+    >
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="text-sm font-semibold text-white">📊 Market Research Insights</span>
+        <span className="text-gray-500 text-xs">{open ? '▲ collapse' : '▼ expand'}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 grid grid-cols-2 gap-4 text-xs">
+          {analysis.summary && <div className="col-span-2 text-gray-400 italic">{analysis.summary}</div>}
+          {analysis.topHooks?.length > 0 && (
+            <div>
+              <p className="text-gray-500 uppercase tracking-wider mb-1.5">Top Hooks</p>
+              <ul className="space-y-1">{analysis.topHooks.map((h, i) => <li key={i} className="text-gray-300">• {h}</li>)}</ul>
+            </div>
+          )}
+          {analysis.painPoints?.length > 0 && (
+            <div>
+              <p className="text-gray-500 uppercase tracking-wider mb-1.5">Pain Points</p>
+              <ul className="space-y-1">{analysis.painPoints.map((p, i) => <li key={i} className="text-gray-300">• {p}</li>)}</ul>
+            </div>
+          )}
+          {analysis.emotionalTriggers?.length > 0 && (
+            <div>
+              <p className="text-gray-500 uppercase tracking-wider mb-1.5">Emotional Triggers</p>
+              <ul className="space-y-1">{analysis.emotionalTriggers.map((t, i) => <li key={i} className="text-gray-300">• {t}</li>)}</ul>
+            </div>
+          )}
+          {analysis.ctaPatterns?.length > 0 && (
+            <div>
+              <p className="text-gray-500 uppercase tracking-wider mb-1.5">CTA Patterns</p>
+              <ul className="space-y-1">{analysis.ctaPatterns.map((c, i) => <li key={i} className="text-gray-300">• {c}</li>)}</ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
+
+// ─── Step Progress ────────────────────────────────────────────────────────────
+
+function StepProgress({ step }) {
+  if (!step) return null;
+  const pct = Math.round((step.step / step.total) * 100);
+  return (
+    <div className="mb-3 px-1">
+      <div className="flex justify-between text-xs text-gray-500 mb-1.5">
+        <span>{step.label}</span>
+        <span>{step.step}/{step.total}</span>
+      </div>
+      <div className="h-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.06)' }}>
+        <div className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, background: 'linear-gradient(90deg,#6366f1,#8b5cf6)' }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function AdsGenerator() {
-  const { isAuthenticated, isAuthLoading, apiKey, integrations } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey } = useApp();
   const { isRunning, stream, stop } = useStreamFetch();
 
-  const [adType,    setAdType]    = useState('facebook');
-  const [objective, setObjective] = useState('Lead Generation');
-  const [tone,      setTone]      = useState('Professional');
-  const [product,   setProduct]   = useState('');
-  const [audience,  setAudience]  = useState('');
-  const [budget,    setBudget]    = useState('50');
-  const [variants,  setVariants]  = useState('3');
-  const [extra,     setExtra]     = useState('');
-  const [messages,  setMessages]  = useState([]);
-  const [mobileTab, setMobileTab] = useState('form'); // 'form' | 'output'
+  const [keywords,       setKeywords]       = useState('');
+  const [competitorPage, setCompetitorPage] = useState('');
+  const [offer,          setOffer]          = useState('');
+  const [targetAudience, setTargetAudience] = useState('');
+  const [brandVoice,     setBrandVoice]     = useState('');
+  const [tone,           setTone]           = useState('direct_response');
+  const [numVariations,  setNumVariations]  = useState(8);
+  const [format,         setFormat]         = useState('feed');
 
-  const fbEnabled = (integrations || []).some(i => i.key === 'facebook_ads' && i.enabled);
-  const aiEnabled = (integrations || []).some(i => i.key === 'openai' && i.enabled);
+  const [step,     setStep]     = useState(null);
+  const [analysis, setAnalysis] = useState(null);
+  const [ads,      setAds]      = useState([]);
+  const [libInfo,  setLibInfo]  = useState(null);
+  const [error,    setError]    = useState(null);
+  const [warnings, setWarnings] = useState([]);
+  const [done,     setDone]     = useState(false);
+  const [doneInfo, setDoneInfo] = useState(null);
+
+  const adsRef = useRef([]);
+
+  const reset = () => {
+    setStep(null); setAnalysis(null); setAds([]); setLibInfo(null);
+    setError(null); setWarnings([]); setDone(false); setDoneInfo(null);
+    adsRef.current = [];
+  };
 
   const generate = useCallback(async () => {
-    if (!product.trim() || !audience.trim() || isRunning) return;
-    setMessages([]);
-    setMobileTab('output'); // auto-switch to output on mobile
-
-    const taskPrompt = buildPrompt({ adType, objective, tone, product, audience, budget, variants, extra });
-    const allowedIntegrations = ['openai', ...(fbEnabled ? ['facebook_ads'] : [])];
+    if (!keywords.trim() || isRunning) return;
+    reset();
 
     await stream(
-      '/claude/task',
-      { task: taskPrompt, allowedIntegrations },
-      (evtType, data) => setMessages(prev => applyEvent(prev, evtType, data)),
+      '/ads/generate',
+      { keywords: keywords.trim(), competitorPage: competitorPage.trim() || undefined, offer, targetAudience, brandVoice, tone, numVariations, format },
+      (evtType, data) => {
+        if (evtType === 'step')        { setStep(data); }
+        if (evtType === 'library_ads') { setLibInfo(data); }
+        if (evtType === 'analysis')    { setAnalysis(data); }
+        if (evtType === 'warn')        { setWarnings(w => [...w, data.msg]); }
+        if (evtType === 'ad_copy') {
+          adsRef.current = [...adsRef.current];
+          adsRef.current[data.index] = { index: data.index, copy: data.copy };
+          setAds([...adsRef.current]);
+        }
+        if (evtType === 'done')  { setDone(true); setDoneInfo(data); setStep(null); }
+        if (evtType === 'error') { setError(data.error); setStep(null); }
+      },
       apiKey,
     );
-  }, [adType, objective, tone, product, audience, budget, variants, extra, isRunning, stream, apiKey, fbEnabled]);
-
-  const applyTemplate = tpl => {
-    setAdType(tpl.adType); setObjective(tpl.objective); setTone(tpl.tone);
-    setProduct(tpl.product); setAudience(tpl.audience); setBudget(tpl.budget);
-    setVariants(tpl.variants); setExtra(tpl.extra || '');
-    setMessages([]);
-  };
+  }, [keywords, competitorPage, offer, targetAudience, brandVoice, tone, numVariations, format, isRunning, stream, apiKey]);
 
   if (isAuthLoading)    return <Spinner />;
   if (!isAuthenticated) return (
@@ -136,227 +244,244 @@ export default function AdsGenerator() {
     </AuthGate>
   );
 
-  const tabBtn = (tab, label) => (
-    <button
-      onClick={() => setMobileTab(tab)}
-      className="flex-1 py-2 text-xs font-semibold transition-all"
-      style={{
-        borderBottom: mobileTab === tab ? '2px solid #6366f1' : '2px solid transparent',
-        color: mobileTab === tab ? '#a5b4fc' : '#6b7280',
-        background: 'none',
-        cursor: 'pointer',
-      }}
-    >
-      {label}
-    </button>
-  );
+  const hasOutput = ads.length > 0 || analysis || isRunning || done || error;
+  const selectedTone = TONES.find(t => t.value === tone);
 
   return (
     <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
-      <Header
-        icon="🎯"
-        title="Bulk Ads Generator"
-        subtitle="AI-powered ad creative at scale"
-      />
-
-      {/* Mobile tab bar */}
-      <div
-        className="flex md:hidden flex-shrink-0"
-        style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.2)' }}
-      >
-        {tabBtn('form', '⚙️ Configure')}
-        {tabBtn('output', `✨ Output${messages.length ? ` (${messages.filter(m => m.type === 'done').length ? '✓' : '…'})` : ''}`)}
-      </div>
+      <Header icon="🎯" title="Bulk Ads Generator" subtitle="Competitor research → targeted copy → 4-column ad grid" />
 
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
 
         {/* ── Left — Form ──────────────────────────────────────────────── */}
         <div
-          className={`ads-form-panel flex-col ${mobileTab === 'form' ? 'flex' : 'hidden md:flex'}`}
+          className="flex flex-col flex-shrink-0 overflow-y-auto"
+          style={{ width: '100%', maxWidth: 320, borderRight: '1px solid rgba(255,255,255,0.07)' }}
         >
           <div className="p-4 space-y-4 flex-1">
 
-            {/* Status banner */}
-            {!aiEnabled && (
-              <div
-                className="flex items-start gap-3 px-3 py-2.5 rounded-xl text-xs"
-                style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)', color: '#fbbf24' }}
-              >
-                <span className="flex-shrink-0">⚠️</span>
-                <div>
-                  <div className="font-medium mb-0.5">OpenAI not connected</div>
-                  <div className="text-yellow-600">Claude will generate ads without GPT-4o assistance.</div>
-                  <Link to="/settings" className="text-yellow-400 hover:underline mt-1 inline-block">Connect OpenAI →</Link>
-                </div>
-              </div>
-            )}
-
-            {/* Templates */}
+            {/* Quick niche chips */}
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Quick Templates</p>
-              <div className="grid grid-cols-2 gap-2">
-                {TEMPLATES.map(tpl => (
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Quick Niche</p>
+              <div className="flex flex-wrap gap-1.5">
+                {QUICK_NICHES.map(n => (
                   <button
-                    key={tpl.name}
-                    onClick={() => applyTemplate(tpl)}
-                    className="text-left text-xs px-3 py-2 rounded-xl transition-all"
-                    style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.06)',
-                      color: '#9ca3af',
-                    }}
+                    key={n}
+                    onClick={() => setKeywords(n.replace(/^\S+\s/, ''))}
+                    className="text-xs px-2.5 py-1 rounded-full transition-all"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#9ca3af' }}
                     onMouseOver={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#a5b4fc'; }}
-                    onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#9ca3af'; }}
+                    onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#9ca3af'; }}
                   >
-                    {tpl.name}
+                    {n}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Platform */}
+            {/* Keywords */}
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Ad Platform</p>
-              <div className="grid grid-cols-2 gap-2">
-                {AD_TYPES.map(t => (
-                  <button
-                    key={t.value}
-                    onClick={() => setAdType(t.value)}
-                    className="text-left px-3 py-2 rounded-xl transition-all"
-                    style={{
-                      background: adType === t.value ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)',
-                      border: `1px solid ${adType === t.value ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.06)'}`,
-                    }}
-                  >
-                    <div className="text-xs font-medium text-white">{t.label}</div>
-                    <div className="text-xs text-gray-500 mt-0.5 hidden sm:block">{t.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Objective + Tone */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Objective</label>
-                <select value={objective} onChange={e => setObjective(e.target.value)} className="field w-full text-xs">
-                  {OBJECTIVES.map(o => <option key={o}>{o}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Tone</label>
-                <select value={tone} onChange={e => setTone(e.target.value)} className="field w-full text-xs">
-                  {TONES.map(t => <option key={t}>{t}</option>)}
-                </select>
-              </div>
-            </div>
-
-            {/* Product */}
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Product / Service <span className="text-red-500">*</span></label>
+              <label className="block text-xs text-gray-400 mb-1.5">
+                Niche / Keywords <span className="text-red-500">*</span>
+              </label>
               <input
-                value={product}
-                onChange={e => setProduct(e.target.value)}
-                placeholder="e.g. CRM Software for Real Estate Agents"
+                value={keywords}
+                onChange={e => setKeywords(e.target.value)}
+                placeholder="e.g. fitness coaching, weight loss"
+                className="field w-full text-sm"
+                onKeyDown={e => e.key === 'Enter' && generate()}
+              />
+            </div>
+
+            {/* Offer */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Offer / Product</label>
+              <input
+                value={offer}
+                onChange={e => setOffer(e.target.value)}
+                placeholder="e.g. 12-week online coaching program"
                 className="field w-full text-sm"
               />
             </div>
 
             {/* Audience */}
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Target Audience <span className="text-red-500">*</span></label>
-              <textarea
-                value={audience}
-                onChange={e => setAudience(e.target.value)}
-                placeholder="e.g. Real estate agents aged 30-50 interested in productivity tools"
-                rows={3}
+              <label className="block text-xs text-gray-400 mb-1.5">Target Audience</label>
+              <input
+                value={targetAudience}
+                onChange={e => setTargetAudience(e.target.value)}
+                placeholder="e.g. women 30-45 wanting to lose weight"
                 className="field w-full text-sm"
-                style={{ resize: 'vertical' }}
               />
             </div>
 
-            {/* Budget + Variants */}
+            {/* Tone selector */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Copy Tone</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {TONES.map(t => (
+                  <button
+                    key={t.value}
+                    onClick={() => setTone(t.value)}
+                    className="text-left px-2.5 py-2 rounded-xl transition-all"
+                    style={{
+                      background: tone === t.value ? 'rgba(99,102,241,0.18)' : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${tone === t.value ? 'rgba(99,102,241,0.55)' : 'rgba(255,255,255,0.06)'}`,
+                    }}
+                  >
+                    <div className="text-xs font-medium" style={{ color: tone === t.value ? '#a5b4fc' : '#d1d5db' }}>{t.label}</div>
+                    <div className="text-xs mt-0.5" style={{ color: tone === t.value ? '#818cf8' : '#6b7280' }}>{t.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Brand Voice */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Brand Voice <span className="text-gray-600">(optional)</span></label>
+              <input
+                value={brandVoice}
+                onChange={e => setBrandVoice(e.target.value)}
+                placeholder="e.g. empowering, bold, no-fluff"
+                className="field w-full text-sm"
+              />
+            </div>
+
+            {/* Competitor Page */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Competitor FB Page ID <span className="text-gray-600">(optional)</span></label>
+              <input
+                value={competitorPage}
+                onChange={e => setCompetitorPage(e.target.value)}
+                placeholder="Facebook Page ID to spy on"
+                className="field w-full text-sm"
+              />
+            </div>
+
+            {/* Format + Variations row */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Daily Budget ($)</label>
-                <input
-                  type="number"
-                  value={budget}
-                  onChange={e => setBudget(e.target.value)}
-                  min="1"
-                  className="field w-full text-sm"
-                />
+                <p className="text-xs text-gray-400 mb-1.5">Format</p>
+                <div className="flex flex-col gap-1">
+                  {FORMATS.map(f => (
+                    <button
+                      key={f.value}
+                      onClick={() => setFormat(f.value)}
+                      className="text-left px-2.5 py-1.5 rounded-lg text-xs transition-all"
+                      style={{
+                        background: format === f.value ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${format === f.value ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.06)'}`,
+                        color: format === f.value ? '#a5b4fc' : '#9ca3af',
+                      }}
+                    >
+                      {f.label} <span style={{ color: '#6b7280' }}>{f.desc}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Variants</label>
-                <select value={variants} onChange={e => setVariants(e.target.value)} className="field w-full text-sm">
-                  {['1','2','3','4','5'].map(n => <option key={n} value={n}>{n} variant{n > 1 ? 's' : ''}</option>)}
+                <label className="block text-xs text-gray-400 mb-1.5">Variations</label>
+                <select value={numVariations} onChange={e => setNumVariations(Number(e.target.value))} className="field w-full text-sm">
+                  {[4,6,8,10].map(n => <option key={n} value={n}>{n} ads</option>)}
                 </select>
               </div>
-            </div>
-
-            {/* Additional requirements */}
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">
-                Additional Requirements <span className="text-gray-600">(optional)</span>
-              </label>
-              <textarea
-                value={extra}
-                onChange={e => setExtra(e.target.value)}
-                placeholder="e.g. Include a discount code, focus on pain points…"
-                rows={2}
-                className="field w-full text-sm"
-                style={{ resize: 'vertical' }}
-              />
             </div>
           </div>
 
           {/* Generate button */}
           <div className="p-4 flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            {selectedTone && (
+              <div
+                className="text-xs px-3 py-2 rounded-xl mb-3"
+                style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)', color: '#a5b4fc' }}
+              >
+                {selectedTone.label} — {selectedTone.desc}
+              </div>
+            )}
             <button
               onClick={isRunning ? stop : generate}
-              disabled={!isRunning && (!product.trim() || !audience.trim())}
+              disabled={!isRunning && !keywords.trim()}
               className="btn-primary w-full py-3 gap-2 text-sm"
             >
               {isRunning
                 ? <><span className="spinner w-4 h-4 rounded-full border-2" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> Stop</>
-                : `🎯 Generate ${variants} Ad Variant${variants > 1 ? 's' : ''}`}
+                : `🎯 Generate ${numVariations} Ads`}
             </button>
-            {fbEnabled && (
-              <p className="text-xs text-center text-gray-600 mt-2">
-                Facebook Ads connected — Claude can create campaigns directly
-              </p>
-            )}
           </div>
         </div>
 
         {/* ── Right — Output ───────────────────────────────────────────── */}
-        <div className={`flex-col flex-1 min-h-0 overflow-hidden ${mobileTab === 'output' ? 'flex' : 'hidden md:flex'}`}>
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+
           <div
             className="px-4 py-2.5 flex items-center gap-3 flex-shrink-0"
             style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.15)' }}
           >
             <span className="text-sm">✨</span>
-            <span className="text-sm font-semibold text-white">Generated Ad Copy</span>
+            <span className="text-sm font-semibold text-white">Generated Ads</span>
+            {libInfo && (
+              <span className="text-xs text-gray-500">{libInfo.analyzed} competitor ads analyzed</span>
+            )}
             {isRunning && (
               <span className="ml-auto text-xs text-yellow-400 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-                Generating…
+                Working…
               </span>
             )}
-            {messages.length > 0 && !isRunning && (
-              <button onClick={() => setMessages([])} className="ml-auto btn-ghost px-3 py-1 text-xs">Clear</button>
+            {done && !isRunning && (
+              <span className="ml-auto text-xs text-green-400">
+                ✓ {ads.length} ads · {doneInfo?.provider || 'AI'} · {doneInfo?.model}
+              </span>
+            )}
+            {hasOutput && !isRunning && (
+              <button onClick={reset} className="ml-auto btn-ghost px-3 py-1 text-xs">Clear</button>
             )}
           </div>
 
-          <StreamOutput
-            messages={messages}
-            isRunning={isRunning}
-            placeholder={{
-              icon: '🎯',
-              text: 'Fill in the form and click Generate\nClaude will create compelling ad copy tailored to your audience',
-            }}
-          />
+          <div className="flex-1 overflow-y-auto p-4">
+            {!hasOutput && (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+                <span className="text-4xl">🎯</span>
+                <p className="text-gray-400 text-sm font-medium">Enter your niche and click Generate</p>
+                <p className="text-gray-600 text-xs max-w-xs">
+                  Pick a tone, describe your offer and audience — AI writes targeted copy that actually converts
+                </p>
+              </div>
+            )}
+
+            {step && <StepProgress step={step} />}
+
+            {warnings.map((w, i) => (
+              <div key={i} className="rounded-xl px-4 py-2.5 text-xs mb-3 flex items-start gap-2"
+                style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)', color: '#fde68a' }}>
+                <span className="flex-shrink-0">⚠️</span>{w}
+              </div>
+            ))}
+
+            {error && (
+              <div className="rounded-xl px-4 py-3 text-sm mb-4"
+                style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5' }}>
+                ⚠️ {error}
+              </div>
+            )}
+
+            <AnalysisCard analysis={analysis} />
+
+            {/* 4-column grid */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {ads.map((ad, i) => ad && <AdCard key={i} ad={ad} index={i} />)}
+            </div>
+
+            {/* Skeleton loaders in 4-col grid */}
+            {isRunning && ads.length === 0 && !analysis && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-2">
+                {[...Array(8)].map((_, i) => (
+                  <div key={i} className="h-48 rounded-2xl animate-pulse"
+                    style={{ background: 'rgba(255,255,255,0.03)', animationDelay: `${i * 0.08}s` }} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

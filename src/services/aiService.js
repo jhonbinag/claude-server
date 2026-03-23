@@ -251,8 +251,8 @@ async function googleGenerateWithVision(system, userText, imageBase64, mimeType,
 async function generate(system, userText, opts = {}) {
   const provider = requireProvider();
   const model    = opts.model || provider.model;
-  // Groq free tier: cap output to 1500 tokens to leave room for input within TPM window
-  const maxTokens = provider.name === 'groq' ? Math.min(opts.maxTokens || 1500, 1500) : (opts.maxTokens || 4096);
+  // Groq: cap output at 4000 tokens to leave room for input within context window
+  const maxTokens = provider.name === 'groq' ? Math.min(opts.maxTokens || 3000, 4000) : (opts.maxTokens || 4096);
 
   switch (provider.name) {
     case 'anthropic': return anthropicGenerate(system, userText, { ...opts, model, maxTokens });

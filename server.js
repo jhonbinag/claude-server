@@ -25,6 +25,8 @@ let promptRoutes;     try { promptRoutes     = require('./src/routes/prompts'); 
 let cronRoutes;       try { cronRoutes       = require('./src/routes/cron');         } catch (e) { _errors.cron       = e.message; }
 let agentRoutes;      try { agentRoutes      = require('./src/routes/agent');        } catch (e) { _errors.agent      = e.message; }
 let funnelBuilderRoutes; try { funnelBuilderRoutes = require('./src/routes/funnelBuilder'); } catch (e) { _errors.funnelBuilder = e.message; }
+let emailBuilderRoutes;   try { emailBuilderRoutes   = require('./src/routes/emailBuilder');   } catch (e) { _errors.emailBuilder   = e.message; }
+let websiteBuilderRoutes; try { websiteBuilderRoutes = require('./src/routes/websiteBuilder'); } catch (e) { _errors.websiteBuilder = e.message; }
 let knowledgeRoutes;  try { knowledgeRoutes  = require('./src/routes/knowledge');   } catch (e) { _errors.knowledge  = e.message; }
 let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui          = e.message; }
 
@@ -106,6 +108,8 @@ if (promptRoutes)      app.use('/prompts',     promptRoutes);
 if (cronRoutes)        app.use('/cron',        cronRoutes);
 if (agentRoutes)          app.use('/agent',          agentRoutes);
 if (funnelBuilderRoutes)  app.use('/funnel-builder', funnelBuilderRoutes);
+if (emailBuilderRoutes)   app.use('/email-builder',   emailBuilderRoutes);
+if (websiteBuilderRoutes) app.use('/website-builder', websiteBuilderRoutes);
 if (knowledgeRoutes)      app.use('/knowledge',      knowledgeRoutes);
 if (uiRoute)         app.use('/',           uiRoute);
 
