@@ -28,6 +28,7 @@ let funnelBuilderRoutes; try { funnelBuilderRoutes = require('./src/routes/funne
 let emailBuilderRoutes;   try { emailBuilderRoutes   = require('./src/routes/emailBuilder');   } catch (e) { _errors.emailBuilder   = e.message; }
 let websiteBuilderRoutes; try { websiteBuilderRoutes = require('./src/routes/websiteBuilder'); } catch (e) { _errors.websiteBuilder = e.message; }
 let knowledgeRoutes;  try { knowledgeRoutes  = require('./src/routes/knowledge');   } catch (e) { _errors.knowledge  = e.message; }
+let brainRoutes;      try { brainRoutes      = require('./src/routes/brain');       } catch (e) { _errors.brain      = e.message; }
 let rolesRoutes;      try { rolesRoutes      = require('./src/routes/roles');       } catch (e) { _errors.roles      = e.message; }
 let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui          = e.message; }
 
@@ -115,6 +116,7 @@ if (funnelBuilderRoutes)  app.use('/funnel-builder', funnelBuilderRoutes);
 if (emailBuilderRoutes)   app.use('/email-builder',   emailBuilderRoutes);
 if (websiteBuilderRoutes) app.use('/website-builder', websiteBuilderRoutes);
 if (knowledgeRoutes)      app.use('/knowledge',      knowledgeRoutes);
+if (brainRoutes)          app.use('/brain',           brainRoutes);
 if (rolesRoutes)          app.use('/roles',           rolesRoutes);
 if (uiRoute)         app.use('/',           uiRoute);
 

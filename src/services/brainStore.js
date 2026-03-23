@@ -1,15 +1,15 @@
 /**
  * src/services/brainStore.js
  *
- * Redis-backed Brain knowledge base — works without Chroma/Jina.
- * Uses Upstash Redis (already required by the app) to store documents + chunks.
- * Falls back to in-memory when Redis is also unavailable.
+ * Multi-brain Redis-backed knowledge base — no Chroma/Jina required.
+ * Uses Upstash Redis REST API (same pattern as redisStore.js).
  *
  * Key layout:
- *   hltools:brain:{locationId}:docs          → JSON array of doc metadata
- *   hltools:brain:{locationId}:chunks:{docId} → JSON array of text chunks
+ *   hltools:brains:{locationId}                        → array of brain metadata
+ *   hltools:brain:{locationId}:{brainId}:docs          → array of doc metadata
+ *   hltools:brain:{locationId}:{brainId}:chunks:{docId} → array of chunks
  *
- * Search: keyword/TF-IDF scoring (no vector embeddings needed).
+ * Search: keyword/TF-IDF scoring; primary channel docs boosted 1.5×.
  */
 
 const crypto = require('crypto');
@@ -35,13 +35,22 @@ function redisReq(cmd) {
       hostname: url.hostname,
       path:     url.pathname,
       method:   'POST',
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      headers: {
+        Authorization:   `Bearer ${REDIS_TOKEN}`,
+        'Content-Type':  'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
     }, res => {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => {
-        try { const p = JSON.parse(d); if (p.error) reject(new Error(p.error)); else resolve(p.result); }
-        catch(e) { reject(new Error(`Redis parse error: ${d}`)); }
+        try {
+          const p = JSON.parse(d);
+          if (p.error) reject(new Error(p.error));
+          else resolve(p.result);
+        } catch (e) {
+          reject(new Error(`Redis parse error: ${d}`));
+        }
       });
     });
     req.on('error', reject);
@@ -51,7 +60,7 @@ function redisReq(cmd) {
 }
 
 async function rGet(key) {
-  if (!isRedisEnabled) return _mem[key] || null;
+  if (!isRedisEnabled) return _mem[key] !== undefined ? _mem[key] : null;
   const v = await redisReq(['GET', key]);
   if (!v) return null;
   return typeof v === 'string' ? JSON.parse(v) : v;
@@ -70,8 +79,9 @@ async function rDel(key) {
 
 // ── Key helpers ───────────────────────────────────────────────────────────────
 
-const docsKey   = (loc, agent) => `hltools:brain:${loc}:${agent}:docs`;
-const chunksKey = (loc, agent, docId) => `hltools:brain:${loc}:${agent}:chunks:${docId}`;
+const brainsKey  = (loc)              => `hltools:brains:${loc}`;
+const docsKey    = (loc, brainId)     => `hltools:brain:${loc}:${brainId}:docs`;
+const chunksKey  = (loc, brainId, docId) => `hltools:brain:${loc}:${brainId}:chunks:${docId}`;
 
 // ── Text chunking ─────────────────────────────────────────────────────────────
 
@@ -104,44 +114,146 @@ function scoreChunk(chunk, queryTerms) {
   for (const term of queryTerms) {
     const re = new RegExp(term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
     const matches = (lower.match(re) || []).length;
-    score += matches * (1 + term.length / 10); // longer terms weighted higher
+    score += matches * (1 + term.length / 10);
   }
   return score;
 }
 
-// ── Public API ─────────────────────────────────────────────────────────────────
+// ── Slug helper ───────────────────────────────────────────────────────────────
 
-function isEnabled() {
-  return true; // always enabled — falls back to memory if no Redis
+function slugify(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+}
+
+// ── Brain CRUD ────────────────────────────────────────────────────────────────
+
+/**
+ * Create a new brain for a location.
+ */
+async function createBrain(locationId, { name, slug, description } = {}) {
+  if (!name || !name.trim()) throw new Error('"name" is required.');
+  const brainId  = `brain_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+  const now      = new Date().toISOString();
+  const finalSlug = (slug || slugify(name)).replace(/[^a-z0-9-]/g, '-');
+
+  const brain = {
+    brainId,
+    name:        name.trim(),
+    slug:        finalSlug,
+    description: (description || '').trim(),
+    channels:    [],
+    createdAt:   now,
+    updatedAt:   now,
+  };
+
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  brains.push(brain);
+  await rSet(brainsKey(locationId), brains);
+  return brain;
 }
 
 /**
- * Add a document to the knowledge base.
+ * List all brains for a location, including per-brain stats.
  */
-async function addDocument(locationId, agentId, { text, sourceLabel, url }) {
+async function listBrains(locationId) {
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  // Attach quick stats (doc count, chunk count)
+  const withStats = await Promise.all(brains.map(async b => {
+    const docs   = (await rGet(docsKey(locationId, b.brainId))) || [];
+    const chunks = docs.reduce((acc, d) => acc + (d.chunkCount || 0), 0);
+    return { ...b, docCount: docs.length, chunkCount: chunks };
+  }));
+  return withStats;
+}
+
+/**
+ * Get a single brain with its documents.
+ */
+async function getBrain(locationId, brainId) {
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  const brain  = brains.find(b => b.brainId === brainId);
+  if (!brain) throw new Error(`Brain "${brainId}" not found.`);
+  const docs   = (await rGet(docsKey(locationId, brainId))) || [];
+  const chunks = docs.reduce((acc, d) => acc + (d.chunkCount || 0), 0);
+  return { ...brain, docs, chunkCount: chunks };
+}
+
+/**
+ * Delete a brain and all its data.
+ */
+async function deleteBrain(locationId, brainId) {
+  // Remove all doc chunk keys
+  const docs = (await rGet(docsKey(locationId, brainId))) || [];
+  await Promise.all(docs.map(d => rDel(chunksKey(locationId, brainId, d.docId))));
+  await rDel(docsKey(locationId, brainId));
+
+  // Remove from brains list
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  await rSet(brainsKey(locationId), brains.filter(b => b.brainId !== brainId));
+  return { deleted: brainId };
+}
+
+/**
+ * Add a channel record to a brain (metadata only — no ingestion).
+ */
+async function addChannel(locationId, brainId, { channelName, channelUrl, isPrimary = false } = {}) {
+  if (!channelName) throw new Error('"channelName" is required.');
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  const idx    = brains.findIndex(b => b.brainId === brainId);
+  if (idx === -1) throw new Error(`Brain "${brainId}" not found.`);
+
+  const channel = {
+    channelName,
+    channelUrl: channelUrl || '',
+    isPrimary:  !!isPrimary,
+    addedAt:    new Date().toISOString(),
+  };
+  brains[idx].channels = brains[idx].channels || [];
+  brains[idx].channels.push(channel);
+  brains[idx].updatedAt = new Date().toISOString();
+  await rSet(brainsKey(locationId), brains);
+  return channel;
+}
+
+// ── Document-level operations ─────────────────────────────────────────────────
+
+/**
+ * Add a text document to a brain.
+ */
+async function addDocument(locationId, brainId, { text, sourceLabel, url, isPrimary = false }) {
   if (!text || text.trim().length === 0) throw new Error('No text content to add.');
 
-  const chunks  = chunkText(text);
+  // Verify brain exists
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  if (!brains.find(b => b.brainId === brainId)) throw new Error(`Brain "${brainId}" not found.`);
+
+  const chunks = chunkText(text);
   if (!chunks.length) throw new Error('Text too short to chunk.');
 
-  const docId   = `doc_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-  const now     = new Date().toISOString();
+  const docId = `doc_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+  const now   = new Date().toISOString();
 
-  // Store chunks
-  await rSet(chunksKey(locationId, agentId, docId), chunks.map((text, i) => ({ text, index: i })));
+  await rSet(chunksKey(locationId, brainId, docId), chunks.map((t, i) => ({ text: t, index: i })));
 
-  // Update docs index
-  const docs = (await rGet(docsKey(locationId, agentId))) || [];
-  docs.push({ docId, sourceLabel: sourceLabel || url || 'manual', url: url || '', chunkCount: chunks.length, addedAt: now });
-  await rSet(docsKey(locationId, agentId), docs);
+  const docs = (await rGet(docsKey(locationId, brainId))) || [];
+  docs.push({
+    docId,
+    sourceLabel: sourceLabel || url || 'manual',
+    url:         url || '',
+    isPrimary:   !!isPrimary,
+    chunkCount:  chunks.length,
+    addedAt:     now,
+  });
+  await rSet(docsKey(locationId, brainId), docs);
 
   return { docId, chunks: chunks.length };
 }
 
 /**
- * Ingest a YouTube video transcript.
+ * Ingest a YouTube video transcript into a brain.
+ * isPrimary = true boosts this doc's chunks 1.5× in search results.
  */
-async function addYoutubeVideo(locationId, agentId, videoUrl, titleHint) {
+async function addYoutubeVideo(locationId, brainId, videoUrl, titleHint, isPrimary = false) {
   const m = videoUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
   const videoId = m ? m[1] : videoUrl.length === 11 ? videoUrl : null;
   if (!videoId) throw new Error('Invalid YouTube URL — could not extract video ID.');
@@ -160,32 +272,43 @@ async function addYoutubeVideo(locationId, agentId, videoUrl, titleHint) {
   for (let i = 0; i < lines.length; i += 10) paragraphs.push(lines.slice(i, i + 10).join(' '));
   const transcript = paragraphs.join('\n\n');
 
-  const label = titleHint || `YouTube: ${videoId}`;
-  const result = await addDocument(locationId, agentId, {
-    text: transcript,
-    url:  `https://www.youtube.com/watch?v=${videoId}`,
+  const label  = titleHint || `YouTube: ${videoId}`;
+  const result = await addDocument(locationId, brainId, {
+    text:        transcript,
+    url:         `https://www.youtube.com/watch?v=${videoId}`,
     sourceLabel: label,
+    isPrimary:   !!isPrimary,
   });
 
   return { ...result, videoId, title: label };
 }
 
 /**
- * Keyword search across all chunks.
+ * Keyword search across all chunks in a brain.
+ * Primary-channel docs get a 1.5× score boost.
  */
-async function queryKnowledge(locationId, agentId, queryText, k = 5) {
-  const docs = (await rGet(docsKey(locationId, agentId))) || [];
+async function queryKnowledge(locationId, brainId, queryText, k = 5) {
+  const docs = (await rGet(docsKey(locationId, brainId))) || [];
   if (!docs.length) return [];
 
   const queryTerms = queryText.toLowerCase().split(/\s+/).filter(t => t.length > 2);
 
   const scored = [];
   for (const doc of docs) {
-    const chunks = (await rGet(chunksKey(locationId, agentId, doc.docId))) || [];
+    const chunks = (await rGet(chunksKey(locationId, brainId, doc.docId))) || [];
+    const boost  = doc.isPrimary ? 1.5 : 1.0;
     for (const chunk of chunks) {
-      const score = scoreChunk(chunk.text, queryTerms);
+      const raw   = scoreChunk(chunk.text, queryTerms);
+      const score = raw * boost;
       if (score > 0) {
-        scored.push({ text: chunk.text, score, sourceLabel: doc.sourceLabel, url: doc.url, docId: doc.docId });
+        scored.push({
+          text:        chunk.text,
+          score,
+          sourceLabel: doc.sourceLabel,
+          url:         doc.url,
+          docId:       doc.docId,
+          isPrimary:   !!doc.isPrimary,
+        });
       }
     }
   }
@@ -194,34 +317,53 @@ async function queryKnowledge(locationId, agentId, queryText, k = 5) {
 }
 
 /**
- * List all documents.
+ * List all documents in a brain.
  */
-async function listDocuments(locationId, agentId) {
-  return (await rGet(docsKey(locationId, agentId))) || [];
+async function listDocuments(locationId, brainId) {
+  return (await rGet(docsKey(locationId, brainId))) || [];
 }
 
 /**
- * Delete a document and its chunks.
+ * Delete a document and its chunks from a brain.
  */
-async function deleteDocument(locationId, agentId, docId) {
-  await rDel(chunksKey(locationId, agentId, docId));
-  const docs = (await rGet(docsKey(locationId, agentId))) || [];
-  await rSet(docsKey(locationId, agentId), docs.filter(d => d.docId !== docId));
+async function deleteDocument(locationId, brainId, docId) {
+  await rDel(chunksKey(locationId, brainId, docId));
+  const docs = (await rGet(docsKey(locationId, brainId))) || [];
+  await rSet(docsKey(locationId, brainId), docs.filter(d => d.docId !== docId));
   return { deleted: docId };
 }
 
 /**
- * Get status.
+ * Get status for a brain.
  */
-async function getStatus(locationId, agentId) {
-  const docs   = (await rGet(docsKey(locationId, agentId))) || [];
+async function getStatus(locationId, brainId) {
+  const docs   = (await rGet(docsKey(locationId, brainId))) || [];
   const chunks = docs.reduce((a, d) => a + (d.chunkCount || 0), 0);
   return {
-    enabled:  true,
-    backend:  isRedisEnabled ? 'redis' : 'memory',
-    docs:     docs.length,
+    enabled: true,
+    backend: isRedisEnabled ? 'redis' : 'memory',
+    docs:    docs.length,
     chunks,
   };
 }
 
-module.exports = { isEnabled, addDocument, addYoutubeVideo, queryKnowledge, listDocuments, deleteDocument, getStatus };
+function isEnabled() {
+  return true;
+}
+
+module.exports = {
+  isEnabled,
+  // Brain CRUD
+  createBrain,
+  listBrains,
+  getBrain,
+  deleteBrain,
+  addChannel,
+  // Document ops
+  addDocument,
+  addYoutubeVideo,
+  queryKnowledge,
+  listDocuments,
+  deleteDocument,
+  getStatus,
+};
