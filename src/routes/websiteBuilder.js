@@ -11,56 +11,12 @@
 
 require('dotenv').config();
 
-const https          = require('https');
-const crypto         = require('crypto');
 const express        = require('express');
 const router         = express.Router();
 const authenticate   = require('../middleware/authenticate');
 const aiService      = require('../services/aiService');
 const ghlClient      = require('../services/ghlClient');
 const ghlPageBuilder = require('../services/ghlPageBuilder');
-const { getFirebaseToken } = require('../services/ghlFirebaseService');
-
-// ─── Backend API page creator ──────────────────────────────────────────────────
-// GHL's OAuth API (services.leadconnectorhq.com) does not support POST /funnels/page.
-// We create pages via GHL's internal backend API (backend.leadconnectorhq.com)
-// using the Firebase ID token — the same auth that the GHL editor uses.
-
-async function createPageViaBackend(locationId, websiteId, pageName, pageUrl) {
-  const idToken = await getFirebaseToken(locationId);
-  const headers = ghlPageBuilder.buildBackendHeaders(idToken);
-
-  const slug    = pageUrl || pageName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const payload = JSON.stringify({
-    funnelId:   websiteId,
-    locationId,
-    name:       pageName,
-    url:        slug,
-    stepOrder:  1,
-  });
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname: 'backend.leadconnectorhq.com',
-        path:     `/funnels/page?locationId=${encodeURIComponent(locationId)}`,
-        method:   'POST',
-        headers:  { ...headers, 'Content-Length': Buffer.byteLength(payload) },
-      },
-      (res) => {
-        let d = '';
-        res.on('data', c => d += c);
-        res.on('end', () => {
-          try   { resolve({ status: res.statusCode, data: JSON.parse(d) }); }
-          catch { resolve({ status: res.statusCode, data: d }); }
-        });
-      }
-    );
-    req.on('error', reject);
-    req.write(payload);
-    req.end();
-  });
-}
 
 router.use(authenticate);
 
@@ -265,17 +221,14 @@ Color guidance:
 }
 
 // ─── POST /website-builder/generate ──────────────────────────────────────────
-// Flow:
-//  1. AI generates native section content
-//  2. If pageId provided → write directly to that page
-//     If no pageId → create a new page via GHL backend API (no blank page needed)
-//  3. Save native sections via Firebase Storage
+// Requires an existing pageId — GHL does not support page creation via API.
+// User must create a blank page in GHL website editor first, then select it here.
 
 router.post('/generate', async (req, res) => {
   const {
     websiteId   = '',
     websiteName = '',
-    pageId:     incomingPageId = '',
+    pageId      = '',
     pageName    = 'New Page',
     pageType    = 'landing',
     niche       = '',
@@ -288,6 +241,9 @@ router.post('/generate', async (req, res) => {
 
   if (!websiteId) {
     return res.status(400).json({ success: false, error: 'websiteId is required.' });
+  }
+  if (!pageId) {
+    return res.status(400).json({ success: false, error: 'pageId is required. Select a page from the dropdown or paste a page ID.' });
   }
   if (!niche && !offer) {
     return res.status(400).json({ success: false, error: 'Provide at least niche or offer details.' });
@@ -304,53 +260,15 @@ router.post('/generate', async (req, res) => {
 
   try {
     const resolvedPageName = pageName || (pageType.charAt(0).toUpperCase() + pageType.slice(1) + ' Page');
+    const editUrl = `https://app.gohighlevel.com/v2/location/${req.locationId}/sites/website/${websiteId}/page/${pageId}`;
 
     // ── Step 1: Generate native section content with AI ────────────────────
-    send('step', { step: 1, total: 3, label: 'Generating page copy with AI…' });
+    send('step', { step: 1, total: 2, label: 'Generating page copy with AI…' });
     const content = await generatePageSections({ pageName: resolvedPageName, pageType, websiteName, niche, offer, audience, brand, colorScheme, extraNotes });
     send('content', content);
 
-    // ── Step 2: Get or create the GHL page ────────────────────────────────
-    let pageId = incomingPageId;
-
-    if (!pageId) {
-      send('step', { step: 2, total: 3, label: 'Creating page in GHL website…' });
-      try {
-        const createRes = await createPageViaBackend(req.locationId, websiteId, resolvedPageName);
-        console.log('[WebsiteBuilder] createPage status:', createRes.status, JSON.stringify(createRes.data).slice(0, 300));
-
-        if (createRes.status >= 200 && createRes.status < 300) {
-          const d = createRes.data;
-          pageId = d?.id || d?.pageId || d?._id || d?.data?.id || d?.data?._id || null;
-          if (pageId) {
-            send('log', { msg: `Page created: ${resolvedPageName} (${pageId})`, level: 'success' });
-          } else {
-            send('warn', { message: `Page creation returned ${createRes.status} but no pageId in response — sections cannot be saved.` });
-            send('done', { success: false, noPage: true, content, pageName: resolvedPageName });
-            return res.end();
-          }
-        } else {
-          const errMsg = typeof createRes.data === 'object'
-            ? (createRes.data?.message || createRes.data?.error || JSON.stringify(createRes.data))
-            : String(createRes.data).slice(0, 200);
-          send('warn', { message: `Could not auto-create page (${createRes.status}: ${errMsg}). Select an existing page or create a blank page in GHL first.` });
-          send('done', { success: false, noPage: true, content, pageName: resolvedPageName });
-          return res.end();
-        }
-      } catch (createErr) {
-        console.error('[WebsiteBuilder] createPage error:', createErr.message);
-        send('warn', { message: `Page creation failed: ${createErr.message}. Select an existing page or create a blank page in GHL first.` });
-        send('done', { success: false, noPage: true, content, pageName: resolvedPageName });
-        return res.end();
-      }
-    } else {
-      send('step', { step: 2, total: 3, label: `Writing to existing page…` });
-    }
-
-    const editUrl = `https://app.gohighlevel.com/v2/location/${req.locationId}/sites/website/${websiteId}/page/${pageId}`;
-
-    // ── Step 3: Save native sections via Firebase Storage ──────────────────
-    send('step', { step: 3, total: 3, label: 'Saving native section content to GHL…' });
+    // ── Step 2: Save native sections via Firebase Storage ──────────────────
+    send('step', { step: 2, total: 2, label: 'Saving native section content to GHL…' });
 
     try {
       await ghlPageBuilder.savePageData(
@@ -362,18 +280,12 @@ router.post('/generate', async (req, res) => {
       console.log('[WebsiteBuilder] native sections saved for page', pageId);
     } catch (saveErr) {
       console.error('[WebsiteBuilder] section save error:', saveErr.message);
-      send('warn', { message: `Page created but section content could not be saved: ${saveErr.message}` });
+      send('warn', { message: `Content generated but could not be saved: ${saveErr.message}` });
       send('done', { success: true, partial: true, pageId, editUrl, content, pageName: resolvedPageName });
       return res.end();
     }
 
-    send('done', {
-      success: true,
-      pageId,
-      editUrl,
-      content,
-      pageName: resolvedPageName,
-    });
+    send('done', { success: true, pageId, editUrl, content, pageName: resolvedPageName });
 
   } catch (err) {
     console.error('[WebsiteBuilder] error:', err.message);

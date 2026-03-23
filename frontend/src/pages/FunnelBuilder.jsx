@@ -571,6 +571,8 @@ export default function FunnelBuilder() {
   async function handleWebGenerate(e) {
     e.preventDefault();
     if (!webNiche.trim() && !webOffer.trim()) { toast(setToastState, 'Enter a niche or offer.', 'error'); return; }
+    if (!webWebsiteId.trim()) { toast(setToastState, 'Select a website first.', 'error'); return; }
+    if (!webPageId.trim()) { toast(setToastState, 'Select a page or paste a Page ID to write content to.', 'error'); return; }
     setWebGenerating(true);
     setWebResult(null);
     setWebLog([]);
@@ -1910,10 +1912,10 @@ export default function FunnelBuilder() {
 
                 {/* Page picker — shown once a website is selected */}
                 {webWebsiteId && (
-                  <div className="mt-3">
-                    <label className="block text-xs text-gray-400 mb-1">
-                      Existing page <span className="text-gray-600">(optional — leave blank to auto-create a new page)</span>
-                    </label>
+                  <div className="mt-3 space-y-2">
+                    <label className="block text-xs text-gray-400 mb-1">Select page to write content to <span className="text-red-400">*</span></label>
+
+                    {/* Dropdown from loaded pages */}
                     <div className="flex gap-2 items-center">
                       <select
                         value={webPageId}
@@ -1925,7 +1927,7 @@ export default function FunnelBuilder() {
                         className="flex-1 rounded-lg px-3 py-2 text-sm text-white"
                         style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
                       >
-                        <option value="">— auto-create new page —</option>
+                        <option value="">— select a page —</option>
                         {webPages.map(p => (
                           <option key={p.id} value={p.id}>{p.name || p.title || p.url || p.id}</option>
                         ))}
@@ -1934,22 +1936,35 @@ export default function FunnelBuilder() {
                         type="button"
                         onClick={() => loadWebPages(webWebsiteId)}
                         disabled={webPagesLoading}
-                        title="Load existing pages"
+                        title="Reload pages"
                         className="px-3 py-2 rounded-lg text-xs font-medium text-white"
                         style={{ background: '#1e3a5f', border: '1px solid rgba(99,102,241,0.3)', whiteSpace: 'nowrap' }}
                       >
                         {webPagesLoading ? '⏳' : '↻'}
                       </button>
                     </div>
+
+                    {/* Manual page ID fallback */}
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Or paste Page ID manually</label>
+                      <input
+                        value={webPages.find(p => p.id === webPageId) ? '' : webPageId}
+                        onChange={e => { setWebPageId(e.target.value); setWebPageName(''); }}
+                        placeholder="e.g. abc123XYZ (from GHL page URL)"
+                        className="w-full rounded-lg px-3 py-2 text-sm text-white"
+                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                      />
+                    </div>
+
                     {webPageId
-                      ? <p className="text-xs text-green-500 mt-1">✓ Will overwrite: <span className="text-green-400 font-medium">{webPageName || webPageId}</span></p>
-                      : <p className="text-xs text-gray-500 mt-1">A new page will be created automatically in this website.</p>
+                      ? <p className="text-xs text-green-500">✓ Writing to: <span className="text-green-400 font-medium">{webPageName || webPageId}</span></p>
+                      : <p className="text-xs text-amber-400">⚠ Select a page above or paste a Page ID. GHL requires a pre-existing page — create a blank page in GHL first if needed.</p>
                     }
                   </div>
                 )}
 
                 {!webWebsiteId && (
-                  <p className="text-xs text-gray-500 mt-1">Click "Load Websites" and select a website — a new page will be created automatically.</p>
+                  <p className="text-xs text-gray-500 mt-1">Select a website above, then pick a page to write content to. Create a blank page in GHL first if none exist.</p>
                 )}
               </section>
 
@@ -2104,7 +2119,7 @@ export default function FunnelBuilder() {
                         ? `✅ "${webResult.pageName}" written to GHL with native sections!`
                         : webResult.success && webResult.partial
                         ? `⚠️ "${webResult.pageName}" — sections partially saved (check logs)`
-                        : `✍️ Page copy generated${webResult.noPage ? ' — page could not be created, check logs' : ''}`}
+                        : `✍️ Page copy generated — content not saved`}
                     </p>
 
                     {webResult.editUrl && (
