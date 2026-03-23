@@ -1,24 +1,22 @@
 /**
  * src/routes/websiteBuilder.js
  *
- * AI Website Page Builder — generates AI copy for GHL website pages.
+ * AI Website Page Builder — generates native GHL section content and saves it.
  *
  * Mounts at /website-builder
  *
- * GHL v2 API on services.leadconnectorhq.com (OAuth)
- * Required scopes: websites.readonly, websites.write
- *
- * GET  /website-builder/websites          — list websites for this location
- * POST /website-builder/generate          — SSE: AI generates page → creates in GHL
+ * GET  /website-builder/websites   — list websites for this location
+ * POST /website-builder/generate   — SSE: AI generates copy → creates page + saves native sections
  */
 
 require('dotenv').config();
 
-const express      = require('express');
-const router       = express.Router();
-const authenticate = require('../middleware/authenticate');
-const aiService    = require('../services/aiService');
-const ghlClient    = require('../services/ghlClient');
+const express        = require('express');
+const router         = express.Router();
+const authenticate   = require('../middleware/authenticate');
+const aiService      = require('../services/aiService');
+const ghlClient      = require('../services/ghlClient');
+const ghlPageBuilder = require('../services/ghlPageBuilder');
 
 router.use(authenticate);
 
@@ -43,7 +41,6 @@ function parseJsonSafe(raw) {
 
 router.get('/websites', async (req, res) => {
   try {
-    // Websites are a subtype of funnels in GHL — filter by type=website
     const data = await ghlClient.ghlRequest(req.locationId, 'GET', '/funnels/funnel/list', null, {
       locationId: req.locationId,
       type:       'website',
@@ -58,96 +55,138 @@ router.get('/websites', async (req, res) => {
   }
 });
 
-// ─── AI: generate website page content ────────────────────────────────────────
+// ─── Page type → section plan ─────────────────────────────────────────────────
+// Each section specifies the element types to include — AI fills in the copy.
 
-const PAGE_TYPE_CONTEXT = {
-  home:       'Home page — first impression, hero headline, main value prop, social proof, multiple CTAs',
-  about:      'About page — brand story, team, mission, trust signals, humanising the brand',
-  services:   'Services/Offerings page — list of services with benefits, pricing hints, strong CTAs',
-  contact:    'Contact page — inviting copy, multiple contact methods, form intro, FAQs',
-  landing:    'Landing page — single focused offer, no nav, strong headline, benefits, urgency, CTA',
-  blog:       'Blog index page — intro, categories, recent posts teaser, newsletter CTA',
-  pricing:    'Pricing page — plans, features comparison, social proof, FAQs, guarantee',
-  portfolio:  'Portfolio/Work page — intro, showcase, case study hooks, CTA for enquiries',
-  faq:        'FAQ page — intro, categorised questions with conversational answers, bottom CTA',
-  custom:     'Custom page — general purpose, follow the brief closely',
+const PAGE_SECTION_PLANS = {
+  home: [
+    { name: 'Hero',              role: 'First impression — bold benefit-driven headline, supporting subheadline, primary CTA',  elements: ['headline h1', 'sub-heading', 'button'] },
+    { name: 'Value Proposition', role: '3–4 core benefits or reasons to choose this business — bullet list format',            elements: ['heading h2', 'bulletList'] },
+    { name: 'Social Proof',      role: 'Testimonial or results that build trust — 1–2 paragraphs',                            elements: ['heading h2', 'paragraph'] },
+    { name: 'Services Overview', role: 'Brief overview of key services with outcome-focused descriptions',                     elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Final CTA',         role: 'Closing call to action with urgency or guarantee — re-state the core benefit',        elements: ['heading h2', 'paragraph', 'button'] },
+  ],
+  about: [
+    { name: 'About Hero',    role: 'Brand intro — who you are, who you help, and why it matters',            elements: ['headline h1', 'sub-heading'] },
+    { name: 'Mission',       role: 'Mission statement and core values — bullet list of what you stand for', elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Story',         role: 'Founder or team story — humanise the brand, build connection',          elements: ['heading h2', 'paragraph'] },
+    { name: 'Trust Signals', role: 'Credentials, awards, years of experience, key numbers',                 elements: ['heading h2', 'bulletList'] },
+    { name: 'Connect CTA',   role: 'Invite visitor to take the next step — book a call or get in touch',   elements: ['heading h2', 'paragraph', 'button'] },
+  ],
+  services: [
+    { name: 'Services Hero',   role: 'Clear headline about what is offered and who it is for',                     elements: ['headline h1', 'sub-heading'] },
+    { name: 'Core Services',   role: 'List of key services with brief outcome-focused descriptions',               elements: ['heading h2', 'bulletList'] },
+    { name: 'Benefits',        role: 'What clients gain — transformation, outcomes, and results',                  elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Social Proof',    role: 'Client result or short testimonial that reinforces the service value',       elements: ['heading h2', 'paragraph'] },
+    { name: 'Enquire CTA',     role: 'Strong CTA to book a consultation or enquire about services',               elements: ['heading h2', 'paragraph', 'button'] },
+  ],
+  landing: [
+    { name: 'Hero',             role: 'Single focused offer — concrete benefit headline, key promise, CTA', elements: ['headline h1', 'sub-heading', 'button'] },
+    { name: 'Problem',          role: 'Agitate the pain point this offer solves — specific, relatable',     elements: ['heading h2', 'paragraph'] },
+    { name: 'Solution',         role: 'How this offer solves the problem — 4–5 benefit bullets',            elements: ['heading h2', 'bulletList'] },
+    { name: 'Social Proof',     role: 'Short testimonial or specific result that overcomes objections',     elements: ['heading h2', 'paragraph'] },
+    { name: 'Final CTA',        role: 'Last-chance CTA — urgency, guarantee, or risk reversal statement',  elements: ['heading h2', 'paragraph', 'button'] },
+  ],
+  contact: [
+    { name: 'Contact Hero',    role: 'Welcoming headline that makes reaching out feel easy and worthwhile', elements: ['headline h1', 'sub-heading'] },
+    { name: 'Contact Methods', role: 'Phone, email, social, address — multiple ways to reach the business', elements: ['heading h2', 'bulletList'] },
+    { name: 'What to Expect',  role: 'What happens after they reach out — the response process',           elements: ['heading h2', 'paragraph'] },
+    { name: 'FAQ',             role: '3–4 common contact questions with brief, friendly answers',           elements: ['heading h2', 'paragraph'] },
+  ],
+  pricing: [
+    { name: 'Pricing Hero',     role: 'Value-first headline — transparency and confidence in pricing',         elements: ['headline h1', 'sub-heading'] },
+    { name: 'Plans',            role: 'Plan tiers with included features as bullet lists per plan',           elements: ['heading h2', 'bulletList'] },
+    { name: "What's Included",  role: 'Key inclusions and guarantees across all plans',                      elements: ['heading h2', 'bulletList'] },
+    { name: 'FAQ',              role: 'Common pricing objections and questions answered honestly',             elements: ['heading h2', 'paragraph'] },
+    { name: 'Get Started CTA',  role: 'CTA to sign up, book a demo, or talk to sales',                       elements: ['heading h2', 'paragraph', 'button'] },
+  ],
+  faq: [
+    { name: 'FAQ Hero',       role: 'Reassuring intro — this page will answer your questions',          elements: ['headline h1', 'sub-heading'] },
+    { name: 'General FAQs',   role: '4–5 broad questions with conversational, honest answers',          elements: ['heading h2', 'paragraph'] },
+    { name: 'Product FAQs',   role: '4–5 specific questions about the offer with direct answers',       elements: ['heading h2', 'paragraph'] },
+    { name: 'More Questions', role: 'Invite them to reach out if their question was not answered',      elements: ['heading h2', 'paragraph', 'button'] },
+  ],
+  portfolio: [
+    { name: 'Portfolio Hero',   role: 'Showcase intro — what you do and the niche you serve',           elements: ['headline h1', 'sub-heading'] },
+    { name: 'Featured Work',    role: '3–4 project/case study descriptions with outcomes and results',  elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Results',          role: 'Specific measurable results achieved for clients',               elements: ['heading h2', 'bulletList'] },
+    { name: 'Work With Us CTA', role: 'CTA to enquire about working together or book a discovery call', elements: ['heading h2', 'paragraph', 'button'] },
+  ],
+  blog: [
+    { name: 'Blog Hero',      role: 'Blog index intro — what topics are covered and who it is for',  elements: ['headline h1', 'sub-heading'] },
+    { name: 'Categories',     role: 'Main blog categories or topics covered as a list',              elements: ['heading h2', 'bulletList'] },
+    { name: 'Newsletter CTA', role: 'Subscribe CTA — clear value for joining the email list',        elements: ['heading h2', 'paragraph', 'button'] },
+  ],
+  custom: [
+    { name: 'Hero',             role: 'Opening hero — main headline, supporting context, primary CTA', elements: ['headline h1', 'sub-heading', 'button'] },
+    { name: 'Main Content',     role: 'Core content — explain the main message with detail',           elements: ['heading h2', 'paragraph', 'bulletList'] },
+    { name: 'Supporting',       role: 'Additional detail, social proof, or secondary message',         elements: ['heading h2', 'paragraph'] },
+    { name: 'CTA',              role: 'Closing call to action — clear next step',                      elements: ['heading h2', 'button'] },
+  ],
 };
 
-async function generatePageContent(brief) {
+// ─── AI: generate native GHL section content ──────────────────────────────────
+
+async function generatePageSections(brief) {
   const { pageName, pageType, websiteName, niche, offer, audience, brand, colorScheme, extraNotes } = brief;
-  const ctx = PAGE_TYPE_CONTEXT[pageType] || PAGE_TYPE_CONTEXT.custom;
+  const plan     = PAGE_SECTION_PLANS[pageType] || PAGE_SECTION_PLANS.custom;
   const provider = await aiService.getProvider();
 
-  const system = `You are an expert web copywriter and UX strategist. You write high-converting website page copy that is specific, human, and persuasive — never generic or vague. Return only valid JSON.`;
+  const sectionList = plan.map((s, i) =>
+    `Section ${i + 1}: "${s.name}" — ${s.role}\n  Required elements: ${s.elements.join(', ')}`
+  ).join('\n\n');
 
-  const user = `Write complete copy for a "${pageName}" website page.
+  const system = `You are an expert direct-response copywriter. Write compelling, specific website copy that converts. Return ONLY valid JSON — no markdown fences, no explanation.`;
 
-Page Type: ${ctx}
-Business/Niche: ${niche}
+  const user = `Write native GHL website page sections for: "${pageName}"
+
+Business/Niche: ${niche || 'the business'}
 Offer/Product: ${offer || 'their main product or service'}
 Target Audience: ${audience || 'ideal customers'}
-Brand/Business Name: ${brand || 'the business'}
+Brand Name: ${brand || 'the business'}
 Website Name: ${websiteName || 'the website'}
-Color Scheme: ${colorScheme || 'professional and modern'}
+Color Scheme Hint: ${colorScheme || 'professional and modern'}
 Extra Notes: ${extraNotes || 'none'}
 
-Rules:
-1. Write specifically for THIS niche and audience — no generic filler
-2. Every headline must have a concrete benefit or outcome
-3. CTAs should be action-oriented and specific (not just "Click Here")
-4. Include real pain points and desired outcomes this page should address
-5. SEO title 50-60 chars, meta description 150-160 chars
-6. Each section must have a purpose — no padding
+Copywriting rules:
+1. Write for THIS specific niche — no generic placeholder copy
+2. Every headline states a concrete benefit or outcome (not what you do, but what they GET)
+3. Use real pain points this audience has
+4. CTAs must be action-specific ("Book Your Free Strategy Call" not "Click Here")
+5. Bullet list items: concise, specific, outcome-focused (8–12 words each)
+
+Sections to write (follow this exact plan):
+${sectionList}
 
 Return this exact JSON:
 {
-  "seoTitle": "50-60 char SEO title",
-  "metaDescription": "150-160 char meta description",
+  "seoTitle": "SEO page title 50–60 chars",
+  "metaDescription": "Meta description 150–160 chars",
   "sections": [
     {
-      "type": "hero",
-      "headline": "Bold, benefit-driven headline (8-12 words)",
-      "subheadline": "Supporting sentence that adds specificity (1-2 sentences)",
-      "ctaText": "Primary CTA button text",
-      "ctaSubtext": "Risk reducer under the button (optional)"
-    },
-    {
-      "type": "value_proposition",
-      "headline": "Section headline",
-      "items": [
-        { "icon": "emoji", "title": "Benefit title", "body": "2-3 sentence explanation" }
+      "name": "Section Name",
+      "styles": { "backgroundColor": { "value": "#hexcolor" } },
+      "children": [
+        { "type": "headline",    "tag": "h1", "text": "Main headline text",           "styles": { "color": { "value": "#ffffff" } } },
+        { "type": "sub-heading",              "text": "Supporting subheadline text",  "styles": { "color": { "value": "#e5e7eb" } } },
+        { "type": "heading",     "tag": "h2", "text": "Section heading",              "styles": { "color": { "value": "#111827" } } },
+        { "type": "paragraph",                "text": "Body copy — use <strong> for bold emphasis", "styles": { "color": { "value": "#374151" } } },
+        { "type": "bulletList",               "items": ["Bullet one", "Bullet two"],  "styles": { "color": { "value": "#374151" } } },
+        { "type": "button",                   "text": "CTA Button Text",              "styles": { "backgroundColor": { "value": "#primary" }, "color": { "value": "#ffffff" } } }
       ]
-    },
-    {
-      "type": "social_proof",
-      "headline": "Section headline",
-      "items": [
-        { "quote": "testimonial text", "author": "Name, Role/Company", "result": "specific result achieved" }
-      ]
-    },
-    {
-      "type": "offer_detail",
-      "headline": "Section headline",
-      "body": "2-3 paragraph explanation of the offer/service",
-      "bullets": ["specific feature or benefit 1", "specific feature or benefit 2"]
-    },
-    {
-      "type": "cta_section",
-      "headline": "Closing headline that creates urgency or excitement",
-      "body": "1-2 sentences reinforcing the value",
-      "ctaText": "Final CTA button text",
-      "subtext": "Guarantee or risk reversal statement"
     }
-  ],
-  "suggestedColors": {
-    "primary": "#hex",
-    "bg": "#hex",
-    "text": "#hex",
-    "accent": "#hex"
-  }
-}`;
+  ]
+}
 
-  const raw = await aiService.generate(system, user, { maxTokens: 2000 });
+Color guidance:
+- First section (hero): use a dark branded background color, white or light text
+- Middle sections: alternate white (#ffffff) and very light gray (#F9FAFB)
+- Last section (CTA): use a dark or accent background, contrasting text
+- Button backgrounds: use a bright accent or primary color
+- Never use the literal placeholder "#primary" — always use a real hex color
+- Keep text colors contrasting: white/light on dark backgrounds, dark on light backgrounds`;
+
+  const raw    = await aiService.generate(system, user, { maxTokens: 3500 });
   const parsed = parseJsonSafe(raw);
   parsed._provider = provider;
   return parsed;
@@ -184,26 +223,23 @@ router.post('/generate', async (req, res) => {
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
   try {
-    // ── Step 1: Generate page content ─────────────────────────────────────
-    send('step', { step: 1, total: 2, label: 'Generating website page copy with AI…' });
+    // ── Step 1: Generate native section content with AI ────────────────────
+    send('step', { step: 1, total: 3, label: 'Generating page copy with AI…' });
 
-    const content = await generatePageContent({ pageName, pageType, websiteName, niche, offer, audience, brand, colorScheme, extraNotes });
+    const content = await generatePageSections({ pageName, pageType, websiteName, niche, offer, audience, brand, colorScheme, extraNotes });
     send('content', content);
 
-    // ── Step 2: Create GHL website page ───────────────────────────────────
-    send('step', { step: 2, total: 2, label: 'Creating page in GHL website builder…' });
-
     if (!websiteId) {
-      // No website selected — return content only
-      send('warn', { message: 'No website ID provided — page content generated but not saved to GHL. Enter a website ID to auto-save.' });
+      send('warn', { message: 'No website ID provided — content generated but not saved to GHL.' });
       send('done', { success: false, noWebsite: true, content, pageName });
       return res.end();
     }
 
-    // url field: no leading slash (GHL requirement)
+    // ── Step 2: Create the page shell in GHL ──────────────────────────────
+    send('step', { step: 2, total: 3, label: 'Creating page in GHL…' });
+
     const slug = (pageUrl || pageName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).replace(/^\//, '');
 
-    // GHL website pages use the funnels API: POST /funnels/page with funnelId = websiteId
     const pagePayload = {
       locationId:  req.locationId,
       funnelId:    websiteId,
@@ -213,8 +249,6 @@ router.post('/generate', async (req, res) => {
       description: content.metaDescription || '',
       published:   false,
     };
-
-    console.log('[WebsiteBuilder] POST /funnels/page for', req.locationId, 'websiteId:', websiteId);
 
     let ghlData;
     try {
@@ -235,6 +269,31 @@ router.post('/generate', async (req, res) => {
     const editUrl = pageId
       ? `https://app.gohighlevel.com/v2/location/${req.locationId}/sites/website/${websiteId}/page/${pageId}`
       : null;
+
+    if (!pageId) {
+      send('warn', { message: 'Page shell created but no pageId returned — cannot save native sections.' });
+      send('done', { success: true, partial: true, editUrl, slug, content, pageName });
+      return res.end();
+    }
+
+    // ── Step 3: Save native sections to GHL page via Firebase Storage ──────
+    send('step', { step: 3, total: 3, label: 'Saving native section content to GHL…' });
+
+    try {
+      await ghlPageBuilder.savePageData(
+        req.locationId,
+        pageId,
+        { sections: content.sections || [] },
+        { funnelId: websiteId, colorScheme }
+      );
+      console.log('[WebsiteBuilder] native sections saved for page', pageId);
+    } catch (saveErr) {
+      console.error('[WebsiteBuilder] section save error:', saveErr.message);
+      // Non-fatal — page exists, just without native section content
+      send('warn', { message: `Page created but section content could not be saved: ${saveErr.message}. Open in GHL editor to add content manually.` });
+      send('done', { success: true, partial: true, pageId, editUrl, slug, content, pageName });
+      return res.end();
+    }
 
     send('done', {
       success: true,

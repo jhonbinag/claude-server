@@ -2047,7 +2047,11 @@ export default function FunnelBuilder() {
                     border: `1px solid ${webResult.success ? 'rgba(16,185,129,0.2)' : 'rgba(99,102,241,0.2)'}`,
                   }}>
                     <p className="text-sm font-semibold" style={{ color: webResult.success ? '#6ee7b7' : '#a5b4fc' }}>
-                      {webResult.success ? `✅ "${webResult.pageName}" created in GHL!` : `✍️ Page copy generated${webResult.noWebsite ? ' — no website selected' : ''}`}
+                      {webResult.success && !webResult.partial
+                        ? `✅ "${webResult.pageName}" created in GHL with native sections!`
+                        : webResult.success && webResult.partial
+                        ? `⚠️ "${webResult.pageName}" created — sections saved partially (check logs)`
+                        : `✍️ Page copy generated${webResult.noWebsite ? ' — no website selected' : ''}`}
                     </p>
 
                     {webResult.editUrl && (
@@ -2068,35 +2072,32 @@ export default function FunnelBuilder() {
                     {webResult.content?.sections && (
                       <div className="space-y-3">
                         <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Generated Page Sections</p>
-                        {webResult.content.sections.map((s, i) => (
+                        {webResult.content.sections.map((s, i) => {
+                          const children = s.children || [];
+                          const headline  = children.find(c => c.type === 'headline' || c.type === 'heading');
+                          const sub       = children.find(c => c.type === 'sub-heading');
+                          const para      = children.find(c => c.type === 'paragraph');
+                          const bullets   = children.find(c => c.type === 'bulletList');
+                          const btn       = children.find(c => c.type === 'button');
+                          return (
                           <div key={i} className="p-3 rounded-lg" style={{ background: 'rgba(0,0,0,0.3)' }}>
-                            <p className="text-xs text-indigo-400 font-semibold uppercase mb-1">{s.type?.replace(/_/g, ' ')}</p>
-                            {s.headline && <p className="text-sm text-white font-semibold mb-1">{s.headline}</p>}
-                            {s.subheadline && <p className="text-xs text-gray-400 mb-2">{s.subheadline}</p>}
-                            {s.body && <p className="text-xs text-gray-400 line-clamp-3">{s.body}</p>}
-                            {s.ctaText && (
-                              <span className="mt-2 inline-block px-3 py-1 rounded text-xs font-medium text-white" style={{ background: webResult.content?.suggestedColors?.primary || '#6366f1' }}>
-                                {s.ctaText}
-                              </span>
-                            )}
-                            {s.items && (
-                              <div className="mt-2 space-y-1">
-                                {s.items.slice(0, 3).map((item, j) => (
-                                  <p key={j} className="text-xs text-gray-400">
-                                    {item.icon && <span className="mr-1">{item.icon}</span>}
-                                    <span className="text-gray-300 font-medium">{item.title || item.author}: </span>
-                                    {item.body || item.quote || item.result}
-                                  </p>
-                                ))}
-                              </div>
-                            )}
-                            {s.bullets && (
+                            <p className="text-xs text-indigo-400 font-semibold uppercase mb-1">{s.name || `Section ${i + 1}`}</p>
+                            {headline && <p className="text-sm text-white font-semibold mb-1">{headline.text}</p>}
+                            {sub      && <p className="text-xs text-gray-400 mb-2">{sub.text}</p>}
+                            {para     && <p className="text-xs text-gray-400 line-clamp-3">{para.text?.replace(/<[^>]+>/g, '')}</p>}
+                            {bullets?.items && (
                               <ul className="mt-2 space-y-0.5">
-                                {s.bullets.slice(0, 4).map((b, j) => <li key={j} className="text-xs text-gray-400">• {b}</li>)}
+                                {bullets.items.slice(0, 3).map((b, j) => <li key={j} className="text-xs text-gray-400">• {b}</li>)}
                               </ul>
                             )}
+                            {btn && (
+                              <span className="mt-2 inline-block px-3 py-1 rounded text-xs font-medium text-white" style={{ background: btn.styles?.backgroundColor?.value || '#6366f1' }}>
+                                {btn.text}
+                              </span>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
 
                         {webResult.content?.seoTitle && (
                           <div className="p-3 rounded-lg" style={{ background: 'rgba(0,0,0,0.3)' }}>
