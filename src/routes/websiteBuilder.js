@@ -44,7 +44,7 @@ router.get('/websites', async (req, res) => {
     const data = await ghlClient.ghlRequest(req.locationId, 'GET', '/funnels/funnel/list', null, {
       locationId: req.locationId,
       type:       'website',
-      limit:      50,
+      limit:      20,
       offset:     0,
     });
     const list = data?.funnels || data?.data || (Array.isArray(data) ? data : []);
