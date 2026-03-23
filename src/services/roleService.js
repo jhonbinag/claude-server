@@ -141,7 +141,7 @@ async function getAllRoles(locationId) {
  * @param {string[]} features
  * @returns {{ id, name, features, createdAt, updatedAt, builtin? }}
  */
-async function saveCustomRole(locationId, roleId, name, features) {
+async function saveCustomRole(locationId, roleId, name, features, tier) {
   if (!name || !name.trim()) throw new Error('Role name is required.');
   if (!Array.isArray(features))  throw new Error('features must be an array.');
 
@@ -160,6 +160,7 @@ async function saveCustomRole(locationId, roleId, name, features) {
     name: name.trim(),
     features,
     ...(isBuiltin ? { builtin: true } : {}),
+    ...(tier ? { tier } : {}),
     createdAt: existing[id]?.createdAt || now,
     updatedAt: now,
   };

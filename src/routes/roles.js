@@ -25,21 +25,32 @@ router.get('/my-features', async (req, res) => {
   const { locationId } = req;
   const userId = req.headers['x-user-id'] || req.userId || null;
 
-  // If no userId, return owner-level access (location is authenticated, user unknown)
   if (!userId) {
-    return res.json({
-      success:  true,
-      userId:   null,
-      role:     'owner',
-      features: ['*'],
-    });
+    return res.json({ success: true, userId: null, role: 'owner', features: ['*'] });
   }
 
   try {
-    const record = await roleService.getUserRole(locationId, userId);
-    const role   = record?.role || 'member';
-    const features = await roleService.getFeaturesForRole(locationId, role);
-    return res.json({ success: true, userId, role, features });
+    const record   = await roleService.getUserRole(locationId, userId);
+    const role     = record?.role || 'member';
+    let features   = await roleService.getFeaturesForRole(locationId, role);
+
+    // Intersect with tier allowedFeatures if this role has a tier attached
+    const custom = await roleService.getCustomRoles(locationId);
+    const roleObj = custom[role];
+    if (roleObj?.tier) {
+      const planTierStore = require('../services/planTierStore');
+      const tier = await planTierStore.getTier(roleObj.tier);
+      if (tier && Array.isArray(tier.allowedFeatures)) {
+        if (features.includes('*')) {
+          features = tier.allowedFeatures;
+        } else {
+          features = features.filter(f => tier.allowedFeatures.includes(f));
+        }
+      }
+      // if tier.allowedFeatures === null → no restriction (diamond)
+    }
+
+    return res.json({ success: true, userId, role, features, tier: roleObj?.tier || null });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

@@ -716,11 +716,14 @@ router.get('/locations/:id/custom-roles', async (req, res) => {
     const customOnly = Object.values(custom).filter(
       r => !roleService.BUILTIN_ROLE_KEYS.includes(r.id)
     );
+    const planTierStore = require('../services/planTierStore');
+    const tiers = await planTierStore.getTiers();
     res.json({
       success: true,
       builtinRoles,
       customRoles: customOnly,
       allFeatures: roleService.ALL_FEATURES,
+      tiers,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -731,10 +734,10 @@ router.get('/locations/:id/custom-roles', async (req, res) => {
 
 router.post('/locations/:id/custom-roles', async (req, res) => {
   const locationId = req.params.id;
-  const { name, features } = req.body;
+  const { name, features, tier } = req.body;
   if (!name) return res.status(400).json({ success: false, error: 'name is required.' });
   try {
-    const role = await roleService.saveCustomRole(locationId, null, name, features || []);
+    const role = await roleService.saveCustomRole(locationId, null, name, features || [], tier || null);
     activityLogger.log({ locationId, event: 'role_create', detail: { roleId: role.id, name }, success: true, adminId: req.adminId });
     res.json({ success: true, role });
   } catch (err) {
@@ -746,9 +749,9 @@ router.post('/locations/:id/custom-roles', async (req, res) => {
 
 router.put('/locations/:id/custom-roles/:roleId', async (req, res) => {
   const { id: locationId, roleId } = req.params;
-  const { name, features } = req.body;
+  const { name, features, tier } = req.body;
   try {
-    const role = await roleService.saveCustomRole(locationId, roleId, name, features || []);
+    const role = await roleService.saveCustomRole(locationId, roleId, name, features || [], tier || null);
     activityLogger.log({ locationId, event: 'role_update', detail: { roleId, name }, success: true, adminId: req.adminId });
     res.json({ success: true, role });
   } catch (err) {

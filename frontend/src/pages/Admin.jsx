@@ -30,6 +30,16 @@ const ALL_FEATURES_DEFAULT = [
 
 const ALL_FEATURE_KEYS = ALL_FEATURES_DEFAULT.map(f => f.key);
 
+const TIER_ALLOWED_FEATURES = {
+  bronze:  ['ads_generator', 'ad_library', 'social_planner'],
+  silver:  ['funnel_builder','website_builder','ads_generator','social_planner','email_builder','ad_library','campaign_builder'],
+  gold:    ['funnel_builder','website_builder','ads_generator','social_planner','email_builder','ad_library','campaign_builder','agents','ghl_agent','workflows','manychat','settings'],
+  diamond: null, // all
+};
+
+const TIER_COLORS = { bronze: '#cd7f32', silver: '#9ca3af', gold: '#f59e0b', diamond: '#60a5fa' };
+const TIER_ICONS  = { bronze: '🥉', silver: '🥈', gold: '🥇', diamond: '💎' };
+
 const BUILTIN_ROLES_DEFAULT = [
   { id: 'owner',   name: 'Owner',   features: ALL_FEATURE_KEYS, builtin: true },
   { id: 'admin',   name: 'Admin',   features: ALL_FEATURE_KEYS, builtin: true },
@@ -182,6 +192,7 @@ export default function Admin() {
   const [customRoles,        setCustomRoles]        = useState([]);
   const [rolesSubTab,        setRolesSubTab]        = useState('users'); // 'users' | 'roles'
   const [roleModal,          setRoleModal]          = useState(null);   // null | { mode:'create'|'edit', role? }
+  const [roleTiers,          setRoleTiers]          = useState({});
 
   // Plan Tiers state
   const [tiers,              setTiers]              = useState(null);
@@ -296,6 +307,7 @@ export default function Admin() {
         setAllFeatures(rolesData.allFeatures || []);
         setBuiltinRoles(rolesData.builtinRoles || []);
         setCustomRoles(rolesData.customRoles || []);
+        if (rolesData.tiers) setRoleTiers(rolesData.tiers);
       }
     } catch { flash('✗ Failed to load users/roles'); }
     setRolesLoading(false);
@@ -310,6 +322,7 @@ export default function Admin() {
         setAllFeatures(data.allFeatures || []);
         setBuiltinRoles(data.builtinRoles || []);
         setCustomRoles(data.customRoles || []);
+        if (data.tiers) setRoleTiers(data.tiers);
       }
     } catch {}
   }, [adminKey, rolesLocationId]); // eslint-disable-line
@@ -1097,6 +1110,32 @@ export default function Admin() {
                         )}
                       </div>
 
+                      {/* Allowed App Features */}
+                      <div style={{ marginTop: 12 }}>
+                        <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>
+                          App Features
+                        </p>
+                        {TIER_ALLOWED_FEATURES[tierKey] === null ? (
+                          <span style={{ color: '#4ade80', fontSize: 12 }}>✓ All tools</span>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {ALL_FEATURES_DEFAULT.map(f => {
+                              const allowed = TIER_ALLOWED_FEATURES[tierKey]?.includes(f.key);
+                              return (
+                                <span key={f.key} style={{
+                                  padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+                                  background: allowed ? `${tierColor}22` : '#1e1e1e',
+                                  color: allowed ? tierColor : '#4b5563',
+                                  border: `1px solid ${allowed ? tierColor + '44' : '#2a2a2a'}`,
+                                }}>
+                                  {f.icon} {f.label}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
                       {/* GHL Product dropdown — shown directly on card when products are loaded */}
                       <div style={{ marginTop: 12, borderTop: `1px solid ${tierColor}22`, paddingTop: 12 }}>
                         <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>
@@ -1375,6 +1414,11 @@ export default function Admin() {
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: 14 }}>{r.name}</span>
                                 <span style={{ background: '#111', color: '#f59e0b', fontSize: 10, padding: '1px 7px', borderRadius: 8 }}>custom</span>
+                                {r.tier && (
+                                  <span style={{ background: `${TIER_COLORS[r.tier]}22`, color: TIER_COLORS[r.tier], fontSize: 10, padding: '1px 7px', borderRadius: 8, border: `1px solid ${TIER_COLORS[r.tier]}44` }}>
+                                    {TIER_ICONS[r.tier]} {r.tier}
+                                  </span>
+                                )}
                               </div>
                               <div style={{ display: 'flex', gap: 4 }}>
                                 <button onClick={() => setRoleModal({ mode: 'edit', role: r })}
@@ -1419,6 +1463,7 @@ export default function Admin() {
                 allFeatures={allFeatures}
                 adminKey={adminKey}
                 locationId={rolesLocationId}
+                tiers={roleTiers}
                 onClose={() => setRoleModal(null)}
                 onSaved={(saved, isNew) => {
                   setRoleModal(null);
@@ -1648,14 +1693,27 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
 
 // ── Role Editor Modal ─────────────────────────────────────────────────────────
 
-function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locationId, onClose, onSaved, onReset, onFlash }) {
-  const [name,      setName]      = useState(role?.name     || '');
-  const [features,  setFeatures]  = useState(new Set(
+function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locationId, tiers, onClose, onSaved, onReset, onFlash }) {
+  const [name,         setName]         = useState(role?.name     || '');
+  const [features,     setFeatures]     = useState(new Set(
     // If features includes '*', pre-select all for display purposes
     (role?.features || []).includes('*') ? allFeatures.map(f => f.key) : (role?.features || [])
   ));
-  const [saving,    setSaving]    = useState(false);
-  const [resetting, setResetting] = useState(false);
+  const [saving,       setSaving]       = useState(false);
+  const [resetting,    setResetting]    = useState(false);
+  const [selectedTier, setSelectedTier] = useState(role?.tier || '');
+
+  const tierAllowed = selectedTier ? TIER_ALLOWED_FEATURES[selectedTier] : null;
+  // null means all allowed (diamond or no tier selected)
+  const isLockedByTier = (key) => tierAllowed !== null && !tierAllowed?.includes(key);
+
+  const handleTierChange = (newTier) => {
+    setSelectedTier(newTier);
+    if (newTier && TIER_ALLOWED_FEATURES[newTier] !== null) {
+      const allowed = new Set(TIER_ALLOWED_FEATURES[newTier]);
+      setFeatures(prev => new Set([...prev].filter(k => allowed.has(k))));
+    }
+  };
 
   const toggle = (key) => {
     setFeatures(prev => {
@@ -1677,7 +1735,7 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
         ? `/admin/locations/${locationId}/custom-roles`
         : `/admin/locations/${locationId}/custom-roles/${role.id}`;
       const method = isNew ? 'POST' : 'PUT';
-      const data = await adminFetch(path, { method, adminKey, body: { name: name.trim(), features: [...features] } });
+      const data = await adminFetch(path, { method, adminKey, body: { name: name.trim(), features: [...features], tier: selectedTier || null } });
       if (data.success) onSaved(data.role, isNew);
       else onFlash(`✗ ${data.error}`);
     } catch { onFlash('✗ Save failed'); }
@@ -1719,6 +1777,33 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
             style={{ width: '100%', boxSizing: 'border-box', background: isBuiltin ? '#0d0d0d' : '#111', border: '1px solid #333', borderRadius: 8, color: isBuiltin ? '#4b5563' : '#e5e7eb', padding: '9px 12px', fontSize: 14, marginBottom: 20, cursor: isBuiltin ? 'not-allowed' : 'text' }}
           />
 
+          {/* Tier selector — optional, only for custom roles */}
+          {!isBuiltin && (
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                Plan Tier Restriction <span style={{ color: '#4b5563', fontWeight: 400, textTransform: 'none' }}>(optional — limits features to tier's tools)</span>
+              </label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[{ key: '', label: 'No Restriction' }, { key: 'bronze', label: '🥉 Bronze' }, { key: 'silver', label: '🥈 Silver' }, { key: 'gold', label: '🥇 Gold' }, { key: 'diamond', label: '💎 Diamond' }].map(t => (
+                  <button key={t.key} onClick={() => handleTierChange(t.key)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', border: 'none',
+                      background: selectedTier === t.key ? (t.key ? TIER_COLORS[t.key] + '33' : '#6366f122') : '#111',
+                      color: selectedTier === t.key ? (t.key ? TIER_COLORS[t.key] : '#a5b4fc') : '#6b7280',
+                      outline: selectedTier === t.key ? `1px solid ${t.key ? TIER_COLORS[t.key] : '#6366f1'}` : '1px solid #2a2a2a',
+                    }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {selectedTier && TIER_ALLOWED_FEATURES[selectedTier] && (
+                <p style={{ color: '#6b7280', fontSize: 12, margin: '6px 0 0' }}>
+                  🔒 Features not included in {selectedTier} tier will be locked
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Feature checkboxes */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <label style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -1733,14 +1818,16 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {allFeatures.map(f => {
               const checked = features.has(f.key);
+              const locked = isLockedByTier(f.key);
               return (
-                <label key={f.key} onClick={() => toggle(f.key)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '10px 14px', cursor: 'pointer', transition: 'all .15s' }}>
+                <label key={f.key} onClick={() => !locked && toggle(f.key)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '10px 14px', cursor: locked ? 'not-allowed' : 'pointer', transition: 'all .15s', opacity: locked ? 0.35 : 1 }}>
                   <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? '#6366f1' : '#444'}`, background: checked ? '#6366f1' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
                     {checked && <span style={{ color: '#fff', fontSize: 11, lineHeight: 1, fontWeight: 700 }}>✓</span>}
                   </div>
                   <span style={{ fontSize: 14, marginRight: 4 }}>{f.icon}</span>
                   <span style={{ color: checked ? '#e5e7eb' : '#9ca3af', fontSize: 13, fontWeight: checked ? 500 : 400 }}>{f.label}</span>
+                  {locked && <span style={{ fontSize: 10, color: '#4b5563', marginLeft: 'auto' }}>🔒</span>}
                 </label>
               );
             })}
