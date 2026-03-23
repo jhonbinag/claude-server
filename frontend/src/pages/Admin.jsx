@@ -1133,17 +1133,17 @@ export default function Admin() {
                         )}
                       </div>
 
-                      {/* Allowed App Features */}
+                      {/* Allowed App Features — sourced from live tier.allowedFeatures */}
                       <div style={{ marginTop: 12 }}>
                         <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' }}>
-                          App Features
+                          App Features ({tier.allowedFeatures === null ? 'All' : (tier.allowedFeatures?.length || 0)}/{ALL_FEATURES_DEFAULT.length})
                         </p>
-                        {TIER_ALLOWED_FEATURES[tierKey] === null ? (
-                          <span style={{ color: '#4ade80', fontSize: 12 }}>✓ All tools</span>
+                        {tier.allowedFeatures === null ? (
+                          <span style={{ color: '#4ade80', fontSize: 12 }}>✓ All tools unlocked</span>
                         ) : (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {ALL_FEATURES_DEFAULT.map(f => {
-                              const allowed = TIER_ALLOWED_FEATURES[tierKey]?.includes(f.key);
+                              const allowed = tier.allowedFeatures?.includes(f.key);
                               return (
                                 <span key={f.key} style={{
                                   padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
@@ -1726,15 +1726,22 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
   const [resetting,    setResetting]    = useState(false);
   const [selectedTier, setSelectedTier] = useState(role?.tier || '');
 
-  const tierAllowed = selectedTier ? TIER_ALLOWED_FEATURES[selectedTier] : null;
-  // null means all allowed (diamond or no tier selected)
-  const isLockedByTier = (key) => tierAllowed !== null && !tierAllowed?.includes(key);
+  // Live tier allowedFeatures from API — null means all tools unlocked (diamond)
+  const activeTierAllowed = selectedTier && tiers?.[selectedTier]?.allowedFeatures !== undefined
+    ? tiers[selectedTier].allowedFeatures
+    : null;
+
+  // Only show features the selected tier allows; show all if no tier selected
+  const visibleFeatures = activeTierAllowed !== null
+    ? allFeatures.filter(f => activeTierAllowed.includes(f.key))
+    : allFeatures;
 
   const handleTierChange = (newTier) => {
     setSelectedTier(newTier);
-    if (newTier && TIER_ALLOWED_FEATURES[newTier] !== null) {
-      const allowed = new Set(TIER_ALLOWED_FEATURES[newTier]);
-      setFeatures(prev => new Set([...prev].filter(k => allowed.has(k))));
+    const allowed = newTier && tiers?.[newTier]?.allowedFeatures;
+    if (allowed) {
+      const allowedSet = new Set(allowed);
+      setFeatures(prev => new Set([...prev].filter(k => allowedSet.has(k))));
     }
   };
 
@@ -1746,7 +1753,7 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
     });
   };
 
-  const selectAll = () => setFeatures(new Set(allFeatures.map(f => f.key)));
+  const selectAll = () => setFeatures(new Set(visibleFeatures.map(f => f.key)));
   const clearAll  = () => setFeatures(new Set());
 
   const save = async () => {
@@ -1819,18 +1826,22 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
                   </button>
                 ))}
               </div>
-              {selectedTier && TIER_ALLOWED_FEATURES[selectedTier] && (
+              {selectedTier && activeTierAllowed && (
                 <p style={{ color: '#6b7280', fontSize: 12, margin: '6px 0 0' }}>
-                  🔒 Features not included in {selectedTier} tier will be locked
+                  Showing {activeTierAllowed.length} of {allFeatures.length} tools available on {selectedTier} tier
                 </p>
               )}
             </div>
           )}
 
-          {/* Feature checkboxes */}
+          {/* Feature checkboxes — filtered to tier's allowedFeatures when tier is selected */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <label style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Tools &amp; Features <span style={{ color: '#6366f1', fontWeight: 700 }}>({features.size}/{allFeatures.length} selected)</span>
+              Tools &amp; Features{' '}
+              <span style={{ color: '#6366f1', fontWeight: 700 }}>
+                ({features.size}/{visibleFeatures.length} selected
+                {selectedTier && visibleFeatures.length < allFeatures.length ? ` · ${allFeatures.length - visibleFeatures.length} locked by tier` : ''})
+              </span>
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={selectAll} style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>Select All</button>
@@ -1839,22 +1850,25 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {allFeatures.map(f => {
+            {visibleFeatures.map(f => {
               const checked = features.has(f.key);
-              const locked = isLockedByTier(f.key);
               return (
-                <label key={f.key} onClick={() => !locked && toggle(f.key)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '10px 14px', cursor: locked ? 'not-allowed' : 'pointer', transition: 'all .15s', opacity: locked ? 0.35 : 1 }}>
+                <label key={f.key} onClick={() => toggle(f.key)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '10px 14px', cursor: 'pointer', transition: 'all .15s' }}>
                   <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? '#6366f1' : '#444'}`, background: checked ? '#6366f1' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
                     {checked && <span style={{ color: '#fff', fontSize: 11, lineHeight: 1, fontWeight: 700 }}>✓</span>}
                   </div>
                   <span style={{ fontSize: 14, marginRight: 4 }}>{f.icon}</span>
                   <span style={{ color: checked ? '#e5e7eb' : '#9ca3af', fontSize: 13, fontWeight: checked ? 500 : 400 }}>{f.label}</span>
-                  {locked && <span style={{ fontSize: 10, color: '#4b5563', marginLeft: 'auto' }}>🔒</span>}
                 </label>
               );
             })}
           </div>
+          {selectedTier && visibleFeatures.length < allFeatures.length && (
+            <p style={{ color: '#4b5563', fontSize: 12, margin: '10px 0 0' }}>
+              🔒 {allFeatures.length - visibleFeatures.length} tool{allFeatures.length - visibleFeatures.length !== 1 ? 's' : ''} not available on {selectedTier} tier — upgrade to unlock
+            </p>
+          )}
         </div>
 
         {/* Footer */}
