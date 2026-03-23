@@ -149,7 +149,7 @@ function resolveAI(req, storedKey) {
     const makeGroq = (key) => ({
       generate: (sys, usr, opts = {}) => {
         const model = opts.model || 'llama-3.3-70b-versatile';
-        const payload = JSON.stringify({ model, max_tokens: Math.min(opts.maxTokens || 1500, 1500), messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] });
+        const payload = JSON.stringify({ model, max_tokens: Math.min(opts.maxTokens || 4096, 8192), messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }] });
         return new Promise((res, rej) => {
           const r = require('https').request({ hostname: 'api.groq.com', path: '/openai/v1/chat/completions', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), Authorization: `Bearer ${key}` } }, (resp) => {
             let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { const p = JSON.parse(d); if (resp.statusCode >= 400) rej(new Error(JSON.stringify(p).slice(0, 200))); else res(p.choices?.[0]?.message?.content || ''); } catch(e) { rej(e); } });
