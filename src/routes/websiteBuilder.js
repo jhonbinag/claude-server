@@ -109,12 +109,17 @@ router.get('/pages', async (req, res) => {
       locationId: req.locationId,
       funnelId:   websiteId,
       limit:      50,
-      offset:     0,
+      offset:     '0',
     });
-    let pages = data?.funnelPages || data?.pages || data?.list || data?.data || (Array.isArray(data) ? data : []);
+    console.log('[WebsiteBuilder] /pages raw keys:', Object.keys(data || {}), 'raw:', JSON.stringify(data).slice(0, 400));
+
+    let pages = data?.funnelPages || data?.pages || data?.pageList || data?.list || data?.data
+             || (Array.isArray(data) ? data : []);
     if (pages && !Array.isArray(pages) && Array.isArray(pages.list))        pages = pages.list;
     if (pages && !Array.isArray(pages) && Array.isArray(pages.funnelPages)) pages = pages.funnelPages;
+    if (pages && !Array.isArray(pages) && Array.isArray(pages.pageList))    pages = pages.pageList;
     pages = (pages || []).map(p => ({ ...p, id: p.id || p._id }));
+    console.log('[WebsiteBuilder] /pages resolved:', pages.length, 'pages');
     res.json({ success: true, pages });
   } catch (err) {
     console.error('[WebsiteBuilder] list pages error:', err.message);
