@@ -221,6 +221,28 @@ router.delete('/:brainId/docs/:docId', async (req, res) => {
 
 // ── AI-powered ask (RAG) ──────────────────────────────────────────────────────
 
+// ── Provider detection for RAG ────────────────────────────────────────────────
+// Returns { provider, key, model } using the same priority as claudeService.js
+async function detectProvider(locationId) {
+  const configs = await toolRegistry.loadToolConfigs(locationId);
+
+  const anthropicKey  = configs.anthropic?.apiKey   || config.anthropic?.apiKey;
+  const openrouterKey = configs.openrouter?.apiKey;
+  const openrouterModel = configs.openrouter?.model || 'openai/gpt-4o-mini';
+  const googleKey     = process.env.GOOGLE_API_KEY;
+  const geminiModel   = process.env.GEMINI_MODEL    || 'gemini-2.0-flash';
+  const groqKey       = process.env.GROQ_API_KEY;
+  const groqModel     = process.env.GROQ_MODEL      || 'llama-3.1-8b-instant';
+  const openaiKey     = process.env.OPENAI_API_KEY;
+
+  if (anthropicKey)  return { provider: 'anthropic',  key: anthropicKey,  model: 'claude-sonnet-4-6' };
+  if (openrouterKey) return { provider: 'openrouter', key: openrouterKey, model: openrouterModel };
+  if (googleKey)     return { provider: 'google',     key: googleKey,     model: geminiModel };
+  if (groqKey)       return { provider: 'groq',       key: groqKey,       model: groqModel };
+  if (openaiKey)     return { provider: 'openai',     key: openaiKey,     model: 'gpt-4o-mini' };
+  return null;
+}
+
 router.post('/:brainId/ask', async (req, res) => {
   const { query, k = 10 } = req.body;
   const tag = `[brain/ask brain=${req.params.brainId?.slice(-6)} loc=${req.locationId?.slice(0,8)}]`;
@@ -250,55 +272,100 @@ router.post('/:brainId/ask', async (req, res) => {
     ).join('\n\n---\n\n');
     process.stdout.write(`${tag} [2/4] context built — ${context.length} chars from ${chunks.length} sources\n`);
 
-    // 3. Get Anthropic client (per-location key → fallback to server key)
-    process.stdout.write(`${tag} [3/4] loading Anthropic API key…\n`);
-    const configs = await toolRegistry.loadToolConfigs(req.locationId);
-    const apiKey  = configs.anthropic?.apiKey || config.anthropic?.apiKey;
-    if (!apiKey) {
-      process.stdout.write(`${tag} ✗ no Anthropic API key found\n`);
-      return res.status(400).json({ success: false, error: 'Claude API key not configured. Go to Settings → Integrations → Claude AI.' });
+    // 3. Detect active AI provider
+    process.stdout.write(`${tag} [3/4] detecting active AI provider…\n`);
+    const providerInfo = await detectProvider(req.locationId);
+    if (!providerInfo) {
+      process.stdout.write(`${tag} ✗ no AI provider configured\n`);
+      return res.status(400).json({ success: false, error: 'No AI provider configured. Go to Settings → Integrations to add an API key (Claude, OpenRouter, Gemini, or Groq).' });
     }
-    process.stdout.write(`${tag} [3/4] API key found (${apiKey.slice(0, 10)}…)\n`);
+    const { provider, key, model } = providerInfo;
+    process.stdout.write(`${tag} [3/4] provider=${provider} model=${model} key=${key.slice(0,12)}…\n`);
 
-    const client = new Anthropic.default({ apiKey });
-
-    // 4. Stream the answer
-    process.stdout.write(`${tag} [4/4] opening SSE stream to client…\n`);
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('X-Accel-Buffering', 'no');
-
-    res.write(`data: ${JSON.stringify({ type: 'sources', sources: chunks.map(c => ({ sourceLabel: c.sourceLabel, url: c.url, score: c.score, isPrimary: c.isPrimary })) })}\n\n`);
-
-    process.stdout.write(`${tag} [4/4] calling Claude claude-sonnet-4-6…\n`);
-    const t1 = Date.now();
-    let charCount = 0;
-
-    const stream = client.messages.stream({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: `You are a helpful AI assistant that answers questions based strictly on the provided transcript content from a YouTube knowledge base.
+    const SYSTEM = `You are a helpful AI assistant that answers questions based strictly on the provided transcript content from a YouTube knowledge base.
 
 Rules:
 - Answer only from the provided context. Do not add outside knowledge.
 - Be concise but complete. Use bullet points or short paragraphs as appropriate.
 - If the context doesn't contain enough information to answer, say so clearly.
 - When referencing specific content, mention the video/source it came from.
-- Do not repeat the question back.`,
-      messages: [{
-        role: 'user',
-        content: `Context from knowledge base:\n\n${context}\n\n---\n\nQuestion: ${query}`,
-      }],
-    });
+- Do not repeat the question back.`;
+    const USER_MSG = `Context from knowledge base:\n\n${context}\n\n---\n\nQuestion: ${query}`;
 
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-        charCount += event.delta.text.length;
-        res.write(`data: ${JSON.stringify({ type: 'text', text: event.delta.text })}\n\n`);
+    // 4. Stream / call the provider
+    process.stdout.write(`${tag} [4/4] calling ${provider} (${model})…\n`);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.write(`data: ${JSON.stringify({ type: 'provider', provider, model })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'sources', sources: chunks.map(c => ({ sourceLabel: c.sourceLabel, url: c.url, score: c.score, isPrimary: c.isPrimary })) })}\n\n`);
+
+    const t1 = Date.now();
+    let charCount = 0;
+
+    if (provider === 'anthropic') {
+      // ── Anthropic: streaming ──────────────────────────────────────────────
+      const client = new Anthropic.default({ apiKey: key });
+      const stream = client.messages.stream({
+        model, max_tokens: 1024,
+        system: SYSTEM,
+        messages: [{ role: 'user', content: USER_MSG }],
+      });
+      for await (const event of stream) {
+        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+          charCount += event.delta.text.length;
+          res.write(`data: ${JSON.stringify({ type: 'text', text: event.delta.text })}\n\n`);
+        }
       }
+
+    } else if (provider === 'google') {
+      // ── Gemini: single call ───────────────────────────────────────────────
+      const gRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: SYSTEM }] },
+            contents: [{ role: 'user', parts: [{ text: USER_MSG }] }],
+          }),
+        }
+      );
+      const gData = await gRes.json();
+      if (!gRes.ok) throw new Error(`Gemini ${gRes.status}: ${JSON.stringify(gData).slice(0, 200)}`);
+      const text = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      charCount = text.length;
+      res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
+
+    } else {
+      // ── OpenAI-compatible: openrouter, groq, openai — single call ─────────
+      const hostname = provider === 'openrouter' ? 'openrouter.ai'
+                     : provider === 'groq'       ? 'api.groq.com'
+                     : 'api.openai.com';
+      const oRes = await fetch(`https://${hostname}/openai/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${key}`,
+          ...(provider === 'openrouter' ? { 'HTTP-Referer': 'https://claudeserver.vercel.app', 'X-Title': 'HL Brain' } : {}),
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1024,
+          messages: [
+            { role: 'system', content: SYSTEM },
+            { role: 'user',   content: USER_MSG },
+          ],
+        }),
+      });
+      const oData = await oRes.json();
+      if (!oRes.ok) throw new Error(`${provider} ${oRes.status}: ${JSON.stringify(oData).slice(0, 200)}`);
+      const text = oData.choices?.[0]?.message?.content || '';
+      charCount = text.length;
+      res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
     }
 
-    process.stdout.write(`${tag} ✓ DONE — Claude replied ${charCount} chars in ${Date.now() - t1}ms\n`);
+    process.stdout.write(`${tag} ✓ DONE — ${provider} replied ${charCount} chars in ${Date.now() - t1}ms\n`);
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
