@@ -1706,6 +1706,31 @@ function isEnabled() {
   return true;
 }
 
+/**
+ * Re-upsert all existing Redis chunks into the Upstash Vector index.
+ * Use this to backfill vector embeddings for brains synced before vector was enabled.
+ */
+async function reindexBrain(locationId, brainId) {
+  const tag = `[reindex loc=${locationId?.slice(0,8)} brain=${brainId?.slice(-6)}]`;
+  if (!isVectorEnabled) throw new Error('UPSTASH_VECTOR_REST_URL / TOKEN not configured');
+  const docs = (await rGet(docsKey(locationId, brainId))) || [];
+  process.stdout.write(`${tag} reindexing ${docs.length} docs\n`);
+  let total = 0;
+  for (const doc of docs) {
+    const chunks = (await rGet(chunksKey(locationId, brainId, doc.docId))) || [];
+    if (!chunks.length) continue;
+    await vUpsertChunks(locationId, brainId, doc.docId, chunks.map(c => c.text), {
+      sourceLabel: doc.sourceLabel || '',
+      url:         doc.url || '',
+      isPrimary:   !!doc.isPrimary,
+    });
+    total += chunks.length;
+    process.stdout.write(`${tag} doc=${doc.docId} chunks=${chunks.length}\n`);
+  }
+  process.stdout.write(`${tag} ✓ done total=${total} vectors upserted\n`);
+  return { docs: docs.length, vectors: total };
+}
+
 module.exports = {
   isEnabled,
   // Brain CRUD
@@ -1736,6 +1761,7 @@ module.exports = {
   listVideos,
   generateVideoTranscript,
   getVideoTranscriptText,
+  reindexBrain,
   // Auto-sync
   listBrainLocations: () => rSMembers(BRAIN_LOCS_KEY),
 };

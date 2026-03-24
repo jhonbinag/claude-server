@@ -760,6 +760,19 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                 animation: (syncing || batchProcessing) ? 'spin 1s linear infinite' : 'none',
               }}>↻</span>
             </button>
+            <button
+              title="Re-index existing chunks into vector database"
+              onClick={async () => {
+                showFlash(true, 'Re-indexing into vector database…');
+                try {
+                  const r = await apiFetch(`/brain/${brain.brainId}/reindex`, locationId, { method: 'POST' });
+                  if (r.success) showFlash(true, `✓ Vector index updated: ${r.vectors} chunks from ${r.docs} docs`);
+                  else showFlash(false, r.error || 'Re-index failed.');
+                } catch (e) { showFlash(false, e.message); }
+              }}
+              style={{ ...btnSecondary, fontSize: 12 }}>
+              ⚡ Reindex
+            </button>
             <button onClick={() => setShowAddChannel(true)} style={btnPrimary}>+ Add Channel</button>
           </div>
         </div>

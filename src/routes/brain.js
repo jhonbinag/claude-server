@@ -537,6 +537,15 @@ router.get('/:brainId/videos/:videoId/transcript', async (req, res) => {
 
 // ── Remove channel from brain ─────────────────────────────────────────────────
 
+router.post('/:brainId/reindex', async (req, res) => {
+  try {
+    const result = await brain.reindexBrain(req.locationId, req.params.brainId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.delete('/:brainId/channels/:channelId', async (req, res) => {
   try {
     const result = await brain.removeChannelFromBrain(
