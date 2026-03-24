@@ -162,7 +162,7 @@ function extractHandle(url) {
  * Create a new brain for a location.
  * Accepts optional docsUrl, changelogUrl, primaryChannel, and secondaryChannels.
  */
-async function createBrain(locationId, { name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels } = {}) {
+async function createBrain(locationId, { name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels, autoSync } = {}) {
   if (!name || !name.trim()) throw new Error('"name" is required.');
   const brainId  = `brain_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
   const now      = new Date().toISOString();
@@ -210,6 +210,7 @@ async function createBrain(locationId, { name, slug, description, docsUrl, chang
     docsUrl:       (docsUrl || '').trim(),
     changelogUrl:  (changelogUrl || '').trim(),
     channels,
+    autoSync:      !!autoSync,
     pipelineStage: channels.length > 0 ? 'needs_sync' : 'ready',
     pendingCount:  0,
     createdAt:     now,

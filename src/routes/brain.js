@@ -43,7 +43,7 @@ router.post('/create', async (req, res) => {
   if (!name) return res.status(400).json({ success: false, error: '"name" is required.' });
   try {
     const result = await brain.createBrain(req.locationId, {
-      name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels,
+      name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels, autoSync: !!syncNow,
     });
     res.json({ success: true, data: result });
     if (syncNow && (primaryChannel?.url || (result.channels || []).length > 0)) {
@@ -85,13 +85,14 @@ router.delete('/:brainId', async (req, res) => {
 // ── Update brain metadata ─────────────────────────────────────────────────────
 
 router.patch('/:brainId', async (req, res) => {
-  const { name, description, docsUrl, changelogUrl } = req.body;
+  const { name, description, docsUrl, changelogUrl, autoSync } = req.body;
   try {
     const result = await brain.updateBrainMeta(req.locationId, req.params.brainId, {
       ...(name        !== undefined && { name:        name.trim() }),
       ...(description !== undefined && { description: description.trim() }),
       ...(docsUrl     !== undefined && { docsUrl:     docsUrl.trim() }),
       ...(changelogUrl !== undefined && { changelogUrl: changelogUrl.trim() }),
+      ...(autoSync    !== undefined && { autoSync:    !!autoSync }),
     });
     res.json({ success: true, data: result });
   } catch (err) {

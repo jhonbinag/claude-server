@@ -108,11 +108,13 @@ router.get('/run-schedules', cronAuth, async (req, res) => {
 });
 
 // ── GET /cron/brain-sync ──────────────────────────────────────────────────────
-// Runs weekly — discovers new videos from all channels in brains with autoSync=true.
-// Only collects video metadata (no transcript fetching) to stay within 60s timeout.
+// Runs weekly — discovers new videos from all channels in brains with autoSync=true,
+// then processes transcript batches until the Vercel time budget is nearly exhausted.
 
 router.get('/brain-sync', cronAuth, async (req, res) => {
   const tag = '[cron/brain-sync]';
+  const startMs = Date.now();
+  const TIME_BUDGET_MS = 750_000; // 750s of 800s max — leave 50s safety margin
   console.log(tag, 'Starting weekly brain sync');
 
   try {
@@ -123,16 +125,19 @@ router.get('/brain-sync', cronAuth, async (req, res) => {
     let totalChannels = 0;
     let totalVideos   = 0;
 
+    // ── Phase 1: Queue all channels (discover video metadata) ──
+    const brainsToProcess = []; // { locationId, brainId } pairs for batch processing
+
     for (const locationId of locationIds) {
-      let brains;
+      let brainList;
       try {
-        brains = await brain.listBrains(locationId);
+        brainList = await brain.listBrains(locationId);
       } catch (e) {
         console.error(tag, `listBrains failed for ${locationId}:`, e.message);
         continue;
       }
 
-      const autoBrains = brains.filter(b => b.autoSync);
+      const autoBrains = brainList.filter(b => b.autoSync);
       if (!autoBrains.length) continue;
 
       console.log(tag, `  ${locationId} — ${autoBrains.length} auto-sync brain(s)`);
@@ -151,11 +156,53 @@ router.get('/brain-sync', cronAuth, async (req, res) => {
             results.push({ locationId, brainId: b.brainId, channel: ch.channelName, status: 'error', error: e.message });
           }
         }
+        brainsToProcess.push({ locationId, brainId: b.brainId });
       }
     }
 
-    console.log(tag, `Done — ${totalChannels} channel(s), ${totalVideos} total videos catalogued`);
-    res.json({ success: true, locations: locationIds.length, channels: totalChannels, videos: totalVideos, results });
+    console.log(tag, `Phase 1 done — ${totalChannels} channel(s), ${totalVideos} videos catalogued`);
+
+    // ── Phase 2: Process transcript batches within the remaining time budget ──
+    let totalIngested = 0;
+    let totalErrors   = 0;
+    let batchRounds   = 0;
+
+    for (const { locationId, brainId } of brainsToProcess) {
+      while ((Date.now() - startMs) < TIME_BUDGET_MS) {
+        try {
+          const r = await brain.processSyncBatch(locationId, brainId, 5);
+          batchRounds++;
+          totalIngested += r.ingested || 0;
+          totalErrors   += r.errors   || 0;
+          if (r.done) {
+            console.log(tag, `  Brain ${brainId.slice(-6)} — all batches done`);
+            break;
+          }
+        } catch (e) {
+          console.error(tag, `  Brain ${brainId.slice(-6)} batch error:`, e.message);
+          break;
+        }
+      }
+
+      if ((Date.now() - startMs) >= TIME_BUDGET_MS) {
+        console.log(tag, 'Time budget reached — remaining batches will continue next week or via UI');
+        break;
+      }
+    }
+
+    const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
+    console.log(tag, `Done in ${elapsed}s — ${totalChannels} channel(s), ${totalVideos} videos catalogued, ${totalIngested} transcripts ingested, ${totalErrors} errors, ${batchRounds} batch rounds`);
+    res.json({
+      success: true,
+      locations: locationIds.length,
+      channels: totalChannels,
+      videos: totalVideos,
+      ingested: totalIngested,
+      errors: totalErrors,
+      batchRounds,
+      elapsedSeconds: parseFloat(elapsed),
+      results,
+    });
   } catch (err) {
     console.error(tag, 'Fatal error:', err.message);
     res.status(500).json({ success: false, error: err.message });
