@@ -943,14 +943,24 @@ async function addYoutubeVideo(locationId, brainId, videoUrl, titleHint, isPrima
  * Primary-channel docs get a 1.5× score boost.
  */
 async function queryKnowledge(locationId, brainId, queryText, k = 5) {
+  const tag = `[queryKnowledge loc=${locationId?.slice(0,8)} brain=${brainId?.slice(-6)}]`;
+  process.stdout.write(`${tag} query="${queryText}" k=${k}\n`);
+
   const docs = (await rGet(docsKey(locationId, brainId))) || [];
-  if (!docs.length) return [];
+  process.stdout.write(`${tag} docs=${docs.length}\n`);
+  if (!docs.length) {
+    process.stdout.write(`${tag} ✗ no indexed documents\n`);
+    return [];
+  }
 
   const queryTerms = queryText.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+  process.stdout.write(`${tag} terms=[${queryTerms.join(', ')}]\n`);
 
   const scored = [];
+  let totalChunks = 0;
   for (const doc of docs) {
     const chunks = (await rGet(chunksKey(locationId, brainId, doc.docId))) || [];
+    totalChunks += chunks.length;
     const boost  = doc.isPrimary ? 1.5 : 1.0;
     for (const chunk of chunks) {
       const raw   = scoreChunk(chunk.text, queryTerms);
@@ -968,7 +978,17 @@ async function queryKnowledge(locationId, brainId, queryText, k = 5) {
     }
   }
 
-  return scored.sort((a, b) => b.score - a.score).slice(0, k);
+  const results = scored.sort((a, b) => b.score - a.score).slice(0, k);
+  process.stdout.write(`${tag} scanned=${totalChunks} chunks | matched=${scored.length} | returning top ${results.length}\n`);
+  if (results.length > 0) {
+    results.forEach((r, i) =>
+      process.stdout.write(`${tag}   [${i + 1}] score=${r.score.toFixed(3)} source="${r.sourceLabel}"\n`)
+    );
+  } else {
+    process.stdout.write(`${tag} ✗ no chunks matched query terms\n`);
+  }
+
+  return results;
 }
 
 /**

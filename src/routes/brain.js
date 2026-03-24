@@ -223,12 +223,21 @@ router.delete('/:brainId/docs/:docId', async (req, res) => {
 
 router.post('/:brainId/ask', async (req, res) => {
   const { query, k = 10 } = req.body;
+  const tag = `[brain/ask brain=${req.params.brainId?.slice(-6)} loc=${req.locationId?.slice(0,8)}]`;
+
+  process.stdout.write(`${tag} ── START query="${query}" k=${k}\n`);
+
   if (!query) return res.status(400).json({ success: false, error: '"query" is required.' });
 
   try {
     // 1. Retrieve relevant chunks
+    process.stdout.write(`${tag} [1/4] querying knowledge base…\n`);
+    const t0 = Date.now();
     const chunks = await brain.queryKnowledge(req.locationId, req.params.brainId, query, k);
+    process.stdout.write(`${tag} [1/4] done — ${chunks.length} chunks in ${Date.now() - t0}ms\n`);
+
     if (!chunks.length) {
+      process.stdout.write(`${tag} ✗ no context found — returning no_context event\n`);
       res.setHeader('Content-Type', 'text/event-stream');
       res.write(`data: ${JSON.stringify({ type: 'no_context' })}\n\n`);
       res.end();
@@ -239,21 +248,31 @@ router.post('/:brainId/ask', async (req, res) => {
     const context = chunks.map((c, i) =>
       `[Source ${i + 1}: ${c.sourceLabel || 'Unknown'}${c.url ? ` — ${c.url}` : ''}]\n${c.text}`
     ).join('\n\n---\n\n');
+    process.stdout.write(`${tag} [2/4] context built — ${context.length} chars from ${chunks.length} sources\n`);
 
     // 3. Get Anthropic client (per-location key → fallback to server key)
+    process.stdout.write(`${tag} [3/4] loading Anthropic API key…\n`);
     const configs = await toolRegistry.loadToolConfigs(req.locationId);
     const apiKey  = configs.anthropic?.apiKey || config.anthropic?.apiKey;
-    if (!apiKey) return res.status(400).json({ success: false, error: 'Claude API key not configured. Go to Settings → Integrations → Claude AI.' });
+    if (!apiKey) {
+      process.stdout.write(`${tag} ✗ no Anthropic API key found\n`);
+      return res.status(400).json({ success: false, error: 'Claude API key not configured. Go to Settings → Integrations → Claude AI.' });
+    }
+    process.stdout.write(`${tag} [3/4] API key found (${apiKey.slice(0, 10)}…)\n`);
 
     const client = new Anthropic.default({ apiKey });
 
     // 4. Stream the answer
+    process.stdout.write(`${tag} [4/4] opening SSE stream to client…\n`);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('X-Accel-Buffering', 'no');
 
-    // Send sources first so the UI can render them immediately
     res.write(`data: ${JSON.stringify({ type: 'sources', sources: chunks.map(c => ({ sourceLabel: c.sourceLabel, url: c.url, score: c.score, isPrimary: c.isPrimary })) })}\n\n`);
+
+    process.stdout.write(`${tag} [4/4] calling Claude claude-sonnet-4-6…\n`);
+    const t1 = Date.now();
+    let charCount = 0;
 
     const stream = client.messages.stream({
       model:      'claude-sonnet-4-6',
@@ -274,13 +293,16 @@ Rules:
 
     for await (const event of stream) {
       if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+        charCount += event.delta.text.length;
         res.write(`data: ${JSON.stringify({ type: 'text', text: event.delta.text })}\n\n`);
       }
     }
 
+    process.stdout.write(`${tag} ✓ DONE — Claude replied ${charCount} chars in ${Date.now() - t1}ms\n`);
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
+    process.stdout.write(`${tag} ✗ ERROR: ${err.message}\n${err.stack}\n`);
     if (!res.headersSent) {
       res.status(500).json({ success: false, error: err.message });
     } else {
@@ -296,14 +318,17 @@ router.post('/:brainId/query', async (req, res) => {
   const { query, k } = req.body;
   if (!query) return res.status(400).json({ success: false, error: '"query" is required.' });
   try {
+    process.stdout.write(`[brain/query brain=${req.params.brainId?.slice(-6)}] "${query}" k=${k || 5}\n`);
     const results = await brain.queryKnowledge(
       req.locationId,
       req.params.brainId,
       query,
       k || 5,
     );
+    process.stdout.write(`[brain/query brain=${req.params.brainId?.slice(-6)}] → ${results.length} results\n`);
     res.json({ success: true, data: results });
   } catch (err) {
+    process.stdout.write(`[brain/query brain=${req.params.brainId?.slice(-6)}] ✗ ${err.message}\n`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
