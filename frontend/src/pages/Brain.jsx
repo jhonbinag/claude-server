@@ -1576,8 +1576,8 @@ function SearchView({ brains, locationId }) {
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.textPri }}>Ask AI</h2>
-        <p style={{ margin: 0, fontSize: 14, color: C.textMuted }}>Ask any question — Claude will analyze the brain and answer from the transcripts.</p>
+        <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.textPri }}>Ask Brain</h2>
+        <p style={{ margin: 0, fontSize: 14, color: C.textMuted }}>Ask any question — brain will analyze and answer from the transcripts.</p>
       </div>
 
       {/* Controls row */}
