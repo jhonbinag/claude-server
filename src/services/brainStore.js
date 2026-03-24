@@ -675,65 +675,128 @@ async function getYoutubeOAuthToken(locationId) {
 }
 
 async function fetchYoutubeTranscript(videoId, locationId) {
-  console.log(`[fetchTranscript] ${videoId} — calling Android player API`);
+  const tag = `[fetchTranscript ${videoId}]`;
 
-  async function tryAndroidPlayer(forceRefresh) {
-    const visitorData = await getYtVisitorData(forceRefresh);
-    const res = await fetch(YT_PLAYER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': YT_ANDROID_UA },
-      body: JSON.stringify({
-        context: { client: { clientName: 'ANDROID', clientVersion: YT_ANDROID_VER, androidSdkVersion: YT_ANDROID_SDK, hl: 'en', gl: 'US', ...(visitorData ? { visitorData } : {}) } },
-        videoId,
-      }),
+  // ── Approach 1: youtubei.js WEB client (proper session management) ──
+  try {
+    console.log(tag, 'trying youtubei.js WEB client');
+    const Innertube = await getInnertube();
+    const yt = await Innertube.create({ retrieve_player: true });
+    const info = await yt.getInfo(videoId);
+
+    const title       = info.basic_info?.title || null;
+    const lengthSecs  = parseInt(info.basic_info?.duration || 0, 10);
+    const viewCount   = parseInt(info.basic_info?.view_count || 0, 10);
+    const publishDate = info.primary_info?.published?.text
+                     || info.basic_info?.start_timestamp?.toISOString?.()
+                     || null;
+
+    // Try getTranscript() — returns structured transcript segments directly
+    try {
+      const transcriptData = await info.getTranscript();
+      const body = transcriptData?.content?.body;
+      const segments = body?.initial_segments || body?.segments || [];
+      const lines = segments
+        .map(seg => {
+          const snippet = seg.snippet || seg;
+          return (snippet.text || snippet.snippet_text || '').trim();
+        })
+        .filter(Boolean);
+      if (lines.length > 0) {
+        const paragraphs = [];
+        for (let i = 0; i < lines.length; i += 10) paragraphs.push(lines.slice(i, i + 10).join(' '));
+        console.log(tag, 'got transcript via getTranscript():', lines.length, 'lines');
+        return { transcript: paragraphs.join('\n\n'), title, lengthSecs, viewCount, publishDate };
+      }
+    } catch (e) {
+      console.warn(tag, 'getTranscript() failed:', e.message, '— trying caption tracks');
+    }
+
+    // Fallback: fetch caption XML from caption tracks in the info object
+    const captions = info.captions?.caption_tracks;
+    if (captions && captions.length > 0) {
+      const track = captions.find(t => t.language_code === 'en')
+        || captions.find(t => t.language_code?.startsWith('en'))
+        || captions[0];
+      console.log(tag, `fetching caption XML: lang=${track.language_code}`);
+      const captionRes = await fetch(track.base_url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+          'Origin': 'https://www.youtube.com',
+          'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.9',
+        },
+      });
+      if (captionRes.ok) {
+        const xml = await captionRes.text();
+        if (xml && xml.length > 50) {
+          console.log(tag, 'got caption XML via youtubei.js, length:', xml.length);
+          const parsed = parseYoutubeXml(xml, title);
+          return { ...parsed, lengthSecs, viewCount, publishDate };
+        }
+      }
+    }
+    console.warn(tag, 'youtubei.js returned no usable captions');
+  } catch (e) {
+    console.warn(tag, 'youtubei.js WEB client failed:', e.message);
+  }
+
+  // ── Approach 2: Android player API (fallback) ──
+  try {
+    console.log(tag, 'trying Android player API (fallback)');
+    async function tryAndroidPlayer(forceRefresh) {
+      const visitorData = await getYtVisitorData(forceRefresh);
+      const res = await fetch(YT_PLAYER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': YT_ANDROID_UA },
+        body: JSON.stringify({
+          context: { client: { clientName: 'ANDROID', clientVersion: YT_ANDROID_VER, androidSdkVersion: YT_ANDROID_SDK, hl: 'en', gl: 'US', ...(visitorData ? { visitorData } : {}) } },
+          videoId,
+        }),
+      });
+      if (!res.ok) throw new Error(`YouTube player API returned ${res.status}`);
+      return res.json();
+    }
+
+    let playerJson = await tryAndroidPlayer(false);
+    const playStatus = playerJson.playabilityStatus?.status;
+    if (playStatus && playStatus !== 'OK') {
+      _ytVisitorData = null;
+      playerJson = await tryAndroidPlayer(true);
+      const s2 = playerJson.playabilityStatus?.status;
+      if (s2 && s2 !== 'OK') throw new Error(`Android API: ${playerJson.playabilityStatus?.reason || s2}`);
+    }
+
+    const title       = playerJson.videoDetails?.title || null;
+    const lengthSecs  = parseInt(playerJson.videoDetails?.lengthSeconds || 0, 10);
+    const viewCount   = parseInt(playerJson.videoDetails?.viewCount || 0, 10);
+    const publishDate = playerJson.microformat?.playerMicroformatRenderer?.publishDate || null;
+
+    const tracks = playerJson.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!tracks || !tracks.length) throw new Error('No captions available (Android API).');
+
+    const track = tracks.find(t => t.languageCode === 'en')
+      || tracks.find(t => t.languageCode?.startsWith('en'))
+      || tracks[0];
+
+    const captionRes = await fetch(track.baseUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+        'Origin': 'https://www.youtube.com',
+        'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.9',
+      },
     });
-    if (!res.ok) throw new Error(`YouTube player API returned ${res.status}`);
-    return res.json();
+    if (!captionRes.ok) throw new Error(`Caption fetch failed: ${captionRes.status}`);
+    const xml = await captionRes.text();
+    if (!xml || xml.length < 50) throw new Error('Empty caption response (Android API).');
+    console.log(tag, 'got caption XML via Android API, length:', xml.length);
+    const parsed = parseYoutubeXml(xml, title);
+    return { ...parsed, lengthSecs, viewCount, publishDate };
+  } catch (e) {
+    console.warn(tag, 'Android API failed:', e.message);
+    throw new Error(`All transcript approaches failed for ${videoId}: ${e.message}`);
   }
-
-  let playerJson = await tryAndroidPlayer(false);
-  const playStatus = playerJson.playabilityStatus?.status;
-  if (playStatus && playStatus !== 'OK') {
-    console.warn(`[fetchTranscript] playability ${playStatus} — retrying with fresh visitorData`);
-    _ytVisitorData = null;
-    playerJson = await tryAndroidPlayer(true);
-    const s2 = playerJson.playabilityStatus?.status;
-    if (s2 && s2 !== 'OK') throw new Error(`Video unavailable: ${playerJson.playabilityStatus?.reason || s2}`);
-  }
-
-  const title       = playerJson.videoDetails?.title || null;
-  const lengthSecs  = parseInt(playerJson.videoDetails?.lengthSeconds || 0, 10);
-  const viewCount   = parseInt(playerJson.videoDetails?.viewCount || 0, 10);
-  const publishDate = playerJson.microformat?.playerMicroformatRenderer?.publishDate || null;
-
-  const tracks = playerJson.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (!tracks || !tracks.length) throw new Error('No captions available for this video.');
-
-  const track = tracks.find(t => t.languageCode === 'en')
-    || tracks.find(t => t.languageCode?.startsWith('en'))
-    || tracks[0];
-
-  console.log(`[fetchTranscript] fetching caption: lang=${track.languageCode} url=${track.baseUrl?.slice(0, 80)}`);
-
-  // Full browser headers required — bare User-Agent alone gets rejected by YouTube CDN
-  const captionRes = await fetch(track.baseUrl, {
-    headers: {
-      'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Referer':         `https://www.youtube.com/watch?v=${videoId}`,
-      'Origin':          'https://www.youtube.com',
-      'Accept':          '*/*',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-  });
-
-  console.log(`[fetchTranscript] caption response: ${captionRes.status}`);
-  if (!captionRes.ok) throw new Error(`Caption fetch failed: ${captionRes.status}`);
-  const xml = await captionRes.text();
-  console.log(`[fetchTranscript] caption XML length: ${xml.length}`);
-  if (!xml || xml.length < 50) throw new Error('Empty caption response.');
-
-  const parsed = parseYoutubeXml(xml, title);
-  return { ...parsed, lengthSecs, viewCount, publishDate };
 }
 
 function parseYoutubeXml(xml, title) {
