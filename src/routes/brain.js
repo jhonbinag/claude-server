@@ -312,6 +312,24 @@ router.post('/:brainId/videos/:videoId/transcript', async (req, res) => {
   }
 });
 
+// ── Download transcript text for a single video ───────────────────────────────
+
+router.get('/:brainId/videos/:videoId/transcript', async (req, res) => {
+  try {
+    const text = await brain.getVideoTranscriptText(
+      req.locationId,
+      req.params.brainId,
+      req.params.videoId,
+    );
+    if (!text) return res.status(404).json({ success: false, error: 'Transcript not found' });
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="transcript-${req.params.videoId}.txt"`);
+    res.send(text);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Remove channel from brain ─────────────────────────────────────────────────
 
 router.delete('/:brainId/channels/:channelId', async (req, res) => {

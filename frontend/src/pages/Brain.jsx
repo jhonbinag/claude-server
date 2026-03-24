@@ -1009,21 +1009,41 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                       </button>
                     )}
 
-                    {/* Delete doc link for completed videos */}
+                    {/* Download + Delete for completed videos */}
                     {status === 'complete' && video.docId && (
-                      <button
-                        onClick={async () => {
-                          if (!confirm(`Remove transcript for "${video.title || video.videoId}" from this brain?`)) return;
-                          await apiFetch(`/brain/${brain.brainId}/docs/${video.docId}`, locationId, { method: 'DELETE' });
-                          await reloadVideos();
-                          await reloadBrain();
-                          onRefresh();
-                        }}
-                        title="Remove transcript from brain"
-                        style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 14, padding: '4px 6px', flexShrink: 0 }}
-                      >
-                        ✕
-                      </button>
+                      <>
+                        <button
+                          onClick={async () => {
+                            const res = await fetch(`/brain/${brain.brainId}/videos/${video.videoId}/transcript`, {
+                              headers: { 'x-location-id': locationId || '' },
+                            });
+                            if (!res.ok) return alert('Transcript not available.');
+                            const blob = await res.blob();
+                            const a = document.createElement('a');
+                            a.href = URL.createObjectURL(blob);
+                            a.download = `${(video.title || video.videoId).replace(/[^a-z0-9]+/gi, '-')}.txt`;
+                            a.click();
+                            URL.revokeObjectURL(a.href);
+                          }}
+                          title="Download transcript as .txt"
+                          style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 15, padding: '4px 6px', flexShrink: 0 }}
+                        >
+                          ⬇
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`Remove transcript for "${video.title || video.videoId}" from this brain?`)) return;
+                            await apiFetch(`/brain/${brain.brainId}/docs/${video.docId}`, locationId, { method: 'DELETE' });
+                            await reloadVideos();
+                            await reloadBrain();
+                            onRefresh();
+                          }}
+                          title="Remove transcript from brain"
+                          style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 14, padding: '4px 6px', flexShrink: 0 }}
+                        >
+                          ✕
+                        </button>
+                      </>
                     )}
                   </div>
                 );

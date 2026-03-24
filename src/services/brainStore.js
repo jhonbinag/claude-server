@@ -1576,6 +1576,30 @@ async function generateVideoTranscript(locationId, brainId, videoId) {
   }
 }
 
+/**
+ * Retrieve the full transcript text for a video by reassembling its chunks.
+ * Returns null if the video has no indexed transcript.
+ */
+async function getVideoTranscriptText(locationId, brainId, videoId) {
+  const vids  = (await rGet(videosKey(locationId, brainId))) || [];
+  const vr    = vids.find(v => v.videoId === videoId);
+  if (!vr?.docId) return null;
+
+  const chunks = (await rGet(chunksKey(locationId, brainId, vr.docId))) || [];
+  if (!chunks.length) return null;
+
+  const header = [
+    `Title:     ${vr.title || videoId}`,
+    `Channel:   ${vr.channelName || ''}`,
+    `Video URL: https://www.youtube.com/watch?v=${videoId}`,
+    vr.publishDate ? `Published: ${vr.publishDate}` : null,
+    vr.lengthSecs  ? `Duration:  ${Math.floor(vr.lengthSecs / 60)}:${String(vr.lengthSecs % 60).padStart(2, '0')}` : null,
+  ].filter(Boolean).join('\n');
+
+  const body = chunks.map(c => c.text).join('\n\n');
+  return `${header}\n\n${'─'.repeat(60)}\n\n${body}`;
+}
+
 function isEnabled() {
   return true;
 }
@@ -1609,6 +1633,7 @@ module.exports = {
   // Video catalogue
   listVideos,
   generateVideoTranscript,
+  getVideoTranscriptText,
   // Auto-sync
   listBrainLocations: () => rSMembers(BRAIN_LOCS_KEY),
 };
