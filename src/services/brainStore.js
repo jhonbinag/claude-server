@@ -845,6 +845,73 @@ async function syncBrainChannels(locationId, brainId) {
   }
 }
 
+/**
+ * Sync a single channel within a brain (background).
+ */
+async function syncSingleChannel(locationId, brainId, channelId) {
+  const tag = `[Brain sync ${brainId.slice(-6)}]`;
+  try {
+    const brains = (await rGet(brainsKey(locationId))) || [];
+    const brain  = brains.find(b => b.brainId === brainId);
+    if (!brain) { console.error(tag, 'Brain not found'); return; }
+
+    const ch = (brain.channels || []).find(c => c.channelId === channelId);
+    if (!ch) { console.error(tag, `Channel ${channelId} not found`); return; }
+    if (!ch.channelUrl) { console.error(tag, 'Channel has no URL'); return; }
+
+    await updateBrainMeta(locationId, brainId, { pipelineStage: 'syncing' });
+    console.log(tag, `Syncing channel "${ch.channelName}" (${ch.channelUrl})`);
+
+    let playlists = [];
+    try {
+      playlists = await getChannelPlaylists(ch.channelUrl);
+      console.log(tag, `  Found ${playlists.length} playlists`);
+    } catch (e) {
+      console.error(tag, `  Failed to get playlists: ${e.message}`);
+      await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready', pendingCount: 1 }).catch(() => {});
+      return;
+    }
+
+    await updateBrainMeta(locationId, brainId, { pipelineStage: 'processing' });
+
+    let channelVideos = 0;
+    let errors = 0;
+    for (const pl of playlists) {
+      try {
+        const result = await addPlaylistToBrain(locationId, brainId, pl.id, {
+          isPrimary: ch.type === 'primary' || ch.isPrimary,
+          channelId: ch.channelId,
+        });
+        channelVideos += result.ingested || 0;
+        errors        += (result.errors || []).length;
+      } catch (e) {
+        console.error(tag, `  Playlist error: ${e.message}`);
+        errors++;
+      }
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    // Update channel stats
+    const updatedBrains = (await rGet(brainsKey(locationId))) || [];
+    const bi = updatedBrains.findIndex(b => b.brainId === brainId);
+    if (bi !== -1) {
+      const ci = updatedBrains[bi].channels?.findIndex(c => c.channelId === channelId);
+      if (ci !== undefined && ci !== -1) {
+        updatedBrains[bi].channels[ci].videoCount = (updatedBrains[bi].channels[ci].videoCount || 0) + channelVideos;
+        updatedBrains[bi].channels[ci].lastSynced = new Date().toISOString();
+        updatedBrains[bi].updatedAt = new Date().toISOString();
+        await rSet(brainsKey(locationId), updatedBrains);
+      }
+    }
+
+    await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready', pendingCount: errors });
+    console.log(tag, `Channel sync complete — ${channelVideos} ingested, ${errors} errors`);
+  } catch (e) {
+    console.error(tag, 'Channel sync failed:', e.message);
+    await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready', pendingCount: 1 }).catch(() => {});
+  }
+}
+
 function isEnabled() {
   return true;
 }
@@ -862,6 +929,7 @@ module.exports = {
   removeChannelFromBrain,
   // Sync
   syncBrainChannels,
+  syncSingleChannel,
   getChannelPlaylists,
   // Document ops
   addDocument,

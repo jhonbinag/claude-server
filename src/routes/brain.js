@@ -241,6 +241,18 @@ router.post('/:brainId/channels', async (req, res) => {
   }
 });
 
+// ── Sync single channel ───────────────────────────────────────────────────────
+
+router.post('/:brainId/channels/:channelId/sync', async (req, res) => {
+  try {
+    await brain.updateBrainMeta(req.locationId, req.params.brainId, { pipelineStage: 'syncing' });
+    res.json({ success: true, message: 'Channel sync started.' });
+    setImmediate(() => brain.syncSingleChannel(req.locationId, req.params.brainId, req.params.channelId));
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Remove channel from brain ─────────────────────────────────────────────────
 
 router.delete('/:brainId/channels/:channelId', async (req, res) => {

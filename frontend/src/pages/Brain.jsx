@@ -348,6 +348,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   const [flash,             setFlash]             = useState(null);
   const [syncing,           setSyncing]           = useState(false);
   const [autoSync,          setAutoSync]          = useState(brain.autoSync === true);
+  const [syncingChannelId,  setSyncingChannelId]  = useState(null);
 
   // Edit brain settings
   const [editName,          setEditName]          = useState(brain.name);
@@ -506,6 +507,20 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     } catch { showFlash(false, 'Failed to remove channel.'); }
   }
 
+  async function syncChannel(channelId, name) {
+    setSyncingChannelId(channelId);
+    try {
+      const r = await apiFetch(`/brain/${brain.brainId}/channels/${channelId}/sync`, locationId, { method: 'POST' });
+      if (r.success) {
+        showFlash(true, `Syncing "${name}" in background…`);
+        onRefresh();
+      } else {
+        showFlash(false, r.error || 'Failed to start channel sync.');
+      }
+    } catch { showFlash(false, 'Request failed.'); }
+    setTimeout(() => setSyncingChannelId(null), 3000);
+  }
+
   function handleChannelAdded(ch) {
     setChannels(prev => [...prev, ch]);
     setShowAddChannel(false);
@@ -647,7 +662,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                   <th style={thStyle}>Type</th>
                   <th style={thStyle}>Videos</th>
                   <th style={thStyle}>Last synced</th>
-                  <th style={{ ...thStyle, width: 50 }}></th>
+                  <th style={{ ...thStyle, width: 80 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -663,7 +678,14 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                     </td>
                     <td style={{ ...tdStyle, color: C.textSec }}>{ch.videoCount || 0}</td>
                     <td style={{ ...tdStyle, color: C.textMuted, fontSize: 12 }}>{ch.lastSynced ? timeAgo(ch.lastSynced) : 'Never'}</td>
-                    <td style={tdStyle}>
+                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                      <button
+                        title="Sync this channel"
+                        disabled={syncingChannelId === ch.channelId}
+                        onClick={() => syncChannel(ch.channelId, ch.channelName)}
+                        style={{ background: 'none', border: 'none', color: syncingChannelId === ch.channelId ? C.blue : C.textMuted, cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>
+                        <span style={{ display: 'inline-block', animation: syncingChannelId === ch.channelId ? 'spin 1s linear infinite' : 'none' }}>↻</span>
+                      </button>
                       <button onClick={() => deleteChannel(ch.channelId, ch.channelName)} style={{ background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>
                     </td>
                   </tr>
