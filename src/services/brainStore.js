@@ -782,40 +782,54 @@ async function getChannelPlaylists(channelUrl) {
     return [{ id: uploadsId, title: 'All Videos (uploads)' }];
   }
 
-  // ── Step 3: @handle fallback — try browse API ────────────────────────────────
+  // ── Step 3: @handle — scrape the channel page to get UC ID (avoids browse API) ─
   const handle = atMatch ? ('@' + atMatch[1]) : (channelUrl?.startsWith('@') ? channelUrl : null);
   if (!handle) {
     console.error('[getChannelPlaylists] cannot resolve identifier from:', channelUrl);
     throw new Error(`Cannot resolve channel identifier from: ${channelUrl}`);
   }
 
-  console.log('[getChannelPlaylists] trying yt.getChannel() with handle:', handle);
+  console.log('[getChannelPlaylists] resolving @handle via page scrape:', handle);
   try {
-    const yt      = await Innertube.create({ retrieve_player: false });
-    const channel = await yt.getChannel(handle);
-    console.log('[getChannelPlaylists] getChannel() succeeded, fetching playlists tab');
-    const plTab   = await channel.getPlaylists();
-    const plItems = plTab?.playlists || [];
-    console.log('[getChannelPlaylists] found', plItems.length, 'playlists via browse');
-    const mapped  = plItems.map(pl => ({
-      id:    pl.content_id,
-      title: pl.metadata?.title?.text || pl.metadata?.title?.runs?.[0]?.text || 'Untitled',
-    })).filter(pl => pl.id);
+    const pageUrl = `https://www.youtube.com/${handle}`;
+    console.log('[getChannelPlaylists] fetching channel page:', pageUrl);
+    const res = await fetch(pageUrl, {
+      headers: {
+        'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+    console.log('[getChannelPlaylists] page response status:', res.status);
+    if (!res.ok) throw new Error(`Channel page returned HTTP ${res.status}`);
 
-    // Also add uploads playlist so we never miss raw uploads
-    const uploadsFromHandle = channel.metadata?.external_id
-      ? 'UU' + channel.metadata.external_id.slice(2)
-      : null;
-    if (uploadsFromHandle && !mapped.find(p => p.id === uploadsFromHandle)) {
-      mapped.unshift({ id: uploadsFromHandle, title: 'All Videos (uploads)' });
-      console.log('[getChannelPlaylists] prepended uploads playlist:', uploadsFromHandle);
+    const html = await res.text();
+    console.log('[getChannelPlaylists] page HTML length:', html.length);
+
+    // Try multiple patterns to find the UC channel ID
+    const patterns = [
+      /"channelId":"(UC[a-zA-Z0-9_-]{20,})"/,
+      /"externalId":"(UC[a-zA-Z0-9_-]{20,})"/,
+      /channel\/(UC[a-zA-Z0-9_-]{20,})/,
+      /"browseId":"(UC[a-zA-Z0-9_-]{20,})"/,
+    ];
+    let resolvedId = null;
+    for (const pat of patterns) {
+      const m = html.match(pat);
+      if (m) { resolvedId = m[1]; console.log('[getChannelPlaylists] found channelId via pattern', pat, ':', resolvedId); break; }
     }
-    return mapped;
+
+    if (!resolvedId) {
+      console.error('[getChannelPlaylists] could not find UC ID in page HTML (first 500 chars):', html.slice(0, 500));
+      throw new Error(`Could not extract channel ID from page for ${handle}`);
+    }
+
+    const uploadsId = 'UU' + resolvedId.slice(2);
+    console.log('[getChannelPlaylists] resolved uploads playlist:', uploadsId);
+    return [{ id: uploadsId, title: 'All Videos (uploads)' }];
   } catch (e) {
-    console.error('[getChannelPlaylists] yt.getChannel() failed for handle', handle,
-      '| status:', e.status_code || e.statusCode || 'n/a',
-      '| message:', e.message,
-      '| stack:', e.stack);
+    console.error('[getChannelPlaylists] handle resolution failed for', handle,
+      '| message:', e.message, '| stack:', e.stack);
     throw e;
   }
 }
