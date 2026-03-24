@@ -744,9 +744,64 @@ async function fetchYoutubeTranscript(videoId, locationId) {
     console.warn(tag, 'youtubei.js WEB client failed:', e.message);
   }
 
-  // ── Approach 2: Android player API (fallback) ──
+  // ── Approach 2: HTML scrape (most reliable — mimics real browser) ──
   try {
-    console.log(tag, 'trying Android player API (fallback)');
+    console.log(tag, 'trying HTML scrape of watch page');
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const htmlRes = await fetch(watchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      redirect: 'follow',
+    });
+    if (!htmlRes.ok) throw new Error(`Watch page returned ${htmlRes.status}`);
+    const html = await htmlRes.text();
+
+    // Extract ytInitialPlayerResponse from the page
+    const prMatch = html.match(/var\s+ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*<\/script>/s)
+                 || html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/s);
+    if (!prMatch) throw new Error('Could not find ytInitialPlayerResponse in HTML');
+
+    const playerJson = JSON.parse(prMatch[1]);
+    const playStatus = playerJson.playabilityStatus?.status;
+    if (playStatus && playStatus !== 'OK') throw new Error(`HTML scrape: video ${playStatus}`);
+
+    const title       = playerJson.videoDetails?.title || null;
+    const lengthSecs  = parseInt(playerJson.videoDetails?.lengthSeconds || 0, 10);
+    const viewCount   = parseInt(playerJson.videoDetails?.viewCount || 0, 10);
+    const publishDate = playerJson.microformat?.playerMicroformatRenderer?.publishDate || null;
+
+    const tracks = playerJson.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!tracks || !tracks.length) throw new Error('No captions in HTML player response.');
+
+    const track = tracks.find(t => t.languageCode === 'en')
+      || tracks.find(t => t.languageCode?.startsWith('en'))
+      || tracks[0];
+
+    console.log(tag, `HTML scrape: found caption track lang=${track.languageCode}`);
+    const captionRes = await fetch(track.baseUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': watchUrl,
+        'Origin': 'https://www.youtube.com',
+        'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.9',
+      },
+    });
+    if (!captionRes.ok) throw new Error(`Caption fetch failed: ${captionRes.status}`);
+    const xml = await captionRes.text();
+    if (!xml || xml.length < 50) throw new Error('Empty caption response (HTML scrape).');
+    console.log(tag, 'got caption XML via HTML scrape, length:', xml.length);
+    const parsed = parseYoutubeXml(xml, title);
+    return { ...parsed, lengthSecs, viewCount, publishDate };
+  } catch (e) {
+    console.warn(tag, 'HTML scrape failed:', e.message);
+  }
+
+  // ── Approach 3: Android player API (last resort) ──
+  try {
+    console.log(tag, 'trying Android player API (last resort)');
     async function tryAndroidPlayer(forceRefresh) {
       const visitorData = await getYtVisitorData(forceRefresh);
       const res = await fetch(YT_PLAYER_URL, {
