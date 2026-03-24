@@ -220,33 +220,43 @@ router.delete('/:brainId/docs/:docId', async (req, res) => {
 
 // ── AI-powered ask (RAG) ──────────────────────────────────────────────────────
 
-// ── Provider detection for RAG ────────────────────────────────────────────────
-// Priority:
-//   1. User's own per-location keys (Anthropic, OpenRouter, OpenAI) — from Settings
-//   2. Server-level shared keys (Gemini, Groq) — free-tier fallback
-// NEVER uses the server's ANTHROPIC_API_KEY — that key belongs to the platform,
-// not to any individual user. Each user must add their own Claude key in Settings.
-async function detectProvider(locationId) {
+// ── Provider list for RAG — returns ALL available providers in priority order ─
+// Tries each one; if the active provider fails with a billing/quota error it
+// automatically falls through to the next one.
+async function getProviderList(locationId) {
   const configs = await toolRegistry.loadToolConfigs(locationId);
+  const list = [];
 
-  // ── Per-location user keys (paid providers) ────────────────────────────────
-  const anthropicKey    = configs.anthropic?.apiKey;                              // Settings → Claude AI
-  const openrouterKey   = configs.openrouter?.apiKey;                             // Settings → OpenRouter
-  const openrouterModel = configs.openrouter?.model || 'openai/gpt-4o-mini';
-  const openaiKey       = configs.openai?.apiKey;                                 // Settings → OpenAI
+  // Per-location user-configured keys first
+  if (configs.anthropic?.apiKey)
+    list.push({ provider: 'anthropic',  key: configs.anthropic.apiKey,  model: 'claude-sonnet-4-6' });
+  if (configs.openrouter?.apiKey)
+    list.push({ provider: 'openrouter', key: configs.openrouter.apiKey, model: configs.openrouter.model || 'openai/gpt-4o-mini' });
+  if (configs.openai?.apiKey)
+    list.push({ provider: 'openai',     key: configs.openai.apiKey,     model: 'gpt-4o-mini' });
 
-  // ── Server-level shared keys (free-tier, no user config needed) ───────────
-  const googleKey   = process.env.GOOGLE_API_KEY;
-  const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-  const groqKey     = process.env.GROQ_API_KEY;
-  const groqModel   = process.env.GROQ_MODEL   || 'llama-3.1-8b-instant';
+  // Server-level shared keys as fallback (Gemini free tier, Groq free tier)
+  if (process.env.GOOGLE_API_KEY)
+    list.push({ provider: 'google', key: process.env.GOOGLE_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
+  if (process.env.GROQ_API_KEY)
+    list.push({ provider: 'groq',   key: process.env.GROQ_API_KEY,   model: process.env.GROQ_MODEL   || 'llama-3.1-8b-instant' });
 
-  if (anthropicKey)  return { provider: 'anthropic',  key: anthropicKey,  model: 'claude-sonnet-4-6' };
-  if (openrouterKey) return { provider: 'openrouter', key: openrouterKey, model: openrouterModel };
-  if (openaiKey)     return { provider: 'openai',     key: openaiKey,     model: 'gpt-4o-mini' };
-  if (googleKey)     return { provider: 'google',     key: googleKey,     model: geminiModel };
-  if (groqKey)       return { provider: 'groq',       key: groqKey,       model: groqModel };
-  return null;
+  return list;
+}
+
+// Returns true for errors that mean "try the next provider" (billing/quota/auth)
+function isFallbackError(err) {
+  const msg = err?.message || '';
+  return (
+    msg.includes('credit balance') ||
+    msg.includes('insufficient_quota') ||
+    msg.includes('quota') ||
+    msg.includes('billing') ||
+    msg.includes('rate limit') ||
+    msg.includes('429') ||
+    msg.includes('401') ||
+    /4\d\d.*invalid_api_key/i.test(msg)
+  );
 }
 
 router.post('/:brainId/ask', async (req, res) => {
@@ -278,15 +288,14 @@ router.post('/:brainId/ask', async (req, res) => {
     ).join('\n\n---\n\n');
     process.stdout.write(`${tag} [2/4] context built — ${context.length} chars from ${chunks.length} sources\n`);
 
-    // 3. Detect active AI provider
-    process.stdout.write(`${tag} [3/4] detecting active AI provider…\n`);
-    const providerInfo = await detectProvider(req.locationId);
-    if (!providerInfo) {
+    // 3. Build provider list
+    process.stdout.write(`${tag} [3/4] loading provider list…\n`);
+    const providers = await getProviderList(req.locationId);
+    if (!providers.length) {
       process.stdout.write(`${tag} ✗ no AI provider configured\n`);
       return res.status(400).json({ success: false, error: 'No AI provider configured. Go to Settings → Integrations to add an API key (Claude, OpenRouter, Gemini, or Groq).' });
     }
-    const { provider, key, model } = providerInfo;
-    process.stdout.write(`${tag} [3/4] provider=${provider} model=${model} key=${key.slice(0,12)}…\n`);
+    process.stdout.write(`${tag} [3/4] available: ${providers.map(p => p.provider).join(', ')}\n`);
 
     const SYSTEM = `You are a helpful AI assistant that answers questions based strictly on the provided transcript content from a YouTube knowledge base.
 
@@ -298,80 +307,100 @@ Rules:
 - Do not repeat the question back.`;
     const USER_MSG = `Context from knowledge base:\n\n${context}\n\n---\n\nQuestion: ${query}`;
 
-    // 4. Stream / call the provider
-    process.stdout.write(`${tag} [4/4] calling ${provider} (${model})…\n`);
+    // 4. Try providers in order, falling back on billing/quota errors
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('X-Accel-Buffering', 'no');
-    res.write(`data: ${JSON.stringify({ type: 'provider', provider, model })}\n\n`);
     res.write(`data: ${JSON.stringify({ type: 'sources', sources: chunks.map(c => ({ sourceLabel: c.sourceLabel, url: c.url, score: c.score, isPrimary: c.isPrimary })) })}\n\n`);
 
-    const t1 = Date.now();
-    let charCount = 0;
+    let answered = false;
+    let lastErr  = null;
 
-    if (provider === 'anthropic') {
-      // ── Anthropic: streaming ──────────────────────────────────────────────
-      const client = new Anthropic.default({ apiKey: key });
-      const stream = client.messages.stream({
-        model, max_tokens: 1024,
-        system: SYSTEM,
-        messages: [{ role: 'user', content: USER_MSG }],
-      });
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-          charCount += event.delta.text.length;
-          res.write(`data: ${JSON.stringify({ type: 'text', text: event.delta.text })}\n\n`);
+    for (const { provider, key, model } of providers) {
+      process.stdout.write(`${tag} [4/4] trying ${provider} (${model}) key=${key.slice(0,12)}…\n`);
+      const t1 = Date.now();
+      try {
+        let charCount = 0;
+
+        if (provider === 'anthropic') {
+          const client = new Anthropic.default({ apiKey: key });
+          const stream = client.messages.stream({
+            model, max_tokens: 1024,
+            system: SYSTEM,
+            messages: [{ role: 'user', content: USER_MSG }],
+          });
+          for await (const event of stream) {
+            if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+              charCount += event.delta.text.length;
+              res.write(`data: ${JSON.stringify({ type: 'text', text: event.delta.text })}\n\n`);
+            }
+          }
+
+        } else if (provider === 'google') {
+          const gRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: SYSTEM }] },
+                contents: [{ role: 'user', parts: [{ text: USER_MSG }] }],
+              }),
+            }
+          );
+          const gData = await gRes.json();
+          if (!gRes.ok) throw new Error(`Gemini ${gRes.status}: ${JSON.stringify(gData).slice(0, 200)}`);
+          const text = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          charCount = text.length;
+          res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
+
+        } else {
+          const hostname = provider === 'openrouter' ? 'openrouter.ai'
+                         : provider === 'groq'       ? 'api.groq.com'
+                         : 'api.openai.com';
+          const oRes = await fetch(`https://${hostname}/openai/v1/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type':  'application/json',
+              'Authorization': `Bearer ${key}`,
+              ...(provider === 'openrouter' ? { 'HTTP-Referer': 'https://claudeserver.vercel.app', 'X-Title': 'HL Brain' } : {}),
+            },
+            body: JSON.stringify({
+              model, max_tokens: 1024,
+              messages: [
+                { role: 'system', content: SYSTEM },
+                { role: 'user',   content: USER_MSG },
+              ],
+            }),
+          });
+          const oData = await oRes.json();
+          if (!oRes.ok) throw new Error(`${provider} ${oRes.status}: ${JSON.stringify(oData).slice(0, 200)}`);
+          const text = oData.choices?.[0]?.message?.content || '';
+          charCount = text.length;
+          res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
         }
+
+        process.stdout.write(`${tag} ✓ ${provider} replied ${charCount} chars in ${Date.now() - t1}ms\n`);
+        answered = true;
+        break;
+
+      } catch (err) {
+        lastErr = err;
+        process.stdout.write(`${tag} ✗ ${provider} failed: ${err.message}\n`);
+        if (isFallbackError(err)) {
+          process.stdout.write(`${tag} ↳ billing/quota error — trying next provider\n`);
+          continue;
+        }
+        throw err; // non-recoverable error, stop immediately
       }
-
-    } else if (provider === 'google') {
-      // ── Gemini: single call ───────────────────────────────────────────────
-      const gRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: SYSTEM }] },
-            contents: [{ role: 'user', parts: [{ text: USER_MSG }] }],
-          }),
-        }
-      );
-      const gData = await gRes.json();
-      if (!gRes.ok) throw new Error(`Gemini ${gRes.status}: ${JSON.stringify(gData).slice(0, 200)}`);
-      const text = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      charCount = text.length;
-      res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
-
-    } else {
-      // ── OpenAI-compatible: openrouter, groq, openai — single call ─────────
-      const hostname = provider === 'openrouter' ? 'openrouter.ai'
-                     : provider === 'groq'       ? 'api.groq.com'
-                     : 'api.openai.com';
-      const oRes = await fetch(`https://${hostname}/openai/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${key}`,
-          ...(provider === 'openrouter' ? { 'HTTP-Referer': 'https://claudeserver.vercel.app', 'X-Title': 'HL Brain' } : {}),
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 1024,
-          messages: [
-            { role: 'system', content: SYSTEM },
-            { role: 'user',   content: USER_MSG },
-          ],
-        }),
-      });
-      const oData = await oRes.json();
-      if (!oRes.ok) throw new Error(`${provider} ${oRes.status}: ${JSON.stringify(oData).slice(0, 200)}`);
-      const text = oData.choices?.[0]?.message?.content || '';
-      charCount = text.length;
-      res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
     }
 
-    process.stdout.write(`${tag} ✓ DONE — ${provider} replied ${charCount} chars in ${Date.now() - t1}ms\n`);
+    if (!answered) {
+      const msg = `All configured AI providers failed. Last error: ${lastErr?.message}`;
+      process.stdout.write(`${tag} ✗ ${msg}\n`);
+      res.write(`data: ${JSON.stringify({ type: 'error', error: msg })}\n\n`);
+    }
+
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
