@@ -657,7 +657,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   const ytDocs = docs.filter(d => d.url && d.url.includes('youtube.com/watch'));
   const { pendingCount } = getBrainHealth({ ...brain, docs });
   const totalChunks = docs.reduce((a, d) => a + (d.chunkCount || 0), 0);
-  const videoCount = videos.length || ytDocs.length;
+  const videoCount = videos.length || brain.videoCount || ytDocs.length;
 
   const detailTabs = [
     { id: 'channels', label: `Channels (${channels.length})` },
