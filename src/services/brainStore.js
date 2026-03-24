@@ -258,13 +258,34 @@ const YT_ANDROID_VER = '20.10.38';
 const YT_ANDROID_UA  = `com.google.android.youtube/${YT_ANDROID_VER} (Linux; U; Android 14)`;
 const YT_BROWSER_UA  = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
 
+// Cache visitorData for ~30 min to avoid repeated Innertube init
+let _ytVisitorData = null;
+let _ytVisitorDataExpiry = 0;
+async function getYtVisitorData() {
+  if (_ytVisitorData && Date.now() < _ytVisitorDataExpiry) return _ytVisitorData;
+  try {
+    const { Innertube } = require('youtubei.js');
+    const yt = await Innertube.create({ retrieve_player: false });
+    _ytVisitorData = yt.session.context.client.visitorData || null;
+    _ytVisitorDataExpiry = Date.now() + 30 * 60 * 1000;
+  } catch { _ytVisitorData = null; }
+  return _ytVisitorData;
+}
+
 async function fetchYoutubeTranscript(videoId) {
-  // 1. Get caption tracks via Android InnerTube player endpoint
+  // 1. Get fresh visitorData to pass bot detection, then call Android InnerTube player
+  const visitorData = await getYtVisitorData();
   const playerRes = await fetch(YT_PLAYER_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'User-Agent': YT_ANDROID_UA },
     body: JSON.stringify({
-      context: { client: { clientName: 'ANDROID', clientVersion: YT_ANDROID_VER } },
+      context: {
+        client: {
+          clientName: 'ANDROID',
+          clientVersion: YT_ANDROID_VER,
+          ...(visitorData ? { visitorData } : {}),
+        }
+      },
       videoId,
     }),
   });
@@ -274,6 +295,8 @@ async function fetchYoutubeTranscript(videoId) {
 
   const playability = playerJson.playabilityStatus?.status;
   if (playability && playability !== 'OK') {
+    // Invalidate cached visitorData so next attempt gets a fresh one
+    _ytVisitorData = null;
     throw new Error(`Video unavailable: ${playerJson.playabilityStatus?.reason || playability}`);
   }
 
