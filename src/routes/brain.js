@@ -277,6 +277,32 @@ router.post('/:brainId/channels/:channelId/sync', async (req, res) => {
   }
 });
 
+// ── List videos (metadata catalogue) ─────────────────────────────────────────
+
+router.get('/:brainId/videos', async (req, res) => {
+  try {
+    const videos = await brain.listVideos(req.locationId, req.params.brainId);
+    res.json({ success: true, data: videos });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Generate transcript for a single video ────────────────────────────────────
+
+router.post('/:brainId/videos/:videoId/transcript', async (req, res) => {
+  try {
+    const result = await brain.generateVideoTranscript(
+      req.locationId,
+      req.params.brainId,
+      req.params.videoId,
+    );
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Remove channel from brain ─────────────────────────────────────────────────
 
 router.delete('/:brainId/channels/:channelId', async (req, res) => {

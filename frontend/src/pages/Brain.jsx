@@ -357,6 +357,11 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   const [editChangelogUrl,  setEditChangelogUrl]  = useState(brain.changelogUrl || '');
   const [saving,            setSaving]            = useState(false);
 
+  // Videos catalogue (from channel sync)
+  const [videos,            setVideos]            = useState([]);
+  const [loadingVideos,     setLoadingVideos]     = useState(false);
+  const [generatingIds,     setGeneratingIds]     = useState(new Set());
+
   // YouTube add (in Add Content section within Videos tab)
   const [ytUrl,             setYtUrl]             = useState('');
   const [ytTitle,           setYtTitle]           = useState('');
@@ -402,6 +407,41 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
       }
     } catch {}
     setLoadingDocs(false);
+  }
+
+  async function reloadVideos() {
+    setLoadingVideos(true);
+    try {
+      const r = await apiFetch(`/brain/${brain.brainId}/videos`, locationId);
+      if (r.success) setVideos(r.data || []);
+    } catch {}
+    setLoadingVideos(false);
+  }
+
+  // Load videos catalogue when Videos tab is opened
+  useEffect(() => {
+    if (tab === 'videos') reloadVideos();
+  }, [tab, brain.brainId]);
+
+  async function generateTranscript(videoId) {
+    setGeneratingIds(prev => new Set([...prev, videoId]));
+    // Optimistically mark as processing
+    setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus: 'processing' } : v));
+    try {
+      const r = await apiFetch(`/brain/${brain.brainId}/videos/${videoId}/transcript`, locationId, { method: 'POST' });
+      if (r.success) {
+        showFlash(true, `Transcript generated — ${r.chunks} chunks stored.`);
+        await reloadVideos();
+        onRefresh();
+      } else {
+        showFlash(false, r.error || 'Failed to generate transcript.');
+        setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus: 'error', transcriptError: r.error } : v));
+      }
+    } catch (e) {
+      showFlash(false, e.message || 'Failed.');
+      setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus: 'error' } : v));
+    }
+    setGeneratingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
   }
 
   async function ingestYoutube() {
@@ -509,31 +549,19 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
 
   async function syncChannel(channelId, name) {
     setSyncingChannelId(channelId);
-    showFlash(true, `Collecting videos for "${name}"…`);
+    showFlash(true, `Discovering videos for "${name}"…`);
     try {
-      // Step 1: queue all video IDs (fast — no transcripts yet)
+      // Collect all video IDs + metadata into the video catalogue (fast — no transcript fetching)
       const q = await apiFetch(`/brain/${brain.brainId}/channels/${channelId}/queue`, locationId, { method: 'POST' });
-      if (!q.success) { showFlash(false, q.error || 'Failed to queue sync.'); setSyncingChannelId(null); return; }
+      if (!q.success) { showFlash(false, q.error || 'Failed to sync channel.'); setSyncingChannelId(null); return; }
 
-      showFlash(true, `Queued ${q.queued} videos for "${name}" — ingesting…`);
-      onRefresh();
-
-      // Step 2: drive batches until done
-      let remaining = q.queued;
-      let totalIngested = 0;
-      while (remaining > 0) {
-        const b = await apiFetch(`/brain/${brain.brainId}/sync-batch`, locationId, { method: 'POST', body: { batchSize: 5 } });
-        if (!b.success) { showFlash(false, b.error || 'Batch failed.'); break; }
-        totalIngested += b.ingested || 0;
-        remaining = b.remaining || 0;
-        showFlash(true, `Ingesting "${name}"… ${totalIngested} done, ${remaining} remaining`);
-        if (b.done) break;
-        onRefresh();
-      }
-
-      showFlash(true, `"${name}" sync complete — ${totalIngested} videos ingested.`);
+      const discovered = q.videoCount || q.queued || 0;
+      showFlash(true, `"${name}" — ${discovered} videos discovered. Click "Generate Transcript" on any video to index it.`);
       onRefresh();
       await reloadBrain();
+      await reloadVideos();
+      // Switch to videos tab so user sees results
+      setTab('videos');
     } catch (e) { showFlash(false, e.message || 'Sync failed.'); }
     setSyncingChannelId(null);
   }
@@ -548,10 +576,11 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   const ytDocs = docs.filter(d => d.url && d.url.includes('youtube.com/watch'));
   const { pendingCount } = getBrainHealth({ ...brain, docs });
   const totalChunks = docs.reduce((a, d) => a + (d.chunkCount || 0), 0);
+  const videoCount = videos.length || ytDocs.length;
 
   const detailTabs = [
     { id: 'channels', label: `Channels (${channels.length})` },
-    { id: 'videos',   label: `Videos (${ytDocs.length})` },
+    { id: 'videos',   label: `Videos (${videoCount})` },
     { id: 'settings', label: 'Settings' },
   ];
 
@@ -615,27 +644,18 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                 setSyncing(true);
                 showFlash(true, 'Collecting videos for all channels…');
                 try {
-                  // Queue every channel then drain batches
+                  // Queue every channel — discovers video metadata, no transcript fetching
                   const chs = channels.filter(c => c.channelUrl);
-                  let totalQueued = 0;
+                  let totalDiscovered = 0;
                   for (const ch of chs) {
                     const q = await apiFetch(`/brain/${brain.brainId}/channels/${ch.channelId}/queue`, locationId, { method: 'POST' });
-                    if (q.success) totalQueued += q.queued || 0;
+                    if (q.success) totalDiscovered += q.videoCount || q.queued || 0;
                   }
-                  showFlash(true, `${totalQueued} videos queued — ingesting…`);
-                  onRefresh();
-                  let remaining = totalQueued;
-                  let totalIngested = 0;
-                  while (remaining > 0) {
-                    const b = await apiFetch(`/brain/${brain.brainId}/sync-batch`, locationId, { method: 'POST', body: { batchSize: 5 } });
-                    if (!b.success || b.done) break;
-                    totalIngested += b.ingested || 0;
-                    remaining = b.remaining || 0;
-                    showFlash(true, `Ingesting… ${totalIngested} done, ${remaining} remaining`);
-                  }
-                  showFlash(true, `Sync complete — ${totalIngested} videos ingested.`);
+                  showFlash(true, `${totalDiscovered} videos discovered — go to Videos tab to generate transcripts.`);
                   onRefresh();
                   await reloadBrain();
+                  await reloadVideos();
+                  setTab('videos');
                 } catch { showFlash(false, 'Sync failed.'); }
                 setSyncing(false);
               }}
@@ -735,158 +755,153 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
       {/* ── Videos tab ── */}
       {tab === 'videos' && (
         <div>
-          {/* Add YouTube video section */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 15, color: C.textPri }}>Add YouTube Video</h3>
-            <label style={labelStyle}>YouTube URL</label>
-            <input value={ytUrl} onChange={e => setYtUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." style={inputStyle} />
-            <label style={labelStyle}>Title (optional)</label>
-            <input value={ytTitle} onChange={e => setYtTitle(e.target.value)} placeholder="e.g. Marketing Strategy 2025" style={inputStyle} />
-            <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
-              <input type="checkbox" checked={ytPrimary} onChange={e => setYtPrimary(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.blue }} />
-              <span style={{ color: C.textSec }}>Primary channel? <span style={{ color: C.textMuted, fontWeight: 400 }}>(boosts search score 1.5x)</span></span>
-            </label>
-            <button onClick={ingestYoutube} disabled={ingesting || !ytUrl.trim()} style={{ ...btnPrimary, width: '100%', opacity: (ingesting || !ytUrl.trim()) ? 0.5 : 1, cursor: (ingesting || !ytUrl.trim()) ? 'not-allowed' : 'pointer' }}>
-              {ingesting ? 'Extracting transcript…' : 'Add to Brain'}
-            </button>
+          {/* Header bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <span style={{ fontSize: 15, fontWeight: 700, color: C.textPri }}>{videos.length} video{videos.length !== 1 ? 's' : ''}</span>
+              {videos.length > 0 && (
+                <span style={{ fontSize: 12, color: C.textMuted, marginLeft: 10 }}>
+                  {videos.filter(v => v.transcriptStatus === 'complete').length} indexed
+                  {' · '}
+                  {videos.filter(v => v.transcriptStatus === 'pending').length} pending
+                  {videos.filter(v => v.transcriptStatus === 'error').length > 0 && (
+                    <span style={{ color: C.red }}> · {videos.filter(v => v.transcriptStatus === 'error').length} errors</span>
+                  )}
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={reloadVideos} style={{ ...btnSecondary, fontSize: 12, padding: '6px 14px' }}>↻ Refresh</button>
+            </div>
           </div>
 
-          {/* Playlist picker */}
-          {(channelLoading || channelInfo) && (
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
-              {channelLoading && <p style={{ margin: 0, color: C.textMuted, fontSize: 13 }}>Discovering channel playlists…</p>}
-              {channelInfo && (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: C.textPri }}>{channelInfo.channelName}</div>
-                      <div style={{ fontSize: 12, color: C.textMuted }}>{channelInfo.playlists.length} playlists found</div>
-                    </div>
-                    <button onClick={() => { setChannelInfo(null); setYtUrl(''); }} style={{ ...btnSecondary, marginLeft: 'auto', fontSize: 11, padding: '4px 10px' }}>✕</button>
-                  </div>
-                  <p style={{ margin: '0 0 12px', fontSize: 12, color: C.textMuted }}>Select playlists to bulk-ingest:</p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto', marginBottom: 14 }}>
-                    {channelInfo.playlists.map(pl => (
-                      <label key={pl.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: selectedPlaylists[pl.id] ? '#0d1e3a' : C.bg, border: `1px solid ${selectedPlaylists[pl.id] ? C.blue + '55' : C.border}`, borderRadius: 8, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={!!selectedPlaylists[pl.id]} onChange={e => setSelectedPlaylists(prev => ({ ...prev, [pl.id]: e.target.checked }))} style={{ width: 15, height: 15, accentColor: C.blue, flexShrink: 0 }} />
-                        {pl.thumbnail && <img src={pl.thumbnail} alt="" style={{ width: 48, height: 27, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, color: C.textPri, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pl.title}</div>
-                          {pl.videoCount && <div style={{ fontSize: 11, color: C.textMuted }}>{pl.videoCount} videos</div>}
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.textSec, marginBottom: 12, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={playlistPrimary} onChange={e => setPlaylistPrimary(e.target.checked)} style={{ width: 14, height: 14, accentColor: C.blue }} />
-                    Mark playlist videos as primary source
-                  </label>
-                  {ingestingPlaylist && playlistProgress && (
-                    <div style={{ marginBottom: 12, padding: '8px 12px', background: C.bg, borderRadius: 8, fontSize: 12, color: C.textSec }}>
-                      Ingesting playlist {playlistProgress.done}/{playlistProgress.total}
-                      {playlistProgress.current && ` — "${playlistProgress.current}"`}
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => setSelectedPlaylists(Object.fromEntries(channelInfo.playlists.map(p => [p.id, true])))} style={{ ...btnSecondary, flex: 1, fontSize: 12 }}>Select All</button>
-                    <button onClick={ingestPlaylists} disabled={ingestingPlaylist || !Object.values(selectedPlaylists).some(Boolean)} style={{ ...btnPrimary, flex: 2, opacity: (ingestingPlaylist || !Object.values(selectedPlaylists).some(Boolean)) ? 0.5 : 1 }}>
-                      {ingestingPlaylist ? 'Ingesting…' : `Ingest ${Object.values(selectedPlaylists).filter(Boolean).length} Playlist(s)`}
-                    </button>
-                  </div>
-                </>
-              )}
+          {/* No videos state */}
+          {!loadingVideos && videos.length === 0 && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '48px 24px', textAlign: 'center' }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>▶</div>
+              <p style={{ color: C.textPri, fontSize: 15, fontWeight: 600, margin: '0 0 8px' }}>No videos discovered yet</p>
+              <p style={{ color: C.textMuted, fontSize: 13, margin: '0 0 20px' }}>
+                Go to the Channels tab and click ↻ next to a channel to sync its video list.
+              </p>
+              <button onClick={() => setTab('channels')} style={{ ...btnPrimary, fontSize: 13 }}>Go to Channels</button>
             </div>
           )}
 
-          {/* Paste text doc */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 15, color: C.textPri }}>Paste Text / Document</h3>
-            <label style={labelStyle}>Source label (optional)</label>
-            <input value={docLabel} onChange={e => setDocLabel(e.target.value)} placeholder="e.g. Company SOP v3" style={inputStyle} />
-            <label style={labelStyle}>URL (optional)</label>
-            <input value={docUrl} onChange={e => setDocUrl(e.target.value)} placeholder="https://..." style={inputStyle} />
-            <label style={labelStyle}>Text content *</label>
-            <textarea value={docText} onChange={e => setDocText(e.target.value)} placeholder="Paste article, transcript, notes, SOPs…" rows={5} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
-            <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
-              <input type="checkbox" checked={docPrimary} onChange={e => setDocPrimary(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.blue }} />
-              <span style={{ color: C.textSec }}>Mark as primary source</span>
-            </label>
-            <button onClick={addTextDoc} disabled={addingDoc || !docText.trim()} style={{ ...btnPrimary, width: '100%', opacity: (addingDoc || !docText.trim()) ? 0.5 : 1 }}>
-              {addingDoc ? 'Processing…' : 'Add to Brain'}
-            </button>
-          </div>
+          {loadingVideos && (
+            <div style={{ padding: '40px 24px', textAlign: 'center', color: C.textMuted, fontSize: 13 }}>Loading videos…</div>
+          )}
 
-          {/* Videos table */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: C.textPri }}>{docs.length} document{docs.length !== 1 ? 's' : ''} indexed</span>
-              <button onClick={reloadBrain} style={{ ...btnSecondary, fontSize: 12, padding: '5px 12px' }}>↻ Refresh</button>
+          {/* Videos list */}
+          {!loadingVideos && videos.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {videos.map(video => {
+                const isGenerating = generatingIds.has(video.videoId);
+                const status = isGenerating ? 'processing' : (video.transcriptStatus || 'pending');
+                const statusConfig = {
+                  complete:   { label: 'Indexed',     bg: '#052e16', color: '#4ade80', border: '#16a34a44' },
+                  processing: { label: 'Processing…', bg: '#1c1400', color: '#fbbf24', border: '#d9770044' },
+                  error:      { label: 'Error',        bg: '#1c0a00', color: '#f87171', border: '#dc262644' },
+                  pending:    { label: 'Pending',      bg: C.bg,      color: C.textMuted, border: C.border },
+                }[status] || { label: status, bg: C.bg, color: C.textMuted, border: C.border };
+
+                return (
+                  <div key={video.videoId} style={{
+                    background: C.card, border: `1px solid ${C.border}`, borderRadius: 10,
+                    padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12,
+                  }}>
+                    {/* Thumbnail */}
+                    <a href={`https://www.youtube.com/watch?v=${video.videoId}`} target="_blank" rel="noreferrer" style={{ flexShrink: 0 }}>
+                      <div style={{ position: 'relative', width: 80, height: 45 }}>
+                        <img
+                          src={ytThumb(video.videoId)}
+                          alt=""
+                          style={{ width: 80, height: 45, objectFit: 'cover', borderRadius: 6, display: 'block' }}
+                        />
+                        <div style={{
+                          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          background: 'rgba(0,0,0,0.35)', borderRadius: 6,
+                        }}>
+                          <span style={{ fontSize: 14, color: '#fff' }}>▶</span>
+                        </div>
+                      </div>
+                    </a>
+
+                    {/* Title + meta */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {video.title || video.videoId}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {video.channelName && <span>{video.channelName}</span>}
+                        {video.publishDate && <><span>·</span><span>{publishedAgo(video.publishDate)}</span></>}
+                        {video.lengthSecs && <><span>·</span><span style={{ fontFamily: 'monospace' }}>{fmtDuration(video.lengthSecs)}</span></>}
+                        {video.viewCount > 0 && <><span>·</span><span>{fmtViews(video.viewCount)} views</span></>}
+                      </div>
+                    </div>
+
+                    {/* Status badge */}
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 10,
+                      background: statusConfig.bg, color: statusConfig.color,
+                      border: `1px solid ${statusConfig.border}`,
+                      whiteSpace: 'nowrap', flexShrink: 0,
+                      ...(status === 'processing' ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
+                    }}>
+                      {statusConfig.label}
+                    </span>
+
+                    {/* Generate Transcript button */}
+                    {(status === 'pending' || status === 'error') && (
+                      <button
+                        onClick={() => generateTranscript(video.videoId)}
+                        disabled={isGenerating}
+                        title={status === 'error' ? `Retry (${video.transcriptError || 'unknown error'})` : 'Generate transcript and index this video'}
+                        style={{
+                          background: status === 'error' ? '#1c0a00' : '#0d1e3a',
+                          border: `1px solid ${status === 'error' ? '#dc262666' : C.blue + '66'}`,
+                          borderRadius: 7, color: status === 'error' ? '#f87171' : '#60a5fa',
+                          fontSize: 12, fontWeight: 600, padding: '5px 12px',
+                          cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                          display: 'flex', alignItems: 'center', gap: 5,
+                        }}
+                      >
+                        <span>{status === 'error' ? '↺' : '▶'}</span>
+                        <span>{status === 'error' ? 'Retry' : 'Generate Transcript'}</span>
+                      </button>
+                    )}
+
+                    {/* Delete doc link for completed videos */}
+                    {status === 'complete' && video.docId && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Remove transcript for "${video.title || video.videoId}" from this brain?`)) return;
+                          await apiFetch(`/brain/${brain.brainId}/docs/${video.docId}`, locationId, { method: 'DELETE' });
+                          await reloadVideos();
+                          await reloadBrain();
+                          onRefresh();
+                        }}
+                        title="Remove transcript from brain"
+                        style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 14, padding: '4px 6px', flexShrink: 0 }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            {loadingDocs && <p style={{ color: C.textMuted, fontSize: 13, padding: '16px 18px', margin: 0 }}>Loading…</p>}
-            {!loadingDocs && docs.length === 0 && (
-              <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-                <p style={{ color: C.textMuted, fontSize: 14, margin: 0 }}>No content yet. Add YouTube videos or paste text above.</p>
-              </div>
-            )}
-            {!loadingDocs && docs.length > 0 && (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>Title</th>
-                    <th style={thStyle}>Published</th>
-                    <th style={thStyle}>Status</th>
-                    <th style={thStyle}>Duration</th>
-                    <th style={thStyle}>Views</th>
-                    <th style={{ ...thStyle, width: 40 }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {docs.map(doc => {
-                    const isYt  = doc.url && doc.url.includes('youtube.com/watch');
-                    const vidId = isYt ? extractVideoId(doc.url) : null;
-                    const meta  = doc.videoMeta || {};
-                    return (
-                      <tr key={doc.docId}>
-                        <td style={tdStyle}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            {vidId && (
-                              <img src={ytThumb(vidId)} alt="" style={{ width: 56, height: 32, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
-                            )}
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400, fontSize: 13, color: C.textPri }}>
-                                {doc.sourceLabel || 'Untitled'}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{ ...tdStyle, color: C.textSec, fontSize: 12, whiteSpace: 'nowrap' }}>
-                          {meta.publishDate ? publishedAgo(meta.publishDate) : timeAgo(doc.addedAt)}
-                        </td>
-                        <td style={tdStyle}>
-                          <span style={{ background: '#1d4ed8', color: '#93c5fd', fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 10, whiteSpace: 'nowrap' }}>
-                            complete
-                          </span>
-                        </td>
-                        <td style={{ ...tdStyle, color: C.textSec, fontSize: 13, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
-                          {fmtDuration(meta.lengthSecs)}
-                        </td>
-                        <td style={{ ...tdStyle, color: C.textSec, fontSize: 13, whiteSpace: 'nowrap' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            {fmtViews(meta.viewCount)}
-                            {vidId && (
-                              <a href={doc.url} target="_blank" rel="noreferrer" style={{ color: C.textMuted, fontSize: 11, textDecoration: 'none' }}>↗</a>
-                            )}
-                          </div>
-                        </td>
-                        <td style={tdStyle}>
-                          <button onClick={() => deleteDoc(doc.docId, doc.sourceLabel || 'this document')} style={{ background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+          )}
+
+          {/* Add individual YouTube video */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginTop: 24 }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: C.textPri }}>Add Individual Video</h3>
+            <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>Paste a YouTube URL to immediately generate transcript and index it.</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input value={ytUrl} onChange={e => setYtUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." style={{ ...inputStyle, flex: 1, marginBottom: 0 }} />
+              <button onClick={ingestYoutube} disabled={ingesting || !ytUrl.trim()} style={{ ...btnPrimary, whiteSpace: 'nowrap', opacity: (ingesting || !ytUrl.trim()) ? 0.5 : 1, cursor: (ingesting || !ytUrl.trim()) ? 'not-allowed' : 'pointer' }}>
+                {ingesting ? 'Processing…' : '+ Add'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -83,6 +83,7 @@ const brainsKey    = (loc)                => `hltools:brains:${loc}`;
 const docsKey      = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:docs`;
 const chunksKey    = (loc, brainId, docId)=> `hltools:brain:${loc}:${brainId}:chunks:${docId}`;
 const syncQueueKey = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:syncqueue`;
+const videosKey    = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:videos`;
 
 // ── Text chunking ─────────────────────────────────────────────────────────────
 
@@ -909,6 +910,47 @@ async function queueChannelSync(locationId, brainId, channelId) {
   const newVideos = allVideos.filter(v => !existingIds.has(v.videoId));
   console.log(tag, 'Total:', allVideos.length, '| already ingested:', existingIds.size, '| to queue:', newVideos.length);
 
+  // ── Write video records to videosKey (metadata catalogue, no transcripts yet) ──
+  const now = new Date().toISOString();
+  const existingVideoRecords = (await rGet(videosKey(locationId, brainId))) || [];
+  const existingVideoIds = new Set(existingVideoRecords.map(v => v.videoId));
+
+  const newVideoRecords = allVideos
+    .filter(v => !existingVideoIds.has(v.videoId))
+    .map(v => ({
+      videoId:          v.videoId,
+      title:            v.title,
+      channelId:        v.channelId,
+      channelName:      ch.channelName,
+      isPrimary:        v.isPrimary,
+      transcriptStatus: existingIds.has(v.videoId) ? 'complete' : 'pending',
+      docId:            null,
+      lengthSecs:       null,
+      viewCount:        null,
+      publishDate:      null,
+      addedAt:          now,
+    }));
+
+  // Mark already-ingested docs' videos as complete
+  const mergedVideoRecords = [...existingVideoRecords, ...newVideoRecords];
+  // Back-fill docIds for already-complete docs
+  for (const doc of existing) {
+    const vid = doc.url?.match(/v=([a-zA-Z0-9_-]{11})/)?.[1];
+    if (!vid) continue;
+    const vr = mergedVideoRecords.find(v => v.videoId === vid);
+    if (vr && vr.transcriptStatus !== 'complete') {
+      vr.transcriptStatus = 'complete';
+      vr.docId = doc.docId;
+      if (doc.videoMeta) {
+        vr.lengthSecs  = doc.videoMeta.lengthSecs  || null;
+        vr.viewCount   = doc.videoMeta.viewCount   || null;
+        vr.publishDate = doc.videoMeta.publishDate || null;
+      }
+    }
+  }
+  await rSet(videosKey(locationId, brainId), mergedVideoRecords);
+  console.log(tag, 'Video catalogue updated — total records:', mergedVideoRecords.length, '| new:', newVideoRecords.length);
+
   // Merge with any existing queue
   const currentQueue = (await rGet(syncQueueKey(locationId, brainId))) || [];
   const merged = [...currentQueue, ...newVideos.filter(v => !currentQueue.find(q => q.videoId === v.videoId))];
@@ -918,9 +960,10 @@ async function queueChannelSync(locationId, brainId, channelId) {
     pipelineStage: merged.length > 0 ? 'processing' : 'ready',
     syncQueueTotal: merged.length,
     syncQueueDone:  0,
+    videoCount:     mergedVideoRecords.length,
   });
 
-  return { queued: merged.length, channelName: ch.channelName };
+  return { queued: merged.length, channelName: ch.channelName, videoCount: mergedVideoRecords.length };
 }
 
 /**
@@ -949,12 +992,22 @@ async function processSyncBatch(locationId, brainId, batchSize = 5) {
   for (const item of batch) {
     process.stdout.write(`${tag} [${item.videoId}] "${(item.title || '').slice(0, 50)}"\n`);
     try {
-      await addYoutubeVideo(locationId, brainId, item.videoId, item.title, item.isPrimary);
+      const result = await addYoutubeVideo(locationId, brainId, item.videoId, item.title, item.isPrimary);
       ingested++;
-      process.stdout.write(`${tag}   ✓ ingested\n`);
+      process.stdout.write(`${tag}   ✓ ingested (docId: ${result.docId})\n`);
+      // Update video record status to complete
+      _updateVideoRecord(locationId, brainId, item.videoId, {
+        transcriptStatus: 'complete',
+        docId: result.docId,
+      }).catch(() => {});
     } catch (e) {
       errors++;
       process.stdout.write(`${tag}   ✗ ${e.message}\n`);
+      // Mark as error in video catalogue
+      _updateVideoRecord(locationId, brainId, item.videoId, {
+        transcriptStatus: 'error',
+        transcriptError: e.message,
+      }).catch(() => {});
     }
   }
 
@@ -1175,6 +1228,94 @@ async function syncSingleChannel(locationId, brainId, channelId) {
   }
 }
 
+// ── Video catalogue helpers ───────────────────────────────────────────────────
+
+/**
+ * Internal: update a single video record in the videos catalogue.
+ */
+async function _updateVideoRecord(locationId, brainId, videoId, fields) {
+  const vids = (await rGet(videosKey(locationId, brainId))) || [];
+  const vi = vids.findIndex(v => v.videoId === videoId);
+  if (vi === -1) return;
+  vids[vi] = { ...vids[vi], ...fields };
+  await rSet(videosKey(locationId, brainId), vids);
+}
+
+/**
+ * List all video records for a brain (metadata catalogue, includes transcript status).
+ * Merges in any YouTube docs that aren't in the catalogue yet (backward compat).
+ */
+async function listVideos(locationId, brainId) {
+  const vids = (await rGet(videosKey(locationId, brainId))) || [];
+  const docs = (await rGet(docsKey(locationId, brainId))) || [];
+
+  // Back-fill any YouTube docs that somehow aren't in the catalogue
+  const catalogueIds = new Set(vids.map(v => v.videoId));
+  for (const doc of docs) {
+    const vid = doc.url?.match(/v=([a-zA-Z0-9_-]{11})/)?.[1];
+    if (!vid || catalogueIds.has(vid)) continue;
+    vids.push({
+      videoId:          vid,
+      title:            doc.sourceLabel || vid,
+      channelId:        null,
+      channelName:      null,
+      isPrimary:        doc.isPrimary || false,
+      transcriptStatus: 'complete',
+      docId:            doc.docId,
+      lengthSecs:       doc.videoMeta?.lengthSecs  || null,
+      viewCount:        doc.videoMeta?.viewCount   || null,
+      publishDate:      doc.videoMeta?.publishDate || null,
+      addedAt:          doc.addedAt,
+    });
+  }
+
+  return vids;
+}
+
+/**
+ * Generate transcript on-demand for a single video.
+ * Updates the video record status as it progresses.
+ */
+async function generateVideoTranscript(locationId, brainId, videoId) {
+  const tag = `[genTranscript ${videoId}]`;
+
+  // Mark as processing
+  await _updateVideoRecord(locationId, brainId, videoId, { transcriptStatus: 'processing', transcriptError: null });
+
+  const vids = (await rGet(videosKey(locationId, brainId))) || [];
+  const vr   = vids.find(v => v.videoId === videoId);
+  const titleHint  = vr?.title || null;
+  const isPrimary  = vr?.isPrimary || false;
+
+  try {
+    process.stdout.write(`${tag} fetching transcript\n`);
+    const result = await addYoutubeVideo(locationId, brainId, videoId, titleHint, isPrimary);
+    process.stdout.write(`${tag} ✓ docId=${result.docId}\n`);
+
+    // Fetch the saved doc to get videoMeta back
+    const docs = (await rGet(docsKey(locationId, brainId))) || [];
+    const doc  = docs.find(d => d.docId === result.docId);
+
+    await _updateVideoRecord(locationId, brainId, videoId, {
+      transcriptStatus: 'complete',
+      docId:      result.docId,
+      transcriptError: null,
+      lengthSecs:  doc?.videoMeta?.lengthSecs  || null,
+      viewCount:   doc?.videoMeta?.viewCount   || null,
+      publishDate: doc?.videoMeta?.publishDate || null,
+    });
+
+    return { success: true, docId: result.docId, videoId, chunks: result.chunks };
+  } catch (e) {
+    process.stdout.write(`${tag} ✗ ${e.message}\n`);
+    await _updateVideoRecord(locationId, brainId, videoId, {
+      transcriptStatus: 'error',
+      transcriptError:   e.message,
+    });
+    throw e;
+  }
+}
+
 function isEnabled() {
   return true;
 }
@@ -1205,4 +1346,7 @@ module.exports = {
   listDocuments,
   deleteDocument,
   getStatus,
+  // Video catalogue
+  listVideos,
+  generateVideoTranscript,
 };
