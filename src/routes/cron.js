@@ -101,41 +101,76 @@ router.get('/run-schedules', cronAuth, async (req, res) => {
     const ran = results.filter((r) => r.status === 'ok').length;
     console.log(`[Cron] Ran ${ran}/${due.length} scheduled workflows.`);
 
-    // Also check brain auto-sync (lightweight Redis-only check)
-    const brainsFlagged = await checkBrainAutoSync();
+    // Also run brain auto-sync (discovery + one batch step per overdue brain)
+    const brainSyncSteps = await checkBrainAutoSync();
 
-    res.json({ success: true, ran, total: due.length, brainsFlagged, results });
+    res.json({ success: true, ran, total: due.length, brainSyncSteps, results });
   } catch (err) {
     console.error('[Cron] run-schedules fatal error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ── Brain auto-sync check (runs as part of daily run-schedules) ──────────────
-// Lightweight: only reads Redis, flags brains that need sync (no YouTube calls).
-// The frontend picks up `needs_sync` and drives incremental discovery + batch processing.
+// ── Brain auto-sync (runs as part of daily run-schedules) ───────────────────
+// For each auto-sync brain that is 7+ days overdue:
+//   1. Advance channel discovery one step (queueChannelSync — incremental, resumes from Redis state).
+//   2. If a sync queue exists, process one video batch.
+// Uses an 8.5s time budget to stay within Vercel's 10s function limit.
 
 async function checkBrainAutoSync() {
   const tag = '[cron/brain-autosync]';
   const SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+  const TIME_LIMIT = Date.now() + 8500;
   try {
     const locationIds = await brain.listBrainLocations();
-    let flagged = 0;
+    let steps = 0;
+
     for (const locationId of locationIds) {
+      if (Date.now() >= TIME_LIMIT) break;
+
       let brainList;
       try { brainList = await brain.listBrains(locationId); } catch { continue; }
+
       for (const b of brainList) {
+        if (Date.now() >= TIME_LIMIT) break;
         if (!b.autoSync) continue;
-        const last = b.lastSynced ? new Date(b.lastSynced).getTime() : 0;
-        if (Date.now() - last >= SYNC_INTERVAL_MS && b.pipelineStage !== 'syncing' && b.pipelineStage !== 'processing') {
-          await brain.updateBrainMeta(locationId, b.brainId, { pipelineStage: 'needs_sync' });
-          flagged++;
-          console.log(tag, `Flagged ${b.name} (${b.brainId.slice(-6)}) — last synced: ${b.lastSynced || 'never'}`);
+
+        const last    = b.lastSynced ? new Date(b.lastSynced).getTime() : 0;
+        const overdue = Date.now() - last >= SYNC_INTERVAL_MS;
+        const hasQueue = (b.syncQueueTotal || 0) > (b.syncQueueDone || 0);
+        const needsDisc = overdue || b.pipelineStage === 'needs_sync';
+
+        if (!needsDisc && !hasQueue) continue;
+
+        const channelsWithUrl = (b.channels || []).filter(c => c.channelUrl);
+
+        // Step 1 — advance channel video discovery one increment
+        if (needsDisc && channelsWithUrl.length > 0 && Date.now() < TIME_LIMIT) {
+          const ch = channelsWithUrl[0];
+          try {
+            const r = await brain.queueChannelSync(locationId, b.brainId, ch.channelId);
+            console.log(tag, `Discovery step "${b.name}" / "${ch.channelName}": discovering=${r.discovering} videos=${r.videoCount || 0}`);
+            steps++;
+          } catch (e) {
+            console.error(tag, `queueChannelSync error "${b.name}":`, e.message);
+          }
+        }
+
+        // Step 2 — process one video from sync queue if time allows
+        if (hasQueue && Date.now() < TIME_LIMIT) {
+          try {
+            const r = await brain.processSyncBatch(locationId, b.brainId, 1);
+            console.log(tag, `Batch step "${b.name}": ingested=${r.ingested} errors=${r.errors} remaining=${r.remaining}`);
+            steps++;
+          } catch (e) {
+            console.error(tag, `processSyncBatch error "${b.name}":`, e.message);
+          }
         }
       }
     }
-    console.log(tag, `Done — ${flagged} brain(s) flagged for sync`);
-    return flagged;
+
+    console.log(tag, `Done — ${steps} sync step(s) executed`);
+    return steps;
   } catch (e) {
     console.error(tag, 'Error:', e.message);
     return 0;

@@ -428,9 +428,9 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     setLoadingVideos(false);
   }
 
-  // Load videos catalogue when Channels or Videos tab is opened
+  // Load videos catalogue when Channels, Videos or Progress tab is opened
   useEffect(() => {
-    if (tab === 'videos' || tab === 'channels') reloadVideos();
+    if (tab === 'videos' || tab === 'channels' || tab === 'progress') reloadVideos();
   }, [tab, brain.brainId]);
 
   // Auto-refresh videos while batch processing is active
@@ -661,6 +661,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   const videoCount = videos.length || brain.videoCount || ytDocs.length;
 
   const detailTabs = [
+    { id: 'progress', label: 'Progress' },
     { id: 'channels', label: `Channels (${channels.length})` },
     { id: 'videos',   label: `Videos (${videoCount})` },
     { id: 'settings', label: 'Settings' },
@@ -1219,6 +1220,177 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
           </div>
         </div>
       )}
+
+      {/* ── Progress tab ── */}
+      {tab === 'progress' && (() => {
+        const complete = videos.filter(v => v.transcriptStatus === 'complete').length;
+        const pending  = videos.filter(v => v.transcriptStatus === 'pending' || v.transcriptStatus === 'queued').length;
+        const errored  = videos.filter(v => v.transcriptStatus === 'error').length;
+        const total    = videos.length || brain.videoCount || 0;
+        const pct      = total > 0 ? Math.round(complete / total * 100) : 0;
+
+        const STAGES = [
+          {
+            label: 'Sync',
+            icon: '⟳',
+            done: (brain.channels || []).length > 0 && (brain.lastSynced || complete > 0 || total > 0),
+            desc: `${(brain.channels || []).length} channel${(brain.channels || []).length !== 1 ? 's' : ''} connected`,
+          },
+          {
+            label: 'Transcribe',
+            icon: '▶',
+            done: complete > 0,
+            desc: `${complete} / ${total} videos`,
+          },
+          {
+            label: 'Embed',
+            icon: '⚡',
+            done: (brain.chunkCount || 0) > 0,
+            desc: `${(brain.chunkCount || 0).toLocaleString()} chunks`,
+          },
+          {
+            label: 'Ready',
+            icon: '✓',
+            done: brain.pipelineStage === 'ready',
+            desc: brain.pipelineStage === 'ready' ? 'Searchable' : (brain.pipelineStage || 'Not ready'),
+          },
+        ];
+
+        return (
+          <div>
+            {/* Pipeline stages */}
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+              <h3 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Pipeline Stages</h3>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                {STAGES.map((s, i) => (
+                  <div key={s.label} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                    <div style={{ flex: 1, textAlign: 'center' }}>
+                      <div style={{
+                        width: 48, height: 48, borderRadius: '50%', margin: '0 auto 10px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: s.done ? C.green : C.border,
+                        color: s.done ? '#fff' : C.textMuted,
+                        fontSize: 18, fontWeight: 700,
+                        border: `3px solid ${s.done ? C.green : C.border}`,
+                      }}>
+                        {s.done ? '✓' : s.icon}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: s.done ? C.textPri : C.textMuted }}>{s.label}</div>
+                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{s.desc}</div>
+                    </div>
+                    {i < STAGES.length - 1 && (
+                      <div style={{ width: 40, height: 2, background: STAGES[i + 1].done ? C.green : C.border, flexShrink: 0, marginBottom: 28 }} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Transcript progress */}
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+              <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Transcript Progress</h3>
+              <div style={{ display: 'flex', gap: 28, marginBottom: 16 }}>
+                {[
+                  { label: 'Indexed',  val: complete, color: C.green },
+                  { label: 'Pending',  val: pending,  color: C.textMuted },
+                  { label: 'Errors',   val: errored,  color: errored > 0 ? C.red : C.textMuted },
+                  { label: 'Total',    val: total,    color: C.textSec },
+                ].map(s => (
+                  <div key={s.label}>
+                    <div style={{ fontSize: 26, fontWeight: 700, color: s.color, lineHeight: 1 }}>{s.val}</div>
+                    <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ height: 8, background: '#1e2a3a', borderRadius: 4, overflow: 'hidden', marginBottom: 6 }}>
+                <div style={{ height: '100%', borderRadius: 4, background: `linear-gradient(90deg, ${C.green}, #34d399)`, width: `${pct}%`, transition: 'width 0.5s ease' }} />
+              </div>
+              <div style={{ fontSize: 12, color: C.textMuted }}>{pct}% indexed</div>
+              {pending > 0 && (
+                <button
+                  onClick={startBatchLoop}
+                  disabled={batchProcessing}
+                  style={{ ...btnPrimary, marginTop: 16, fontSize: 13, opacity: batchProcessing ? 0.5 : 1 }}
+                >
+                  {batchProcessing ? '⟳ Processing…' : `▶ Process ${pending} Pending`}
+                </button>
+              )}
+              {batchProcessing && batchProgress && (
+                <div style={{ marginTop: 12, fontSize: 12, color: C.blue }}>
+                  {batchProgress.done} indexed · {batchProgress.remaining} remaining
+                  {batchCooldown > 0 && ` · next batch in ${Math.floor(batchCooldown / 60)}:${String(batchCooldown % 60).padStart(2, '0')}`}
+                </div>
+              )}
+            </div>
+
+            {/* Sync history */}
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+              <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Sync History</h3>
+              <p style={{ margin: '0 0 16px', fontSize: 13, color: C.textMuted }}>History of all sync runs for this brain.</p>
+              {(brain.syncLog || []).length === 0 ? (
+                <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>No sync runs yet.</p>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        {['When', 'Channel', 'Ingested', 'Errors', 'Total Docs', 'Chunks'].map(h => (
+                          <th key={h} style={thStyle}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(brain.syncLog || []).map((entry, i) => (
+                        <tr key={i}>
+                          <td style={{ ...tdStyle, color: C.textMuted, whiteSpace: 'nowrap' }}>{timeAgo(entry.ts)}</td>
+                          <td style={tdStyle}>{entry.channel || 'All channels'}</td>
+                          <td style={{ ...tdStyle, color: C.green, fontWeight: 600 }}>+{entry.ingested}</td>
+                          <td style={{ ...tdStyle, color: entry.errors > 0 ? C.amber : C.textMuted }}>{entry.errors}</td>
+                          <td style={tdStyle}>{entry.docCount ?? '—'}</td>
+                          <td style={tdStyle}>{entry.chunkCount ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Recent videos */}
+            {videos.length > 0 && (
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Recent Videos</h3>
+                <p style={{ margin: '0 0 16px', fontSize: 13, color: C.textMuted }}>Last 10 discovered videos.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[...videos]
+                    .sort((a, b) => new Date(b.addedAt || 0) - new Date(a.addedAt || 0))
+                    .slice(0, 10)
+                    .map(video => {
+                      const st = video.transcriptStatus || 'pending';
+                      const stColor = { complete: C.green, error: C.red, processing: C.amber, queued: C.blue }[st] || C.textMuted;
+                      const stLabel = { complete: 'Indexed', error: 'Error', processing: 'Processing', queued: 'Queued', pending: 'Pending' }[st] || st;
+                      return (
+                        <div key={video.videoId} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <a href={`https://www.youtube.com/watch?v=${video.videoId}`} target="_blank" rel="noreferrer" style={{ flexShrink: 0 }}>
+                            <img src={ytThumb(video.videoId)} alt="" style={{ width: 64, height: 36, objectFit: 'cover', borderRadius: 5, display: 'block' }} />
+                          </a>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, color: C.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{video.title || video.videoId}</div>
+                            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                              {video.channelName || ''}{video.publishDate ? ` · ${publishedAgo(video.publishDate)}` : ''}
+                              {video.lengthSecs ? ` · ${fmtDuration(video.lengthSecs)}` : ''}
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: stColor, flexShrink: 0 }}>{stLabel}</span>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1385,7 +1557,7 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
 
 // ── Pipeline view ─────────────────────────────────────────────────────────────
 
-function PipelineView({ brains }) {
+function PipelineView({ brains, onSelectBrain }) {
   const columns = [
     { id: 'needs_sync',  label: 'Needs Sync',  subtitle: 'Waiting for first sync',     icon: '⊙', color: '#6b7280', bgColor: '#1a1f2a' },
     { id: 'syncing',     label: 'Syncing',     subtitle: 'Pulling from YouTube',        icon: '✦', color: C.blue,   bgColor: '#0d1a2e' },
@@ -1437,7 +1609,16 @@ function PipelineView({ brains }) {
                   </div>
                 )}
                 {items.map(b => (
-                  <div key={b.brainId} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 14px' }}>
+                  <div
+                    key={b.brainId}
+                    onClick={() => onSelectBrain && onSelectBrain(b.brainId)}
+                    style={{
+                      background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 14px',
+                      cursor: onSelectBrain ? 'pointer' : 'default', transition: 'border-color .15s',
+                    }}
+                    onMouseEnter={e => { if (onSelectBrain) e.currentTarget.style.borderColor = C.blue + '88'; }}
+                    onMouseLeave={e => { if (onSelectBrain) e.currentTarget.style.borderColor = C.border; }}
+                  >
                     <div style={{ fontSize: 13, fontWeight: 700, color: C.textPri, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</div>
                     <code style={{ fontSize: 10, color: C.textMuted }}>{b.slug}</code>
                     <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: C.textSec }}>
@@ -2004,7 +2185,7 @@ export default function Brain() {
         )}
 
         {activeTab === 'pipeline' && (
-          <PipelineView brains={brains} />
+          <PipelineView brains={brains} onSelectBrain={handleSelectBrain} />
         )}
 
         {activeTab === 'search' && (
