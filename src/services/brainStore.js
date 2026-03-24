@@ -1215,11 +1215,25 @@ async function _finalizeDiscovery(locationId, brainId, channelId, ch, disc, dKey
   const merged = [...currentQueue, ...newVideos.filter(v => !currentQueue.find(q => q.videoId === v.videoId))];
   await rSet(syncQueueKey(locationId, brainId), merged);
 
-  await updateBrainMeta(locationId, brainId, {
-    pipelineStage: merged.length > 0 ? 'processing' : 'ready',
-    syncQueueTotal: merged.length, syncQueueDone: 0,
-    videoCount: mergedVideoRecords.length, lastSynced: now,
-  });
+  // Count videos per channel so each channel row shows the correct total
+  const channelVideoCount = mergedVideoRecords.filter(v => v.channelId === channelId).length;
+
+  // Update brain-level meta + channel-level videoCount + lastSynced
+  const brains2 = (await rGet(brainsKey(locationId))) || [];
+  const bIdx    = brains2.findIndex(b => b.brainId === brainId);
+  if (bIdx !== -1) {
+    brains2[bIdx].pipelineStage  = merged.length > 0 ? 'processing' : 'ready';
+    brains2[bIdx].syncQueueTotal = merged.length;
+    brains2[bIdx].syncQueueDone  = 0;
+    brains2[bIdx].videoCount     = mergedVideoRecords.length;
+    brains2[bIdx].lastSynced     = now;
+    const chIdx = (brains2[bIdx].channels || []).findIndex(c => c.channelId === channelId);
+    if (chIdx !== -1) {
+      brains2[bIdx].channels[chIdx].videoCount  = channelVideoCount;
+      brains2[bIdx].channels[chIdx].lastSynced  = now;
+    }
+    await rSet(brainsKey(locationId), brains2);
+  }
 
   await rDel(dKey);
   console.log(tag, 'Finalized — catalogue:', mergedVideoRecords.length, '| queued:', merged.length);

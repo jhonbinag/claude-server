@@ -427,9 +427,9 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     setLoadingVideos(false);
   }
 
-  // Load videos catalogue when Videos tab is opened
+  // Load videos catalogue when Channels or Videos tab is opened
   useEffect(() => {
-    if (tab === 'videos') reloadVideos();
+    if (tab === 'videos' || tab === 'channels') reloadVideos();
   }, [tab, brain.brainId]);
 
   // Auto-refresh videos while batch processing is active
@@ -822,7 +822,11 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                         : <span style={{ color: C.textMuted, fontSize: 12 }}>secondary</span>
                       }
                     </td>
-                    <td style={{ ...tdStyle, color: C.textSec }}>{ch.videoCount || 0}</td>
+                    <td style={{ ...tdStyle, color: C.textSec }}>
+                      {videos.length > 0
+                        ? videos.filter(v => v.channelId === ch.channelId).length
+                        : (ch.videoCount || 0)}
+                    </td>
                     <td style={{ ...tdStyle, color: C.textMuted, fontSize: 12 }}>{ch.lastSynced ? timeAgo(ch.lastSynced) : 'Never'}</td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                       <button
