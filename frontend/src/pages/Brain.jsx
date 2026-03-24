@@ -1488,7 +1488,7 @@ function SearchView({ brains, locationId }) {
       const res = await fetch(`/brain/${selectedBrainId}/ask`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'x-location-id': locationId || '' },
-        body:    JSON.stringify({ query: query.trim(), k: 10 }),
+        body:    JSON.stringify({ query: query.trim(), k: 20 }),
       });
 
       if (!res.ok) {
