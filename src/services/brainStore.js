@@ -398,19 +398,29 @@ async function resolveHandleToChannelId(handle) {
   }
 
   const json = await res.json();
-  console.log('[resolveHandle] response keys:', Object.keys(json).join(', '));
+  console.log('[resolveHandle] full response:', JSON.stringify(json).slice(0, 1000));
 
-  // Response shape: { endpoint: { browseEndpoint: { browseId: 'UCxxxxxx' } } }
+  // Walk all known response shapes
   const browseId = json?.endpoint?.browseEndpoint?.browseId
     || json?.endpoint?.channelPageEndpoint?.browseId
+    || json?.endpoint?.watchEndpoint?.videoId  // not a channel, but log it
     || null;
 
-  console.log('[resolveHandle] browseId:', browseId);
-  if (!browseId || !browseId.startsWith('UC')) {
-    console.error('[resolveHandle] unexpected response:', JSON.stringify(json).slice(0, 500));
+  // Also try scanning the whole response string for a UC ID
+  let resolvedId = browseId;
+  if (!resolvedId || !resolvedId.startsWith('UC')) {
+    const m = JSON.stringify(json).match(/"(UC[a-zA-Z0-9_-]{20,})"/);
+    if (m) {
+      resolvedId = m[1];
+      console.log('[resolveHandle] found UC ID via string scan:', resolvedId);
+    }
+  }
+
+  console.log('[resolveHandle] resolved channel ID:', resolvedId);
+  if (!resolvedId || !resolvedId.startsWith('UC')) {
     throw new Error(`Could not extract UC channel ID from resolve_url response for ${handle}`);
   }
-  return browseId;
+  return resolvedId;
 }
 
 // Suppress youtubei.js parser warnings (non-fatal type mismatches from YouTube response changes)
@@ -959,11 +969,24 @@ async function syncBrainChannels(locationId, brainId) {
       }
     }
 
-    await updateBrainMeta(locationId, brainId, {
-      pipelineStage: 'ready',
-      pendingCount:  totalErrors,
-    });
-    console.log(tag, `Sync complete — ${totalIngested} ingested, ${totalErrors} errors`);
+    // Recount docs + chunks from Redis and write back to brain record
+    const finalDocs   = (await rGet(docsKey(locationId, brainId))) || [];
+    const finalChunks = finalDocs.reduce((a, d) => a + (d.chunkCount || 0), 0);
+    const syncEntry   = { ts: new Date().toISOString(), ingested: totalIngested, errors: totalErrors, docCount: finalDocs.length, chunkCount: finalChunks };
+
+    const latestBrains = (await rGet(brainsKey(locationId))) || [];
+    const lbi = latestBrains.findIndex(b => b.brainId === brainId);
+    if (lbi !== -1) {
+      latestBrains[lbi].pipelineStage = 'ready';
+      latestBrains[lbi].pendingCount  = totalErrors;
+      latestBrains[lbi].docCount      = finalDocs.length;
+      latestBrains[lbi].chunkCount    = finalChunks;
+      latestBrains[lbi].updatedAt     = syncEntry.ts;
+      latestBrains[lbi].syncLog       = [ syncEntry, ...((latestBrains[lbi].syncLog || []).slice(0, 49)) ];
+      await rSet(brainsKey(locationId), latestBrains);
+    }
+
+    console.log(tag, `Sync complete — ${totalIngested} ingested, ${totalErrors} errors | docs: ${finalDocs.length}, chunks: ${finalChunks}`);
   } catch (e) {
     console.error(tag, 'Sync failed:', e.message);
     await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready', pendingCount: 1 }).catch(() => {});
@@ -1016,21 +1039,29 @@ async function syncSingleChannel(locationId, brainId, channelId) {
       await new Promise(r => setTimeout(r, 300));
     }
 
-    // Update channel stats
+    // Recount docs + chunks, update channel stats, append syncLog
+    const finalDocs   = (await rGet(docsKey(locationId, brainId))) || [];
+    const finalChunks = finalDocs.reduce((a, d) => a + (d.chunkCount || 0), 0);
+    const syncEntry   = { ts: new Date().toISOString(), channel: ch.channelName, ingested: channelVideos, errors, docCount: finalDocs.length, chunkCount: finalChunks };
+
     const updatedBrains = (await rGet(brainsKey(locationId))) || [];
     const bi = updatedBrains.findIndex(b => b.brainId === brainId);
     if (bi !== -1) {
       const ci = updatedBrains[bi].channels?.findIndex(c => c.channelId === channelId);
       if (ci !== undefined && ci !== -1) {
         updatedBrains[bi].channels[ci].videoCount = (updatedBrains[bi].channels[ci].videoCount || 0) + channelVideos;
-        updatedBrains[bi].channels[ci].lastSynced = new Date().toISOString();
-        updatedBrains[bi].updatedAt = new Date().toISOString();
-        await rSet(brainsKey(locationId), updatedBrains);
+        updatedBrains[bi].channels[ci].lastSynced = syncEntry.ts;
       }
+      updatedBrains[bi].pipelineStage = 'ready';
+      updatedBrains[bi].pendingCount  = errors;
+      updatedBrains[bi].docCount      = finalDocs.length;
+      updatedBrains[bi].chunkCount    = finalChunks;
+      updatedBrains[bi].updatedAt     = syncEntry.ts;
+      updatedBrains[bi].syncLog       = [ syncEntry, ...((updatedBrains[bi].syncLog || []).slice(0, 49)) ];
+      await rSet(brainsKey(locationId), updatedBrains);
     }
 
-    await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready', pendingCount: errors });
-    console.log(tag, `Channel sync complete — ${channelVideos} ingested, ${errors} errors`);
+    console.log(tag, `Channel sync complete — ${channelVideos} ingested, ${errors} errors | docs: ${finalDocs.length}, chunks: ${finalChunks}`);
   } catch (e) {
     console.error(tag, 'Channel sync failed:', e.message);
     await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready', pendingCount: 1 }).catch(() => {});

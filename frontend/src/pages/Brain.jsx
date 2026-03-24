@@ -925,15 +925,15 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
             </button>
           </div>
 
-          {/* Official Docs Sync */}
+          {/* Sync Changelog */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div>
                 <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  📘 Official Docs Sync
+                  📋 Sync Changelog
                 </h3>
                 <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>
-                  Scrapes official docs and changelog, embeds them as high-priority chunks, and flags YouTube content that contradicts official sources.
+                  History of all sync runs — videos ingested, errors, and total knowledge base size after each run.
                 </p>
               </div>
               <button
@@ -946,18 +946,37 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                 ↻ Sync Docs
               </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-              {[
-                { icon: '📄', label: 'PAGES SCRAPED',  value: 0 },
-                { icon: '📋', label: 'DOCS CHUNKS',     value: 0 },
-                { icon: '⚠',  label: 'OUTDATED',        value: 0 },
-              ].map(s => (
-                <div key={s.label} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: C.textPri }}>{s.icon} {s.value}</div>
-                  <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: '0.07em', marginTop: 4 }}>{s.label}</div>
+            {(() => {
+              const log = brain.syncLog || [];
+              if (log.length === 0) {
+                return <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>No sync runs yet.</p>;
+              }
+              return (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        {['When', 'Channel', 'Ingested', 'Errors', 'Total Docs', 'Total Chunks'].map(h => (
+                          <th key={h} style={{ padding: '6px 10px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.textMuted, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {log.map((entry, i) => (
+                        <tr key={i}>
+                          <td style={{ padding: '8px 10px', color: C.textMuted, borderBottom: `1px solid ${C.border}44`, whiteSpace: 'nowrap' }}>{timeAgo(entry.ts)}</td>
+                          <td style={{ padding: '8px 10px', color: C.textSec, borderBottom: `1px solid ${C.border}44` }}>{entry.channel || 'All channels'}</td>
+                          <td style={{ padding: '8px 10px', color: C.green, fontWeight: 600, borderBottom: `1px solid ${C.border}44` }}>+{entry.ingested}</td>
+                          <td style={{ padding: '8px 10px', color: entry.errors > 0 ? C.amber : C.textMuted, borderBottom: `1px solid ${C.border}44` }}>{entry.errors}</td>
+                          <td style={{ padding: '8px 10px', color: C.textPri, borderBottom: `1px solid ${C.border}44` }}>{entry.docCount ?? '—'}</td>
+                          <td style={{ padding: '8px 10px', color: C.textPri, borderBottom: `1px solid ${C.border}44` }}>{entry.chunkCount ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ))}
-            </div>
+              );
+            })()}
           </div>
         </div>
       )}
