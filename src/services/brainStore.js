@@ -386,65 +386,113 @@ async function resolveHandleToChannelId(handle) {
   // handle is like '@AlexBerman' or 'AlexBerman'
   const cleanHandle = handle.startsWith('@') ? handle : '@' + handle;
   const url = `https://www.youtube.com/${cleanHandle}`;
-  console.log('[resolveHandle] resolving', url, 'via InnerTube resolve_url');
+  console.log('[resolveHandle] resolving', url);
 
-  const visitorData = await getYtVisitorData().catch(() => null);
-  const body = {
-    context: {
-      client: {
-        clientName:       'ANDROID',
-        clientVersion:    YT_ANDROID_VER,
-        androidSdkVersion: YT_ANDROID_SDK,
-        hl: 'en',
-        gl: 'US',
-        ...(visitorData ? { visitorData } : {}),
-      },
-    },
-    url,
-  };
-
-  const res = await fetch(YT_RESOLVE_URL, {
-    method:  'POST',
-    headers: {
-      'Content-Type':              'application/json',
-      'User-Agent':                YT_ANDROID_UA,
-      'X-YouTube-Client-Name':    '3',
-      'X-YouTube-Client-Version': YT_ANDROID_VER,
-    },
-    body: JSON.stringify(body),
-  });
-
-  console.log('[resolveHandle] resolve_url status:', res.status);
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    console.error('[resolveHandle] resolve_url failed:', res.status, text.slice(0, 300));
-    throw new Error(`resolve_url returned ${res.status}`);
-  }
-
-  const json = await res.json();
-  console.log('[resolveHandle] full response:', JSON.stringify(json).slice(0, 1000));
-
-  // Walk all known response shapes
-  const browseId = json?.endpoint?.browseEndpoint?.browseId
-    || json?.endpoint?.channelPageEndpoint?.browseId
-    || json?.endpoint?.watchEndpoint?.videoId  // not a channel, but log it
-    || null;
-
-  // Also try scanning the whole response string for a UC ID
-  let resolvedId = browseId;
-  if (!resolvedId || !resolvedId.startsWith('UC')) {
-    const m = JSON.stringify(json).match(/"(UC[a-zA-Z0-9_-]{20,})"/);
-    if (m) {
-      resolvedId = m[1];
-      console.log('[resolveHandle] found UC ID via string scan:', resolvedId);
+  // ── Approach 1: youtubei.js resolveURL (handles InnerTube versioning internally) ──
+  try {
+    const Innertube = await getInnertube();
+    const yt = await Innertube.create({ retrieve_player: false });
+    const resolved = await yt.resolveURL(url);
+    console.log('[resolveHandle] yt.resolveURL result:', JSON.stringify(resolved).slice(0, 500));
+    const browseId = resolved?.payload?.browseId
+      || resolved?.endpoint?.payload?.browseId
+      || null;
+    if (browseId?.startsWith('UC')) {
+      console.log('[resolveHandle] resolved via yt.resolveURL:', browseId);
+      return browseId;
     }
+    // Scan serialized response for UC ID
+    const scanMatch = JSON.stringify(resolved).match(/"(UC[a-zA-Z0-9_-]{20,})"/);
+    if (scanMatch) {
+      console.log('[resolveHandle] resolved via yt.resolveURL string scan:', scanMatch[1]);
+      return scanMatch[1];
+    }
+    console.warn('[resolveHandle] yt.resolveURL returned no UC ID, trying manual resolve_url');
+  } catch (e) {
+    console.warn('[resolveHandle] yt.resolveURL failed:', e.message, '— trying manual resolve_url');
   }
 
-  console.log('[resolveHandle] resolved channel ID:', resolvedId);
-  if (!resolvedId || !resolvedId.startsWith('UC')) {
-    throw new Error(`Could not extract UC channel ID from resolve_url response for ${handle}`);
+  // ── Approach 2: manual InnerTube resolve_url with ANDROID client ──
+  try {
+    const visitorData = await getYtVisitorData().catch(() => null);
+    const body = {
+      context: {
+        client: {
+          clientName:       'ANDROID',
+          clientVersion:    YT_ANDROID_VER,
+          androidSdkVersion: YT_ANDROID_SDK,
+          hl: 'en',
+          gl: 'US',
+          ...(visitorData ? { visitorData } : {}),
+        },
+      },
+      url,
+    };
+
+    const res = await fetch(YT_RESOLVE_URL, {
+      method:  'POST',
+      headers: {
+        'Content-Type':              'application/json',
+        'User-Agent':                YT_ANDROID_UA,
+        'X-YouTube-Client-Name':    '3',
+        'X-YouTube-Client-Version': YT_ANDROID_VER,
+      },
+      body: JSON.stringify(body),
+    });
+
+    console.log('[resolveHandle] resolve_url status:', res.status);
+    if (res.ok) {
+      const json = await res.json();
+      console.log('[resolveHandle] resolve_url response:', JSON.stringify(json).slice(0, 1000));
+
+      const browseId = json?.endpoint?.browseEndpoint?.browseId
+        || json?.endpoint?.channelPageEndpoint?.browseId
+        || null;
+
+      let resolvedId = browseId;
+      if (!resolvedId || !resolvedId.startsWith('UC')) {
+        const m = JSON.stringify(json).match(/"(UC[a-zA-Z0-9_-]{20,})"/);
+        if (m) resolvedId = m[1];
+      }
+      if (resolvedId?.startsWith('UC')) {
+        console.log('[resolveHandle] resolved via manual resolve_url:', resolvedId);
+        return resolvedId;
+      }
+    }
+    console.warn('[resolveHandle] manual resolve_url did not yield UC ID, trying HTML scrape');
+  } catch (e) {
+    console.warn('[resolveHandle] manual resolve_url failed:', e.message, '— trying HTML scrape');
   }
-  return resolvedId;
+
+  // ── Approach 3: scrape channel page HTML for externalId / channelId ──
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': YT_BROWSER_UA },
+      redirect: 'follow',
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const externalId = html.match(/"externalId"\s*:\s*"(UC[a-zA-Z0-9_-]{20,})"/);
+      if (externalId) {
+        console.log('[resolveHandle] resolved via HTML externalId:', externalId[1]);
+        return externalId[1];
+      }
+      const channelIdMeta = html.match(/(?:<meta[^>]+content="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{20,})")/);
+      if (channelIdMeta) {
+        console.log('[resolveHandle] resolved via HTML meta tag:', channelIdMeta[1]);
+        return channelIdMeta[1];
+      }
+      const browseIdHtml = html.match(/"browseId"\s*:\s*"(UC[a-zA-Z0-9_-]{20,})"/);
+      if (browseIdHtml) {
+        console.log('[resolveHandle] resolved via HTML browseId:', browseIdHtml[1]);
+        return browseIdHtml[1];
+      }
+    }
+  } catch (e) {
+    console.warn('[resolveHandle] HTML scrape failed:', e.message);
+  }
+
+  throw new Error(`Could not extract UC channel ID for ${handle} — all 3 approaches failed`);
 }
 
 // Suppress youtubei.js parser warnings (non-fatal type mismatches from YouTube response changes)
