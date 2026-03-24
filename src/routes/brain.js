@@ -46,9 +46,9 @@ router.post('/create', async (req, res) => {
       name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels,
     });
     res.json({ success: true, data: result });
-    // Kick off background sync after response is sent
     if (syncNow && (primaryChannel?.url || (result.channels || []).length > 0)) {
-      setImmediate(() => brain.syncBrainChannels(req.locationId, result.brainId));
+      brain.syncBrainChannels(req.locationId, result.brainId)
+        .catch(e => console.error('[brain/create] background sync error:', e));
     }
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -106,7 +106,8 @@ router.post('/:brainId/sync', async (req, res) => {
     // Set stage to needs_sync immediately, then kick off background sync
     await brain.updateBrainMeta(req.locationId, req.params.brainId, { pipelineStage: 'syncing' });
     res.json({ success: true, message: 'Sync started.' });
-    setImmediate(() => brain.syncBrainChannels(req.locationId, req.params.brainId));
+    brain.syncBrainChannels(req.locationId, req.params.brainId)
+      .catch(e => console.error('[brain/sync] background sync error:', e));
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -247,7 +248,8 @@ router.post('/:brainId/channels/:channelId/sync', async (req, res) => {
   try {
     await brain.updateBrainMeta(req.locationId, req.params.brainId, { pipelineStage: 'syncing' });
     res.json({ success: true, message: 'Channel sync started.' });
-    setImmediate(() => brain.syncSingleChannel(req.locationId, req.params.brainId, req.params.channelId));
+    brain.syncSingleChannel(req.locationId, req.params.brainId, req.params.channelId)
+      .catch(e => console.error('[brain/channel-sync] background sync error:', e));
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

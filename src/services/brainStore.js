@@ -522,22 +522,28 @@ async function addPlaylistToBrain(locationId, brainId, playlistId, { isPrimary =
   }
 
   const results = { ingested: 0, skipped: 0, errors: [] };
+  console.log('[addPlaylistToBrain] processing', videos.length, 'videos from playlist', playlistId);
 
-  for (const video of videos) {
+  for (let vi = 0; vi < videos.length; vi++) {
+    const video   = videos[vi];
     const videoId = video.id;
     if (!videoId) { results.skipped++; continue; }
     const title = video.title?.toString() || `Video ${videoId}`;
+    process.stdout.write(`[addPlaylistToBrain] [${vi + 1}/${videos.length}] ${videoId} "${title.slice(0, 60)}"\n`);
     try {
       if (onProgress) onProgress({ videoId, title, status: 'ingesting' });
       await addYoutubeVideo(locationId, brainId, videoId, title, isPrimary);
       results.ingested++;
+      process.stdout.write(`[addPlaylistToBrain]   ✓ ingested (total: ${results.ingested})\n`);
     } catch (e) {
       results.errors.push({ videoId, title, error: e.message });
       results.skipped++;
+      process.stdout.write(`[addPlaylistToBrain]   ✗ failed: ${e.message}\n`);
     }
     // Small delay to avoid hammering YouTube
     await new Promise(r => setTimeout(r, 500));
   }
+  console.log('[addPlaylistToBrain] done — ingested:', results.ingested, 'skipped:', results.skipped, 'errors:', results.errors.length);
 
   // Update matching channel's videoCount and lastSynced
   if (channelId) {
@@ -901,6 +907,7 @@ async function getChannelPlaylists(channelUrl) {
  */
 async function syncBrainChannels(locationId, brainId) {
   const tag = `[Brain sync ${brainId.slice(-6)}]`;
+  process.stdout.write(`${tag} syncBrainChannels START locationId=${locationId}\n`);
   try {
     const brains = (await rGet(brainsKey(locationId))) || [];
     const brain  = brains.find(b => b.brainId === brainId);
@@ -986,9 +993,9 @@ async function syncBrainChannels(locationId, brainId) {
       await rSet(brainsKey(locationId), latestBrains);
     }
 
-    console.log(tag, `Sync complete — ${totalIngested} ingested, ${totalErrors} errors | docs: ${finalDocs.length}, chunks: ${finalChunks}`);
+    process.stdout.write(`${tag} syncBrainChannels DONE — ingested: ${totalIngested}, errors: ${totalErrors}, docs: ${finalDocs.length}, chunks: ${finalChunks}\n`);
   } catch (e) {
-    console.error(tag, 'Sync failed:', e.message);
+    process.stdout.write(`${tag} syncBrainChannels FAILED: ${e.message}\n${e.stack}\n`);
     await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready', pendingCount: 1 }).catch(() => {});
   }
 }
@@ -998,6 +1005,7 @@ async function syncBrainChannels(locationId, brainId) {
  */
 async function syncSingleChannel(locationId, brainId, channelId) {
   const tag = `[Brain sync ${brainId.slice(-6)}]`;
+  process.stdout.write(`${tag} syncSingleChannel START channelId=${channelId}\n`);
   try {
     const brains = (await rGet(brainsKey(locationId))) || [];
     const brain  = brains.find(b => b.brainId === brainId);
@@ -1061,9 +1069,9 @@ async function syncSingleChannel(locationId, brainId, channelId) {
       await rSet(brainsKey(locationId), updatedBrains);
     }
 
-    console.log(tag, `Channel sync complete — ${channelVideos} ingested, ${errors} errors | docs: ${finalDocs.length}, chunks: ${finalChunks}`);
+    process.stdout.write(`${tag} syncSingleChannel DONE — ingested: ${channelVideos}, errors: ${errors}, docs: ${finalDocs.length}, chunks: ${finalChunks}\n`);
   } catch (e) {
-    console.error(tag, 'Channel sync failed:', e.message);
+    process.stdout.write(`${tag} syncSingleChannel FAILED: ${e.message}\n${e.stack}\n`);
     await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready', pendingCount: 1 }).catch(() => {});
   }
 }
