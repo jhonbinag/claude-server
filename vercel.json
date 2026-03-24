@@ -5,7 +5,7 @@
   "functions": {
     "api/index.js": {
       "includeFiles": "src/**,public/ui/**",
-      "maxDuration": 800
+      "maxDuration": 10
     }
   },
   "rewrites": [
@@ -15,10 +15,6 @@
     {
       "path": "/cron/run-schedules",
       "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/cron/brain-sync",
-      "schedule": "0 8 * * 1"
     }
   ],
   "env": {

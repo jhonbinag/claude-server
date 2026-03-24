@@ -114,20 +114,9 @@ router.patch('/:brainId', async (req, res) => {
 
 router.post('/:brainId/sync', async (req, res) => {
   try {
+    // Just flag the brain — frontend drives incremental discovery + batch processing
     await brain.updateBrainMeta(req.locationId, req.params.brainId, { pipelineStage: 'syncing' });
-    // Queue all channels for discovery — frontend or cron drives batch processing
-    const brainData = await brain.getBrain(req.locationId, req.params.brainId);
-    const channels  = (brainData.channels || []).filter(c => c.channelUrl);
-    let totalQueued = 0;
-    for (const ch of channels) {
-      try {
-        const r = await brain.queueChannelSync(req.locationId, req.params.brainId, ch.channelId);
-        totalQueued += r.videoCount || r.queued || 0;
-      } catch (e) {
-        console.error(`[brain/sync] queue error for ${ch.channelName}:`, e.message);
-      }
-    }
-    res.json({ success: true, message: 'Sync started.', queued: totalQueued });
+    res.json({ success: true, message: 'Sync started.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

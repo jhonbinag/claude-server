@@ -447,7 +447,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     while (batchActiveRef.current) {
       try {
         const r = await apiFetch(`/brain/${brain.brainId}/sync-batch`, locationId, {
-          method: 'POST', body: { batchSize: 5 },
+          method: 'POST', body: { batchSize: 2 },
         });
         if (!r.success) { showFlash(false, r.error || 'Batch processing failed.'); break; }
         totalDone += r.ingested || 0;
@@ -607,10 +607,18 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     setSyncingChannelId(channelId);
     showFlash(true, `Discovering videos for "${name}"…`);
     try {
-      const q = await apiFetch(`/brain/${brain.brainId}/channels/${channelId}/queue`, locationId, { method: 'POST' });
-      if (!q.success) { showFlash(false, q.error || 'Failed to sync channel.'); setSyncingChannelId(null); return; }
+      // Incremental discovery — call /queue repeatedly until discovering: false
+      let result;
+      do {
+        result = await apiFetch(`/brain/${brain.brainId}/channels/${channelId}/queue`, locationId, { method: 'POST' });
+        if (!result.success) { showFlash(false, result.error || 'Failed to sync channel.'); setSyncingChannelId(null); return; }
+        if (result.discovering) {
+          showFlash(true, `Discovering videos for "${name}"… ${result.videoCount || 0} found so far`);
+          await reloadVideos();
+        }
+      } while (result.discovering);
 
-      const discovered = q.videoCount || q.queued || 0;
+      const discovered = result.videoCount || result.queued || 0;
       showFlash(true, `"${name}" — ${discovered} videos discovered. Starting transcript processing…`);
       onRefresh();
       await reloadBrain();
@@ -697,13 +705,22 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
               disabled={syncing || batchProcessing}
               onClick={async () => {
                 setSyncing(true);
-                showFlash(true, 'Collecting videos for all channels…');
+                showFlash(true, 'Discovering videos for all channels…');
                 try {
                   const chs = channels.filter(c => c.channelUrl);
                   let totalDiscovered = 0;
                   for (const ch of chs) {
-                    const q = await apiFetch(`/brain/${brain.brainId}/channels/${ch.channelId}/queue`, locationId, { method: 'POST' });
-                    if (q.success) totalDiscovered += q.videoCount || q.queued || 0;
+                    // Incremental discovery per channel
+                    let result;
+                    do {
+                      result = await apiFetch(`/brain/${brain.brainId}/channels/${ch.channelId}/queue`, locationId, { method: 'POST' });
+                      if (!result.success) break;
+                      if (result.discovering) {
+                        showFlash(true, `Discovering "${ch.channelName}"… ${result.videoCount || 0} videos found`);
+                        await reloadVideos();
+                      }
+                    } while (result.discovering);
+                    if (result.success) totalDiscovered += result.videoCount || result.queued || 0;
                   }
                   showFlash(true, `${totalDiscovered} videos discovered. Starting transcript processing…`);
                   onRefresh();

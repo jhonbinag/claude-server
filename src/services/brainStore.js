@@ -100,6 +100,7 @@ const docsKey           = (loc, brainId)       => `hltools:brain:${loc}:${brainI
 const chunksKey         = (loc, brainId, docId)=> `hltools:brain:${loc}:${brainId}:chunks:${docId}`;
 const syncQueueKey      = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:syncqueue`;
 const videosKey         = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:videos`;
+const discoverKey       = (loc, brainId, chId) => `hltools:brain:${loc}:${brainId}:disc:${chId}`;
 const BRAIN_LOCS_KEY    = 'hltools:brain-locations'; // Redis set of all locationIds with brains
 
 // ── Text chunking ─────────────────────────────────────────────────────────────
@@ -935,76 +936,119 @@ async function getChannelPlaylists(channelUrl) {
 }
 
 /**
- * Queue all video IDs from a channel's uploads playlist into Redis.
- * Returns { queued, channelName } — fast call, no transcript fetching.
+ * Incremental channel video discovery — designed for Vercel free tier (10s limit).
+ * Each call fetches one "chunk" of work within an 8s time budget, saves progress
+ * to Redis, and returns { discovering: true } until all playlist pages are fetched.
+ * Once complete, writes video catalogue + sync queue and returns { discovering: false }.
  */
 async function queueChannelSync(locationId, brainId, channelId) {
-  const tag = `[queueChannelSync ${brainId.slice(-6)}]`;
+  const startMs   = Date.now();
+  const BUDGET_MS = 8000; // 8s of 10s Vercel limit
+  const tag       = `[queueSync ${brainId.slice(-6)}]`;
+
   const brains = (await rGet(brainsKey(locationId))) || [];
   const brain  = brains.find(b => b.brainId === brainId);
   if (!brain) throw new Error('Brain not found');
-
   const ch = (brain.channels || []).find(c => c.channelId === channelId);
   if (!ch) throw new Error('Channel not found');
   if (!ch.channelUrl) throw new Error('Channel has no URL');
 
-  console.log(tag, 'Resolving playlists for', ch.channelName, ch.channelUrl);
-  const playlists = await getChannelPlaylists(ch.channelUrl);
-  console.log(tag, 'Found', playlists.length, 'playlist(s)');
+  const dKey = discoverKey(locationId, brainId, channelId);
+  let disc   = await rGet(dKey);
 
-  // Collect all video IDs from all playlists
-  const Innertube = await getInnertube();
-  const yt = await Innertube.create({ retrieve_player: false });
-
-  const allVideos = [];
-  for (const pl of playlists) {
-    console.log(tag, 'Fetching video list for playlist', pl.id);
-    try {
-      let page = await yt.getPlaylist(pl.id);
-      let vids = page.videos || [];
-      while (page.has_continuation) {
-        try { page = await page.getContinuation(); vids = vids.concat(page.videos || []); }
-        catch { break; }
-      }
-      for (const v of vids) {
-        if (v.id) allVideos.push({ videoId: v.id, title: v.title?.toString() || v.id, isPrimary: ch.type === 'primary' || ch.isPrimary, channelId });
-      }
-      console.log(tag, 'Playlist', pl.id, '→', vids.length, 'videos (running total:', allVideos.length, ')');
-    } catch (e) {
-      console.error(tag, 'Playlist fetch error:', e.message);
-    }
+  // ── Phase 1: Resolve handle + get playlists (first call only) ──
+  if (!disc) {
+    console.log(tag, 'Phase 1: resolving playlists for', ch.channelName);
+    await updateBrainMeta(locationId, brainId, { pipelineStage: 'syncing' });
+    const playlists = await getChannelPlaylists(ch.channelUrl);
+    disc = {
+      playlists:          playlists.map(p => p.id),
+      completedPlaylists: [],
+      videos:             [],
+    };
+    await rSet(dKey, disc);
+    console.log(tag, 'Phase 1 done:', playlists.length, 'playlist(s)');
+    return { discovering: true, phase: 'playlists', videoCount: 0, playlistCount: playlists.length };
   }
 
-  // Deduplicate by videoId
-  const existing = (await rGet(docsKey(locationId, brainId))) || [];
-  const existingIds = new Set(existing.map(d => d.url?.match(/v=([a-zA-Z0-9_-]{11})/)?.[1]).filter(Boolean));
-  const newVideos = allVideos.filter(v => !existingIds.has(v.videoId));
-  console.log(tag, 'Total:', allVideos.length, '| already ingested:', existingIds.size, '| to queue:', newVideos.length);
+  // ── Phase 2: Fetch videos from playlists within time budget ──
+  const remaining = disc.playlists.filter(id => !disc.completedPlaylists.includes(id));
+  if (remaining.length === 0) {
+    return await _finalizeDiscovery(locationId, brainId, channelId, ch, disc, dKey);
+  }
 
-  // ── Write video records to videosKey (metadata catalogue, no transcripts yet) ──
-  const now = new Date().toISOString();
+  const Innertube       = await getInnertube();
+  const yt              = await Innertube.create({ retrieve_player: false });
+  const knownVideoIds   = new Set(disc.videos.map(v => v.videoId));
+  let newFound = 0;
+
+  for (const plId of remaining) {
+    if ((Date.now() - startMs) >= BUDGET_MS) break;
+    console.log(tag, 'Fetching playlist', plId);
+    try {
+      let page = await yt.getPlaylist(plId);
+      for (const v of (page.videos || [])) {
+        if (v.id && !knownVideoIds.has(v.id)) {
+          disc.videos.push({ videoId: v.id, title: v.title?.toString() || v.id, isPrimary: ch.type === 'primary' || ch.isPrimary, channelId });
+          knownVideoIds.add(v.id);
+          newFound++;
+        }
+      }
+      while (page.has_continuation && (Date.now() - startMs) < BUDGET_MS) {
+        try {
+          page = await page.getContinuation();
+          for (const v of (page.videos || [])) {
+            if (v.id && !knownVideoIds.has(v.id)) {
+              disc.videos.push({ videoId: v.id, title: v.title?.toString() || v.id, isPrimary: ch.type === 'primary' || ch.isPrimary, channelId });
+              knownVideoIds.add(v.id);
+              newFound++;
+            }
+          }
+        } catch { break; }
+      }
+      if (!page.has_continuation) disc.completedPlaylists.push(plId);
+    } catch (e) {
+      console.error(tag, 'Playlist error:', e.message);
+      disc.completedPlaylists.push(plId); // skip errored
+    }
+    await rSet(dKey, disc); // save progress after each playlist attempt
+  }
+
+  console.log(tag, `Progress: ${disc.videos.length} videos, ${disc.completedPlaylists.length}/${disc.playlists.length} playlists, +${newFound} this call`);
+
+  if (disc.completedPlaylists.length >= disc.playlists.length) {
+    return await _finalizeDiscovery(locationId, brainId, channelId, ch, disc, dKey);
+  }
+  return { discovering: true, phase: 'videos', videoCount: disc.videos.length,
+           completedPlaylists: disc.completedPlaylists.length, totalPlaylists: disc.playlists.length };
+}
+
+/**
+ * Finalize discovery — write video catalogue + sync queue, clean up state.
+ */
+async function _finalizeDiscovery(locationId, brainId, channelId, ch, disc, dKey) {
+  const tag = `[queueSync ${brainId.slice(-6)}]`;
+  const allVideos = disc.videos;
+
+  const existing    = (await rGet(docsKey(locationId, brainId))) || [];
+  const existingIds = new Set(existing.map(d => d.url?.match(/v=([a-zA-Z0-9_-]{11})/)?.[1]).filter(Boolean));
+  const newVideos   = allVideos.filter(v => !existingIds.has(v.videoId));
+  console.log(tag, 'Discovery complete. Total:', allVideos.length, '| already ingested:', existingIds.size, '| to queue:', newVideos.length);
+
+  const now                  = new Date().toISOString();
   const existingVideoRecords = (await rGet(videosKey(locationId, brainId))) || [];
-  const existingVideoIds = new Set(existingVideoRecords.map(v => v.videoId));
+  const existingVideoIdSet   = new Set(existingVideoRecords.map(v => v.videoId));
 
   const newVideoRecords = allVideos
-    .filter(v => !existingVideoIds.has(v.videoId))
+    .filter(v => !existingVideoIdSet.has(v.videoId))
     .map(v => ({
-      videoId:          v.videoId,
-      title:            v.title,
-      channelId:        v.channelId,
-      channelName:      ch.channelName,
-      isPrimary:        v.isPrimary,
+      videoId: v.videoId, title: v.title, channelId: v.channelId,
+      channelName: ch.channelName, isPrimary: v.isPrimary,
       transcriptStatus: existingIds.has(v.videoId) ? 'complete' : 'pending',
-      docId:            null,
-      lengthSecs:       null,
-      viewCount:        null,
-      publishDate:      null,
-      addedAt:          now,
+      docId: null, lengthSecs: null, viewCount: null, publishDate: null, addedAt: now,
     }));
 
-  // Mark already-ingested docs' videos as complete
   const mergedVideoRecords = [...existingVideoRecords, ...newVideoRecords];
-  // Back-fill docIds for already-complete docs
   for (const doc of existing) {
     const vid = doc.url?.match(/v=([a-zA-Z0-9_-]{11})/)?.[1];
     if (!vid) continue;
@@ -1020,21 +1064,20 @@ async function queueChannelSync(locationId, brainId, channelId) {
     }
   }
   await rSet(videosKey(locationId, brainId), mergedVideoRecords);
-  console.log(tag, 'Video catalogue updated — total records:', mergedVideoRecords.length, '| new:', newVideoRecords.length);
 
-  // Merge with any existing queue
   const currentQueue = (await rGet(syncQueueKey(locationId, brainId))) || [];
   const merged = [...currentQueue, ...newVideos.filter(v => !currentQueue.find(q => q.videoId === v.videoId))];
   await rSet(syncQueueKey(locationId, brainId), merged);
 
   await updateBrainMeta(locationId, brainId, {
     pipelineStage: merged.length > 0 ? 'processing' : 'ready',
-    syncQueueTotal: merged.length,
-    syncQueueDone:  0,
-    videoCount:     mergedVideoRecords.length,
+    syncQueueTotal: merged.length, syncQueueDone: 0,
+    videoCount: mergedVideoRecords.length, lastSynced: now,
   });
 
-  return { queued: merged.length, channelName: ch.channelName, videoCount: mergedVideoRecords.length };
+  await rDel(dKey);
+  console.log(tag, 'Finalized — catalogue:', mergedVideoRecords.length, '| queued:', merged.length);
+  return { queued: merged.length, channelName: ch.channelName, videoCount: mergedVideoRecords.length, discovering: false };
 }
 
 /**
@@ -1042,7 +1085,7 @@ async function queueChannelSync(locationId, brainId, channelId) {
  * Returns { processed, remaining, done, ingested, errors }.
  * Safe to call repeatedly — each call is a short Vercel function invocation.
  */
-async function processSyncBatch(locationId, brainId, batchSize = 5) {
+async function processSyncBatch(locationId, brainId, batchSize = 2) {
   const tag = `[syncBatch ${brainId.slice(-6)}]`;
   const queue = (await rGet(syncQueueKey(locationId, brainId))) || [];
 
