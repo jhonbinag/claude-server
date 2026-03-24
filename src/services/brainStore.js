@@ -1018,13 +1018,14 @@ async function queryKnowledge(locationId, brainId, queryText, k = 5) {
   // ── Vector search (semantic) ────────────────────────────────────────────────
   if (isVectorEnabled) {
     const results = await vQueryChunks(locationId, brainId, queryText, k);
-    if (results !== null) {
+    if (results !== null && results.length > 0) {
       process.stdout.write(`${tag} ✓ vector returned ${results.length} results\n`);
       results.forEach((r, i) =>
         process.stdout.write(`${tag}   [${i + 1}] score=${r.score.toFixed(3)} source="${r.sourceLabel}"\n`)
       );
       return results;
     }
+    if (results !== null) process.stdout.write(`${tag} vector empty — falling back to keyword\n`);
   }
 
   // ── Keyword fallback ────────────────────────────────────────────────────────

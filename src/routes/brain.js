@@ -263,7 +263,7 @@ function isFallbackError(err) {
 }
 
 router.post('/:brainId/ask', async (req, res) => {
-  const { query, k = 10 } = req.body;
+  const { query, k = 15 } = req.body;
   const tag = `[brain/ask brain=${req.params.brainId?.slice(-6)} loc=${req.locationId?.slice(0,8)}]`;
 
   process.stdout.write(`${tag} ── START query="${query}" k=${k}\n`);
@@ -300,13 +300,14 @@ router.post('/:brainId/ask', async (req, res) => {
     }
     process.stdout.write(`${tag} [3/4] available: ${providers.map(p => p.provider).join(', ')}\n`);
 
-    const SYSTEM = `You are a helpful AI assistant that answers questions based strictly on the provided transcript content from a YouTube knowledge base.
+    const SYSTEM = `You are a knowledgeable AI assistant with access to a curated YouTube knowledge base (transcripts of videos). Your job is to give accurate, helpful answers by combining the provided video context with your own knowledge.
 
 Rules:
-- Answer only from the provided context. Do not add outside knowledge.
-- Be concise but complete. Use bullet points or short paragraphs as appropriate.
-- If the context doesn't contain enough information to answer, say so clearly.
-- When referencing specific content, mention the video/source it came from.
+- Prioritize the provided context — it comes from the user's selected brain (YouTube channel transcripts).
+- If the context clearly answers the question, base your answer on it and cite the source video.
+- If the context is partially relevant, use it as a foundation and supplement with your own knowledge, making it clear which is which.
+- If the context has nothing relevant, answer from your own knowledge and note that the brain content didn't cover this specifically.
+- Be concise but thorough. Use bullet points or short paragraphs as appropriate.
 - Do not repeat the question back.`;
     const USER_MSG = `Context from knowledge base:\n\n${context}\n\n---\n\nQuestion: ${query}`;
 
