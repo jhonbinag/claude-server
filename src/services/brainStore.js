@@ -602,66 +602,15 @@ async function getYoutubeOAuthToken(locationId) {
 }
 
 async function fetchYoutubeTranscript(videoId, locationId) {
-  // Priority 1: use YouTube OAuth token from Social Planner (most reliable — authenticated)
-  const oauthToken = await getYoutubeOAuthToken(locationId);
+  console.log(`[fetchTranscript] ${videoId} — calling Android player API`);
 
-  if (oauthToken) {
-    try {
-      // With OAuth: use official captions API to list tracks, then fetch with Bearer auth
-      const listRes = await fetch(
-        `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=&fields=items(snippet(title))`,
-        { headers: { Authorization: `Bearer ${oauthToken}` } }
-      );
-      // Get title separately via a simple fetch
-      const titleRes = await fetch(YT_PLAYER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': YT_ANDROID_UA },
-        body: JSON.stringify({
-          context: { client: { clientName: 'ANDROID', clientVersion: YT_ANDROID_VER, androidSdkVersion: YT_ANDROID_SDK, hl: 'en', gl: 'US' } },
-          videoId,
-        }),
-      });
-      const playerJson = titleRes.ok ? await titleRes.json() : {};
-      const title = playerJson.videoDetails?.title || null;
-      const tracks = playerJson.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-
-      if (tracks && tracks.length) {
-        const track = tracks.find(t => t.languageCode === 'en') ||
-                      tracks.find(t => t.languageCode?.startsWith('en')) ||
-                      tracks[0];
-        // Fetch caption with OAuth Bearer token — bypasses bot detection entirely
-        const captionRes = await fetch(track.baseUrl, {
-          headers: {
-            'Authorization': `Bearer ${oauthToken}`,
-            'User-Agent': YT_BROWSER_UA,
-          },
-        });
-        if (captionRes.ok) {
-          const xml = await captionRes.text();
-          if (xml && xml.length > 50) return { xml, title };
-        }
-      }
-    } catch { /* fall through to unauthenticated path */ }
-  }
-
-  // Priority 2: visitorData + Android client (unauthenticated fallback)
-  // Retry once with fresh visitorData if bot-detected
   async function tryAndroidPlayer(forceRefresh) {
     const visitorData = await getYtVisitorData(forceRefresh);
     const res = await fetch(YT_PLAYER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'User-Agent': YT_ANDROID_UA },
       body: JSON.stringify({
-        context: {
-          client: {
-            clientName: 'ANDROID',
-            clientVersion: YT_ANDROID_VER,
-            androidSdkVersion: YT_ANDROID_SDK,
-            hl: 'en',
-            gl: 'US',
-            ...(visitorData ? { visitorData } : {}),
-          }
-        },
+        context: { client: { clientName: 'ANDROID', clientVersion: YT_ANDROID_VER, androidSdkVersion: YT_ANDROID_SDK, hl: 'en', gl: 'US', ...(visitorData ? { visitorData } : {}) } },
         videoId,
       }),
     });
@@ -670,15 +619,13 @@ async function fetchYoutubeTranscript(videoId, locationId) {
   }
 
   let playerJson = await tryAndroidPlayer(false);
-  const playability = playerJson.playabilityStatus?.status;
-  if (playability && playability !== 'OK') {
-    // Bot-detected — force fresh visitorData and retry once
+  const playStatus = playerJson.playabilityStatus?.status;
+  if (playStatus && playStatus !== 'OK') {
+    console.warn(`[fetchTranscript] playability ${playStatus} — retrying with fresh visitorData`);
     _ytVisitorData = null;
     playerJson = await tryAndroidPlayer(true);
-    const status2 = playerJson.playabilityStatus?.status;
-    if (status2 && status2 !== 'OK') {
-      throw new Error(`Video unavailable: ${playerJson.playabilityStatus?.reason || status2}`);
-    }
+    const s2 = playerJson.playabilityStatus?.status;
+    if (s2 && s2 !== 'OK') throw new Error(`Video unavailable: ${playerJson.playabilityStatus?.reason || s2}`);
   }
 
   const title       = playerJson.videoDetails?.title || null;
@@ -687,18 +634,31 @@ async function fetchYoutubeTranscript(videoId, locationId) {
   const publishDate = playerJson.microformat?.playerMicroformatRenderer?.publishDate || null;
 
   const tracks = playerJson.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (!tracks || !tracks.length) throw new Error('No captions available for this video. Try a video with CC enabled.');
+  if (!tracks || !tracks.length) throw new Error('No captions available for this video.');
 
-  const track = tracks.find(t => t.languageCode === 'en') ||
-                tracks.find(t => t.languageCode?.startsWith('en')) ||
-                tracks[0];
+  const track = tracks.find(t => t.languageCode === 'en')
+    || tracks.find(t => t.languageCode?.startsWith('en'))
+    || tracks[0];
 
+  console.log(`[fetchTranscript] fetching caption: lang=${track.languageCode} url=${track.baseUrl?.slice(0, 80)}`);
+
+  // Full browser headers required — bare User-Agent alone gets rejected by YouTube CDN
   const captionRes = await fetch(track.baseUrl, {
-    headers: { 'User-Agent': YT_BROWSER_UA },
+    headers: {
+      'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Referer':         `https://www.youtube.com/watch?v=${videoId}`,
+      'Origin':          'https://www.youtube.com',
+      'Accept':          '*/*',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
   });
+
+  console.log(`[fetchTranscript] caption response: ${captionRes.status}`);
   if (!captionRes.ok) throw new Error(`Caption fetch failed: ${captionRes.status}`);
   const xml = await captionRes.text();
-  if (!xml || xml.length < 50) throw new Error('Empty caption response — captions may be restricted for this video.');
+  console.log(`[fetchTranscript] caption XML length: ${xml.length}`);
+  if (!xml || xml.length < 50) throw new Error('Empty caption response.');
+
   const parsed = parseYoutubeXml(xml, title);
   return { ...parsed, lengthSecs, viewCount, publishDate };
 }
