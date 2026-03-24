@@ -727,41 +727,97 @@ async function getStatus(locationId, brainId) {
  * Get all playlists for a YouTube channel given its URL, @handle, or UC ID.
  */
 async function getChannelPlaylists(channelUrl) {
+  console.log('[getChannelPlaylists] input channelUrl:', channelUrl);
   const { Innertube } = await import('youtubei.js');
 
-  // If it's a video URL, extract the channel UC ID via video info (most reliable path)
+  // ── Step 1: resolve a UC channel ID ─────────────────────────────────────────
+  let channelId = null;
+
   const videoMatch = (channelUrl || '').match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  const ucMatch    = (channelUrl || '').match(/youtube\.com\/channel\/(UC[^/?&]+)/);
+  const atMatch    = (channelUrl || '').match(/youtube\.com\/@([^/?&]+)/);
+  const bareUc     = /^UC[a-zA-Z0-9_-]{20,}$/.test(channelUrl || '') ? channelUrl : null;
+
+  console.log('[getChannelPlaylists] videoMatch:', videoMatch?.[1] || null,
+    '| ucMatch:', ucMatch?.[1] || null,
+    '| atMatch:', atMatch?.[1] || null,
+    '| bareUc:', bareUc);
+
   if (videoMatch) {
-    const yt = await Innertube.create({ retrieve_player: true });
-    const info = await yt.getInfo(videoMatch[1]);
-    const channelId = info.basic_info?.channel_id;
-    if (!channelId) throw new Error('Could not resolve channel from video URL.');
-    const channel = await yt.getChannel(channelId);
+    // Resolve through video info — player endpoint, most reliable
+    const videoId = videoMatch[1];
+    console.log('[getChannelPlaylists] resolving channelId via video', videoId);
+    try {
+      const yt   = await Innertube.create({ retrieve_player: true });
+      const info = await yt.getInfo(videoId);
+      channelId  = info.basic_info?.channel_id || null;
+      console.log('[getChannelPlaylists] resolved channelId from video:', channelId);
+    } catch (e) {
+      console.error('[getChannelPlaylists] yt.getInfo failed:', e.message, e.stack);
+      throw new Error(`Could not fetch video info for ${videoId}: ${e.message}`);
+    }
+  } else if (ucMatch) {
+    channelId = ucMatch[1];
+    console.log('[getChannelPlaylists] using UC ID from URL:', channelId);
+  } else if (bareUc) {
+    channelId = bareUc;
+    console.log('[getChannelPlaylists] using bare UC ID:', channelId);
+  }
+
+  // ── Step 2: if we have a UC ID, use uploads playlist (avoids browse API) ────
+  if (channelId) {
+    const uploadsId = 'UU' + channelId.slice(2);
+    console.log('[getChannelPlaylists] using uploads playlist:', uploadsId, 'for channel:', channelId);
+
+    // Verify the uploads playlist exists before returning
+    try {
+      const yt  = await Innertube.create({ retrieve_player: false });
+      const pl  = await yt.getPlaylist(uploadsId);
+      const cnt = pl?.videos?.length || 0;
+      console.log('[getChannelPlaylists] uploads playlist OK, ~', cnt, 'videos visible on first page');
+    } catch (e) {
+      console.warn('[getChannelPlaylists] uploads playlist probe failed:', e.message, '— returning anyway');
+    }
+
+    return [{ id: uploadsId, title: 'All Videos (uploads)' }];
+  }
+
+  // ── Step 3: @handle fallback — try browse API ────────────────────────────────
+  const handle = atMatch ? ('@' + atMatch[1]) : (channelUrl?.startsWith('@') ? channelUrl : null);
+  if (!handle) {
+    console.error('[getChannelPlaylists] cannot resolve identifier from:', channelUrl);
+    throw new Error(`Cannot resolve channel identifier from: ${channelUrl}`);
+  }
+
+  console.log('[getChannelPlaylists] trying yt.getChannel() with handle:', handle);
+  try {
+    const yt      = await Innertube.create({ retrieve_player: false });
+    const channel = await yt.getChannel(handle);
+    console.log('[getChannelPlaylists] getChannel() succeeded, fetching playlists tab');
     const plTab   = await channel.getPlaylists();
     const plItems = plTab?.playlists || [];
-    return plItems.map(pl => ({
+    console.log('[getChannelPlaylists] found', plItems.length, 'playlists via browse');
+    const mapped  = plItems.map(pl => ({
       id:    pl.content_id,
       title: pl.metadata?.title?.text || pl.metadata?.title?.runs?.[0]?.text || 'Untitled',
     })).filter(pl => pl.id);
+
+    // Also add uploads playlist so we never miss raw uploads
+    const uploadsFromHandle = channel.metadata?.external_id
+      ? 'UU' + channel.metadata.external_id.slice(2)
+      : null;
+    if (uploadsFromHandle && !mapped.find(p => p.id === uploadsFromHandle)) {
+      mapped.unshift({ id: uploadsFromHandle, title: 'All Videos (uploads)' });
+      console.log('[getChannelPlaylists] prepended uploads playlist:', uploadsFromHandle);
+    }
+    return mapped;
+  } catch (e) {
+    console.error('[getChannelPlaylists] yt.getChannel() failed for handle', handle,
+      '| status:', e.status_code || e.statusCode || 'n/a',
+      '| message:', e.message,
+      '| stack:', e.stack);
+    throw e;
   }
-
-  // Channel URL — extract UC ID or @handle
-  const yt = await Innertube.create({ retrieve_player: false });
-  const ucMatch = (channelUrl || '').match(/youtube\.com\/channel\/(UC[^/?&]+)/);
-  const atMatch = (channelUrl || '').match(/youtube\.com\/@([^/?&]+)/);
-  let identifier;
-  if (ucMatch)                          identifier = ucMatch[1];
-  else if (atMatch)                     identifier = '@' + atMatch[1];
-  else if (channelUrl?.startsWith('@')) identifier = channelUrl;
-  else throw new Error(`Cannot resolve channel identifier from: ${channelUrl}`);
-
-  const channel = await yt.getChannel(identifier);
-  const plTab   = await channel.getPlaylists();
-  const plItems = plTab?.playlists || [];
-  return plItems.map(pl => ({
-    id:    pl.content_id,
-    title: pl.metadata?.title?.text || pl.metadata?.title?.runs?.[0]?.text || 'Untitled',
-  })).filter(pl => pl.id);
 }
 
 /**
@@ -788,14 +844,18 @@ async function syncBrainChannels(locationId, brainId) {
     let totalErrors   = 0;
 
     for (const ch of channels) {
-      if (!ch.channelUrl) continue;
+      console.log(tag, `Channel record:`, JSON.stringify({ channelId: ch.channelId, channelName: ch.channelName, channelUrl: ch.channelUrl, type: ch.type, isPrimary: ch.isPrimary }));
+      if (!ch.channelUrl) {
+        console.warn(tag, `  Skipping — no channelUrl`);
+        continue;
+      }
       console.log(tag, `Fetching playlists for ${ch.channelName} (${ch.channelUrl})`);
       let playlists = [];
       try {
         playlists = await getChannelPlaylists(ch.channelUrl);
-        console.log(tag, `  Found ${playlists.length} playlists`);
+        console.log(tag, `  Found ${playlists.length} playlists:`, playlists.map(p => `${p.title} (${p.id})`).join(', '));
       } catch (e) {
-        console.error(tag, `  Failed to get playlists: ${e.message}`);
+        console.error(tag, `  Failed to get playlists: ${e.message}`, e.stack);
         continue;
       }
 
@@ -860,14 +920,14 @@ async function syncSingleChannel(locationId, brainId, channelId) {
     if (!ch.channelUrl) { console.error(tag, 'Channel has no URL'); return; }
 
     await updateBrainMeta(locationId, brainId, { pipelineStage: 'syncing' });
-    console.log(tag, `Syncing channel "${ch.channelName}" (${ch.channelUrl})`);
+    console.log(tag, `Syncing single channel — record:`, JSON.stringify({ channelId: ch.channelId, channelName: ch.channelName, channelUrl: ch.channelUrl, type: ch.type, isPrimary: ch.isPrimary }));
 
     let playlists = [];
     try {
       playlists = await getChannelPlaylists(ch.channelUrl);
-      console.log(tag, `  Found ${playlists.length} playlists`);
+      console.log(tag, `  Found ${playlists.length} playlists:`, playlists.map(p => `${p.title} (${p.id})`).join(', '));
     } catch (e) {
-      console.error(tag, `  Failed to get playlists: ${e.message}`);
+      console.error(tag, `  Failed to get playlists: ${e.message}`, e.stack);
       await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready', pendingCount: 1 }).catch(() => {});
       return;
     }
