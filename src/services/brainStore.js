@@ -376,6 +376,37 @@ async function addDocument(locationId, brainId, { text, sourceLabel, url, isPrim
  * Ingest a YouTube video transcript into a brain.
  * isPrimary = true boosts this doc's chunks 1.5× in search results.
  */
+/**
+ * Extract a JSON object assigned to a JS variable in HTML source.
+ * Uses brace-counting to handle nested objects reliably.
+ */
+function extractEmbeddedJson(html, varName) {
+  // Try both "var X = {" and "X = {" patterns
+  let idx = html.indexOf(`var ${varName} = {`);
+  let offset = `var ${varName} = `.length;
+  if (idx === -1) {
+    idx = html.indexOf(`${varName} = {`);
+    offset = `${varName} = `.length;
+  }
+  if (idx === -1) return null;
+
+  const jsonStart = idx + offset;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = jsonStart; i < html.length; i++) {
+    const ch = html[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) return html.substring(jsonStart, i + 1); }
+  }
+  return null;
+}
+
 const YT_PLAYER_URL      = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
 const YT_RESOLVE_URL     = 'https://www.youtube.com/youtubei/v1/navigation/resolve_url?prettyPrint=false';
 const YT_ANDROID_VER     = '21.03.36';
@@ -759,12 +790,11 @@ async function fetchYoutubeTranscript(videoId, locationId) {
     if (!htmlRes.ok) throw new Error(`Watch page returned ${htmlRes.status}`);
     const html = await htmlRes.text();
 
-    // Extract ytInitialPlayerResponse from the page
-    const prMatch = html.match(/var\s+ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*<\/script>/s)
-                 || html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/s);
-    if (!prMatch) throw new Error('Could not find ytInitialPlayerResponse in HTML');
+    // Extract ytInitialPlayerResponse using brace-counting (regex is too brittle for large JSON)
+    const playerJsonStr = extractEmbeddedJson(html, 'ytInitialPlayerResponse');
+    if (!playerJsonStr) throw new Error('Could not find ytInitialPlayerResponse in HTML');
 
-    const playerJson = JSON.parse(prMatch[1]);
+    const playerJson = JSON.parse(playerJsonStr);
     const playStatus = playerJson.playabilityStatus?.status;
     if (playStatus && playStatus !== 'OK') throw new Error(`HTML scrape: video ${playStatus}`);
 
