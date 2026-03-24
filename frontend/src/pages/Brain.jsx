@@ -521,7 +521,13 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
           </div>
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            <button onClick={reloadBrain} style={btnSecondary}>↻ Sync Now</button>
+            <button onClick={async () => {
+              try {
+                await apiFetch(`/brain/${brain.brainId}/sync`, locationId, { method: 'POST' });
+                showFlash(true, 'Sync started — ingesting all channels in background.');
+                onRefresh();
+              } catch { showFlash(false, 'Failed to start sync.'); }
+            }} style={btnSecondary}>↻ Sync Now</button>
             <button onClick={() => setShowAddChannel(true)} style={btnPrimary}>+ Add Channel</button>
           </div>
         </div>
@@ -758,8 +764,14 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={async () => {
                 setSaving(true);
-                // Note: full brain update endpoint not yet implemented; show a note
-                showFlash(false, 'Brain update not yet available via API.');
+                try {
+                  const r = await apiFetch(`/brain/${brain.brainId}`, locationId, {
+                    method: 'PATCH',
+                    body: { name: editName, description: editDesc, docsUrl: editDocsUrl, changelogUrl: editChangelogUrl },
+                  });
+                  if (r.success) { showFlash(true, 'Brain settings saved.'); onRefresh(); }
+                  else showFlash(false, r.error || 'Save failed.');
+                } catch { showFlash(false, 'Request failed.'); }
                 setSaving(false);
               }} style={{ ...btnPrimary, opacity: saving ? 0.5 : 1 }}>
                 {saving ? 'Saving…' : 'Save changes'}
@@ -847,10 +859,17 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain }) {
                 {/* Name + health badge */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <span style={{ fontSize: 16, fontWeight: 700, color: C.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{b.name}</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: healthy ? C.green : C.amber, flexShrink: 0, marginLeft: 10 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: healthy ? C.green : C.amber, display: 'inline-block' }} />
-                    {healthy ? 'Healthy' : 'Needs Attention'}
-                  </span>
+                  {b.pipelineStage === 'syncing' || b.pipelineStage === 'processing' ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: C.blue, flexShrink: 0, marginLeft: 10 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.blue, display: 'inline-block' }} />
+                      {b.pipelineStage === 'syncing' ? 'Syncing…' : 'Processing…'}
+                    </span>
+                  ) : (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: healthy ? C.green : C.amber, flexShrink: 0, marginLeft: 10 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: healthy ? C.green : C.amber, display: 'inline-block' }} />
+                      {healthy ? 'Healthy' : 'Needs Attention'}
+                    </span>
+                  )}
                 </div>
 
                 {/* Slug */}
@@ -915,10 +934,10 @@ function PipelineView({ brains }) {
   ];
 
   function categorizeBrain(b) {
+    // Use stored pipelineStage if available, fall back to computed
+    if (b.pipelineStage) return b.pipelineStage;
     const hasContent = (b.docCount || 0) > 0;
-    const { pendingCount } = getBrainHealth(b);
     if (!hasContent && (b.channels || []).length === 0) return 'needs_sync';
-    if (pendingCount > 0) return 'processing';
     if (!hasContent) return 'syncing';
     return 'ready';
   }
@@ -1224,20 +1243,29 @@ export default function Brain() {
   const [selectedBrain, setSelectedBrain] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  const loadBrains = useCallback(async () => {
+  const loadBrains = useCallback(async (silent = false) => {
     if (!locationId) return;
-    setLoadingBrains(true);
+    if (!silent) setLoadingBrains(true);
     try {
       const r = await apiFetch('/brain/list', locationId);
       if (r.success) setBrains(r.data || []);
-      else setError(r.error || 'Failed to load brains.');
+      else if (!silent) setError(r.error || 'Failed to load brains.');
     } catch {
-      setError('Failed to connect to server.');
+      if (!silent) setError('Failed to connect to server.');
     }
-    setLoadingBrains(false);
+    if (!silent) setLoadingBrains(false);
   }, [locationId]);
 
   useEffect(() => { loadBrains(); }, [loadBrains]);
+
+  // Poll every 5s while any brain is actively syncing or processing
+  useEffect(() => {
+    const activeStages = ['syncing', 'processing'];
+    const hasActive = brains.some(b => activeStages.includes(b.pipelineStage));
+    if (!hasActive) return;
+    const timer = setInterval(() => loadBrains(true), 5000);
+    return () => clearInterval(timer);
+  }, [brains, loadBrains]);
 
   async function loadBrainDetail(brainId) {
     setLoadingDetail(true);

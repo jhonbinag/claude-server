@@ -185,20 +185,34 @@ async function createBrain(locationId, { name, slug, description, docsUrl, chang
 
   const brain = {
     brainId,
-    name:         name.trim(),
-    slug:         finalSlug,
-    description:  (description || '').trim(),
-    docsUrl:      (docsUrl || '').trim(),
-    changelogUrl: (changelogUrl || '').trim(),
+    name:          name.trim(),
+    slug:          finalSlug,
+    description:   (description || '').trim(),
+    docsUrl:       (docsUrl || '').trim(),
+    changelogUrl:  (changelogUrl || '').trim(),
     channels,
-    createdAt:    now,
-    updatedAt:    now,
+    pipelineStage: channels.length > 0 ? 'needs_sync' : 'ready',
+    pendingCount:  0,
+    createdAt:     now,
+    updatedAt:     now,
   };
 
   const brains = (await rGet(brainsKey(locationId))) || [];
   brains.push(brain);
   await rSet(brainsKey(locationId), brains);
   return brain;
+}
+
+/**
+ * Update brain metadata fields (name, description, docsUrl, changelogUrl, pipelineStage, etc.)
+ */
+async function updateBrainMeta(locationId, brainId, fields) {
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  const idx = brains.findIndex(b => b.brainId === brainId);
+  if (idx === -1) throw new Error(`Brain "${brainId}" not found.`);
+  brains[idx] = { ...brains[idx], ...fields, updatedAt: new Date().toISOString() };
+  await rSet(brainsKey(locationId), brains);
+  return brains[idx];
 }
 
 /**
@@ -698,6 +712,113 @@ async function getStatus(locationId, brainId) {
   };
 }
 
+/**
+ * Get all playlists for a YouTube channel given its URL, @handle, or UC ID.
+ */
+async function getChannelPlaylists(channelUrl) {
+  const { Innertube } = require('youtubei.js');
+  const yt = await Innertube.create({ retrieve_player: false });
+
+  // Resolve the channel identifier
+  let identifier;
+  const ucMatch  = (channelUrl || '').match(/youtube\.com\/channel\/(UC[^/?&]+)/);
+  const atMatch  = (channelUrl || '').match(/youtube\.com\/@([^/?&]+)/);
+  if (ucMatch)                          identifier = ucMatch[1];
+  else if (atMatch)                     identifier = '@' + atMatch[1];
+  else if (channelUrl?.startsWith('@')) identifier = channelUrl;
+  else                                  identifier = channelUrl;
+
+  const channel = await yt.getChannel(identifier);
+  const plTab   = await channel.getPlaylists();
+  const plItems = plTab?.playlists || [];
+
+  return plItems.map(pl => ({
+    id:    pl.content_id,
+    title: pl.metadata?.title?.text || pl.metadata?.title?.runs?.[0]?.text || 'Untitled',
+  })).filter(pl => pl.id);
+}
+
+/**
+ * Background sync: fetch all playlists from every channel in a brain and ingest transcripts.
+ * Updates pipelineStage on the brain as it progresses.
+ */
+async function syncBrainChannels(locationId, brainId) {
+  const tag = `[Brain sync ${brainId.slice(-6)}]`;
+  try {
+    const brains = (await rGet(brainsKey(locationId))) || [];
+    const brain  = brains.find(b => b.brainId === brainId);
+    if (!brain) { console.error(tag, 'Brain not found'); return; }
+
+    const channels = brain.channels || [];
+    if (!channels.length) {
+      await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready' });
+      return;
+    }
+
+    await updateBrainMeta(locationId, brainId, { pipelineStage: 'syncing' });
+    console.log(tag, `Syncing ${channels.length} channel(s)`);
+
+    let totalIngested = 0;
+    let totalErrors   = 0;
+
+    for (const ch of channels) {
+      if (!ch.channelUrl) continue;
+      console.log(tag, `Fetching playlists for ${ch.channelName} (${ch.channelUrl})`);
+      let playlists = [];
+      try {
+        playlists = await getChannelPlaylists(ch.channelUrl);
+        console.log(tag, `  Found ${playlists.length} playlists`);
+      } catch (e) {
+        console.error(tag, `  Failed to get playlists: ${e.message}`);
+        continue;
+      }
+
+      await updateBrainMeta(locationId, brainId, { pipelineStage: 'processing' });
+
+      let channelVideos = 0;
+      for (const pl of playlists) {
+        try {
+          console.log(tag, `  Ingesting playlist "${pl.title}" (${pl.id})`);
+          const result = await addPlaylistToBrain(locationId, brainId, pl.id, {
+            isPrimary: ch.type === 'primary' || ch.isPrimary,
+            channelId: ch.channelId,
+          });
+          totalIngested += result.ingested || 0;
+          totalErrors   += (result.errors || []).length;
+          channelVideos += result.ingested || 0;
+        } catch (e) {
+          console.error(tag, `  Playlist error: ${e.message}`);
+          totalErrors++;
+        }
+        // Small pause between playlists
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      // Update channel stats after sync
+      const updatedBrains = (await rGet(brainsKey(locationId))) || [];
+      const bi = updatedBrains.findIndex(b => b.brainId === brainId);
+      if (bi !== -1) {
+        const ci = updatedBrains[bi].channels?.findIndex(c => c.channelId === ch.channelId);
+        if (ci !== undefined && ci !== -1) {
+          updatedBrains[bi].channels[ci].videoCount  = (updatedBrains[bi].channels[ci].videoCount || 0) + channelVideos;
+          updatedBrains[bi].channels[ci].lastSynced  = new Date().toISOString();
+          updatedBrains[bi].updatedAt = new Date().toISOString();
+          await rSet(brainsKey(locationId), updatedBrains);
+        }
+      }
+    }
+
+    await updateBrainMeta(locationId, brainId, {
+      pipelineStage: 'ready',
+      pendingCount:  totalErrors,
+    });
+    console.log(tag, `Sync complete — ${totalIngested} ingested, ${totalErrors} errors`);
+  } catch (e) {
+    console.error(tag, 'Sync failed:', e.message);
+    await updateBrainMeta(locationId, brainId, { pipelineStage: 'ready', pendingCount: 1 }).catch(() => {});
+  }
+}
+
 function isEnabled() {
   return true;
 }
@@ -709,9 +830,13 @@ module.exports = {
   listBrains,
   getBrain,
   deleteBrain,
+  updateBrainMeta,
   addChannel,
   addChannelToBrain,
   removeChannelFromBrain,
+  // Sync
+  syncBrainChannels,
+  getChannelPlaylists,
   // Document ops
   addDocument,
   addYoutubeVideo,

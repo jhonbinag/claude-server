@@ -39,13 +39,17 @@ router.get('/list', async (req, res) => {
 // ── Create brain ──────────────────────────────────────────────────────────────
 
 router.post('/create', async (req, res) => {
-  const { name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels } = req.body;
+  const { name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels, syncNow } = req.body;
   if (!name) return res.status(400).json({ success: false, error: '"name" is required.' });
   try {
     const result = await brain.createBrain(req.locationId, {
       name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels,
     });
     res.json({ success: true, data: result });
+    // Kick off background sync after response is sent
+    if (syncNow && (primaryChannel?.url || (result.channels || []).length > 0)) {
+      setImmediate(() => brain.syncBrainChannels(req.locationId, result.brainId));
+    }
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -73,6 +77,36 @@ router.delete('/:brainId', async (req, res) => {
   try {
     const result = await brain.deleteBrain(req.locationId, req.params.brainId);
     res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Update brain metadata ─────────────────────────────────────────────────────
+
+router.patch('/:brainId', async (req, res) => {
+  const { name, description, docsUrl, changelogUrl } = req.body;
+  try {
+    const result = await brain.updateBrainMeta(req.locationId, req.params.brainId, {
+      ...(name        !== undefined && { name:        name.trim() }),
+      ...(description !== undefined && { description: description.trim() }),
+      ...(docsUrl     !== undefined && { docsUrl:     docsUrl.trim() }),
+      ...(changelogUrl !== undefined && { changelogUrl: changelogUrl.trim() }),
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Trigger sync ──────────────────────────────────────────────────────────────
+
+router.post('/:brainId/sync', async (req, res) => {
+  try {
+    // Set stage to needs_sync immediately, then kick off background sync
+    await brain.updateBrainMeta(req.locationId, req.params.brainId, { pipelineStage: 'syncing' });
+    res.json({ success: true, message: 'Sync started.' });
+    setImmediate(() => brain.syncBrainChannels(req.locationId, req.params.brainId));
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
