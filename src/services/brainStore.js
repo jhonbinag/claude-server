@@ -258,18 +258,99 @@ const YT_ANDROID_VER = '20.10.38';
 const YT_ANDROID_UA  = `com.google.android.youtube/${YT_ANDROID_VER} (Linux; U; Android 14)`;
 const YT_BROWSER_UA  = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
 
-// Cache visitorData for ~30 min to avoid repeated Innertube init
+// Cache visitorData for ~5 min — short enough to avoid stale bot-detect failures
 let _ytVisitorData = null;
 let _ytVisitorDataExpiry = 0;
-async function getYtVisitorData() {
-  if (_ytVisitorData && Date.now() < _ytVisitorDataExpiry) return _ytVisitorData;
+async function getYtVisitorData(force = false) {
+  if (!force && _ytVisitorData && Date.now() < _ytVisitorDataExpiry) return _ytVisitorData;
   try {
     const { Innertube } = require('youtubei.js');
     const yt = await Innertube.create({ retrieve_player: false });
     _ytVisitorData = yt.session.context.client.visitorData || null;
-    _ytVisitorDataExpiry = Date.now() + 30 * 60 * 1000;
+    _ytVisitorDataExpiry = Date.now() + 5 * 60 * 1000;
   } catch { _ytVisitorData = null; }
   return _ytVisitorData;
+}
+
+// ── Channel + Playlist discovery ─────────────────────────────────────────────
+
+/**
+ * Given a YouTube video URL, return the channel info and its playlists.
+ */
+async function getChannelFromVideo(videoUrl) {
+  const m = videoUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+  const videoId = m ? m[1] : videoUrl.length === 11 ? videoUrl : null;
+  if (!videoId) throw new Error('Invalid YouTube URL.');
+
+  const { Innertube } = require('youtubei.js');
+  const yt = await Innertube.create({ retrieve_player: true });
+  const info = await yt.getInfo(videoId);
+
+  const channelId   = info.basic_info?.channel_id;
+  const channelName = info.basic_info?.author;
+  const videoTitle  = info.basic_info?.title;
+  const thumbnail   = info.basic_info?.thumbnail?.[0]?.url || null;
+
+  if (!channelId) throw new Error('Could not detect channel from this video.');
+
+  // Fetch channel playlists
+  const channel   = await yt.getChannel(channelId);
+  const plTab     = await channel.getPlaylists();
+  const plItems   = plTab?.playlists || [];
+
+  const playlists = plItems.map(pl => ({
+    id:        pl.content_id,
+    title:     pl.metadata?.title?.text || pl.metadata?.title?.runs?.[0]?.text || 'Untitled Playlist',
+    thumbnail: pl.content_image?.primary_thumbnail?.image?.[0]?.url || null,
+    videoCount: (() => {
+      const badge = pl.content_image?.overlays?.[0]?.badges?.[0]?.text || '';
+      const n = parseInt(badge);
+      return isNaN(n) ? null : n;
+    })(),
+  })).filter(pl => pl.id);
+
+  return { channelId, channelName, videoTitle, thumbnail, playlists };
+}
+
+/**
+ * Ingest all videos from a YouTube playlist into a brain.
+ * Returns { ingested, skipped, errors } counts.
+ */
+async function addPlaylistToBrain(locationId, brainId, playlistId, { isPrimary = false, onProgress } = {}) {
+  const { Innertube } = require('youtubei.js');
+  const yt = await Innertube.create({ retrieve_player: false });
+
+  const playlist = await yt.getPlaylist(playlistId);
+  let videos = playlist.videos || [];
+
+  // Fetch all pages
+  let cont = playlist;
+  while (cont.has_continuation) {
+    try {
+      cont = await cont.getContinuation();
+      videos = videos.concat(cont.videos || []);
+    } catch { break; }
+  }
+
+  const results = { ingested: 0, skipped: 0, errors: [] };
+
+  for (const video of videos) {
+    const videoId = video.id;
+    if (!videoId) { results.skipped++; continue; }
+    const title = video.title?.toString() || `Video ${videoId}`;
+    try {
+      if (onProgress) onProgress({ videoId, title, status: 'ingesting' });
+      await addYoutubeVideo(locationId, brainId, videoId, title, isPrimary);
+      results.ingested++;
+    } catch (e) {
+      results.errors.push({ videoId, title, error: e.message });
+      results.skipped++;
+    }
+    // Small delay to avoid hammering YouTube
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  return results;
 }
 
 async function getYoutubeOAuthToken(locationId) {
@@ -351,29 +432,37 @@ async function fetchYoutubeTranscript(videoId, locationId) {
   }
 
   // Priority 2: visitorData + Android client (unauthenticated fallback)
-  const visitorData = await getYtVisitorData();
-  const playerRes = await fetch(YT_PLAYER_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'User-Agent': YT_ANDROID_UA },
-    body: JSON.stringify({
-      context: {
-        client: {
-          clientName: 'ANDROID',
-          clientVersion: YT_ANDROID_VER,
-          ...(visitorData ? { visitorData } : {}),
-        }
-      },
-      videoId,
-    }),
-  });
+  // Retry once with fresh visitorData if bot-detected
+  async function tryAndroidPlayer(forceRefresh) {
+    const visitorData = await getYtVisitorData(forceRefresh);
+    const res = await fetch(YT_PLAYER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': YT_ANDROID_UA },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'ANDROID',
+            clientVersion: YT_ANDROID_VER,
+            ...(visitorData ? { visitorData } : {}),
+          }
+        },
+        videoId,
+      }),
+    });
+    if (!res.ok) throw new Error(`YouTube player API returned ${res.status}`);
+    return res.json();
+  }
 
-  if (!playerRes.ok) throw new Error(`YouTube player API returned ${playerRes.status}`);
-  const playerJson = await playerRes.json();
-
+  let playerJson = await tryAndroidPlayer(false);
   const playability = playerJson.playabilityStatus?.status;
   if (playability && playability !== 'OK') {
+    // Bot-detected — force fresh visitorData and retry once
     _ytVisitorData = null;
-    throw new Error(`Video unavailable: ${playerJson.playabilityStatus?.reason || playability}`);
+    playerJson = await tryAndroidPlayer(true);
+    const status2 = playerJson.playabilityStatus?.status;
+    if (status2 && status2 !== 'OK') {
+      throw new Error(`Video unavailable: ${playerJson.playabilityStatus?.reason || status2}`);
+    }
   }
 
   const title = playerJson.videoDetails?.title || null;
@@ -523,6 +612,8 @@ module.exports = {
   // Document ops
   addDocument,
   addYoutubeVideo,
+  addPlaylistToBrain,
+  getChannelFromVideo,
   queryKnowledge,
   listDocuments,
   deleteDocument,

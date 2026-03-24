@@ -5,9 +5,11 @@
  *
  * GET    /brain/list                      — list all brains
  * POST   /brain/create                    — create brain
+ * GET    /brain/channel-info?videoUrl=    — get channel + playlists from video URL
  * DELETE /brain/:brainId                  — delete brain
  * GET    /brain/:brainId                  — get brain with docs
  * POST   /brain/:brainId/youtube          — add YouTube video
+ * POST   /brain/:brainId/playlist         — ingest all videos from a playlist
  * POST   /brain/:brainId/docs             — add text document
  * DELETE /brain/:brainId/docs/:docId      — delete document
  * POST   /brain/:brainId/query            — keyword search
@@ -45,8 +47,21 @@ router.post('/create', async (req, res) => {
   }
 });
 
+// ── Channel info + playlists (must be before /:brainId) ──────────────────────
+
+router.get('/channel-info', async (req, res) => {
+  const { videoUrl } = req.query;
+  if (!videoUrl) return res.status(400).json({ success: false, error: '"videoUrl" query param required.' });
+  try {
+    const result = await brain.getChannelFromVideo(videoUrl);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Routes that need brainId ───────────────────────────────────────────────────
-// NOTE: specific sub-paths (/list, /create) must come before /:brainId
+// NOTE: specific sub-paths (/list, /create, /channel-info) must come before /:brainId
 
 // ── Delete brain ──────────────────────────────────────────────────────────────
 
@@ -97,6 +112,25 @@ router.post('/:brainId/youtube', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (err) {
     console.error('[Brain] YouTube ingest error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Ingest entire playlist ────────────────────────────────────────────────────
+
+router.post('/:brainId/playlist', async (req, res) => {
+  const { playlistId, isPrimary } = req.body;
+  if (!playlistId) return res.status(400).json({ success: false, error: '"playlistId" is required.' });
+  try {
+    const result = await brain.addPlaylistToBrain(
+      req.locationId,
+      req.params.brainId,
+      playlistId,
+      { isPrimary: !!isPrimary },
+    );
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[Brain] Playlist ingest error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

@@ -167,6 +167,14 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
   const [ytPrimary,    setYtPrimary]    = useState(false);
   const [ingesting,    setIngesting]    = useState(false);
 
+  // Channel / playlist discovery
+  const [channelInfo,     setChannelInfo]     = useState(null);  // { channelId, channelName, playlists }
+  const [channelLoading,  setChannelLoading]  = useState(false);
+  const [selectedPlaylists, setSelectedPlaylists] = useState({});  // playlistId → bool
+  const [playlistPrimary,   setPlaylistPrimary]   = useState(false);
+  const [ingestingPlaylist, setIngestingPlaylist] = useState(false);
+  const [playlistProgress,  setPlaylistProgress]  = useState(null);
+
   // Text doc add
   const [docText,      setDocText]      = useState('');
   const [docLabel,     setDocLabel]     = useState('');
@@ -207,6 +215,8 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
     if (!ytUrl.trim()) return;
     setIngesting(true);
     setFlash(null);
+    setChannelInfo(null);
+    setSelectedPlaylists({});
     try {
       const data = await apiFetch(`/brain/${brain.brainId}/youtube`, locationId, {
         method: 'POST',
@@ -214,16 +224,54 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
       });
       if (data.success) {
         showFlash(true, `"${data.title}" ingested — ${data.chunks} chunks stored.`);
-        setYtUrl('');
         setYtTitle('');
         setYtPrimary(false);
         await reloadDocs();
         onRefresh();
+        // Auto-discover channel playlists after successful ingest
+        discoverChannel(ytUrl.trim());
       } else {
         showFlash(false, data.error || 'Failed to ingest video.');
+        setYtUrl('');
       }
-    } catch { showFlash(false, 'Request failed.'); }
+    } catch { showFlash(false, 'Request failed.'); setYtUrl(''); }
     setIngesting(false);
+  }
+
+  async function discoverChannel(url) {
+    setChannelLoading(true);
+    try {
+      const data = await apiFetch(`/brain/channel-info?videoUrl=${encodeURIComponent(url)}`, locationId);
+      if (data.success && data.data.playlists.length) {
+        setChannelInfo(data.data);
+      }
+    } catch {}
+    setChannelLoading(false);
+  }
+
+  async function ingestPlaylists() {
+    const ids = Object.entries(selectedPlaylists).filter(([, v]) => v).map(([k]) => k);
+    if (!ids.length) return;
+    setIngestingPlaylist(true);
+    setPlaylistProgress({ done: 0, total: ids.length, current: '' });
+    for (let i = 0; i < ids.length; i++) {
+      const pl = channelInfo.playlists.find(p => p.id === ids[i]);
+      setPlaylistProgress({ done: i, total: ids.length, current: pl?.title || ids[i] });
+      try {
+        await apiFetch(`/brain/${brain.brainId}/playlist`, locationId, {
+          method: 'POST',
+          body:   { playlistId: ids[i], isPrimary: playlistPrimary },
+        });
+      } catch {}
+    }
+    setPlaylistProgress({ done: ids.length, total: ids.length, current: '' });
+    await reloadDocs();
+    onRefresh();
+    showFlash(true, `Ingested ${ids.length} playlist(s) successfully.`);
+    setIngestingPlaylist(false);
+    setSelectedPlaylists({});
+    setChannelInfo(null);
+    setYtUrl('');
   }
 
   async function addTextDoc() {
@@ -456,6 +504,75 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
               {ingesting ? '⏳ Extracting transcript…' : 'Add to Brain'}
             </button>
           </div>
+
+          {/* Channel / Playlist picker — shown after successful video ingest */}
+          {(channelLoading || channelInfo) && (
+            <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: 20 }}>
+              {channelLoading && (
+                <p style={{ margin: 0, color: '#6b7280', fontSize: 13 }}>⏳ Discovering channel playlists…</p>
+              )}
+              {channelInfo && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                    <span style={{ fontSize: 22 }}>📺</span>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#e5e7eb' }}>{channelInfo.channelName}</div>
+                      <div style={{ fontSize: 12, color: '#4b5563' }}>{channelInfo.playlists.length} playlists found</div>
+                    </div>
+                    <button onClick={() => { setChannelInfo(null); setYtUrl(''); }} style={{ ...btnSecondary, marginLeft: 'auto', fontSize: 11, padding: '4px 10px' }}>✕</button>
+                  </div>
+
+                  <p style={{ margin: '0 0 12px', fontSize: 12, color: '#6b7280' }}>Select playlists to bulk-ingest into this brain:</p>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto', marginBottom: 14 }}>
+                    {channelInfo.playlists.map(pl => (
+                      <label key={pl.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: selectedPlaylists[pl.id] ? '#1e1050' : '#111', border: `1px solid ${selectedPlaylists[pl.id] ? '#7c3aed55' : '#222'}`, borderRadius: 8, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={!!selectedPlaylists[pl.id]}
+                          onChange={e => setSelectedPlaylists(prev => ({ ...prev, [pl.id]: e.target.checked }))}
+                          style={{ width: 15, height: 15, accentColor: '#7c3aed', flexShrink: 0 }}
+                        />
+                        {pl.thumbnail && <img src={pl.thumbnail} alt="" style={{ width: 48, height: 27, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, color: '#e5e7eb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pl.title}</div>
+                          {pl.videoCount && <div style={{ fontSize: 11, color: '#4b5563' }}>{pl.videoCount} videos</div>}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#9ca3af', marginBottom: 12, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={playlistPrimary} onChange={e => setPlaylistPrimary(e.target.checked)} style={{ width: 14, height: 14, accentColor: '#7c3aed' }} />
+                    Mark playlist videos as primary source
+                  </label>
+
+                  {ingestingPlaylist && playlistProgress && (
+                    <div style={{ marginBottom: 12, padding: '8px 12px', background: '#0d0d0d', borderRadius: 8, fontSize: 12, color: '#9ca3af' }}>
+                      ⏳ Ingesting playlist {playlistProgress.done}/{playlistProgress.total}
+                      {playlistProgress.current && ` — "${playlistProgress.current}"`}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => setSelectedPlaylists(Object.fromEntries(channelInfo.playlists.map(p => [p.id, true])))}
+                      style={{ ...btnSecondary, flex: 1, fontSize: 12 }}
+                    >
+                      Select All
+                    </button>
+                    <button
+                      onClick={ingestPlaylists}
+                      disabled={ingestingPlaylist || !Object.values(selectedPlaylists).some(Boolean)}
+                      style={{ ...btnPrimary, flex: 2, opacity: (ingestingPlaylist || !Object.values(selectedPlaylists).some(Boolean)) ? 0.5 : 1, cursor: 'pointer' }}
+                    >
+                      {ingestingPlaylist ? '⏳ Ingesting…' : `Ingest ${Object.values(selectedPlaylists).filter(Boolean).length} Playlist(s)`}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Text doc */}
           <div style={{ background: '#1a1a1a', border: '1px solid #222', borderRadius: 12, padding: 20 }}>
