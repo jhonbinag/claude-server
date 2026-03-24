@@ -19,6 +19,69 @@ const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_
 
 const isRedisEnabled = !!(REDIS_URL && REDIS_TOKEN);
 
+// ── Upstash Vector ────────────────────────────────────────────────────────────
+
+const VECTOR_URL   = process.env.UPSTASH_VECTOR_REST_URL;
+const VECTOR_TOKEN = process.env.UPSTASH_VECTOR_REST_TOKEN;
+const isVectorEnabled = !!(VECTOR_URL && VECTOR_TOKEN);
+
+async function vReq(path, body, ns) {
+  const qs  = ns ? `?ns=${encodeURIComponent(ns)}` : '';
+  const res = await fetch(`${VECTOR_URL}${path}${qs}`, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${VECTOR_TOKEN}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(`Vector ${path}: ${data.error}`);
+  return data.result;
+}
+
+function vNs(locationId, brainId) {
+  return `${locationId}__${brainId}`;
+}
+
+async function vUpsertChunks(locationId, brainId, docId, chunks, meta) {
+  if (!isVectorEnabled) return;
+  const records = chunks.map((text, i) => ({
+    id:       `${docId}__${i}`,
+    data:     text,
+    metadata: { docId, chunkIndex: i, text, ...meta },
+  }));
+  for (let i = 0; i < records.length; i += 100) {
+    await vReq('/upsert-data', records.slice(i, i + 100), vNs(locationId, brainId));
+  }
+}
+
+async function vDeleteDoc(locationId, brainId, docId, chunkCount) {
+  if (!isVectorEnabled || !chunkCount) return;
+  const ids = Array.from({ length: chunkCount }, (_, i) => `${docId}__${i}`);
+  await vReq('/delete', { ids }, vNs(locationId, brainId));
+}
+
+async function vResetBrain(locationId, brainId) {
+  if (!isVectorEnabled) return;
+  await vReq('/reset', {}, vNs(locationId, brainId)).catch(() => {});
+}
+
+async function vQueryChunks(locationId, brainId, queryText, topK) {
+  if (!isVectorEnabled) return null;
+  try {
+    const results = await vReq('/query-data', { data: queryText, topK, includeMetadata: true }, vNs(locationId, brainId));
+    return (results || []).map(r => ({
+      text:        r.metadata?.text || '',
+      score:       r.score || 0,
+      sourceLabel: r.metadata?.sourceLabel || '',
+      url:         r.metadata?.url || '',
+      docId:       r.metadata?.docId || '',
+      isPrimary:   !!r.metadata?.isPrimary,
+    }));
+  } catch (e) {
+    process.stdout.write(`[vQuery] error: ${e.message} — falling back to keyword\n`);
+    return null;
+  }
+}
+
 // ── In-memory fallback ────────────────────────────────────────────────────────
 
 const _mem = {};
@@ -275,6 +338,7 @@ async function deleteBrain(locationId, brainId) {
   const docs = (await rGet(docsKey(locationId, brainId))) || [];
   await Promise.all(docs.map(d => rDel(chunksKey(locationId, brainId, d.docId))));
   await rDel(docsKey(locationId, brainId));
+  vResetBrain(locationId, brainId).catch(() => {});
 
   // Remove from brains list
   const brains = (await rGet(brainsKey(locationId))) || [];
@@ -356,6 +420,11 @@ async function addDocument(locationId, brainId, { text, sourceLabel, url, isPrim
   const now   = new Date().toISOString();
 
   await rSet(chunksKey(locationId, brainId, docId), chunks.map((t, i) => ({ text: t, index: i })));
+  vUpsertChunks(locationId, brainId, docId, chunks, {
+    sourceLabel: sourceLabel || url || 'manual',
+    url:         url || '',
+    isPrimary:   !!isPrimary,
+  }).catch(e => process.stdout.write(`[vUpsert] warn: ${e.message}\n`));
 
   const docs = (await rGet(docsKey(locationId, brainId))) || [];
   docs.push({
@@ -939,13 +1008,27 @@ async function addYoutubeVideo(locationId, brainId, videoUrl, titleHint, isPrima
 }
 
 /**
- * Keyword search across all chunks in a brain.
- * Primary-channel docs get a 1.5× score boost.
+ * Semantic vector search (Upstash Vector) with keyword/TF-IDF fallback.
+ * Primary-channel docs get a 1.5× boost in keyword mode.
  */
 async function queryKnowledge(locationId, brainId, queryText, k = 5) {
   const tag = `[queryKnowledge loc=${locationId?.slice(0,8)} brain=${brainId?.slice(-6)}]`;
-  process.stdout.write(`${tag} query="${queryText}" k=${k}\n`);
+  process.stdout.write(`${tag} query="${queryText}" k=${k} vector=${isVectorEnabled}\n`);
 
+  // ── Vector search (semantic) ────────────────────────────────────────────────
+  if (isVectorEnabled) {
+    const results = await vQueryChunks(locationId, brainId, queryText, k);
+    if (results !== null) {
+      process.stdout.write(`${tag} ✓ vector returned ${results.length} results\n`);
+      results.forEach((r, i) =>
+        process.stdout.write(`${tag}   [${i + 1}] score=${r.score.toFixed(3)} source="${r.sourceLabel}"\n`)
+      );
+      return results;
+    }
+  }
+
+  // ── Keyword fallback ────────────────────────────────────────────────────────
+  process.stdout.write(`${tag} using keyword fallback\n`);
   const docs = (await rGet(docsKey(locationId, brainId))) || [];
   process.stdout.write(`${tag} docs=${docs.length}\n`);
   if (!docs.length) {
@@ -954,40 +1037,23 @@ async function queryKnowledge(locationId, brainId, queryText, k = 5) {
   }
 
   const queryTerms = queryText.toLowerCase().split(/\s+/).filter(t => t.length > 2);
-  process.stdout.write(`${tag} terms=[${queryTerms.join(', ')}]\n`);
-
   const scored = [];
   let totalChunks = 0;
   for (const doc of docs) {
     const chunks = (await rGet(chunksKey(locationId, brainId, doc.docId))) || [];
     totalChunks += chunks.length;
-    const boost  = doc.isPrimary ? 1.5 : 1.0;
+    const boost = doc.isPrimary ? 1.5 : 1.0;
     for (const chunk of chunks) {
-      const raw   = scoreChunk(chunk.text, queryTerms);
-      const score = raw * boost;
-      if (score > 0) {
-        scored.push({
-          text:        chunk.text,
-          score,
-          sourceLabel: doc.sourceLabel,
-          url:         doc.url,
-          docId:       doc.docId,
-          isPrimary:   !!doc.isPrimary,
-        });
-      }
+      const score = scoreChunk(chunk.text, queryTerms) * boost;
+      if (score > 0) scored.push({ text: chunk.text, score, sourceLabel: doc.sourceLabel, url: doc.url, docId: doc.docId, isPrimary: !!doc.isPrimary });
     }
   }
 
   const results = scored.sort((a, b) => b.score - a.score).slice(0, k);
-  process.stdout.write(`${tag} scanned=${totalChunks} chunks | matched=${scored.length} | returning top ${results.length}\n`);
-  if (results.length > 0) {
-    results.forEach((r, i) =>
-      process.stdout.write(`${tag}   [${i + 1}] score=${r.score.toFixed(3)} source="${r.sourceLabel}"\n`)
-    );
-  } else {
-    process.stdout.write(`${tag} ✗ no chunks matched query terms\n`);
-  }
-
+  process.stdout.write(`${tag} scanned=${totalChunks} matched=${scored.length} returning=${results.length}\n`);
+  results.forEach((r, i) =>
+    process.stdout.write(`${tag}   [${i + 1}] score=${r.score.toFixed(3)} source="${r.sourceLabel}"\n`)
+  );
   return results;
 }
 
@@ -1002,9 +1068,11 @@ async function listDocuments(locationId, brainId) {
  * Delete a document and its chunks from a brain.
  */
 async function deleteDocument(locationId, brainId, docId) {
-  await rDel(chunksKey(locationId, brainId, docId));
   const docs = (await rGet(docsKey(locationId, brainId))) || [];
+  const doc  = docs.find(d => d.docId === docId);
+  await rDel(chunksKey(locationId, brainId, docId));
   await rSet(docsKey(locationId, brainId), docs.filter(d => d.docId !== docId));
+  if (doc) vDeleteDoc(locationId, brainId, docId, doc.chunkCount || 0).catch(() => {});
   return { deleted: docId };
 }
 
