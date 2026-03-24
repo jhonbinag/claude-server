@@ -363,7 +363,12 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   const [generatingIds,     setGeneratingIds]     = useState(new Set());
   const [batchProcessing,  setBatchProcessing]  = useState(false);
   const [batchProgress,    setBatchProgress]    = useState(null);
+  const [batchCooldown,    setBatchCooldown]    = useState(0);
   const batchActiveRef = useRef(false);
+
+  // Pagination
+  const [videoPage,        setVideoPage]        = useState(1);
+  const [videoPageSize,    setVideoPageSize]    = useState(10);
 
   // YouTube add (in Add Content section within Videos tab)
   const [ytUrl,             setYtUrl]             = useState('');
@@ -444,6 +449,8 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     let totalDone = 0, totalErrors = 0, batchCount = 0;
     setBatchProgress({ done: 0, remaining: 0, total: 0, errors: 0 });
 
+    const COOLDOWN_MS = 120_000; // 2 minutes between batches
+
     while (batchActiveRef.current) {
       try {
         const r = await apiFetch(`/brain/${brain.brainId}/sync-batch`, locationId, {
@@ -459,17 +466,27 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
           total: totalDone + totalErrors + (r.remaining || 0),
           errors: totalErrors,
         });
+        await reloadVideos();
         if (r.done) {
           showFlash(true, `Processing complete — ${totalDone} video${totalDone !== 1 ? 's' : ''} indexed${totalErrors > 0 ? `, ${totalErrors} error${totalErrors !== 1 ? 's' : ''}` : ''}.`);
           break;
         }
-        if (batchCount % 3 === 0) await reloadVideos();
+        // 2-minute cooldown between batches to avoid YouTube rate limiting
+        if (batchActiveRef.current) {
+          const endTime = Date.now() + COOLDOWN_MS;
+          while (Date.now() < endTime && batchActiveRef.current) {
+            setBatchCooldown(Math.ceil((endTime - Date.now()) / 1000));
+            await new Promise(res => setTimeout(res, 1000));
+          }
+          setBatchCooldown(0);
+        }
       } catch (e) { showFlash(false, `Processing error: ${e.message}`); break; }
     }
 
     batchActiveRef.current = false;
     setBatchProcessing(false);
     setBatchProgress(null);
+    setBatchCooldown(0);
     onRefresh();
     await reloadBrain();
     await reloadVideos();
@@ -857,7 +874,11 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
             <div style={{ marginBottom: 16, background: '#0d1a2e', border: `1px solid ${C.blue}44`, borderRadius: 10, padding: '12px 16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd' }}>
-                  Processing transcripts\u2026 {batchProgress.done} indexed{batchProgress.errors > 0 ? `, ${batchProgress.errors} errors` : ''} \u2014 {batchProgress.remaining} remaining
+                  {batchCooldown > 0
+                    ? `Next batch in ${Math.floor(batchCooldown / 60)}:${String(batchCooldown % 60).padStart(2, '0')}` 
+                    : `Processing transcripts\u2026`
+                  }
+                  {' '}{batchProgress.done} indexed{batchProgress.errors > 0 ? `, ${batchProgress.errors} errors` : ''} \u2014 {batchProgress.remaining} remaining
                 </span>
                 <span style={{ fontSize: 12, color: C.textMuted }}>
                   {batchProgress.total > 0 ? Math.round(((batchProgress.done + batchProgress.errors) / batchProgress.total) * 100) : 0}%
@@ -891,10 +912,27 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
             <div style={{ padding: '40px 24px', textAlign: 'center', color: C.textMuted, fontSize: 13 }}>Loading videos…</div>
           )}
 
-          {/* Videos list */}
+          {/* Videos list with pagination */}
           {!loadingVideos && videos.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {videos.map(video => {
+              {/* Page size selector */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <div style={{ fontSize: 12, color: C.textMuted }}>
+                  Showing {Math.min((videoPage - 1) * videoPageSize + 1, videos.length)}\u2013{Math.min(videoPage * videoPageSize, videos.length)} of {videos.length}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: C.textMuted }}>Per page:</span>
+                  {[5, 10, 25, 50].map(n => (
+                    <button key={n} onClick={() => { setVideoPageSize(n); setVideoPage(1); }} style={{
+                      background: videoPageSize === n ? C.blue : 'transparent',
+                      color: videoPageSize === n ? '#fff' : C.textMuted,
+                      border: `1px solid ${videoPageSize === n ? C.blue : C.border}`,
+                      borderRadius: 5, padding: '2px 8px', fontSize: 11, cursor: 'pointer', fontWeight: videoPageSize === n ? 700 : 400,
+                    }}>{n}</button>
+                  ))}
+                </div>
+              </div>
+              {videos.slice((videoPage - 1) * videoPageSize, videoPage * videoPageSize).map(video => {
                 const isGenerating = generatingIds.has(video.videoId);
                 const status = isGenerating ? 'processing' : (video.transcriptStatus || 'pending');
                 const statusConfig = {
@@ -989,6 +1027,17 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                   </div>
                 );
               })}
+
+              {/* Pagination controls */}
+              {videos.length > videoPageSize && (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 8, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                  <button onClick={() => setVideoPage(1)} disabled={videoPage === 1} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, color: videoPage === 1 ? C.border : C.textSec, padding: '4px 8px', fontSize: 12, cursor: videoPage === 1 ? 'default' : 'pointer' }}>«</button>
+                  <button onClick={() => setVideoPage(p => Math.max(1, p - 1))} disabled={videoPage === 1} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, color: videoPage === 1 ? C.border : C.textSec, padding: '4px 10px', fontSize: 12, cursor: videoPage === 1 ? 'default' : 'pointer' }}>‹</button>
+                  <span style={{ fontSize: 12, color: C.textPri, fontWeight: 600, padding: '0 8px' }}>Page {videoPage} of {Math.ceil(videos.length / videoPageSize)}</span>
+                  <button onClick={() => setVideoPage(p => Math.min(Math.ceil(videos.length / videoPageSize), p + 1))} disabled={videoPage >= Math.ceil(videos.length / videoPageSize)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, color: videoPage >= Math.ceil(videos.length / videoPageSize) ? C.border : C.textSec, padding: '4px 10px', fontSize: 12, cursor: videoPage >= Math.ceil(videos.length / videoPageSize) ? 'default' : 'pointer' }}>›</button>
+                  <button onClick={() => setVideoPage(Math.ceil(videos.length / videoPageSize))} disabled={videoPage >= Math.ceil(videos.length / videoPageSize)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, color: videoPage >= Math.ceil(videos.length / videoPageSize) ? C.border : C.textSec, padding: '4px 8px', fontSize: 12, cursor: videoPage >= Math.ceil(videos.length / videoPageSize) ? 'default' : 'pointer' }}>»</button>
+                </div>
+              )}
             </div>
           )}
 
