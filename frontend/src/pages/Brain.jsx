@@ -1654,16 +1654,23 @@ function McpView({ brains }) {
 export default function Brain() {
   const { locationId } = useApp();
 
-  const [activeTab,     setActiveTab]     = useState('dashboard');
+  // Read initial state from URL hash (e.g. #brain/abc123)
+  const initHash = () => {
+    const m = window.location.hash.match(/^#brain\/(.+)/);
+    return m ? { tab: 'detail', id: m[1] } : { tab: 'dashboard', id: null };
+  };
+  const init = initHash();
+
+  const [activeTab,     setActiveTab]     = useState(init.tab);
   const [brains,        setBrains]        = useState([]);
   const [loadingBrains, setLoadingBrains] = useState(true);
   const [showCreate,    setShowCreate]    = useState(false);
   const [error,         setError]         = useState('');
 
   // Brain detail state
-  const [selectedId,    setSelectedId]    = useState(null);
+  const [selectedId,    setSelectedId]    = useState(init.id);
   const [selectedBrain, setSelectedBrain] = useState(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(!!init.id);
 
   const loadBrains = useCallback(async (silent = false) => {
     if (!locationId) return;
@@ -1679,6 +1686,11 @@ export default function Brain() {
   }, [locationId]);
 
   useEffect(() => { loadBrains(); }, [loadBrains]);
+
+  // Auto-load brain detail if URL hash had a brain ID on mount
+  useEffect(() => {
+    if (init.id && locationId) loadBrainDetail(init.id);
+  }, [locationId]);
 
   // Poll every 5s while any brain is actively syncing or processing
   useEffect(() => {
@@ -1703,6 +1715,7 @@ export default function Brain() {
   function handleSelectBrain(brainId) {
     loadBrainDetail(brainId);
     setActiveTab('detail');
+    window.location.hash = `brain/${brainId}`;
   }
 
   async function handleCreate(opts) {
@@ -1719,6 +1732,7 @@ export default function Brain() {
       setSelectedId(null);
       setSelectedBrain(null);
       setActiveTab('dashboard');
+      window.location.hash = '';
       await loadBrains();
     }
   }
@@ -1727,6 +1741,7 @@ export default function Brain() {
     setSelectedId(null);
     setSelectedBrain(null);
     setActiveTab('dashboard');
+    window.location.hash = '';
   }
 
   const navTabs = [...NAV_TABS];
