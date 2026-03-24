@@ -1449,82 +1449,183 @@ function PipelineView({ brains }) {
 function SearchView({ brains, locationId }) {
   const [selectedBrainId, setSelectedBrainId] = useState(brains[0]?.brainId || '');
   const [query,           setQuery]           = useState('');
-  const [querying,        setQuerying]        = useState(false);
-  const [results,         setResults]         = useState(null);
+  const [asking,          setAsking]          = useState(false);
+  const [answer,          setAnswer]          = useState('');
+  const [sources,         setSources]         = useState(null);
+  const [showSources,     setShowSources]     = useState(false);
+  const [noContext,       setNoContext]        = useState(false);
+  const [error,           setError]           = useState('');
+  const answerRef = useRef(null);
 
   useEffect(() => {
     if (!selectedBrainId && brains.length > 0) setSelectedBrainId(brains[0].brainId);
   }, [brains]);
 
-  async function runSearch() {
-    if (!query.trim() || !selectedBrainId) return;
-    setQuerying(true);
-    setResults(null);
+  async function runAsk() {
+    if (!query.trim() || !selectedBrainId || asking) return;
+    setAsking(true);
+    setAnswer('');
+    setSources(null);
+    setNoContext(false);
+    setError('');
+    setShowSources(false);
+
     try {
-      const data = await apiFetch(`/brain/${selectedBrainId}/query`, locationId, {
-        method: 'POST',
-        body:   { query: query.trim(), k: 8 },
+      const res = await fetch(`/brain/${selectedBrainId}/ask`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId || '' },
+        body:    JSON.stringify({ query: query.trim(), k: 10 }),
       });
-      setResults(data.success ? data.data : []);
-    } catch { setResults([]); }
-    setQuerying(false);
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j.error || `Server error ${res.status}`);
+        setAsking(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const dec    = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'sources')     { setSources(evt.sources); }
+            if (evt.type === 'text')        { setAnswer(prev => prev + evt.text); }
+            if (evt.type === 'no_context')  { setNoContext(true); }
+            if (evt.type === 'error')       { setError(evt.error); }
+            if (evt.type === 'done')        { setAsking(false); }
+          } catch {}
+        }
+      }
+    } catch (e) {
+      setError(e.message);
+    }
+    setAsking(false);
   }
+
+  const hasResult = answer || noContext || error;
 
   return (
     <div>
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.textPri }}>Search</h2>
-        <p style={{ margin: 0, fontSize: 14, color: C.textMuted }}>Semantic search across transcript chunks</p>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.textPri }}>Ask AI</h2>
+        <p style={{ margin: 0, fontSize: 14, color: C.textMuted }}>Ask any question — Claude will analyze the brain and answer from the transcripts.</p>
       </div>
 
-      {/* Search bar row */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
-        <select value={selectedBrainId} onChange={e => setSelectedBrainId(e.target.value)} style={{ ...inputStyle, marginBottom: 0, width: 200, flexShrink: 0 }}>
+      {/* Controls row */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+        <select
+          value={selectedBrainId}
+          onChange={e => { setSelectedBrainId(e.target.value); setAnswer(''); setSources(null); setNoContext(false); setError(''); }}
+          style={{ ...inputStyle, marginBottom: 0, width: 220, flexShrink: 0 }}
+        >
           {brains.map(b => <option key={b.brainId} value={b.brainId}>{b.name}</option>)}
         </select>
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && runSearch()}
-          placeholder="Search knowledge base…"
+          onKeyDown={e => e.key === 'Enter' && runAsk()}
+          placeholder="Ask anything about this brain…"
           style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
         />
-        <button onClick={runSearch} disabled={querying || !query.trim() || !selectedBrainId} style={{ ...btnPrimary, flexShrink: 0, opacity: (querying || !query.trim() || !selectedBrainId) ? 0.5 : 1 }}>
-          {querying ? 'Searching…' : 'Search'}
+        <button
+          onClick={runAsk}
+          disabled={asking || !query.trim() || !selectedBrainId}
+          style={{ ...btnPrimary, flexShrink: 0, opacity: (asking || !query.trim() || !selectedBrainId) ? 0.5 : 1, minWidth: 90 }}
+        >
+          {asking ? '…' : 'Ask AI'}
         </button>
       </div>
 
       {/* Empty state */}
-      {results === null && (
+      {!hasResult && !asking && (
         <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>≡</div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: C.textSec, marginBottom: 8 }}>Ready to search</div>
-          <div style={{ fontSize: 13, color: C.textMuted }}>Select a brain and enter a query to search across transcript chunks.</div>
+          <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>✦</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: C.textSec, marginBottom: 8 }}>Ask anything</div>
+          <div style={{ fontSize: 13, color: C.textMuted }}>
+            Claude will search the indexed transcripts and synthesize a direct answer.<br />
+            Try: <em>"What's the best strategy for cold email outreach?"</em>
+          </div>
         </div>
       )}
 
-      {/* Results */}
-      {results !== null && results.length === 0 && (
-        <p style={{ color: C.textMuted, fontSize: 13 }}>No relevant content found.</p>
+      {/* Thinking indicator while streaming starts */}
+      {asking && !answer && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 0', color: C.textMuted, fontSize: 13 }}>
+          <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', fontSize: 16 }}>⟳</span>
+          Analyzing transcripts…
+        </div>
       )}
-      {results !== null && results.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {results.map((r, i) => (
-            <div key={i} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 12, color: C.blue, fontWeight: 600 }}>
-                  {r.isPrimary ? '★ ' : ''}📄 {r.sourceLabel || 'Unknown source'}
-                </span>
-                <span style={{ fontSize: 11, color: C.textMuted }}>score: {r.score ? r.score.toFixed(2) : '—'}</span>
-              </div>
-              <p style={{ margin: 0, color: '#d1d5db', fontSize: 13, lineHeight: 1.7 }}>{r.text}</p>
-              {r.url && (
-                <a href={r.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.textMuted, textDecoration: 'none', display: 'block', marginTop: 6 }}>
-                  {r.url.length > 80 ? r.url.slice(0, 80) + '…' : r.url}
-                </a>
-              )}
+
+      {/* AI Answer */}
+      {(answer || (asking && answer)) && (
+        <div ref={answerRef} style={{ background: '#0a1628', border: `1px solid ${C.blue}33`, borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: 14 }}>✦</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.blue }}>Claude's Answer</span>
+            {sources?.length > 0 && (
+              <span style={{ marginLeft: 'auto', fontSize: 11, color: C.textMuted }}>
+                Based on {sources.length} source{sources.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 14, color: '#e2e8f0', lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {answer}
+            {asking && <span style={{ display: 'inline-block', width: 2, height: '1em', background: C.blue, marginLeft: 2, animation: 'pulse 1s ease-in-out infinite', verticalAlign: 'text-bottom' }} />}
+          </div>
+        </div>
+      )}
+
+      {/* No context */}
+      {noContext && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '16px 18px', color: C.textMuted, fontSize: 13 }}>
+          No indexed transcripts matched your query. Try syncing more videos or rephrasing your question.
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div style={{ background: '#1c0a00', border: `1px solid #dc262644`, borderRadius: 10, padding: '14px 16px', color: '#f87171', fontSize: 13 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Sources toggle */}
+      {sources?.length > 0 && !asking && (
+        <div>
+          <button
+            onClick={() => setShowSources(s => !s)}
+            style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 12, cursor: 'pointer', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span style={{ display: 'inline-block', transform: showSources ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
+            {showSources ? 'Hide' : 'Show'} {sources.length} source{sources.length !== 1 ? 's' : ''}
+          </button>
+          {showSources && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+              {sources.map((s, i) => (
+                <div key={i} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 11, color: s.isPrimary ? C.blue : C.textMuted, fontWeight: 600, flexShrink: 0 }}>
+                    {s.isPrimary ? '★' : '·'} Source {i + 1}
+                  </span>
+                  <span style={{ fontSize: 12, color: C.textSec, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.sourceLabel || 'Unknown'}
+                  </span>
+                  {s.url && (
+                    <a href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.textMuted, textDecoration: 'none', flexShrink: 0 }}>↗</a>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>

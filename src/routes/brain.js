@@ -22,6 +22,9 @@ const express      = require('express');
 const router       = express.Router();
 const authenticate = require('../middleware/authenticate');
 const brain        = require('../services/brainStore');
+const Anthropic    = require('@anthropic-ai/sdk');
+const toolRegistry = require('../tools/toolRegistry');
+const config       = require('../config');
 
 router.use(authenticate);
 
@@ -213,6 +216,77 @@ router.delete('/:brainId/docs/:docId', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── AI-powered ask (RAG) ──────────────────────────────────────────────────────
+
+router.post('/:brainId/ask', async (req, res) => {
+  const { query, k = 10 } = req.body;
+  if (!query) return res.status(400).json({ success: false, error: '"query" is required.' });
+
+  try {
+    // 1. Retrieve relevant chunks
+    const chunks = await brain.queryKnowledge(req.locationId, req.params.brainId, query, k);
+    if (!chunks.length) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.write(`data: ${JSON.stringify({ type: 'no_context' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // 2. Build context block from top chunks
+    const context = chunks.map((c, i) =>
+      `[Source ${i + 1}: ${c.sourceLabel || 'Unknown'}${c.url ? ` — ${c.url}` : ''}]\n${c.text}`
+    ).join('\n\n---\n\n');
+
+    // 3. Get Anthropic client (per-location key → fallback to server key)
+    const configs = await toolRegistry.loadToolConfigs(req.locationId);
+    const apiKey  = configs.anthropic?.apiKey || config.anthropic?.apiKey;
+    if (!apiKey) return res.status(400).json({ success: false, error: 'Claude API key not configured. Go to Settings → Integrations → Claude AI.' });
+
+    const client = new Anthropic.default({ apiKey });
+
+    // 4. Stream the answer
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    // Send sources first so the UI can render them immediately
+    res.write(`data: ${JSON.stringify({ type: 'sources', sources: chunks.map(c => ({ sourceLabel: c.sourceLabel, url: c.url, score: c.score, isPrimary: c.isPrimary })) })}\n\n`);
+
+    const stream = client.messages.stream({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: `You are a helpful AI assistant that answers questions based strictly on the provided transcript content from a YouTube knowledge base.
+
+Rules:
+- Answer only from the provided context. Do not add outside knowledge.
+- Be concise but complete. Use bullet points or short paragraphs as appropriate.
+- If the context doesn't contain enough information to answer, say so clearly.
+- When referencing specific content, mention the video/source it came from.
+- Do not repeat the question back.`,
+      messages: [{
+        role: 'user',
+        content: `Context from knowledge base:\n\n${context}\n\n---\n\nQuestion: ${query}`,
+      }],
+    });
+
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+        res.write(`data: ${JSON.stringify({ type: 'text', text: event.delta.text })}\n\n`);
+      }
+    }
+
+    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    res.end();
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: err.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
+      res.end();
+    }
   }
 });
 
