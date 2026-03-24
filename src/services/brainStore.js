@@ -416,16 +416,25 @@ async function addPlaylistToBrain(locationId, brainId, playlistId, { isPrimary =
   const { Innertube } = await import('youtubei.js');
   const yt = await Innertube.create({ retrieve_player: false });
 
+  console.log('[addPlaylistToBrain] fetching playlist:', playlistId);
   const playlist = await yt.getPlaylist(playlistId);
   let videos = playlist.videos || [];
+  console.log('[addPlaylistToBrain] first page videos:', videos.length, '| has_continuation:', playlist.has_continuation);
 
   // Fetch all pages
   let cont = playlist;
+  let page = 1;
   while (cont.has_continuation) {
     try {
       cont = await cont.getContinuation();
-      videos = videos.concat(cont.videos || []);
-    } catch { break; }
+      const added = cont.videos || [];
+      videos = videos.concat(added);
+      page++;
+      console.log('[addPlaylistToBrain] page', page, 'fetched', added.length, 'more, total:', videos.length);
+    } catch (e) {
+      console.warn('[addPlaylistToBrain] continuation failed at page', page, ':', e.message);
+      break;
+    }
   }
 
   const results = { ingested: 0, skipped: 0, errors: [] };
@@ -791,42 +800,86 @@ async function getChannelPlaylists(channelUrl) {
 
   console.log('[getChannelPlaylists] resolving @handle via page scrape:', handle);
   try {
-    const pageUrl = `https://www.youtube.com/${handle}`;
-    console.log('[getChannelPlaylists] fetching channel page:', pageUrl);
-    const res = await fetch(pageUrl, {
-      headers: {
-        'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-    });
-    console.log('[getChannelPlaylists] page response status:', res.status);
-    if (!res.ok) throw new Error(`Channel page returned HTTP ${res.status}`);
-
-    const html = await res.text();
-    console.log('[getChannelPlaylists] page HTML length:', html.length);
-
-    // Try multiple patterns to find the UC channel ID
-    const patterns = [
-      /"channelId":"(UC[a-zA-Z0-9_-]{20,})"/,
-      /"externalId":"(UC[a-zA-Z0-9_-]{20,})"/,
-      /channel\/(UC[a-zA-Z0-9_-]{20,})/,
-      /"browseId":"(UC[a-zA-Z0-9_-]{20,})"/,
+    // Try /about page first — smaller page, reliably contains channelId
+    const urlsToTry = [
+      `https://www.youtube.com/${handle}/about`,
+      `https://www.youtube.com/${handle}`,
     ];
+
     let resolvedId = null;
-    for (const pat of patterns) {
-      const m = html.match(pat);
-      if (m) { resolvedId = m[1]; console.log('[getChannelPlaylists] found channelId via pattern', pat, ':', resolvedId); break; }
+
+    for (const pageUrl of urlsToTry) {
+      if (resolvedId) break;
+      console.log('[getChannelPlaylists] trying URL:', pageUrl);
+
+      let res;
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        res = await fetch(pageUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Cache-Control':   'no-cache',
+            'Sec-Fetch-Site':  'none',
+            'Sec-Fetch-Mode':  'navigate',
+            'Sec-Fetch-Dest':  'document',
+          },
+        });
+        clearTimeout(timeout);
+      } catch (fetchErr) {
+        console.warn('[getChannelPlaylists] fetch failed for', pageUrl, ':', fetchErr.message);
+        continue;
+      }
+
+      console.log('[getChannelPlaylists] response:', res.status, res.statusText, 'url:', res.url);
+
+      if (!res.ok) {
+        console.warn('[getChannelPlaylists] non-OK response', res.status, 'for', pageUrl);
+        continue;
+      }
+
+      const html = await res.text();
+      console.log('[getChannelPlaylists] HTML length:', html.length, '| first 200 chars:', html.slice(0, 200).replace(/\n/g, ' '));
+
+      // Ordered by reliability
+      const patterns = [
+        { label: 'canonical link',  re: /<link[^>]+rel="canonical"[^>]+href="https?:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{20,})"/ },
+        { label: 'meta channelId',  re: /<meta[^>]+itemprop="channelId"[^>]+content="(UC[a-zA-Z0-9_-]{20,})"/ },
+        { label: 'externalId JSON', re: /"externalId":"(UC[a-zA-Z0-9_-]{20,})"/ },
+        { label: 'browseId JSON',   re: /"browseId":"(UC[a-zA-Z0-9_-]{20,})"/ },
+        { label: 'channelId JSON',  re: /"channelId":"(UC[a-zA-Z0-9_-]{20,})"/ },
+        { label: 'channel URL',     re: /youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{20,})/ },
+      ];
+
+      for (const { label, re } of patterns) {
+        const m = html.match(re);
+        if (m) {
+          resolvedId = m[1];
+          console.log('[getChannelPlaylists] found UC ID via', label, ':', resolvedId);
+          break;
+        }
+      }
+
+      if (!resolvedId) {
+        // Log a useful snippet to diagnose what YouTube returned
+        const snippet = html.slice(0, 800).replace(/\s+/g, ' ');
+        console.warn('[getChannelPlaylists] UC ID not found in page from', pageUrl);
+        console.warn('[getChannelPlaylists] page snippet:', snippet);
+      }
     }
 
     if (!resolvedId) {
-      console.error('[getChannelPlaylists] could not find UC ID in page HTML (first 500 chars):', html.slice(0, 500));
-      throw new Error(`Could not extract channel ID from page for ${handle}`);
+      throw new Error(`Could not extract channel ID from any page for ${handle}`);
     }
 
     const uploadsId = 'UU' + resolvedId.slice(2);
-    console.log('[getChannelPlaylists] resolved uploads playlist:', uploadsId);
+    console.log('[getChannelPlaylists] uploads playlist ID:', uploadsId, 'for handle:', handle);
     return [{ id: uploadsId, title: 'All Videos (uploads)' }];
+
   } catch (e) {
     console.error('[getChannelPlaylists] handle resolution failed for', handle,
       '| message:', e.message, '| stack:', e.stack);
