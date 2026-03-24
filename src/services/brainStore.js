@@ -79,9 +79,10 @@ async function rDel(key) {
 
 // ── Key helpers ───────────────────────────────────────────────────────────────
 
-const brainsKey  = (loc)              => `hltools:brains:${loc}`;
-const docsKey    = (loc, brainId)     => `hltools:brain:${loc}:${brainId}:docs`;
-const chunksKey  = (loc, brainId, docId) => `hltools:brain:${loc}:${brainId}:chunks:${docId}`;
+const brainsKey    = (loc)                => `hltools:brains:${loc}`;
+const docsKey      = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:docs`;
+const chunksKey    = (loc, brainId, docId)=> `hltools:brain:${loc}:${brainId}:chunks:${docId}`;
+const syncQueueKey = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:syncqueue`;
 
 // ── Text chunking ─────────────────────────────────────────────────────────────
 
@@ -902,6 +903,144 @@ async function getChannelPlaylists(channelUrl) {
 }
 
 /**
+ * Queue all video IDs from a channel's uploads playlist into Redis.
+ * Returns { queued, channelName } — fast call, no transcript fetching.
+ */
+async function queueChannelSync(locationId, brainId, channelId) {
+  const tag = `[queueChannelSync ${brainId.slice(-6)}]`;
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  const brain  = brains.find(b => b.brainId === brainId);
+  if (!brain) throw new Error('Brain not found');
+
+  const ch = (brain.channels || []).find(c => c.channelId === channelId);
+  if (!ch) throw new Error('Channel not found');
+  if (!ch.channelUrl) throw new Error('Channel has no URL');
+
+  console.log(tag, 'Resolving playlists for', ch.channelName, ch.channelUrl);
+  const playlists = await getChannelPlaylists(ch.channelUrl);
+  console.log(tag, 'Found', playlists.length, 'playlist(s)');
+
+  // Collect all video IDs from all playlists
+  const Innertube = await getInnertube();
+  const yt = await Innertube.create({ retrieve_player: false });
+
+  const allVideos = [];
+  for (const pl of playlists) {
+    console.log(tag, 'Fetching video list for playlist', pl.id);
+    try {
+      let page = await yt.getPlaylist(pl.id);
+      let vids = page.videos || [];
+      while (page.has_continuation) {
+        try { page = await page.getContinuation(); vids = vids.concat(page.videos || []); }
+        catch { break; }
+      }
+      for (const v of vids) {
+        if (v.id) allVideos.push({ videoId: v.id, title: v.title?.toString() || v.id, isPrimary: ch.type === 'primary' || ch.isPrimary, channelId });
+      }
+      console.log(tag, 'Playlist', pl.id, '→', vids.length, 'videos (running total:', allVideos.length, ')');
+    } catch (e) {
+      console.error(tag, 'Playlist fetch error:', e.message);
+    }
+  }
+
+  // Deduplicate by videoId
+  const existing = (await rGet(docsKey(locationId, brainId))) || [];
+  const existingIds = new Set(existing.map(d => d.url?.match(/v=([a-zA-Z0-9_-]{11})/)?.[1]).filter(Boolean));
+  const newVideos = allVideos.filter(v => !existingIds.has(v.videoId));
+  console.log(tag, 'Total:', allVideos.length, '| already ingested:', existingIds.size, '| to queue:', newVideos.length);
+
+  // Merge with any existing queue
+  const currentQueue = (await rGet(syncQueueKey(locationId, brainId))) || [];
+  const merged = [...currentQueue, ...newVideos.filter(v => !currentQueue.find(q => q.videoId === v.videoId))];
+  await rSet(syncQueueKey(locationId, brainId), merged);
+
+  await updateBrainMeta(locationId, brainId, {
+    pipelineStage: merged.length > 0 ? 'processing' : 'ready',
+    syncQueueTotal: merged.length,
+    syncQueueDone:  0,
+  });
+
+  return { queued: merged.length, channelName: ch.channelName };
+}
+
+/**
+ * Process the next batch of N videos from the sync queue.
+ * Returns { processed, remaining, done, ingested, errors }.
+ * Safe to call repeatedly — each call is a short Vercel function invocation.
+ */
+async function processSyncBatch(locationId, brainId, batchSize = 5) {
+  const tag = `[syncBatch ${brainId.slice(-6)}]`;
+  const queue = (await rGet(syncQueueKey(locationId, brainId))) || [];
+
+  if (queue.length === 0) {
+    console.log(tag, 'Queue empty — marking ready');
+    const finalDocs   = (await rGet(docsKey(locationId, brainId))) || [];
+    const finalChunks = finalDocs.reduce((a, d) => a + (d.chunkCount || 0), 0);
+    await _writeSyncComplete(locationId, brainId, 0, 0, finalDocs, finalChunks, 'Batch complete');
+    return { processed: 0, remaining: 0, done: true, ingested: 0, errors: 0 };
+  }
+
+  const batch    = queue.slice(0, batchSize);
+  const rest     = queue.slice(batchSize);
+  console.log(tag, `Processing batch of ${batch.length}, remaining after: ${rest.length}`);
+
+  let ingested = 0;
+  let errors   = 0;
+  for (const item of batch) {
+    process.stdout.write(`${tag} [${item.videoId}] "${(item.title || '').slice(0, 50)}"\n`);
+    try {
+      await addYoutubeVideo(locationId, brainId, item.videoId, item.title, item.isPrimary);
+      ingested++;
+      process.stdout.write(`${tag}   ✓ ingested\n`);
+    } catch (e) {
+      errors++;
+      process.stdout.write(`${tag}   ✗ ${e.message}\n`);
+    }
+  }
+
+  // Save remaining queue
+  await rSet(syncQueueKey(locationId, brainId), rest);
+
+  // Update progress on brain
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  const bi     = brains.findIndex(b => b.brainId === brainId);
+  const total  = (bi !== -1 ? brains[bi].syncQueueTotal : 0) || (queue.length);
+  const done_n = total - rest.length;
+  if (bi !== -1) {
+    brains[bi].syncQueueDone = done_n;
+    brains[bi].pipelineStage = rest.length === 0 ? 'ready' : 'processing';
+    if (rest.length === 0) {
+      const finalDocs   = (await rGet(docsKey(locationId, brainId))) || [];
+      const finalChunks = finalDocs.reduce((a, d) => a + (d.chunkCount || 0), 0);
+      brains[bi].docCount   = finalDocs.length;
+      brains[bi].chunkCount = finalChunks;
+      brains[bi].updatedAt  = new Date().toISOString();
+      const entry = { ts: new Date().toISOString(), ingested: done_n, errors, docCount: finalDocs.length, chunkCount: finalChunks };
+      brains[bi].syncLog = [ entry, ...((brains[bi].syncLog || []).slice(0, 49)) ];
+    }
+    await rSet(brainsKey(locationId), brains);
+  }
+
+  console.log(tag, `Batch done — ingested: ${ingested}, errors: ${errors}, remaining: ${rest.length}`);
+  return { processed: batch.length, remaining: rest.length, done: rest.length === 0, ingested, errors };
+}
+
+async function _writeSyncComplete(locationId, brainId, ingested, errors, finalDocs, finalChunks, reason) {
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  const bi     = brains.findIndex(b => b.brainId === brainId);
+  if (bi !== -1) {
+    brains[bi].pipelineStage = 'ready';
+    brains[bi].docCount      = finalDocs.length;
+    brains[bi].chunkCount    = finalChunks;
+    brains[bi].updatedAt     = new Date().toISOString();
+    const entry = { ts: new Date().toISOString(), ingested, errors, docCount: finalDocs.length, chunkCount: finalChunks };
+    brains[bi].syncLog = [ entry, ...((brains[bi].syncLog || []).slice(0, 49)) ];
+    await rSet(brainsKey(locationId), brains);
+  }
+  console.log(`[syncComplete] ${reason} — docs: ${finalDocs.length}, chunks: ${finalChunks}`);
+}
+
+/**
  * Background sync: fetch all playlists from every channel in a brain and ingest transcripts.
  * Updates pipelineStage on the brain as it progresses.
  */
@@ -1094,6 +1233,8 @@ module.exports = {
   // Sync
   syncBrainChannels,
   syncSingleChannel,
+  queueChannelSync,
+  processSyncBatch,
   getChannelPlaylists,
   // Document ops
   addDocument,

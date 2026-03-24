@@ -509,16 +509,33 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
 
   async function syncChannel(channelId, name) {
     setSyncingChannelId(channelId);
+    showFlash(true, `Collecting videos for "${name}"…`);
     try {
-      const r = await apiFetch(`/brain/${brain.brainId}/channels/${channelId}/sync`, locationId, { method: 'POST' });
-      if (r.success) {
-        showFlash(true, `Syncing "${name}" in background…`);
+      // Step 1: queue all video IDs (fast — no transcripts yet)
+      const q = await apiFetch(`/brain/${brain.brainId}/channels/${channelId}/queue`, locationId, { method: 'POST' });
+      if (!q.success) { showFlash(false, q.error || 'Failed to queue sync.'); setSyncingChannelId(null); return; }
+
+      showFlash(true, `Queued ${q.queued} videos for "${name}" — ingesting…`);
+      onRefresh();
+
+      // Step 2: drive batches until done
+      let remaining = q.queued;
+      let totalIngested = 0;
+      while (remaining > 0) {
+        const b = await apiFetch(`/brain/${brain.brainId}/sync-batch`, locationId, { method: 'POST', body: { batchSize: 5 } });
+        if (!b.success) { showFlash(false, b.error || 'Batch failed.'); break; }
+        totalIngested += b.ingested || 0;
+        remaining = b.remaining || 0;
+        showFlash(true, `Ingesting "${name}"… ${totalIngested} done, ${remaining} remaining`);
+        if (b.done) break;
         onRefresh();
-      } else {
-        showFlash(false, r.error || 'Failed to start channel sync.');
       }
-    } catch { showFlash(false, 'Request failed.'); }
-    setTimeout(() => setSyncingChannelId(null), 3000);
+
+      showFlash(true, `"${name}" sync complete — ${totalIngested} videos ingested.`);
+      onRefresh();
+      await reloadBrain();
+    } catch (e) { showFlash(false, e.message || 'Sync failed.'); }
+    setSyncingChannelId(null);
   }
 
   function handleChannelAdded(ch) {
@@ -596,12 +613,31 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
               disabled={syncing}
               onClick={async () => {
                 setSyncing(true);
+                showFlash(true, 'Collecting videos for all channels…');
                 try {
-                  await apiFetch(`/brain/${brain.brainId}/sync`, locationId, { method: 'POST' });
-                  showFlash(true, 'Sync started — ingesting all channels in background.');
+                  // Queue every channel then drain batches
+                  const chs = channels.filter(c => c.channelUrl);
+                  let totalQueued = 0;
+                  for (const ch of chs) {
+                    const q = await apiFetch(`/brain/${brain.brainId}/channels/${ch.channelId}/queue`, locationId, { method: 'POST' });
+                    if (q.success) totalQueued += q.queued || 0;
+                  }
+                  showFlash(true, `${totalQueued} videos queued — ingesting…`);
                   onRefresh();
-                } catch { showFlash(false, 'Failed to start sync.'); }
-                setTimeout(() => setSyncing(false), 2000);
+                  let remaining = totalQueued;
+                  let totalIngested = 0;
+                  while (remaining > 0) {
+                    const b = await apiFetch(`/brain/${brain.brainId}/sync-batch`, locationId, { method: 'POST', body: { batchSize: 5 } });
+                    if (!b.success || b.done) break;
+                    totalIngested += b.ingested || 0;
+                    remaining = b.remaining || 0;
+                    showFlash(true, `Ingesting… ${totalIngested} done, ${remaining} remaining`);
+                  }
+                  showFlash(true, `Sync complete — ${totalIngested} videos ingested.`);
+                  onRefresh();
+                  await reloadBrain();
+                } catch { showFlash(false, 'Sync failed.'); }
+                setSyncing(false);
               }}
               style={{
                 ...btnSecondary, padding: '7px 10px', fontSize: 16, lineHeight: 1,

@@ -242,6 +242,28 @@ router.post('/:brainId/channels', async (req, res) => {
   }
 });
 
+// ── Queue channel sync (collects video IDs, no transcripts) ──────────────────
+
+router.post('/:brainId/channels/:channelId/queue', async (req, res) => {
+  try {
+    const result = await brain.queueChannelSync(req.locationId, req.params.brainId, req.params.channelId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Process next batch from sync queue ────────────────────────────────────────
+
+router.post('/:brainId/sync-batch', async (req, res) => {
+  try {
+    const result = await brain.processSyncBatch(req.locationId, req.params.brainId, req.body.batchSize || 5);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Sync single channel ───────────────────────────────────────────────────────
 
 router.post('/:brainId/channels/:channelId/sync', async (req, res) => {
