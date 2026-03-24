@@ -73,8 +73,9 @@ function timeAgo(ts) {
 
 function getBrainHealth(brain) {
   const docs = brain.docs || [];
-  const pendingCount = docs.filter(d => !d.chunkCount || d.chunkCount === 0).length;
-  const hasContent = (brain.docCount || 0) > 0 || docs.length > 0;
+  const pendingFromDocs = docs.filter(d => !d.chunkCount || d.chunkCount === 0).length;
+  const pendingCount = (brain.pendingVideos || 0) + (brain.errorVideos || 0) || pendingFromDocs;
+  const hasContent = (brain.docCount || 0) > 0 || (brain.videoCount || 0) > 0 || docs.length > 0;
   return { healthy: pendingCount === 0, pendingCount, hasContent };
 }
 
@@ -1188,9 +1189,10 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
 
 function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId, onSyncBrain }) {
   const [syncingId, setSyncingId] = useState(null);
-  const totalVideos  = brains.reduce((a, b) => a + (b.docCount || 0), 0);
-  const totalChunks  = brains.reduce((a, b) => a + (b.chunkCount || 0), 0);
-  const totalChannels = brains.reduce((a, b) => a + (b.channels || []).length, 0);
+  const totalVideos   = brains.reduce((a, b) => a + (b.videoCount || 0), 0);
+  const totalIndexed   = brains.reduce((a, b) => a + (b.docCount || 0), 0);
+  const totalChunks    = brains.reduce((a, b) => a + (b.chunkCount || 0), 0);
+  const totalChannels  = brains.reduce((a, b) => a + (b.channels || []).length, 0);
 
   async function quickSync(e, brainId) {
     e.stopPropagation();
@@ -1207,7 +1209,7 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
   const statCards = [
     { label: 'Brains',   value: brains.length,  icon: '🧠' },
     { label: 'Channels', value: totalChannels,   icon: '📡' },
-    { label: 'Videos',   value: totalVideos,     icon: '▶' },
+    { label: 'Videos',   value: totalVideos,     icon: '▶', sub: `${totalIndexed} indexed` },
     { label: 'Chunks',   value: totalChunks,     icon: '🧩' },
   ];
 
@@ -1218,7 +1220,7 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
         <h1 style={{ margin: '0 0 4px', fontSize: 24, fontWeight: 700, color: C.textPri }}>Welcome back</h1>
         <p style={{ margin: '0 0 20px', fontSize: 14, color: C.textMuted }}>Your YouTube knowledge bases at a glance</p>
         <div style={{ fontSize: 13, color: C.textSec, background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 16px', display: 'inline-block' }}>
-          {brains.length} brain{brains.length !== 1 ? 's' : ''} &nbsp;|&nbsp; {totalVideos.toLocaleString()} videos indexed &nbsp;|&nbsp; {totalChannels} channel{totalChannels !== 1 ? 's' : ''}
+          {brains.length} brain{brains.length !== 1 ? 's' : ''} &nbsp;|&nbsp; {totalVideos.toLocaleString()} videos ({totalIndexed} indexed) &nbsp;|&nbsp; {totalChannels} channel{totalChannels !== 1 ? 's' : ''}
         </div>
       </div>
 
@@ -1229,7 +1231,7 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
             <div style={{ fontSize: 28 }}>{s.icon}</div>
             <div>
               <div style={{ fontSize: 24, fontWeight: 700, color: C.textPri }}>{s.value.toLocaleString()}</div>
-              <div style={{ fontSize: 12, color: C.textMuted }}>{s.label}</div>
+              <div style={{ fontSize: 12, color: C.textMuted }}>{s.label}{s.sub ? ` · ${s.sub}` : ''}</div>
             </div>
           </div>
         ))}
@@ -1282,9 +1284,10 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
                 {/* Mini stats */}
                 <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
                   {[
-                    { icon: '📡', val: channelCount,       label: 'channels' },
-                    { icon: '▶',  val: b.docCount || 0,   label: 'videos' },
-                    { icon: '🧩', val: b.chunkCount || 0, label: 'chunks' },
+                    { icon: '📡', val: channelCount,        label: 'channels' },
+                    { icon: '▶',  val: b.videoCount || 0,  label: 'videos' },
+                    { icon: '✅', val: b.docCount || 0,    label: 'indexed' },
+                    { icon: '🧩', val: b.chunkCount || 0,  label: 'chunks' },
                   ].map(s => (
                     <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                       <span style={{ fontSize: 13 }}>{s.icon}</span>
@@ -1295,7 +1298,7 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
                 </div>
 
                 <div style={{ fontSize: 12, color: C.textMuted, marginBottom: pendingCount > 0 ? 10 : 0 }}>
-                  Quality: No data &nbsp;·&nbsp; Last synced: {b.updatedAt ? timeAgo(b.updatedAt) : 'Never'}
+                  Quality: No data &nbsp;·&nbsp; Last synced: {b.lastSynced ? timeAgo(b.lastSynced) : b.updatedAt ? timeAgo(b.updatedAt) : 'Never'}
                 </div>
 
                 {pendingCount > 0 && (

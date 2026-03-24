@@ -243,11 +243,14 @@ async function updateBrainMeta(locationId, brainId, fields) {
  */
 async function listBrains(locationId) {
   const brains = (await rGet(brainsKey(locationId))) || [];
-  // Attach quick stats (doc count, chunk count)
+  // Attach quick stats (doc count, chunk count, video catalogue count)
   const withStats = await Promise.all(brains.map(async b => {
     const docs   = (await rGet(docsKey(locationId, b.brainId))) || [];
+    const vids   = (await rGet(videosKey(locationId, b.brainId))) || [];
     const chunks = docs.reduce((acc, d) => acc + (d.chunkCount || 0), 0);
-    return { ...b, docCount: docs.length, chunkCount: chunks };
+    const pendingVids = vids.filter(v => v.transcriptStatus === 'pending').length;
+    const errorVids   = vids.filter(v => v.transcriptStatus === 'error').length;
+    return { ...b, docCount: docs.length, chunkCount: chunks, videoCount: vids.length, pendingVideos: pendingVids, errorVideos: errorVids };
   }));
   return withStats;
 }
