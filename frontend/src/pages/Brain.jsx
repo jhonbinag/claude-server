@@ -70,28 +70,60 @@ const btnSecondary = {
 // ── Create Brain Modal ────────────────────────────────────────────────────────
 
 function CreateBrainModal({ onClose, onCreate }) {
-  const [name,        setName]        = useState('');
-  const [slug,        setSlug]        = useState('');
-  const [description, setDescription] = useState('');
-  const [slugEdited,  setSlugEdited]  = useState(false);
-  const [creating,    setCreating]    = useState(false);
-  const [error,       setError]       = useState('');
+  const [name,           setName]           = useState('');
+  const [slug,           setSlug]           = useState('');
+  const [description,    setDescription]    = useState('');
+  const [docsUrl,        setDocsUrl]        = useState('');
+  const [changelogUrl,   setChangelogUrl]   = useState('');
+  const [channelName,    setChannelName]    = useState('');
+  const [channelUrl,     setChannelUrl]     = useState('');
+  const [secondaryChannels, setSecondaryChannels] = useState([]);  // [{ name, url }]
+  const [syncNow,        setSyncNow]        = useState(true);
+  const [slugEdited,     setSlugEdited]     = useState(false);
+  const [creating,       setCreating]       = useState(false);
+  const [error,          setError]          = useState('');
 
   useEffect(() => {
     if (!slugEdited && name) setSlug(slugify(name));
   }, [name, slugEdited]);
+
+  function addSecondary() {
+    setSecondaryChannels(prev => [...prev, { name: '', url: '' }]);
+  }
+
+  function updateSecondary(i, field, val) {
+    setSecondaryChannels(prev => prev.map((c, idx) => idx === i ? { ...c, [field]: val } : c));
+  }
+
+  function removeSecondary(i) {
+    setSecondaryChannels(prev => prev.filter((_, idx) => idx !== i));
+  }
 
   async function handleCreate() {
     if (!name.trim()) { setError('Name is required.'); return; }
     setCreating(true);
     setError('');
     try {
-      await onCreate({ name: name.trim(), slug: slug.trim() || slugify(name), description: description.trim() });
+      await onCreate({
+        name:        name.trim(),
+        slug:        slug.trim() || slugify(name),
+        description: description.trim(),
+        docsUrl:     docsUrl.trim() || undefined,
+        changelogUrl: changelogUrl.trim() || undefined,
+        primaryChannel: channelName.trim() ? { name: channelName.trim(), url: channelUrl.trim() } : undefined,
+        secondaryChannels: secondaryChannels.filter(c => c.name.trim()),
+        syncNow,
+      });
     } catch (e) {
       setError(e.message || 'Failed to create brain.');
     }
     setCreating(false);
   }
+
+  const sectionLabel = {
+    fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+    color: '#6b7280', marginBottom: 10, marginTop: 4,
+  };
 
   return (
     <div style={{
@@ -100,12 +132,20 @@ function CreateBrainModal({ onClose, onCreate }) {
     }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{
         background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 16,
-        padding: 32, width: '100%', maxWidth: 480,
+        padding: 28, width: '100%', maxWidth: 480,
+        maxHeight: '90vh', overflowY: 'auto',
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#e5e7eb' }}>Create Brain</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 20, cursor: 'pointer' }}>✕</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#e5e7eb' }}>Create a new brain</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6b7280' }}>
+              A brain groups YouTube channels into a searchable knowledge base.
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 20, cursor: 'pointer', marginLeft: 12, flexShrink: 0 }}>✕</button>
         </div>
+
+        <div style={{ borderBottom: '1px solid #2a2a2a', margin: '16px 0' }} />
 
         {error && (
           <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: '#1c0a00', border: '1px solid #ef444444', color: '#f87171', fontSize: 13 }}>
@@ -113,33 +153,107 @@ function CreateBrainModal({ onClose, onCreate }) {
           </div>
         )}
 
-        <label style={labelStyle}>Name *</label>
+        <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
         <input
           value={name}
           onChange={e => setName(e.target.value)}
-          placeholder="e.g. Marketing Content"
+          placeholder="e.g. AI Research"
           style={inputStyle}
           autoFocus
         />
 
-        <label style={labelStyle}>Slug</label>
+        <label style={labelStyle}>Slug <span style={{ color: '#ef4444' }}>*</span></label>
         <input
           value={slug}
           onChange={e => { setSlug(e.target.value); setSlugEdited(true); }}
-          placeholder="marketing-content"
-          style={inputStyle}
+          placeholder="e.g. ai-research"
+          style={{ ...inputStyle, marginBottom: 4 }}
         />
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#6b7280' }}>URL-friendly ID. Auto-generated from name.</p>
 
         <label style={labelStyle}>Description</label>
         <textarea
           value={description}
           onChange={e => setDescription(e.target.value)}
-          placeholder="What kind of content will this brain hold?"
+          placeholder="What is this brain about?"
           rows={3}
           style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }}
         />
 
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+        <label style={labelStyle}>Official docs URL</label>
+        <input
+          value={docsUrl}
+          onChange={e => setDocsUrl(e.target.value)}
+          placeholder="https://docs.example.com"
+          style={inputStyle}
+        />
+
+        <label style={labelStyle}>Changelog URL</label>
+        <input
+          value={changelogUrl}
+          onChange={e => setChangelogUrl(e.target.value)}
+          placeholder="https://example.com/changelog"
+          style={inputStyle}
+        />
+
+        <div style={{ borderBottom: '1px solid #2a2a2a', margin: '4px 0 16px' }} />
+        <div style={sectionLabel}>Primary Channel</div>
+
+        <label style={labelStyle}>Channel name <span style={{ color: '#ef4444' }}>*</span></label>
+        <input
+          value={channelName}
+          onChange={e => setChannelName(e.target.value)}
+          placeholder="e.g. Andrej Karpathy"
+          style={inputStyle}
+        />
+
+        <label style={labelStyle}>Channel URL <span style={{ color: '#ef4444' }}>*</span></label>
+        <input
+          value={channelUrl}
+          onChange={e => setChannelUrl(e.target.value)}
+          placeholder="https://youtube.com/@karpathy"
+          style={{ ...inputStyle, marginBottom: 4 }}
+        />
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#6b7280' }}>Accepts @handle, channel URL, or UC ID.</p>
+
+        {secondaryChannels.map((ch, i) => (
+          <div key={i} style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Secondary Channel {i + 1}</span>
+              <button onClick={() => removeSecondary(i)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 16 }}>✕</button>
+            </div>
+            <input
+              value={ch.name}
+              onChange={e => updateSecondary(i, 'name', e.target.value)}
+              placeholder="Channel name"
+              style={{ ...inputStyle, marginBottom: 8 }}
+            />
+            <input
+              value={ch.url}
+              onChange={e => updateSecondary(i, 'url', e.target.value)}
+              placeholder="Channel URL or @handle"
+              style={{ ...inputStyle, marginBottom: 0 }}
+            />
+          </div>
+        ))}
+
+        <button onClick={addSecondary} style={{ background: 'none', border: 'none', color: '#7c3aed', fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 20 }}>
+          + Add a secondary channel (optional)
+        </button>
+
+        <div style={{ borderBottom: '1px solid #2a2a2a', margin: '0 0 16px' }} />
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+          <input
+            type="checkbox"
+            checked={syncNow}
+            onChange={e => setSyncNow(e.target.checked)}
+            style={{ width: 16, height: 16, accentColor: '#7c3aed', cursor: 'pointer' }}
+          />
+          <span style={{ fontSize: 13, color: '#d1d5db' }}>Start initial sync immediately &amp; enable weekly updates</span>
+        </label>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 24 }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button
             onClick={handleCreate}
