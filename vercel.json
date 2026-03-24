@@ -4,7 +4,8 @@
   "buildCommand": "cd frontend && npm install && npm run build",
   "functions": {
     "api/index.js": {
-      "includeFiles": "src/**,public/ui/**"
+      "includeFiles": "src/**,public/ui/**",
+      "maxDuration": 800
     }
   },
   "rewrites": [
