@@ -731,7 +731,68 @@ async function fetchYoutubeTranscript(videoId, locationId) {
     return { ...parsed, lengthSecs, viewCount, publishDate };
   }
 
-  // ── Approach 1: youtubei.js WEB client ──
+  // Helper: get video metadata from youtubei.js (works even when captions don't)
+  let ytMeta = null;
+  try {
+    const Innertube = await getInnertube();
+    const yt = await Innertube.create({ retrieve_player: true });
+    const info = await yt.getInfo(videoId);
+    ytMeta = {
+      title:       info.basic_info?.title || null,
+      lengthSecs:  parseInt(info.basic_info?.duration || 0, 10),
+      viewCount:   parseInt(info.basic_info?.view_count || 0, 10),
+      publishDate: info.primary_info?.published?.text || null,
+    };
+  } catch (e) { console.warn(tag, 'metadata fetch failed:', e.message); }
+
+  // ── Approach 1: Supadata API (third-party transcript service — most reliable) ──
+  const SUPADATA_KEY = process.env.SUPADATA_API_KEY;
+  if (SUPADATA_KEY) {
+    try {
+      console.log(tag, 'trying Supadata API');
+      const res = await fetch(`https://api.supadata.ai/v1/youtube/transcript?videoId=${videoId}&text=true`, {
+        headers: { 'x-api-key': SUPADATA_KEY },
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Supadata returned ${res.status}: ${errBody.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      const content = data.content;
+      if (typeof content === 'string' && content.length > 20) {
+        // text=true returns plain text
+        console.log(tag, 'Supadata: got plain text transcript, length:', content.length);
+        return {
+          transcript: content,
+          title: ytMeta?.title || null,
+          lengthSecs: ytMeta?.lengthSecs || 0,
+          viewCount: ytMeta?.viewCount || 0,
+          publishDate: ytMeta?.publishDate || null,
+        };
+      }
+      if (Array.isArray(content) && content.length > 0) {
+        // content is array of {text, offset, duration}
+        const lines = content.map(s => (s.text || '').trim()).filter(Boolean);
+        if (lines.length > 0) {
+          const paragraphs = [];
+          for (let i = 0; i < lines.length; i += 10) paragraphs.push(lines.slice(i, i + 10).join(' '));
+          console.log(tag, 'Supadata: got transcript:', lines.length, 'segments');
+          return {
+            transcript: paragraphs.join('\n\n'),
+            title: ytMeta?.title || null,
+            lengthSecs: ytMeta?.lengthSecs || 0,
+            viewCount: ytMeta?.viewCount || 0,
+            publishDate: ytMeta?.publishDate || null,
+          };
+        }
+      }
+      console.warn(tag, 'Supadata: empty transcript response');
+    } catch (e) { console.warn(tag, 'Supadata failed:', e.message); }
+  } else {
+    console.log(tag, 'SUPADATA_API_KEY not set — skipping Supadata');
+  }
+
+  // ── Approach 2: youtubei.js WEB client (getTranscript + caption tracks) ──
   try {
     console.log(tag, 'trying youtubei.js WEB client');
     const Innertube = await getInnertube();
@@ -756,48 +817,8 @@ async function fetchYoutubeTranscript(videoId, locationId) {
 
     const captions = info.captions?.caption_tracks;
     if (captions?.length) return await fetchCaptionXml(captions, title, lengthSecs, viewCount, publishDate, 'youtubei.js');
-    console.warn(tag, 'youtubei.js: no captions');
+    console.warn(tag, 'youtubei.js: no usable captions');
   } catch (e) { console.warn(tag, 'youtubei.js failed:', e.message); }
-
-  // ── Approach 2: Embedded player (TVHTML5_SIMPLY_EMBEDDED_PLAYER — most permissive) ──
-  try {
-    console.log(tag, 'trying embedded player client');
-    const visitorData = await getYtVisitorData(false).catch(() => null);
-    const res = await fetch(YT_PLAYER_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': BROWSER_UA,
-        'Origin': 'https://www.youtube.com',
-        'Referer': 'https://www.youtube.com/',
-      },
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
-            clientVersion: '2.0',
-            hl: 'en', gl: 'US',
-            ...(visitorData ? { visitorData } : {}),
-          },
-          thirdParty: { embedUrl: 'https://www.google.com' },
-        },
-        videoId,
-      }),
-    });
-    if (!res.ok) throw new Error(`Embedded API returned ${res.status}`);
-    const pj = await res.json();
-    const ps = pj.playabilityStatus?.status;
-    console.log(tag, 'embedded player status:', ps);
-    if (ps && ps !== 'OK') throw new Error(`Embedded: ${pj.playabilityStatus?.reason || ps}`);
-    const tracks = pj.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!tracks?.length) throw new Error('No captions (embedded)');
-    return await fetchCaptionXml(tracks,
-      pj.videoDetails?.title || null,
-      parseInt(pj.videoDetails?.lengthSeconds || 0, 10),
-      parseInt(pj.videoDetails?.viewCount || 0, 10),
-      pj.microformat?.playerMicroformatRenderer?.publishDate || null,
-      'embedded');
-  } catch (e) { console.warn(tag, 'embedded player failed:', e.message); }
 
   // ── Approach 3: HTML scrape with consent cookie ──
   try {
@@ -831,46 +852,7 @@ async function fetchYoutubeTranscript(videoId, locationId) {
       'HTML scrape');
   } catch (e) { console.warn(tag, 'HTML scrape failed:', e.message); }
 
-  // ── Approach 4: IOS client (different fingerprint than Android) ──
-  try {
-    console.log(tag, 'trying IOS client');
-    const visitorData = await getYtVisitorData(true).catch(() => null);
-    const res = await fetch(YT_PLAYER_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
-      },
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: 'IOS',
-            clientVersion: '19.29.1',
-            deviceMake: 'Apple',
-            deviceModel: 'iPhone16,2',
-            hl: 'en', gl: 'US',
-            ...(visitorData ? { visitorData } : {}),
-          },
-        },
-        videoId,
-      }),
-    });
-    if (!res.ok) throw new Error(`IOS API returned ${res.status}`);
-    const pj = await res.json();
-    const ps = pj.playabilityStatus?.status;
-    console.log(tag, 'IOS client status:', ps);
-    if (ps && ps !== 'OK') throw new Error(`IOS: ${pj.playabilityStatus?.reason || ps}`);
-    const tracks = pj.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!tracks?.length) throw new Error('No captions (IOS)');
-    return await fetchCaptionXml(tracks,
-      pj.videoDetails?.title || null,
-      parseInt(pj.videoDetails?.lengthSeconds || 0, 10),
-      parseInt(pj.videoDetails?.viewCount || 0, 10),
-      pj.microformat?.playerMicroformatRenderer?.publishDate || null,
-      'IOS');
-  } catch (e) { console.warn(tag, 'IOS client failed:', e.message); }
-
-  // ── Approach 5: Android client (original) ──
+  // ── Approach 4: Android client (last resort) ──
   try {
     console.log(tag, 'trying Android client (last resort)');
     const visitorData = await getYtVisitorData(true).catch(() => null);
