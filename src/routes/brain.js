@@ -3,17 +3,19 @@
  *
  * Mounts at /brain
  *
- * GET    /brain/list                      — list all brains
- * POST   /brain/create                    — create brain
- * GET    /brain/channel-info?videoUrl=    — get channel + playlists from video URL
- * DELETE /brain/:brainId                  — delete brain
- * GET    /brain/:brainId                  — get brain with docs
- * POST   /brain/:brainId/youtube          — add YouTube video
- * POST   /brain/:brainId/playlist         — ingest all videos from a playlist
- * POST   /brain/:brainId/docs             — add text document
- * DELETE /brain/:brainId/docs/:docId      — delete document
- * POST   /brain/:brainId/query            — keyword search
- * GET    /brain/:brainId/status           — brain status
+ * GET    /brain/list                                — list all brains
+ * POST   /brain/create                              — create brain
+ * GET    /brain/channel-info?videoUrl=              — get channel + playlists from video URL
+ * DELETE /brain/:brainId                            — delete brain
+ * GET    /brain/:brainId                            — get brain with docs
+ * POST   /brain/:brainId/youtube                    — add YouTube video
+ * POST   /brain/:brainId/playlist                   — ingest all videos from a playlist
+ * POST   /brain/:brainId/docs                       — add text document
+ * DELETE /brain/:brainId/docs/:docId                — delete document
+ * POST   /brain/:brainId/query                      — keyword search
+ * GET    /brain/:brainId/status                     — brain status
+ * POST   /brain/:brainId/channels                   — add channel to brain
+ * DELETE /brain/:brainId/channels/:channelId        — remove channel from brain
  */
 
 const express      = require('express');
@@ -37,10 +39,12 @@ router.get('/list', async (req, res) => {
 // ── Create brain ──────────────────────────────────────────────────────────────
 
 router.post('/create', async (req, res) => {
-  const { name, slug, description } = req.body;
+  const { name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels } = req.body;
   if (!name) return res.status(400).json({ success: false, error: '"name" is required.' });
   try {
-    const result = await brain.createBrain(req.locationId, { name, slug, description });
+    const result = await brain.createBrain(req.locationId, {
+      name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels,
+    });
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -181,6 +185,38 @@ router.post('/:brainId/query', async (req, res) => {
       k || 5,
     );
     res.json({ success: true, data: results });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Add channel to brain ──────────────────────────────────────────────────────
+
+router.post('/:brainId/channels', async (req, res) => {
+  const { channelName, channelUrl, isPrimary } = req.body;
+  if (!channelName) return res.status(400).json({ success: false, error: '"channelName" is required.' });
+  try {
+    const result = await brain.addChannelToBrain(
+      req.locationId,
+      req.params.brainId,
+      { channelName, channelUrl, isPrimary: !!isPrimary },
+    );
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Remove channel from brain ─────────────────────────────────────────────────
+
+router.delete('/:brainId/channels/:channelId', async (req, res) => {
+  try {
+    const result = await brain.removeChannelFromBrain(
+      req.locationId,
+      req.params.brainId,
+      req.params.channelId,
+    );
+    res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

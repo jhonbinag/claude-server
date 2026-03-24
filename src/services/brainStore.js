@@ -125,25 +125,74 @@ function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 }
 
+// ── Handle extractor ──────────────────────────────────────────────────────────
+
+function extractHandle(url) {
+  if (!url) return '';
+  const m = url.match(/youtube\.com\/@([^/?&]+)/);
+  if (m) return '@' + m[1];
+  const m2 = url.match(/youtube\.com\/channel\/(UC[^/?&]+)/);
+  if (m2) return m2[1];
+  if (url.startsWith('@')) return url;
+  return url;
+}
+
 // ── Brain CRUD ────────────────────────────────────────────────────────────────
 
 /**
  * Create a new brain for a location.
+ * Accepts optional docsUrl, changelogUrl, primaryChannel, and secondaryChannels.
  */
-async function createBrain(locationId, { name, slug, description } = {}) {
+async function createBrain(locationId, { name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels } = {}) {
   if (!name || !name.trim()) throw new Error('"name" is required.');
   const brainId  = `brain_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
   const now      = new Date().toISOString();
   const finalSlug = (slug || slugify(name)).replace(/[^a-z0-9-]/g, '-');
 
+  const channels = [];
+
+  if (primaryChannel && primaryChannel.name) {
+    channels.push({
+      channelId:   `ch_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+      channelName: primaryChannel.name,
+      channelUrl:  primaryChannel.url || '',
+      handle:      extractHandle(primaryChannel.url || ''),
+      type:        'primary',
+      isPrimary:   true,
+      videoCount:  0,
+      lastSynced:  null,
+      addedAt:     now,
+    });
+  }
+
+  if (Array.isArray(secondaryChannels)) {
+    for (const ch of secondaryChannels) {
+      if (ch.name) {
+        channels.push({
+          channelId:   `ch_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+          channelName: ch.name,
+          channelUrl:  ch.url || '',
+          handle:      extractHandle(ch.url || ''),
+          type:        'secondary',
+          isPrimary:   false,
+          videoCount:  0,
+          lastSynced:  null,
+          addedAt:     now,
+        });
+      }
+    }
+  }
+
   const brain = {
     brainId,
-    name:        name.trim(),
-    slug:        finalSlug,
-    description: (description || '').trim(),
-    channels:    [],
-    createdAt:   now,
-    updatedAt:   now,
+    name:         name.trim(),
+    slug:         finalSlug,
+    description:  (description || '').trim(),
+    docsUrl:      (docsUrl || '').trim(),
+    changelogUrl: (changelogUrl || '').trim(),
+    channels,
+    createdAt:    now,
+    updatedAt:    now,
   };
 
   const brains = (await rGet(brainsKey(locationId))) || [];
@@ -195,24 +244,54 @@ async function deleteBrain(locationId, brainId) {
 
 /**
  * Add a channel record to a brain (metadata only — no ingestion).
+ * Legacy function — kept for backward compat; delegates to addChannelToBrain.
  */
 async function addChannel(locationId, brainId, { channelName, channelUrl, isPrimary = false } = {}) {
+  return addChannelToBrain(locationId, brainId, { channelName, channelUrl, isPrimary });
+}
+
+/**
+ * Add a channel to a brain with full new data model.
+ */
+async function addChannelToBrain(locationId, brainId, { channelName, channelUrl, isPrimary = false } = {}) {
   if (!channelName) throw new Error('"channelName" is required.');
   const brains = (await rGet(brainsKey(locationId))) || [];
   const idx    = brains.findIndex(b => b.brainId === brainId);
   if (idx === -1) throw new Error(`Brain "${brainId}" not found.`);
 
+  const now = new Date().toISOString();
   const channel = {
+    channelId:   `ch_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
     channelName,
-    channelUrl: channelUrl || '',
-    isPrimary:  !!isPrimary,
-    addedAt:    new Date().toISOString(),
+    channelUrl:  channelUrl || '',
+    handle:      extractHandle(channelUrl || ''),
+    type:        isPrimary ? 'primary' : 'secondary',
+    isPrimary:   !!isPrimary,
+    videoCount:  0,
+    lastSynced:  null,
+    addedAt:     now,
   };
   brains[idx].channels = brains[idx].channels || [];
   brains[idx].channels.push(channel);
-  brains[idx].updatedAt = new Date().toISOString();
+  brains[idx].updatedAt = now;
   await rSet(brainsKey(locationId), brains);
   return channel;
+}
+
+/**
+ * Remove a channel from a brain by channelId.
+ */
+async function removeChannelFromBrain(locationId, brainId, channelId) {
+  const brains = (await rGet(brainsKey(locationId))) || [];
+  const idx    = brains.findIndex(b => b.brainId === brainId);
+  if (idx === -1) throw new Error(`Brain "${brainId}" not found.`);
+
+  const before = (brains[idx].channels || []).length;
+  brains[idx].channels = (brains[idx].channels || []).filter(c => c.channelId !== channelId);
+  if (brains[idx].channels.length === before) throw new Error(`Channel "${channelId}" not found.`);
+  brains[idx].updatedAt = new Date().toISOString();
+  await rSet(brainsKey(locationId), brains);
+  return { deleted: channelId };
 }
 
 // ── Document-level operations ─────────────────────────────────────────────────
@@ -316,8 +395,9 @@ async function getChannelFromVideo(videoUrl) {
 /**
  * Ingest all videos from a YouTube playlist into a brain.
  * Returns { ingested, skipped, errors } counts.
+ * Optionally accepts channelId to update channel stats after ingestion.
  */
-async function addPlaylistToBrain(locationId, brainId, playlistId, { isPrimary = false, onProgress } = {}) {
+async function addPlaylistToBrain(locationId, brainId, playlistId, { isPrimary = false, onProgress, channelId } = {}) {
   const { Innertube } = require('youtubei.js');
   const yt = await Innertube.create({ retrieve_player: false });
 
@@ -349,6 +429,23 @@ async function addPlaylistToBrain(locationId, brainId, playlistId, { isPrimary =
     }
     // Small delay to avoid hammering YouTube
     await new Promise(r => setTimeout(r, 500));
+  }
+
+  // Update matching channel's videoCount and lastSynced
+  if (channelId) {
+    try {
+      const brains = (await rGet(brainsKey(locationId))) || [];
+      const idx    = brains.findIndex(b => b.brainId === brainId);
+      if (idx !== -1) {
+        const chIdx = (brains[idx].channels || []).findIndex(c => c.channelId === channelId);
+        if (chIdx !== -1) {
+          brains[idx].channels[chIdx].videoCount  = (brains[idx].channels[chIdx].videoCount || 0) + results.ingested;
+          brains[idx].channels[chIdx].lastSynced  = new Date().toISOString();
+          brains[idx].updatedAt = new Date().toISOString();
+          await rSet(brainsKey(locationId), brains);
+        }
+      }
+    } catch { /* non-fatal */ }
   }
 
   return results;
@@ -613,6 +710,8 @@ module.exports = {
   getBrain,
   deleteBrain,
   addChannel,
+  addChannelToBrain,
+  removeChannelFromBrain,
   // Document ops
   addDocument,
   addYoutubeVideo,

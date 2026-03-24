@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import Header from '../components/Header';
 
@@ -33,55 +33,88 @@ function slugify(name) {
 }
 
 function timeAgo(ts) {
-  if (!ts) return '';
+  if (!ts) return 'Never';
   const diff = Date.now() - new Date(ts).getTime();
   const m = Math.floor(diff / 60000);
-  if (m < 1)  return 'just now';
+  if (m < 1)  return 'Just now';
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 }
 
-// ── Shared styles ─────────────────────────────────────────────────────────────
+function getBrainHealth(brain) {
+  const docs = brain.docs || [];
+  const pendingCount = docs.filter(d => !d.chunkCount || d.chunkCount === 0).length;
+  const hasContent = (brain.docCount || 0) > 0 || docs.length > 0;
+  return { healthy: pendingCount === 0, pendingCount, hasContent };
+}
+
+// ── Colors ────────────────────────────────────────────────────────────────────
+
+const C = {
+  bg:         '#070b14',
+  card:       '#0f1623',
+  border:     '#1e2a3a',
+  blue:       '#2563eb',
+  blueDark:   '#1d4ed8',
+  green:      '#10b981',
+  amber:      '#f59e0b',
+  red:        '#ef4444',
+  textPri:    '#f9fafb',
+  textSec:    '#9ca3af',
+  textMuted:  '#6b7280',
+  codeBg:     '#0a0f1a',
+};
+
+// ── Shared component styles ───────────────────────────────────────────────────
 
 const labelStyle = {
-  display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600,
+  display: 'block', color: C.textSec, fontSize: 12, fontWeight: 600,
   textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6,
 };
 
 const inputStyle = {
-  width: '100%', boxSizing: 'border-box', background: '#111', border: '1px solid #333',
-  borderRadius: 8, color: '#e5e7eb', padding: '9px 12px', fontSize: 14, marginBottom: 14,
-  outline: 'none',
+  width: '100%', boxSizing: 'border-box', background: '#0a0f1a',
+  border: `1px solid ${C.border}`, borderRadius: 8, color: C.textPri,
+  padding: '9px 12px', fontSize: 14, marginBottom: 14, outline: 'none',
 };
 
 const btnPrimary = {
-  background: '#7c3aed', border: 'none', borderRadius: 8,
-  color: '#fff', padding: '10px 18px', fontSize: 14, fontWeight: 600,
+  background: C.blue, border: 'none', borderRadius: 8,
+  color: '#fff', padding: '9px 18px', fontSize: 14, fontWeight: 600,
   cursor: 'pointer',
 };
 
 const btnSecondary = {
-  background: 'none', border: '1px solid #333', borderRadius: 6,
-  color: '#9ca3af', padding: '6px 14px', fontSize: 13, cursor: 'pointer',
+  background: 'none', border: `1px solid ${C.border}`, borderRadius: 6,
+  color: C.textSec, padding: '7px 14px', fontSize: 13, cursor: 'pointer',
 };
+
+// ── Nav tabs ──────────────────────────────────────────────────────────────────
+
+const NAV_TABS = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'pipeline',  label: 'Pipeline' },
+  { id: 'search',    label: 'Search' },
+  { id: 'mcp',       label: 'MCP' },
+];
 
 // ── Create Brain Modal ────────────────────────────────────────────────────────
 
 function CreateBrainModal({ onClose, onCreate }) {
-  const [name,           setName]           = useState('');
-  const [slug,           setSlug]           = useState('');
-  const [description,    setDescription]    = useState('');
-  const [docsUrl,        setDocsUrl]        = useState('');
-  const [changelogUrl,   setChangelogUrl]   = useState('');
-  const [channelName,    setChannelName]    = useState('');
-  const [channelUrl,     setChannelUrl]     = useState('');
-  const [secondaryChannels, setSecondaryChannels] = useState([]);  // [{ name, url }]
-  const [syncNow,        setSyncNow]        = useState(true);
-  const [slugEdited,     setSlugEdited]     = useState(false);
-  const [creating,       setCreating]       = useState(false);
-  const [error,          setError]          = useState('');
+  const [name,              setName]              = useState('');
+  const [slug,              setSlug]              = useState('');
+  const [description,       setDescription]       = useState('');
+  const [docsUrl,           setDocsUrl]           = useState('');
+  const [changelogUrl,      setChangelogUrl]      = useState('');
+  const [channelName,       setChannelName]       = useState('');
+  const [channelUrl,        setChannelUrl]        = useState('');
+  const [secondaryChannels, setSecondaryChannels] = useState([]);
+  const [syncNow,           setSyncNow]           = useState(true);
+  const [slugEdited,        setSlugEdited]        = useState(false);
+  const [creating,          setCreating]          = useState(false);
+  const [error,             setError]             = useState('');
 
   useEffect(() => {
     if (!slugEdited && name) setSlug(slugify(name));
@@ -90,11 +123,9 @@ function CreateBrainModal({ onClose, onCreate }) {
   function addSecondary() {
     setSecondaryChannels(prev => [...prev, { name: '', url: '' }]);
   }
-
   function updateSecondary(i, field, val) {
     setSecondaryChannels(prev => prev.map((c, idx) => idx === i ? { ...c, [field]: val } : c));
   }
-
   function removeSecondary(i) {
     setSecondaryChannels(prev => prev.filter((_, idx) => idx !== i));
   }
@@ -122,144 +153,88 @@ function CreateBrainModal({ onClose, onCreate }) {
 
   const sectionLabel = {
     fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
-    color: '#6b7280', marginBottom: 10, marginTop: 4,
+    color: C.textMuted, marginBottom: 10, marginTop: 4,
   };
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{
-        background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 16,
+        background: C.card, border: `1px solid ${C.border}`, borderRadius: 16,
         padding: 28, width: '100%', maxWidth: 480,
         maxHeight: '90vh', overflowY: 'auto',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#e5e7eb' }}>Create a new brain</h2>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6b7280' }}>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.textPri }}>Create a new brain</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: C.textMuted }}>
               A brain groups YouTube channels into a searchable knowledge base.
             </p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 20, cursor: 'pointer', marginLeft: 12, flexShrink: 0 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 20, cursor: 'pointer', marginLeft: 12, flexShrink: 0 }}>✕</button>
         </div>
 
-        <div style={{ borderBottom: '1px solid #2a2a2a', margin: '16px 0' }} />
+        <div style={{ borderBottom: `1px solid ${C.border}`, margin: '16px 0' }} />
 
         {error && (
-          <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: '#1c0a00', border: '1px solid #ef444444', color: '#f87171', fontSize: 13 }}>
+          <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: '#1c0a00', border: `1px solid ${C.red}44`, color: '#f87171', fontSize: 13 }}>
             {error}
           </div>
         )}
 
-        <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
-        <input
-          value={name}
-          onChange={e => setName(e.target.value)}
-          placeholder="e.g. AI Research"
-          style={inputStyle}
-          autoFocus
-        />
+        <label style={labelStyle}>Name <span style={{ color: C.red }}>*</span></label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. AI Research" style={inputStyle} autoFocus />
 
-        <label style={labelStyle}>Slug <span style={{ color: '#ef4444' }}>*</span></label>
-        <input
-          value={slug}
-          onChange={e => { setSlug(e.target.value); setSlugEdited(true); }}
-          placeholder="e.g. ai-research"
-          style={{ ...inputStyle, marginBottom: 4 }}
-        />
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#6b7280' }}>URL-friendly ID. Auto-generated from name.</p>
+        <label style={labelStyle}>Slug <span style={{ color: C.red }}>*</span></label>
+        <input value={slug} onChange={e => { setSlug(e.target.value); setSlugEdited(true); }} placeholder="e.g. ai-research" style={{ ...inputStyle, marginBottom: 4 }} />
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>URL-friendly ID. Auto-generated from name.</p>
 
         <label style={labelStyle}>Description</label>
-        <textarea
-          value={description}
-          onChange={e => setDescription(e.target.value)}
-          placeholder="What is this brain about?"
-          rows={3}
-          style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }}
-        />
+        <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="What is this brain about?" rows={3} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
 
-        <label style={labelStyle}>Official docs URL</label>
-        <input
-          value={docsUrl}
-          onChange={e => setDocsUrl(e.target.value)}
-          placeholder="https://docs.example.com"
-          style={inputStyle}
-        />
+        <label style={labelStyle}>Official Docs URL</label>
+        <input value={docsUrl} onChange={e => setDocsUrl(e.target.value)} placeholder="https://docs.example.com" style={inputStyle} />
 
         <label style={labelStyle}>Changelog URL</label>
-        <input
-          value={changelogUrl}
-          onChange={e => setChangelogUrl(e.target.value)}
-          placeholder="https://example.com/changelog"
-          style={inputStyle}
-        />
+        <input value={changelogUrl} onChange={e => setChangelogUrl(e.target.value)} placeholder="https://example.com/changelog" style={inputStyle} />
 
-        <div style={{ borderBottom: '1px solid #2a2a2a', margin: '4px 0 16px' }} />
+        <div style={{ borderBottom: `1px solid ${C.border}`, margin: '4px 0 16px' }} />
         <div style={sectionLabel}>Primary Channel</div>
 
-        <label style={labelStyle}>Channel name <span style={{ color: '#ef4444' }}>*</span></label>
-        <input
-          value={channelName}
-          onChange={e => setChannelName(e.target.value)}
-          placeholder="e.g. Andrej Karpathy"
-          style={inputStyle}
-        />
+        <label style={labelStyle}>Channel name <span style={{ color: C.red }}>*</span></label>
+        <input value={channelName} onChange={e => setChannelName(e.target.value)} placeholder="e.g. Andrej Karpathy" style={inputStyle} />
 
-        <label style={labelStyle}>Channel URL <span style={{ color: '#ef4444' }}>*</span></label>
-        <input
-          value={channelUrl}
-          onChange={e => setChannelUrl(e.target.value)}
-          placeholder="https://youtube.com/@karpathy"
-          style={{ ...inputStyle, marginBottom: 4 }}
-        />
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#6b7280' }}>Accepts @handle, channel URL, or UC ID.</p>
+        <label style={labelStyle}>Channel URL <span style={{ color: C.red }}>*</span></label>
+        <input value={channelUrl} onChange={e => setChannelUrl(e.target.value)} placeholder="https://youtube.com/@karpathy" style={{ ...inputStyle, marginBottom: 4 }} />
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>Accepts @handle, channel URL, or UC ID.</p>
 
         {secondaryChannels.map((ch, i) => (
-          <div key={i} style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
+          <div key={i} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Secondary Channel {i + 1}</span>
-              <button onClick={() => removeSecondary(i)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 16 }}>✕</button>
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Secondary Channel {i + 1}</span>
+              <button onClick={() => removeSecondary(i)} style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 16 }}>✕</button>
             </div>
-            <input
-              value={ch.name}
-              onChange={e => updateSecondary(i, 'name', e.target.value)}
-              placeholder="Channel name"
-              style={{ ...inputStyle, marginBottom: 8 }}
-            />
-            <input
-              value={ch.url}
-              onChange={e => updateSecondary(i, 'url', e.target.value)}
-              placeholder="Channel URL or @handle"
-              style={{ ...inputStyle, marginBottom: 0 }}
-            />
+            <input value={ch.name} onChange={e => updateSecondary(i, 'name', e.target.value)} placeholder="Channel name" style={{ ...inputStyle, marginBottom: 8 }} />
+            <input value={ch.url} onChange={e => updateSecondary(i, 'url', e.target.value)} placeholder="Channel URL or @handle" style={{ ...inputStyle, marginBottom: 0 }} />
           </div>
         ))}
 
-        <button onClick={addSecondary} style={{ background: 'none', border: 'none', color: '#7c3aed', fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 20 }}>
+        <button onClick={addSecondary} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 20 }}>
           + Add a secondary channel (optional)
         </button>
 
-        <div style={{ borderBottom: '1px solid #2a2a2a', margin: '0 0 16px' }} />
+        <div style={{ borderBottom: `1px solid ${C.border}`, margin: '0 0 16px' }} />
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
-          <input
-            type="checkbox"
-            checked={syncNow}
-            onChange={e => setSyncNow(e.target.checked)}
-            style={{ width: 16, height: 16, accentColor: '#7c3aed', cursor: 'pointer' }}
-          />
+          <input type="checkbox" checked={syncNow} onChange={e => setSyncNow(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer' }} />
           <span style={{ fontSize: 13, color: '#d1d5db' }}>Start initial sync immediately &amp; enable weekly updates</span>
         </label>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 24 }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
-          <button
-            onClick={handleCreate}
-            disabled={creating || !name.trim()}
-            style={{ ...btnPrimary, opacity: (creating || !name.trim()) ? 0.5 : 1, cursor: (creating || !name.trim()) ? 'not-allowed' : 'pointer' }}
-          >
+          <button onClick={handleCreate} disabled={creating || !name.trim()} style={{ ...btnPrimary, opacity: (creating || !name.trim()) ? 0.5 : 1, cursor: (creating || !name.trim()) ? 'not-allowed' : 'pointer' }}>
             {creating ? 'Creating…' : 'Create brain'}
           </button>
         </div>
@@ -268,59 +243,132 @@ function CreateBrainModal({ onClose, onCreate }) {
   );
 }
 
-// ── Brain Detail Panel ────────────────────────────────────────────────────────
+// ── Add Channel Modal ─────────────────────────────────────────────────────────
 
-function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
-  const [tab,          setTab]          = useState('videos');
-  const [docs,         setDocs]         = useState(brain.docs || []);
-  const [loadingDocs,  setLoadingDocs]  = useState(false);
+function AddChannelModal({ brainId, locationId, onClose, onAdded }) {
+  const [channelName, setChannelName] = useState('');
+  const [channelUrl,  setChannelUrl]  = useState('');
+  const [isPrimary,   setIsPrimary]   = useState(false);
+  const [saving,      setSaving]      = useState(false);
+  const [error,       setError]       = useState('');
 
-  // YouTube add
-  const [ytUrl,        setYtUrl]        = useState('');
-  const [ytTitle,      setYtTitle]      = useState('');
-  const [ytPrimary,    setYtPrimary]    = useState(false);
-  const [ingesting,    setIngesting]    = useState(false);
+  async function handleAdd() {
+    if (!channelName.trim()) { setError('Channel name is required.'); return; }
+    if (!channelUrl.trim())  { setError('Channel URL is required.'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      const r = await apiFetch(`/brain/${brainId}/channels`, locationId, {
+        method: 'POST',
+        body:   { channelName: channelName.trim(), channelUrl: channelUrl.trim(), isPrimary },
+      });
+      if (!r.success) throw new Error(r.error || 'Failed.');
+      onAdded(r.data);
+    } catch (e) {
+      setError(e.message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 28, width: '100%', maxWidth: 440 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.textPri }}>Add a channel</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: C.textMuted }}>Add another YouTube channel to this brain.</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 20, cursor: 'pointer', marginLeft: 12 }}>✕</button>
+        </div>
+
+        <div style={{ borderBottom: `1px solid ${C.border}`, margin: '16px 0' }} />
+
+        {error && <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: '#1c0a00', border: `1px solid ${C.red}44`, color: '#f87171', fontSize: 13 }}>{error}</div>}
+
+        <label style={labelStyle}>Channel name <span style={{ color: C.red }}>*</span></label>
+        <input value={channelName} onChange={e => setChannelName(e.target.value)} placeholder="e.g. Andrej Karpathy" style={inputStyle} autoFocus />
+
+        <label style={labelStyle}>Channel URL <span style={{ color: C.red }}>*</span></label>
+        <input value={channelUrl} onChange={e => setChannelUrl(e.target.value)} placeholder="https://youtube.com/@handle" style={{ ...inputStyle, marginBottom: 4 }} />
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>Accepts @handle, channel URL, or UC ID.</p>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginBottom: 24 }}>
+          <input type="checkbox" checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.blue }} />
+          <span style={{ fontSize: 13, color: '#d1d5db' }}>Set as primary channel</span>
+        </label>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={btnSecondary}>Cancel</button>
+          <button onClick={handleAdd} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.5 : 1 }}>
+            {saving ? 'Adding…' : 'Add channel'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Brain Detail view ─────────────────────────────────────────────────────────
+
+function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
+  const [tab,               setTab]               = useState('channels');
+  const [docs,              setDocs]              = useState(brain.docs || []);
+  const [channels,          setChannels]          = useState(brain.channels || []);
+  const [loadingDocs,       setLoadingDocs]       = useState(false);
+  const [showAddChannel,    setShowAddChannel]    = useState(false);
+  const [flash,             setFlash]             = useState(null);
+
+  // Edit brain settings
+  const [editName,          setEditName]          = useState(brain.name);
+  const [editDesc,          setEditDesc]          = useState(brain.description || '');
+  const [editDocsUrl,       setEditDocsUrl]       = useState(brain.docsUrl || '');
+  const [editChangelogUrl,  setEditChangelogUrl]  = useState(brain.changelogUrl || '');
+  const [saving,            setSaving]            = useState(false);
+
+  // YouTube add (in Add Content section within Videos tab)
+  const [ytUrl,             setYtUrl]             = useState('');
+  const [ytTitle,           setYtTitle]           = useState('');
+  const [ytPrimary,         setYtPrimary]         = useState(false);
+  const [ingesting,         setIngesting]         = useState(false);
 
   // Channel / playlist discovery
-  const [channelInfo,     setChannelInfo]     = useState(null);  // { channelId, channelName, playlists }
-  const [channelLoading,  setChannelLoading]  = useState(false);
-  const [selectedPlaylists, setSelectedPlaylists] = useState({});  // playlistId → bool
+  const [channelInfo,       setChannelInfo]       = useState(null);
+  const [channelLoading,    setChannelLoading]    = useState(false);
+  const [selectedPlaylists, setSelectedPlaylists] = useState({});
   const [playlistPrimary,   setPlaylistPrimary]   = useState(false);
   const [ingestingPlaylist, setIngestingPlaylist] = useState(false);
   const [playlistProgress,  setPlaylistProgress]  = useState(null);
 
   // Text doc add
-  const [docText,      setDocText]      = useState('');
-  const [docLabel,     setDocLabel]     = useState('');
-  const [docUrl,       setDocUrl]       = useState('');
-  const [docPrimary,   setDocPrimary]   = useState(false);
-  const [addingDoc,    setAddingDoc]    = useState(false);
-
-  // Search
-  const [query,        setQuery]        = useState('');
-  const [querying,     setQuerying]     = useState(false);
-  const [queryResults, setQueryResults] = useState(null);
-
-  // Flash
-  const [flash,        setFlash]        = useState(null);
+  const [docText,           setDocText]           = useState('');
+  const [docLabel,          setDocLabel]          = useState('');
+  const [docUrl,            setDocUrl]            = useState('');
+  const [docPrimary,        setDocPrimary]        = useState(false);
+  const [addingDoc,         setAddingDoc]         = useState(false);
 
   const showFlash = (ok, text) => {
     setFlash({ ok, text });
     setTimeout(() => setFlash(null), 4000);
   };
 
-  // Load docs whenever brain changes
   useEffect(() => {
     setDocs(brain.docs || []);
-    setTab('videos');
-    setQueryResults(null);
+    setChannels(brain.channels || []);
+    setEditName(brain.name);
+    setEditDesc(brain.description || '');
+    setEditDocsUrl(brain.docsUrl || '');
+    setEditChangelogUrl(brain.changelogUrl || '');
   }, [brain.brainId]);
 
-  async function reloadDocs() {
+  async function reloadBrain() {
     setLoadingDocs(true);
     try {
       const r = await apiFetch(`/brain/${brain.brainId}`, locationId);
-      if (r.success) setDocs(r.data.docs || []);
+      if (r.success) {
+        setDocs(r.data.docs || []);
+        setChannels(r.data.channels || []);
+      }
     } catch {}
     setLoadingDocs(false);
   }
@@ -340,9 +388,8 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
         showFlash(true, `"${data.title}" ingested — ${data.chunks} chunks stored.`);
         setYtTitle('');
         setYtPrimary(false);
-        await reloadDocs();
+        await reloadBrain();
         onRefresh();
-        // Auto-discover channel playlists after successful ingest
         discoverChannel(ytUrl.trim());
       } else {
         showFlash(false, data.error || 'Failed to ingest video.');
@@ -356,9 +403,7 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
     setChannelLoading(true);
     try {
       const data = await apiFetch(`/brain/channel-info?videoUrl=${encodeURIComponent(url)}`, locationId);
-      if (data.success && data.data.playlists.length) {
-        setChannelInfo(data.data);
-      }
+      if (data.success && data.data.playlists.length) setChannelInfo(data.data);
     } catch {}
     setChannelLoading(false);
   }
@@ -379,7 +424,7 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
       } catch {}
     }
     setPlaylistProgress({ done: ids.length, total: ids.length, current: '' });
-    await reloadDocs();
+    await reloadBrain();
     onRefresh();
     showFlash(true, `Ingested ${ids.length} playlist(s) successfully.`);
     setIngestingPlaylist(false);
@@ -399,11 +444,8 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
       });
       if (data.success) {
         showFlash(true, `Document added — ${data.chunks} chunks stored.`);
-        setDocText('');
-        setDocLabel('');
-        setDocUrl('');
-        setDocPrimary(false);
-        await reloadDocs();
+        setDocText(''); setDocLabel(''); setDocUrl(''); setDocPrimary(false);
+        await reloadBrain();
         onRefresh();
       } else {
         showFlash(false, data.error || 'Failed to add document.');
@@ -416,271 +458,205 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
     if (!confirm(`Remove "${label}" from this brain?`)) return;
     try {
       await apiFetch(`/brain/${brain.brainId}/docs/${docId}`, locationId, { method: 'DELETE' });
-      await reloadDocs();
+      await reloadBrain();
       onRefresh();
     } catch { showFlash(false, 'Failed to delete document.'); }
   }
 
-  async function runQuery() {
-    if (!query.trim()) return;
-    setQuerying(true);
-    setQueryResults(null);
+  async function deleteChannel(channelId, name) {
+    if (!confirm(`Remove channel "${name}" from this brain?`)) return;
     try {
-      const data = await apiFetch(`/brain/${brain.brainId}/query`, locationId, {
-        method: 'POST',
-        body:   { query: query.trim(), k: 5 },
-      });
-      setQueryResults(data.success ? data.data : []);
-    } catch { setQueryResults([]); }
-    setQuerying(false);
+      const r = await apiFetch(`/brain/${brain.brainId}/channels/${channelId}`, locationId, { method: 'DELETE' });
+      if (r.success) {
+        setChannels(prev => prev.filter(c => c.channelId !== channelId));
+        onRefresh();
+      } else {
+        showFlash(false, r.error || 'Failed to remove channel.');
+      }
+    } catch { showFlash(false, 'Failed to remove channel.'); }
   }
 
+  function handleChannelAdded(ch) {
+    setChannels(prev => [...prev, ch]);
+    setShowAddChannel(false);
+    showFlash(true, `Channel "${ch.channelName}" added.`);
+    onRefresh();
+  }
+
+  const ytDocs = docs.filter(d => d.url && d.url.includes('youtube.com/watch'));
+  const { pendingCount } = getBrainHealth({ ...brain, docs });
   const totalChunks = docs.reduce((a, d) => a + (d.chunkCount || 0), 0);
-  const primaryCount = docs.filter(d => d.isPrimary).length;
+
+  const detailTabs = [
+    { id: 'channels', label: `Channels (${channels.length})` },
+    { id: 'videos',   label: `Videos (${ytDocs.length})` },
+    { id: 'settings', label: 'Settings' },
+  ];
+
+  const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.textMuted, borderBottom: `1px solid ${C.border}` };
+  const tdStyle = { padding: '12px 14px', fontSize: 13, color: C.textPri, borderBottom: `1px solid ${C.border}88`, verticalAlign: 'middle' };
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      {showAddChannel && (
+        <AddChannelModal brainId={brain.brainId} locationId={locationId} onClose={() => setShowAddChannel(false)} onAdded={handleChannelAdded} />
+      )}
+
+      {/* Back link */}
+      <button onClick={onBack} style={{ background: 'none', border: 'none', color: C.textSec, fontSize: 13, cursor: 'pointer', textAlign: 'left', padding: 0, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
+        ← All brains
+      </button>
+
       {/* Brain header */}
-      <div style={{ background: '#1a1a1a', border: '1px solid #222', borderRadius: 12, padding: '20px 24px', marginBottom: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '20px 24px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
-                🧠
-              </div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#e5e7eb' }}>{brain.name}</h2>
-              {brain.slug && (
-                <span style={{ fontSize: 11, color: '#4b5563', background: '#111', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace' }}>
-                  {brain.slug}
-                </span>
-              )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.textPri }}>{brain.name}</h2>
+              <code style={{ fontSize: 12, color: C.textMuted, background: C.codeBg, padding: '2px 8px', borderRadius: 4, border: `1px solid ${C.border}` }}>{brain.slug}</code>
+              {brain.docsUrl && <a href={brain.docsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: C.textSec, textDecoration: 'none' }}>Docs</a>}
+              {brain.changelogUrl && <a href={brain.changelogUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: C.textSec, textDecoration: 'none' }}>Changelog</a>}
             </div>
-            {brain.description && (
-              <p style={{ margin: '4px 0 0 46px', color: '#6b7280', fontSize: 13 }}>{brain.description}</p>
-            )}
+            {brain.description && <p style={{ margin: '8px 0 0', color: C.textMuted, fontSize: 13 }}>{brain.description}</p>}
           </div>
-          <button
-            onClick={() => { if (confirm(`Delete brain "${brain.name}"? This cannot be undone.`)) onDeleted(brain.brainId); }}
-            style={{ ...btnSecondary, color: '#ef4444', borderColor: '#33111144', flexShrink: 0 }}
-          >
-            Delete brain
-          </button>
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button onClick={reloadBrain} style={btnSecondary}>↻ Sync Now</button>
+            <button onClick={() => setShowAddChannel(true)} style={btnPrimary}>+ Add Channel</button>
+          </div>
         </div>
 
-        {/* Stats */}
-        <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
-          {[
-            { label: 'Videos',   value: docs.filter(d => d.url && d.url.includes('youtube')).length, icon: '▶' },
-            { label: 'Chunks',   value: totalChunks,  icon: '🧩' },
-            { label: 'Channels', value: (brain.channels || []).length + primaryCount, icon: '📡' },
-          ].map(s => (
-            <div key={s.label} style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 15 }}>{s.icon}</span>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#e5e7eb' }}>{s.value}</div>
-                <div style={{ fontSize: 11, color: '#6b7280' }}>{s.label}</div>
-              </div>
-            </div>
-          ))}
-        </div>
+        {pendingCount > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#2d1f00', border: `1px solid ${C.amber}44`, borderRadius: 8, padding: '9px 14px', marginTop: 8 }}>
+            <span style={{ color: C.amber, fontSize: 14 }}>⚠</span>
+            <span style={{ color: C.amber, fontSize: 13, fontWeight: 500 }}>Needs Attention</span>
+            <span style={{ color: '#d97706', fontSize: 13 }}>· {pendingCount} videos pending transcription</span>
+          </div>
+        )}
       </div>
 
-      {/* Flash message */}
+      {/* Flash */}
       {flash && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: flash.ok ? '#052e16' : '#1c0a00', border: `1px solid ${flash.ok ? '#22c55e44' : '#ef444444'}`, color: flash.ok ? '#4ade80' : '#f87171', fontSize: 13 }}>
+        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: flash.ok ? '#052e16' : '#1c0a00', border: `1px solid ${flash.ok ? C.green + '44' : C.red + '44'}`, color: flash.ok ? '#4ade80' : '#f87171', fontSize: 13 }}>
           {flash.ok ? '✓ ' : '✗ '}{flash.text}
         </div>
       )}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 0, background: '#111', border: '1px solid #222', borderRadius: 10, marginBottom: 20, overflow: 'hidden' }}>
-        {[
-          { id: 'videos',  label: 'Videos' },
-          { id: 'add',     label: 'Add Content' },
-          { id: 'search',  label: 'Search' },
-        ].map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id); setQueryResults(null); }}
-            style={{ flex: 1, padding: '10px 8px', background: tab === t.id ? '#7c3aed' : 'transparent', color: tab === t.id ? '#fff' : '#6b7280', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: tab === t.id ? 600 : 400, transition: 'all .15s' }}>
+      <div style={{ display: 'flex', gap: 0, borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}>
+        {detailTabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            background: 'none', border: 'none', borderBottom: tab === t.id ? `2px solid ${C.blue}` : '2px solid transparent',
+            color: tab === t.id ? C.textPri : C.textMuted, padding: '10px 18px', fontSize: 14, fontWeight: tab === t.id ? 600 : 400,
+            cursor: 'pointer', marginBottom: -1,
+          }}>
             {t.label}
           </button>
         ))}
       </div>
 
-      {/* ── Videos tab ── */}
-      {tab === 'videos' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontSize: 13, color: '#6b7280' }}>{docs.length} document{docs.length !== 1 ? 's' : ''} ingested</span>
-            <button onClick={reloadDocs} style={btnSecondary}>↻ Refresh</button>
-          </div>
-
-          {loadingDocs && <p style={{ color: '#4b5563', fontSize: 13 }}>Loading…</p>}
-
-          {!loadingDocs && docs.length === 0 && (
-            <div style={{ background: '#1a1a1a', border: '1px dashed #333', borderRadius: 12, padding: '40px 20px', textAlign: 'center' }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>🧠</div>
-              <p style={{ color: '#4b5563', margin: 0, fontSize: 14 }}>
-                No content yet.<br />
-                Switch to "Add Content" to ingest YouTube videos or paste text.
-              </p>
+      {/* ── Channels tab ── */}
+      {tab === 'channels' && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+          {channels.length === 0 ? (
+            <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+              <p style={{ color: C.textMuted, fontSize: 14, margin: 0 }}>No channels yet. Add one to start syncing.</p>
             </div>
-          )}
-
-          {!loadingDocs && docs.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {docs.map(doc => {
-                const isYt  = doc.url && doc.url.includes('youtube.com/watch');
-                const vidId = isYt ? extractVideoId(doc.url) : null;
-                return (
-                  <div key={doc.docId} style={{ background: '#1a1a1a', border: '1px solid #222', borderRadius: 10, overflow: 'hidden' }}>
-                    {vidId && (
-                      <div style={{ position: 'relative' }}>
-                        <img src={ytThumb(vidId)} alt="" style={{ width: '100%', display: 'block', height: 120, objectFit: 'cover', opacity: 0.75 }} />
-                        {doc.isPrimary && (
-                          <span style={{ position: 'absolute', top: 8, left: 8, background: '#7c3aed', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Primary
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    <div style={{ padding: '10px 14px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ margin: '0 0 4px', color: '#e5e7eb', fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {isYt ? '▶ ' : '📄 '}{doc.sourceLabel || doc.url || 'Untitled'}
-                          </p>
-                          <p style={{ margin: 0, color: '#4b5563', fontSize: 11 }}>
-                            {doc.chunkCount} chunk{doc.chunkCount !== 1 ? 's' : ''} · {timeAgo(doc.addedAt)}
-                            {!isYt && doc.isPrimary && (
-                              <span style={{ marginLeft: 6, background: '#7c3aed33', color: '#a78bfa', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 }}>PRIMARY</span>
-                            )}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => deleteDoc(doc.docId, doc.sourceLabel || 'this document')}
-                          style={{ background: 'none', border: '1px solid #33111144', borderRadius: 6, color: '#ef4444', padding: '3px 8px', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                      {doc.url && (
-                        <a href={doc.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#4b5563', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', whiteSpace: 'nowrap', marginTop: 4 }}>
-                          {doc.url}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Name</th>
+                  <th style={thStyle}>Handle / ID</th>
+                  <th style={thStyle}>Type</th>
+                  <th style={thStyle}>Videos</th>
+                  <th style={thStyle}>Last synced</th>
+                  <th style={{ ...thStyle, width: 50 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {channels.map(ch => (
+                  <tr key={ch.channelId || ch.channelName}>
+                    <td style={tdStyle}>{ch.channelName}</td>
+                    <td style={{ ...tdStyle, color: C.textSec, fontFamily: 'monospace', fontSize: 12 }}>{ch.handle || ch.channelUrl || '—'}</td>
+                    <td style={tdStyle}>
+                      {(ch.isPrimary || ch.type === 'primary')
+                        ? <span style={{ background: `${C.blueDark}33`, color: '#93c5fd', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>primary</span>
+                        : <span style={{ color: C.textMuted, fontSize: 12 }}>secondary</span>
+                      }
+                    </td>
+                    <td style={{ ...tdStyle, color: C.textSec }}>{ch.videoCount || 0}</td>
+                    <td style={{ ...tdStyle, color: C.textMuted, fontSize: 12 }}>{ch.lastSynced ? timeAgo(ch.lastSynced) : 'Never'}</td>
+                    <td style={tdStyle}>
+                      <button onClick={() => deleteChannel(ch.channelId, ch.channelName)} style={{ background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       )}
 
-      {/* ── Add Content tab ── */}
-      {tab === 'add' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* YouTube */}
-          <div style={{ background: '#1a1a1a', border: '1px solid #222', borderRadius: 12, padding: 20 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#e5e7eb' }}>Add YouTube Video</h3>
-
+      {/* ── Videos tab ── */}
+      {tab === 'videos' && (
+        <div>
+          {/* Add YouTube video section */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 15, color: C.textPri }}>Add YouTube Video</h3>
             <label style={labelStyle}>YouTube URL</label>
-            <input
-              value={ytUrl}
-              onChange={e => setYtUrl(e.target.value)}
-              placeholder="https://www.youtube.com/watch?v=..."
-              style={inputStyle}
-            />
-
+            <input value={ytUrl} onChange={e => setYtUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." style={inputStyle} />
             <label style={labelStyle}>Title (optional)</label>
-            <input
-              value={ytTitle}
-              onChange={e => setYtTitle(e.target.value)}
-              placeholder="e.g. Marketing Strategy 2025"
-              style={inputStyle}
-            />
-
+            <input value={ytTitle} onChange={e => setYtTitle(e.target.value)} placeholder="e.g. Marketing Strategy 2025" style={inputStyle} />
             <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
-              <input
-                type="checkbox"
-                checked={ytPrimary}
-                onChange={e => setYtPrimary(e.target.checked)}
-                style={{ width: 16, height: 16, accentColor: '#7c3aed' }}
-              />
-              <span style={{ color: '#9ca3af' }}>Primary channel? <span style={{ color: '#4b5563', fontWeight: 400 }}>(boosts search score 1.5×)</span></span>
+              <input type="checkbox" checked={ytPrimary} onChange={e => setYtPrimary(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.blue }} />
+              <span style={{ color: C.textSec }}>Primary channel? <span style={{ color: C.textMuted, fontWeight: 400 }}>(boosts search score 1.5x)</span></span>
             </label>
-
-            <button
-              onClick={ingestYoutube}
-              disabled={ingesting || !ytUrl.trim()}
-              style={{ ...btnPrimary, width: '100%', opacity: (ingesting || !ytUrl.trim()) ? 0.5 : 1, cursor: (ingesting || !ytUrl.trim()) ? 'not-allowed' : 'pointer' }}
-            >
-              {ingesting ? '⏳ Extracting transcript…' : 'Add to Brain'}
+            <button onClick={ingestYoutube} disabled={ingesting || !ytUrl.trim()} style={{ ...btnPrimary, width: '100%', opacity: (ingesting || !ytUrl.trim()) ? 0.5 : 1, cursor: (ingesting || !ytUrl.trim()) ? 'not-allowed' : 'pointer' }}>
+              {ingesting ? 'Extracting transcript…' : 'Add to Brain'}
             </button>
           </div>
 
-          {/* Channel / Playlist picker — shown after successful video ingest */}
+          {/* Playlist picker */}
           {(channelLoading || channelInfo) && (
-            <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: 20 }}>
-              {channelLoading && (
-                <p style={{ margin: 0, color: '#6b7280', fontSize: 13 }}>⏳ Discovering channel playlists…</p>
-              )}
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+              {channelLoading && <p style={{ margin: 0, color: C.textMuted, fontSize: 13 }}>Discovering channel playlists…</p>}
               {channelInfo && (
                 <>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                    <span style={{ fontSize: 22 }}>📺</span>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#e5e7eb' }}>{channelInfo.channelName}</div>
-                      <div style={{ fontSize: 12, color: '#4b5563' }}>{channelInfo.playlists.length} playlists found</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.textPri }}>{channelInfo.channelName}</div>
+                      <div style={{ fontSize: 12, color: C.textMuted }}>{channelInfo.playlists.length} playlists found</div>
                     </div>
                     <button onClick={() => { setChannelInfo(null); setYtUrl(''); }} style={{ ...btnSecondary, marginLeft: 'auto', fontSize: 11, padding: '4px 10px' }}>✕</button>
                   </div>
-
-                  <p style={{ margin: '0 0 12px', fontSize: 12, color: '#6b7280' }}>Select playlists to bulk-ingest into this brain:</p>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto', marginBottom: 14 }}>
+                  <p style={{ margin: '0 0 12px', fontSize: 12, color: C.textMuted }}>Select playlists to bulk-ingest:</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto', marginBottom: 14 }}>
                     {channelInfo.playlists.map(pl => (
-                      <label key={pl.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: selectedPlaylists[pl.id] ? '#1e1050' : '#111', border: `1px solid ${selectedPlaylists[pl.id] ? '#7c3aed55' : '#222'}`, borderRadius: 8, cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={!!selectedPlaylists[pl.id]}
-                          onChange={e => setSelectedPlaylists(prev => ({ ...prev, [pl.id]: e.target.checked }))}
-                          style={{ width: 15, height: 15, accentColor: '#7c3aed', flexShrink: 0 }}
-                        />
+                      <label key={pl.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: selectedPlaylists[pl.id] ? '#0d1e3a' : C.bg, border: `1px solid ${selectedPlaylists[pl.id] ? C.blue + '55' : C.border}`, borderRadius: 8, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={!!selectedPlaylists[pl.id]} onChange={e => setSelectedPlaylists(prev => ({ ...prev, [pl.id]: e.target.checked }))} style={{ width: 15, height: 15, accentColor: C.blue, flexShrink: 0 }} />
                         {pl.thumbnail && <img src={pl.thumbnail} alt="" style={{ width: 48, height: 27, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />}
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, color: '#e5e7eb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pl.title}</div>
-                          {pl.videoCount && <div style={{ fontSize: 11, color: '#4b5563' }}>{pl.videoCount} videos</div>}
+                          <div style={{ fontSize: 13, color: C.textPri, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pl.title}</div>
+                          {pl.videoCount && <div style={{ fontSize: 11, color: C.textMuted }}>{pl.videoCount} videos</div>}
                         </div>
                       </label>
                     ))}
                   </div>
-
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#9ca3af', marginBottom: 12, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={playlistPrimary} onChange={e => setPlaylistPrimary(e.target.checked)} style={{ width: 14, height: 14, accentColor: '#7c3aed' }} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.textSec, marginBottom: 12, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={playlistPrimary} onChange={e => setPlaylistPrimary(e.target.checked)} style={{ width: 14, height: 14, accentColor: C.blue }} />
                     Mark playlist videos as primary source
                   </label>
-
                   {ingestingPlaylist && playlistProgress && (
-                    <div style={{ marginBottom: 12, padding: '8px 12px', background: '#0d0d0d', borderRadius: 8, fontSize: 12, color: '#9ca3af' }}>
-                      ⏳ Ingesting playlist {playlistProgress.done}/{playlistProgress.total}
+                    <div style={{ marginBottom: 12, padding: '8px 12px', background: C.bg, borderRadius: 8, fontSize: 12, color: C.textSec }}>
+                      Ingesting playlist {playlistProgress.done}/{playlistProgress.total}
                       {playlistProgress.current && ` — "${playlistProgress.current}"`}
                     </div>
                   )}
-
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={() => setSelectedPlaylists(Object.fromEntries(channelInfo.playlists.map(p => [p.id, true])))}
-                      style={{ ...btnSecondary, flex: 1, fontSize: 12 }}
-                    >
-                      Select All
-                    </button>
-                    <button
-                      onClick={ingestPlaylists}
-                      disabled={ingestingPlaylist || !Object.values(selectedPlaylists).some(Boolean)}
-                      style={{ ...btnPrimary, flex: 2, opacity: (ingestingPlaylist || !Object.values(selectedPlaylists).some(Boolean)) ? 0.5 : 1, cursor: 'pointer' }}
-                    >
-                      {ingestingPlaylist ? '⏳ Ingesting…' : `Ingest ${Object.values(selectedPlaylists).filter(Boolean).length} Playlist(s)`}
+                    <button onClick={() => setSelectedPlaylists(Object.fromEntries(channelInfo.playlists.map(p => [p.id, true])))} style={{ ...btnSecondary, flex: 1, fontSize: 12 }}>Select All</button>
+                    <button onClick={ingestPlaylists} disabled={ingestingPlaylist || !Object.values(selectedPlaylists).some(Boolean)} style={{ ...btnPrimary, flex: 2, opacity: (ingestingPlaylist || !Object.values(selectedPlaylists).some(Boolean)) ? 0.5 : 1 }}>
+                      {ingestingPlaylist ? 'Ingesting…' : `Ingest ${Object.values(selectedPlaylists).filter(Boolean).length} Playlist(s)`}
                     </button>
                   </div>
                 </>
@@ -688,99 +664,546 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
             </div>
           )}
 
-          {/* Text doc */}
-          <div style={{ background: '#1a1a1a', border: '1px solid #222', borderRadius: 12, padding: 20 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#e5e7eb' }}>Paste Text / Document</h3>
-
+          {/* Paste text doc */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 15, color: C.textPri }}>Paste Text / Document</h3>
             <label style={labelStyle}>Source label (optional)</label>
-            <input
-              value={docLabel}
-              onChange={e => setDocLabel(e.target.value)}
-              placeholder="e.g. Company SOP v3"
-              style={inputStyle}
-            />
-
+            <input value={docLabel} onChange={e => setDocLabel(e.target.value)} placeholder="e.g. Company SOP v3" style={inputStyle} />
             <label style={labelStyle}>URL (optional)</label>
-            <input
-              value={docUrl}
-              onChange={e => setDocUrl(e.target.value)}
-              placeholder="https://..."
-              style={inputStyle}
-            />
-
+            <input value={docUrl} onChange={e => setDocUrl(e.target.value)} placeholder="https://..." style={inputStyle} />
             <label style={labelStyle}>Text content *</label>
-            <textarea
-              value={docText}
-              onChange={e => setDocText(e.target.value)}
-              placeholder="Paste article, transcript, notes, SOPs…"
-              rows={6}
-              style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }}
-            />
-
+            <textarea value={docText} onChange={e => setDocText(e.target.value)} placeholder="Paste article, transcript, notes, SOPs…" rows={5} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
             <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
-              <input
-                type="checkbox"
-                checked={docPrimary}
-                onChange={e => setDocPrimary(e.target.checked)}
-                style={{ width: 16, height: 16, accentColor: '#7c3aed' }}
-              />
-              <span style={{ color: '#9ca3af' }}>Mark as primary source <span style={{ color: '#4b5563', fontWeight: 400 }}>(boosts score 1.5×)</span></span>
+              <input type="checkbox" checked={docPrimary} onChange={e => setDocPrimary(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.blue }} />
+              <span style={{ color: C.textSec }}>Mark as primary source</span>
             </label>
-
-            <button
-              onClick={addTextDoc}
-              disabled={addingDoc || !docText.trim()}
-              style={{ ...btnPrimary, width: '100%', opacity: (addingDoc || !docText.trim()) ? 0.5 : 1, cursor: (addingDoc || !docText.trim()) ? 'not-allowed' : 'pointer' }}
-            >
-              {addingDoc ? '⏳ Processing…' : 'Add to Brain'}
+            <button onClick={addTextDoc} disabled={addingDoc || !docText.trim()} style={{ ...btnPrimary, width: '100%', opacity: (addingDoc || !docText.trim()) ? 0.5 : 1 }}>
+              {addingDoc ? 'Processing…' : 'Add to Brain'}
             </button>
+          </div>
+
+          {/* Videos table */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: `1px solid ${C.border}` }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: C.textPri }}>{docs.length} document{docs.length !== 1 ? 's' : ''} indexed</span>
+              <button onClick={reloadBrain} style={{ ...btnSecondary, fontSize: 12, padding: '5px 12px' }}>↻ Refresh</button>
+            </div>
+            {loadingDocs && <p style={{ color: C.textMuted, fontSize: 13, padding: '16px 18px', margin: 0 }}>Loading…</p>}
+            {!loadingDocs && docs.length === 0 && (
+              <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+                <p style={{ color: C.textMuted, fontSize: 14, margin: 0 }}>No content yet. Add YouTube videos or paste text above.</p>
+              </div>
+            )}
+            {!loadingDocs && docs.length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thStyle, width: 60 }}></th>
+                    <th style={thStyle}>Title</th>
+                    <th style={thStyle}>Chunks</th>
+                    <th style={thStyle}>Added</th>
+                    <th style={{ ...thStyle, width: 50 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {docs.map(doc => {
+                    const isYt  = doc.url && doc.url.includes('youtube.com/watch');
+                    const vidId = isYt ? extractVideoId(doc.url) : null;
+                    return (
+                      <tr key={doc.docId}>
+                        <td style={{ ...tdStyle, padding: '8px 14px' }}>
+                          {vidId
+                            ? <img src={ytThumb(vidId)} alt="" style={{ width: 56, height: 32, objectFit: 'cover', borderRadius: 4, display: 'block' }} />
+                            : <span style={{ fontSize: 20 }}>📄</span>
+                          }
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 340 }}>
+                            {doc.sourceLabel || doc.url || 'Untitled'}
+                          </div>
+                          {doc.url && (
+                            <a href={doc.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.textMuted, textDecoration: 'none' }}>
+                              {doc.url.length > 60 ? doc.url.slice(0, 60) + '…' : doc.url}
+                            </a>
+                          )}
+                        </td>
+                        <td style={{ ...tdStyle, color: C.textSec }}>{doc.chunkCount || 0}</td>
+                        <td style={{ ...tdStyle, color: C.textMuted, fontSize: 12 }}>{timeAgo(doc.addedAt)}</td>
+                        <td style={tdStyle}>
+                          <button onClick={() => deleteDoc(doc.docId, doc.sourceLabel || 'this document')} style={{ background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
 
-      {/* ── Search tab ── */}
-      {tab === 'search' && (
-        <div style={{ background: '#1a1a1a', border: '1px solid #222', borderRadius: 12, padding: 20 }}>
-          <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#e5e7eb' }}>Search this Brain</h3>
-
-          <label style={labelStyle}>Query</label>
-          <textarea
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="e.g. What were the key marketing takeaways?"
-            rows={3}
-            style={{ ...inputStyle, resize: 'vertical', marginBottom: 16 }}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), runQuery())}
-          />
-
-          <button
-            onClick={runQuery}
-            disabled={querying || !query.trim()}
-            style={{ ...btnPrimary, width: '100%', opacity: (querying || !query.trim()) ? 0.5 : 1, cursor: (querying || !query.trim()) ? 'not-allowed' : 'pointer' }}
-          >
-            {querying ? '⏳ Searching…' : 'Search Brain'}
-          </button>
-
-          {queryResults !== null && (
-            <div style={{ marginTop: 20 }}>
-              {queryResults.length === 0
-                ? <p style={{ color: '#6b7280', fontSize: 13 }}>No relevant content found.</p>
-                : queryResults.map((r, i) => (
-                  <div key={i} style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, padding: '12px 14px', marginBottom: 10 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>
-                        {r.isPrimary ? '★ ' : ''}📄 {r.sourceLabel || 'Unknown source'}
-                      </span>
-                      <span style={{ fontSize: 11, color: '#4b5563' }}>score: {r.score ? r.score.toFixed(2) : '—'}</span>
-                    </div>
-                    <p style={{ margin: 0, color: '#d1d5db', fontSize: 13, lineHeight: 1.6 }}>{r.text}</p>
-                  </div>
-                ))
-              }
+      {/* ── Settings tab ── */}
+      {tab === 'settings' && (
+        <div style={{ maxWidth: 520 }}>
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+            <h3 style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Brain Settings</h3>
+            <label style={labelStyle}>Name</label>
+            <input value={editName} onChange={e => setEditName(e.target.value)} style={inputStyle} />
+            <label style={labelStyle}>Description</label>
+            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
+            <label style={labelStyle}>Docs URL</label>
+            <input value={editDocsUrl} onChange={e => setEditDocsUrl(e.target.value)} placeholder="https://docs.example.com" style={inputStyle} />
+            <label style={labelStyle}>Changelog URL</label>
+            <input value={editChangelogUrl} onChange={e => setEditChangelogUrl(e.target.value)} placeholder="https://example.com/changelog" style={inputStyle} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={async () => {
+                setSaving(true);
+                // Note: full brain update endpoint not yet implemented; show a note
+                showFlash(false, 'Brain update not yet available via API.');
+                setSaving(false);
+              }} style={{ ...btnPrimary, opacity: saving ? 0.5 : 1 }}>
+                {saving ? 'Saving…' : 'Save changes'}
+              </button>
             </div>
-          )}
+          </div>
+
+          <div style={{ background: '#1a0a0a', border: `1px solid ${C.red}33`, borderRadius: 12, padding: 24 }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: C.red }}>Danger Zone</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: C.textMuted }}>Permanently delete this brain and all its data. This cannot be undone.</p>
+            <button onClick={() => { if (confirm(`Delete brain "${brain.name}"? This cannot be undone.`)) onDeleted(brain.brainId); }}
+              style={{ background: C.red, border: 'none', borderRadius: 8, color: '#fff', padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Delete brain
+            </button>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Dashboard view ────────────────────────────────────────────────────────────
+
+function DashboardView({ brains, loading, onAddBrain, onSelectBrain }) {
+  const totalVideos  = brains.reduce((a, b) => a + (b.docCount || 0), 0);
+  const totalChunks  = brains.reduce((a, b) => a + (b.chunkCount || 0), 0);
+  const totalChannels = brains.reduce((a, b) => a + (b.channels || []).length, 0);
+
+  const statCards = [
+    { label: 'Brains',   value: brains.length,  icon: '🧠' },
+    { label: 'Channels', value: totalChannels,   icon: '📡' },
+    { label: 'Videos',   value: totalVideos,     icon: '▶' },
+    { label: 'Chunks',   value: totalChunks,     icon: '🧩' },
+  ];
+
+  return (
+    <div>
+      {/* Welcome header + stats bar */}
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ margin: '0 0 4px', fontSize: 24, fontWeight: 700, color: C.textPri }}>Welcome back</h1>
+        <p style={{ margin: '0 0 20px', fontSize: 14, color: C.textMuted }}>Your YouTube knowledge bases at a glance</p>
+        <div style={{ fontSize: 13, color: C.textSec, background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 16px', display: 'inline-block' }}>
+          {brains.length} brain{brains.length !== 1 ? 's' : ''} &nbsp;|&nbsp; {totalVideos.toLocaleString()} videos indexed &nbsp;|&nbsp; {totalChannels} channel{totalChannels !== 1 ? 's' : ''}
+        </div>
+      </div>
+
+      {/* Stat cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
+        {statCards.map(s => (
+          <div key={s.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ fontSize: 28 }}>{s.icon}</div>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: C.textPri }}>{s.value.toLocaleString()}</div>
+              <div style={{ fontSize: 12, color: C.textMuted }}>{s.label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Brain grid */}
+      {loading && <p style={{ color: C.textMuted, fontSize: 13 }}>Loading brains…</p>}
+
+      {!loading && brains.length === 0 && (
+        <div style={{ background: C.card, border: `1px dashed ${C.border}`, borderRadius: 16, padding: '60px 20px', textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🧠</div>
+          <h3 style={{ margin: '0 0 8px', color: C.textPri, fontSize: 18 }}>No brains yet</h3>
+          <p style={{ color: C.textMuted, fontSize: 14, margin: '0 0 24px' }}>Create a brain to start ingesting YouTube channels.</p>
+          <button onClick={onAddBrain} style={btnPrimary}>+ Add Brain</button>
+        </div>
+      )}
+
+      {!loading && brains.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
+          {brains.map(b => {
+            const { healthy, pendingCount } = getBrainHealth(b);
+            const channelCount = (b.channels || []).length;
+            return (
+              <div key={b.brainId} onClick={() => onSelectBrain(b.brainId)} style={{
+                background: C.card, border: `1px solid ${C.border}`, borderRadius: 14,
+                padding: 20, cursor: 'pointer', transition: 'border-color .15s',
+              }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = C.blue + '88'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
+              >
+                {/* Name + health badge */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: C.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{b.name}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: healthy ? C.green : C.amber, flexShrink: 0, marginLeft: 10 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: healthy ? C.green : C.amber, display: 'inline-block' }} />
+                    {healthy ? 'Healthy' : 'Needs Attention'}
+                  </span>
+                </div>
+
+                {/* Slug */}
+                <code style={{ fontSize: 11, color: C.textMuted, background: C.codeBg, padding: '2px 7px', borderRadius: 4, border: `1px solid ${C.border}`, display: 'inline-block', marginBottom: 14 }}>{b.slug}</code>
+
+                {/* Mini stats */}
+                <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+                  {[
+                    { icon: '📡', val: channelCount,       label: 'channels' },
+                    { icon: '▶',  val: b.docCount || 0,   label: 'videos' },
+                    { icon: '🧩', val: b.chunkCount || 0, label: 'chunks' },
+                  ].map(s => (
+                    <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ fontSize: 13 }}>{s.icon}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: C.textPri }}>{s.val.toLocaleString()}</span>
+                      <span style={{ fontSize: 12, color: C.textMuted }}>{s.label}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: 12, color: C.textMuted, marginBottom: pendingCount > 0 ? 10 : 0 }}>
+                  Quality: No data &nbsp;·&nbsp; Last synced: {b.updatedAt ? timeAgo(b.updatedAt) : 'Never'}
+                </div>
+
+                {pendingCount > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#2d1f00', border: `1px solid ${C.amber}33`, borderRadius: 6, padding: '6px 10px', fontSize: 12, color: C.amber }}>
+                    <span>⚠</span> {pendingCount} pending transcription
+                  </div>
+                )}
+
+                {/* Footer links */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+                  {b.docsUrl
+                    ? <a href={b.docsUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: C.textSec, textDecoration: 'none' }}>Docs</a>
+                    : <span style={{ fontSize: 12, color: C.border }}>Docs</span>
+                  }
+                  {b.changelogUrl
+                    ? <a href={b.changelogUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: C.textSec, textDecoration: 'none' }}>Changelog</a>
+                    : <span style={{ fontSize: 12, color: C.border }}>Changelog</span>
+                  }
+                  {pendingCount > 0 && (
+                    <span style={{ marginLeft: 'auto', background: `${C.amber}22`, color: C.amber, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>{pendingCount} pending</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Pipeline view ─────────────────────────────────────────────────────────────
+
+function PipelineView({ brains }) {
+  const columns = [
+    { id: 'needs_sync',  label: 'Needs Sync',  subtitle: 'Waiting for first sync',     icon: '⊙', color: '#6b7280', bgColor: '#1a1f2a' },
+    { id: 'syncing',     label: 'Syncing',     subtitle: 'Pulling from YouTube',        icon: '✦', color: C.blue,   bgColor: '#0d1a2e' },
+    { id: 'processing',  label: 'Processing',  subtitle: 'Transcribing & embedding',   icon: '⚙', color: C.amber,  bgColor: '#2d1f00' },
+    { id: 'ready',       label: 'Ready',       subtitle: 'Up to date & queryable',     icon: '✓', color: C.green,  bgColor: '#062010' },
+  ];
+
+  function categorizeBrain(b) {
+    const hasContent = (b.docCount || 0) > 0;
+    const { pendingCount } = getBrainHealth(b);
+    if (!hasContent && (b.channels || []).length === 0) return 'needs_sync';
+    if (pendingCount > 0) return 'processing';
+    if (!hasContent) return 'syncing';
+    return 'ready';
+  }
+
+  const categorized = {};
+  for (const col of columns) categorized[col.id] = brains.filter(b => categorizeBrain(b) === col.id);
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.textPri }}>Pipeline</h2>
+        <p style={{ margin: 0, fontSize: 14, color: C.textMuted }}>{brains.length} brain{brains.length !== 1 ? 's' : ''} across the ingestion pipeline</p>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+        {columns.map(col => {
+          const items = categorized[col.id] || [];
+          return (
+            <div key={col.id}>
+              {/* Column header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16, color: col.color }}>{col.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.textPri }}>{col.label}</div>
+                    <div style={{ fontSize: 11, color: C.textMuted }}>{col.subtitle}</div>
+                  </div>
+                </div>
+                <span style={{ background: col.bgColor, color: col.color, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>{items.length}</span>
+              </div>
+
+              {/* Brain mini-cards */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {items.length === 0 && (
+                  <div style={{ background: C.card, border: `1px dashed ${C.border}`, borderRadius: 10, padding: '20px 14px', textAlign: 'center', fontSize: 12, color: C.border }}>
+                    No brains
+                  </div>
+                )}
+                {items.map(b => (
+                  <div key={b.brainId} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 14px' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.textPri, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</div>
+                    <code style={{ fontSize: 10, color: C.textMuted }}>{b.slug}</code>
+                    <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: C.textSec }}>
+                      <span>▶ {b.docCount || 0} videos</span>
+                      <span>🧩 {b.chunkCount || 0} chunks</span>
+                    </div>
+                    {b.updatedAt && (
+                      <div style={{ marginTop: 6, fontSize: 11, color: C.textMuted }}>{timeAgo(b.updatedAt)}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Search view ───────────────────────────────────────────────────────────────
+
+function SearchView({ brains, locationId }) {
+  const [selectedBrainId, setSelectedBrainId] = useState(brains[0]?.brainId || '');
+  const [query,           setQuery]           = useState('');
+  const [querying,        setQuerying]        = useState(false);
+  const [results,         setResults]         = useState(null);
+
+  useEffect(() => {
+    if (!selectedBrainId && brains.length > 0) setSelectedBrainId(brains[0].brainId);
+  }, [brains]);
+
+  async function runSearch() {
+    if (!query.trim() || !selectedBrainId) return;
+    setQuerying(true);
+    setResults(null);
+    try {
+      const data = await apiFetch(`/brain/${selectedBrainId}/query`, locationId, {
+        method: 'POST',
+        body:   { query: query.trim(), k: 8 },
+      });
+      setResults(data.success ? data.data : []);
+    } catch { setResults([]); }
+    setQuerying(false);
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.textPri }}>Search</h2>
+        <p style={{ margin: 0, fontSize: 14, color: C.textMuted }}>Semantic search across transcript chunks</p>
+      </div>
+
+      {/* Search bar row */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+        <select value={selectedBrainId} onChange={e => setSelectedBrainId(e.target.value)} style={{ ...inputStyle, marginBottom: 0, width: 200, flexShrink: 0 }}>
+          {brains.map(b => <option key={b.brainId} value={b.brainId}>{b.name}</option>)}
+        </select>
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && runSearch()}
+          placeholder="Search knowledge base…"
+          style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+        />
+        <button onClick={runSearch} disabled={querying || !query.trim() || !selectedBrainId} style={{ ...btnPrimary, flexShrink: 0, opacity: (querying || !query.trim() || !selectedBrainId) ? 0.5 : 1 }}>
+          {querying ? 'Searching…' : 'Search'}
+        </button>
+      </div>
+
+      {/* Empty state */}
+      {results === null && (
+        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+          <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>≡</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: C.textSec, marginBottom: 8 }}>Ready to search</div>
+          <div style={{ fontSize: 13, color: C.textMuted }}>Select a brain and enter a query to search across transcript chunks.</div>
+        </div>
+      )}
+
+      {/* Results */}
+      {results !== null && results.length === 0 && (
+        <p style={{ color: C.textMuted, fontSize: 13 }}>No relevant content found.</p>
+      )}
+      {results !== null && results.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {results.map((r, i) => (
+            <div key={i} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: C.blue, fontWeight: 600 }}>
+                  {r.isPrimary ? '★ ' : ''}📄 {r.sourceLabel || 'Unknown source'}
+                </span>
+                <span style={{ fontSize: 11, color: C.textMuted }}>score: {r.score ? r.score.toFixed(2) : '—'}</span>
+              </div>
+              <p style={{ margin: 0, color: '#d1d5db', fontSize: 13, lineHeight: 1.7 }}>{r.text}</p>
+              {r.url && (
+                <a href={r.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.textMuted, textDecoration: 'none', display: 'block', marginTop: 6 }}>
+                  {r.url.length > 80 ? r.url.slice(0, 80) + '…' : r.url}
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── MCP view ──────────────────────────────────────────────────────────────────
+
+const MCP_TOOLS = [
+  { name: 'search_knowledge',  desc: 'Semantic search within a specific brain.',                                          inputs: 'query (string), brain (string), top_k? (number)' },
+  { name: 'chat_with_brain',   desc: 'Full RAG pipeline — retrieves context then generates a grounded response.',         inputs: 'message (string), brain (string), conversation_history? (Message[])' },
+  { name: 'get_video',         desc: 'Get full transcript and metadata for a specific YouTube video.',                    inputs: 'video_id (string)' },
+  { name: 'list_brains',       desc: 'Returns all brains with health metrics and channel info.',                          inputs: 'none' },
+  { name: 'add_brain',         desc: 'Create a new brain from a YouTube channel URL.',                                   inputs: 'name (string), slug (string), channel_url (string), channel_name (string)' },
+  { name: 'add_channel',       desc: 'Add a supplementary channel to an existing brain.',                                inputs: 'brain_slug (string), channel_url (string), channel_name (string)' },
+];
+
+function McpView({ brains }) {
+  const [clientTab, setClientTab] = useState('claude');
+  const [copied,    setCopied]    = useState(false);
+
+  const baseUrl = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost:3000';
+  const sseUrl  = `${baseUrl}/sse`;
+
+  const clientConfigs = {
+    claude: {
+      label: 'Claude Code',
+      config: JSON.stringify({ mcpServers: { 'hl-pro-tools': { command: 'curl', args: ['-N', sseUrl] } } }, null, 2),
+    },
+    cursor: {
+      label: 'Cursor',
+      config: JSON.stringify({ mcp: { servers: { 'hl-pro-tools': { url: sseUrl, transport: 'sse' } } } }, null, 2),
+    },
+    windsurf: {
+      label: 'Windsurf',
+      config: JSON.stringify({ mcpServers: { 'hl-pro-tools': { serverUrl: sseUrl, transport: 'sse' } } }, null, 2),
+    },
+    generic: {
+      label: 'Generic',
+      config: JSON.stringify({ server: { url: sseUrl, transport: 'sse', protocol: 'mcp' } }, null, 2),
+    },
+  };
+
+  const activeConfig = clientConfigs[clientTab]?.config || '';
+
+  function copyConfig() {
+    navigator.clipboard.writeText(activeConfig).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.textMuted, borderBottom: `1px solid ${C.border}` };
+  const tdStyle = { padding: '12px 14px', fontSize: 13, color: C.textPri, borderBottom: `1px solid ${C.border}88`, verticalAlign: 'top' };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.textPri }}>MCP</h2>
+        <p style={{ margin: 0, fontSize: 14, color: C.textMuted }}>Model Context Protocol server configuration</p>
+      </div>
+
+      {/* How it works */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+        <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700, color: C.textPri }}>How it works</h3>
+        <p style={{ margin: '0 0 12px', fontSize: 14, color: C.textSec, lineHeight: 1.7 }}>
+          This server exposes a Model Context Protocol (MCP) endpoint over Server-Sent Events (SSE). Connect any MCP-compatible AI client to gain access to your brain knowledge bases.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <code style={{ background: C.codeBg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 12px', fontSize: 13, color: '#93c5fd' }}>{sseUrl}</code>
+          <span style={{ fontSize: 13, color: C.textMuted }}>&nbsp;·&nbsp; {MCP_TOOLS.length} tools available</span>
+        </div>
+      </div>
+
+      {/* Client Configuration */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.textPri }}>Client Configuration</h3>
+          <button onClick={copyConfig} style={{ ...btnSecondary, fontSize: 12, padding: '5px 12px' }}>
+            {copied ? '✓ Copied!' : 'Copy config'}
+          </button>
+        </div>
+
+        {/* Client tabs */}
+        <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: `1px solid ${C.border}` }}>
+          {Object.entries(clientConfigs).map(([key, val]) => (
+            <button key={key} onClick={() => setClientTab(key)} style={{
+              background: 'none', border: 'none', borderBottom: clientTab === key ? `2px solid ${C.blue}` : '2px solid transparent',
+              color: clientTab === key ? C.textPri : C.textMuted, padding: '8px 16px', fontSize: 13, fontWeight: clientTab === key ? 600 : 400,
+              cursor: 'pointer', marginBottom: -1,
+            }}>
+              {val.label}
+            </button>
+          ))}
+        </div>
+
+        <pre style={{ background: C.codeBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '14px 16px', fontSize: 12, color: '#93c5fd', overflowX: 'auto', margin: 0, lineHeight: 1.7 }}>
+          {activeConfig}
+        </pre>
+      </div>
+
+      {/* Active Brains */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+        <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Active Brains</h3>
+        {brains.length === 0 ? (
+          <p style={{ color: C.textMuted, fontSize: 13, margin: 0 }}>No brains configured.</p>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {brains.map(b => (
+              <div key={b.brainId} style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 14px' }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: C.textPri }}>{b.name}</span>
+                <code style={{ fontSize: 11, color: C.textMuted, background: C.codeBg, padding: '2px 6px', borderRadius: 4 }}>{b.slug}</code>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Available Tools */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}` }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.textPri }}>Available Tools</h3>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Tool</th>
+              <th style={thStyle}>Description</th>
+              <th style={thStyle}>Inputs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {MCP_TOOLS.map(tool => (
+              <tr key={tool.name}>
+                <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                  <span style={{ color: '#60a5fa', fontFamily: 'monospace', fontSize: 13 }}>{tool.name}</span>
+                </td>
+                <td style={{ ...tdStyle, color: C.textSec }}>{tool.desc}</td>
+                <td style={{ ...tdStyle, color: C.textMuted, fontFamily: 'monospace', fontSize: 12 }}>{tool.inputs}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -790,13 +1213,16 @@ function BrainDetail({ brain, locationId, onDeleted, onRefresh }) {
 export default function Brain() {
   const { locationId } = useApp();
 
+  const [activeTab,     setActiveTab]     = useState('dashboard');
   const [brains,        setBrains]        = useState([]);
   const [loadingBrains, setLoadingBrains] = useState(true);
+  const [showCreate,    setShowCreate]    = useState(false);
+  const [error,         setError]         = useState('');
+
+  // Brain detail state
   const [selectedId,    setSelectedId]    = useState(null);
   const [selectedBrain, setSelectedBrain] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  const [showCreate,    setShowCreate]    = useState(false);
-  const [error,         setError]         = useState('');
 
   const loadBrains = useCallback(async () => {
     if (!locationId) return;
@@ -805,7 +1231,7 @@ export default function Brain() {
       const r = await apiFetch('/brain/list', locationId);
       if (r.success) setBrains(r.data || []);
       else setError(r.error || 'Failed to load brains.');
-    } catch (e) {
+    } catch {
       setError('Failed to connect to server.');
     }
     setLoadingBrains(false);
@@ -820,10 +1246,13 @@ export default function Brain() {
       const r = await apiFetch(`/brain/${brainId}`, locationId);
       if (r.success) setSelectedBrain(r.data);
       else setSelectedBrain(null);
-    } catch {
-      setSelectedBrain(null);
-    }
+    } catch { setSelectedBrain(null); }
     setLoadingDetail(false);
+  }
+
+  function handleSelectBrain(brainId) {
+    loadBrainDetail(brainId);
+    setActiveTab('detail');
   }
 
   async function handleCreate(opts) {
@@ -831,7 +1260,7 @@ export default function Brain() {
     if (!r.success) throw new Error(r.error || 'Failed to create brain.');
     setShowCreate(false);
     await loadBrains();
-    await loadBrainDetail(r.data.brainId);
+    handleSelectBrain(r.data.brainId);
   }
 
   async function handleDeleted(brainId) {
@@ -839,109 +1268,102 @@ export default function Brain() {
     if (r.success) {
       setSelectedId(null);
       setSelectedBrain(null);
+      setActiveTab('dashboard');
       await loadBrains();
     }
   }
 
+  function handleBack() {
+    setSelectedId(null);
+    setSelectedBrain(null);
+    setActiveTab('dashboard');
+  }
+
+  const navTabs = [...NAV_TABS];
+  if (selectedId) {
+    navTabs.push({ id: 'detail', label: selectedBrain ? selectedBrain.name : 'Brain' });
+  }
+
   return (
-    <div style={{ minHeight: '100vh', background: '#0d0d0d', color: '#e5e7eb', fontFamily: 'Inter, sans-serif', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100vh', background: C.bg, color: C.textPri, fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column' }}>
       <Header icon="🧠" title="Brain" subtitle="Multi-brain YouTube RAG knowledge base" />
 
       {showCreate && (
-        <CreateBrainModal
-          onClose={() => setShowCreate(false)}
-          onCreate={handleCreate}
-        />
+        <CreateBrainModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />
       )}
 
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* ── Left sidebar: brain list ── */}
-        <div style={{ width: 280, flexShrink: 0, background: '#111', borderRight: '1px solid #1f1f1f', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-          <div style={{ padding: '20px 16px 12px' }}>
-            <button
-              onClick={() => setShowCreate(true)}
-              style={{ ...btnPrimary, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 13 }}
-            >
-              <span style={{ fontSize: 16 }}>+</span> Create Brain
+      {/* Top nav */}
+      <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', padding: '0 24px' }}>
+        <div style={{ display: 'flex', gap: 0, flex: 1 }}>
+          {NAV_TABS.map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+              background: 'none', border: 'none', borderBottom: activeTab === t.id ? `2px solid ${C.blue}` : '2px solid transparent',
+              color: activeTab === t.id ? C.textPri : C.textMuted,
+              padding: '14px 18px', fontSize: 14, fontWeight: activeTab === t.id ? 600 : 400,
+              cursor: 'pointer', marginBottom: -1,
+            }}>
+              {t.label}
             </button>
-          </div>
-
-          {error && (
-            <div style={{ margin: '0 16px 12px', padding: '10px 12px', borderRadius: 8, background: '#1c0a00', border: '1px solid #ef444433', color: '#f87171', fontSize: 12 }}>
-              {error}
-            </div>
-          )}
-
-          {loadingBrains && (
-            <p style={{ color: '#4b5563', fontSize: 13, padding: '12px 16px', margin: 0 }}>Loading…</p>
-          )}
-
-          {!loadingBrains && brains.length === 0 && (
-            <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>🧠</div>
-              <p style={{ color: '#4b5563', fontSize: 13, margin: 0 }}>No brains yet.<br />Create one to get started.</p>
-            </div>
-          )}
-
-          <div style={{ padding: '0 8px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {brains.map(b => (
-              <button
-                key={b.brainId}
-                onClick={() => loadBrainDetail(b.brainId)}
-                style={{
-                  width: '100%', textAlign: 'left', background: selectedId === b.brainId ? '#7c3aed22' : 'transparent',
-                  border: selectedId === b.brainId ? '1px solid #7c3aed44' : '1px solid transparent',
-                  borderRadius: 8, padding: '10px 12px', cursor: 'pointer', transition: 'all .15s',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontSize: 15 }}>🧠</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: selectedId === b.brainId ? '#a78bfa' : '#e5e7eb', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {b.name}
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: '#4b5563', paddingLeft: 23 }}>
-                  {b.docCount || 0} doc{(b.docCount || 0) !== 1 ? 's' : ''} · {b.chunkCount || 0} chunks
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Right panel: brain detail ── */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
-          {!selectedId && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 300 }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>🧠</div>
-              <h2 style={{ margin: '0 0 8px', fontSize: 20, color: '#e5e7eb', fontWeight: 600 }}>Select a Brain</h2>
-              <p style={{ color: '#4b5563', fontSize: 14, margin: '0 0 24px', textAlign: 'center', maxWidth: 340 }}>
-                Choose a brain from the sidebar or create a new one to start ingesting YouTube videos and documents.
-              </p>
-              <button onClick={() => setShowCreate(true)} style={btnPrimary}>
-                + Create your first brain
-              </button>
-            </div>
-          )}
-
-          {selectedId && loadingDetail && (
-            <p style={{ color: '#4b5563', fontSize: 13 }}>Loading brain…</p>
-          )}
-
-          {selectedId && !loadingDetail && selectedBrain && (
-            <BrainDetail
-              brain={selectedBrain}
-              locationId={locationId}
-              onDeleted={handleDeleted}
-              onRefresh={loadBrains}
-            />
-          )}
-
-          {selectedId && !loadingDetail && !selectedBrain && (
-            <div style={{ color: '#f87171', fontSize: 13, padding: 20, background: '#1c0a00', border: '1px solid #ef444433', borderRadius: 8 }}>
-              Failed to load brain details.
-            </div>
+          ))}
+          {selectedId && (
+            <button onClick={() => setActiveTab('detail')} style={{
+              background: 'none', border: 'none', borderBottom: activeTab === 'detail' ? `2px solid ${C.blue}` : '2px solid transparent',
+              color: activeTab === 'detail' ? C.textPri : C.textMuted,
+              padding: '14px 18px', fontSize: 14, fontWeight: activeTab === 'detail' ? 600 : 400,
+              cursor: 'pointer', marginBottom: -1, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {selectedBrain ? selectedBrain.name : 'Brain'}
+            </button>
           )}
         </div>
+        <button onClick={() => setShowCreate(true)} style={{ ...btnPrimary, fontSize: 13, padding: '8px 16px', flexShrink: 0 }}>
+          + Add Brain
+        </button>
+      </div>
+
+      {/* Page content */}
+      <div style={{ flex: 1, padding: 28, maxWidth: 1200, width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+        {error && (
+          <div style={{ marginBottom: 20, padding: '10px 14px', borderRadius: 8, background: '#1c0a00', border: `1px solid ${C.red}44`, color: '#f87171', fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+
+        {activeTab === 'dashboard' && (
+          <DashboardView brains={brains} loading={loadingBrains} onAddBrain={() => setShowCreate(true)} onSelectBrain={handleSelectBrain} />
+        )}
+
+        {activeTab === 'pipeline' && (
+          <PipelineView brains={brains} />
+        )}
+
+        {activeTab === 'search' && (
+          <SearchView brains={brains} locationId={locationId} />
+        )}
+
+        {activeTab === 'mcp' && (
+          <McpView brains={brains} />
+        )}
+
+        {activeTab === 'detail' && (
+          <>
+            {loadingDetail && <p style={{ color: C.textMuted, fontSize: 13 }}>Loading brain…</p>}
+            {!loadingDetail && selectedBrain && (
+              <BrainDetail
+                brain={selectedBrain}
+                locationId={locationId}
+                onBack={handleBack}
+                onDeleted={handleDeleted}
+                onRefresh={loadBrains}
+              />
+            )}
+            {!loadingDetail && !selectedBrain && (
+              <div style={{ color: '#f87171', fontSize: 13, padding: 20, background: '#1c0a00', border: `1px solid ${C.red}33`, borderRadius: 8 }}>
+                Failed to load brain details.
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
