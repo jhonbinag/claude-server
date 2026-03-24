@@ -359,7 +359,7 @@ let _ytVisitorDataExpiry = 0;
 async function getYtVisitorData(force = false) {
   if (!force && _ytVisitorData && Date.now() < _ytVisitorDataExpiry) return _ytVisitorData;
   try {
-    const { Innertube } = require('youtubei.js');
+    const { Innertube } = await import('youtubei.js');
     const yt = await Innertube.create({ retrieve_player: false });
     _ytVisitorData = yt.session.context.client.visitorData || null;
     _ytVisitorDataExpiry = Date.now() + 5 * 60 * 1000;
@@ -377,7 +377,7 @@ async function getChannelFromVideo(videoUrl) {
   const videoId = m ? m[1] : videoUrl.length === 11 ? videoUrl : null;
   if (!videoId) throw new Error('Invalid YouTube URL.');
 
-  const { Innertube } = require('youtubei.js');
+  const { Innertube } = await import('youtubei.js');
   const yt = await Innertube.create({ retrieve_player: true });
   const info = await yt.getInfo(videoId);
 
@@ -413,7 +413,7 @@ async function getChannelFromVideo(videoUrl) {
  * Optionally accepts channelId to update channel stats after ingestion.
  */
 async function addPlaylistToBrain(locationId, brainId, playlistId, { isPrimary = false, onProgress, channelId } = {}) {
-  const { Innertube } = require('youtubei.js');
+  const { Innertube } = await import('youtubei.js');
   const yt = await Innertube.create({ retrieve_player: false });
 
   const playlist = await yt.getPlaylist(playlistId);
@@ -727,7 +727,7 @@ async function getStatus(locationId, brainId) {
  * Get all playlists for a YouTube channel given its URL, @handle, or UC ID.
  */
 async function getChannelPlaylists(channelUrl) {
-  const { Innertube } = require('youtubei.js');
+  const { Innertube } = await import('youtubei.js');
   const yt = await Innertube.create({ retrieve_player: false });
 
   // Resolve the channel identifier
