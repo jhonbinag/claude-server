@@ -1572,7 +1572,6 @@ function SearchView({ brains, locationId }) {
     setAsking(false);
   }
 
-  const hasResult = answer || noContext || error;
 
   return (
     <div>
@@ -1602,21 +1601,10 @@ function SearchView({ brains, locationId }) {
           disabled={asking || !query.trim() || !selectedBrainId}
           style={{ ...btnPrimary, flexShrink: 0, opacity: (asking || !query.trim() || !selectedBrainId) ? 0.5 : 1, minWidth: 90 }}
         >
-          {asking ? '…' : 'Ask AI'}
+          {asking ? '…' : 'Search'}
         </button>
       </div>
 
-      {/* Empty state */}
-      {!hasResult && !asking && (
-        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>✦</div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: C.textSec, marginBottom: 8 }}>Ask anything</div>
-          <div style={{ fontSize: 13, color: C.textMuted }}>
-            Claude will search the indexed transcripts and synthesize a direct answer.<br />
-            Try: <em>"What's the best strategy for cold email outreach?"</em>
-          </div>
-        </div>
-      )}
 
       {/* Thinking indicator while streaming starts */}
       {asking && !answer && (
@@ -1630,7 +1618,6 @@ function SearchView({ brains, locationId }) {
       {(answer || (asking && answer)) && (
         <div ref={answerRef} style={{ background: '#0a1628', border: `1px solid ${C.blue}33`, borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <span style={{ fontSize: 14 }}>✦</span>
             <span style={{ fontSize: 13, fontWeight: 700, color: C.blue }}>Best Answer</span>
             {searchMethod && (
               <span style={{
@@ -1667,16 +1654,16 @@ function SearchView({ brains, locationId }) {
 
       {/* Top 5 Sources — accordion ranked by accuracy */}
       {sources?.length > 0 && !asking && (() => {
-        const RANK_COLORS = ['#f59e0b', '#94a3b8', '#cd7c4a', '#6b7280', '#6b7280'];
-        const RANK_LABELS = ['#1 Best', '#2', '#3', '#4', '#5'];
+        const RANK_COLORS = ['#f59e0b','#94a3b8','#cd7c4a','#6b7280','#6b7280','#6b7280','#6b7280','#6b7280','#6b7280','#6b7280'];
+        const RANK_LABELS = ['#1 Best','#2','#3','#4','#5','#6','#7','#8','#9','#10'];
         const maxScore = Math.max(...sources.map(s => s.score || 0)) || 1;
         const top5 = [...sources]
           .sort((a, b) => (b.score || 0) - (a.score || 0))
-          .slice(0, 5);
+          .slice(0, 10);
         return (
           <div>
             <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Top {top5.length} Sources
+              Top {top5.length} Sources by Accuracy
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {top5.map((s, i) => {
