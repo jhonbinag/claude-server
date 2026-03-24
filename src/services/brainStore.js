@@ -253,9 +253,10 @@ async function addDocument(locationId, brainId, { text, sourceLabel, url, isPrim
  * Ingest a YouTube video transcript into a brain.
  * isPrimary = true boosts this doc's chunks 1.5× in search results.
  */
-const YT_PLAYER_URL = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
-const YT_ANDROID_VER = '20.10.38';
-const YT_ANDROID_UA  = `com.google.android.youtube/${YT_ANDROID_VER} (Linux; U; Android 14)`;
+const YT_PLAYER_URL  = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
+const YT_ANDROID_VER = '21.03.36';
+const YT_ANDROID_SDK = 36;
+const YT_ANDROID_UA  = `com.google.android.youtube/${YT_ANDROID_VER}(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip`;
 const YT_BROWSER_UA  = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
 
 // Cache visitorData for ~5 min — short enough to avoid stale bot-detect failures
@@ -404,7 +405,7 @@ async function fetchYoutubeTranscript(videoId, locationId) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'User-Agent': YT_ANDROID_UA },
         body: JSON.stringify({
-          context: { client: { clientName: 'ANDROID', clientVersion: YT_ANDROID_VER } },
+          context: { client: { clientName: 'ANDROID', clientVersion: YT_ANDROID_VER, androidSdkVersion: YT_ANDROID_SDK, hl: 'en', gl: 'US' } },
           videoId,
         }),
       });
@@ -443,6 +444,9 @@ async function fetchYoutubeTranscript(videoId, locationId) {
           client: {
             clientName: 'ANDROID',
             clientVersion: YT_ANDROID_VER,
+            androidSdkVersion: YT_ANDROID_SDK,
+            hl: 'en',
+            gl: 'US',
             ...(visitorData ? { visitorData } : {}),
           }
         },
