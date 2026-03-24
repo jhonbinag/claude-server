@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import Header from '../components/Header';
 
@@ -1778,24 +1779,19 @@ function McpView({ brains }) {
 
 export default function Brain() {
   const { locationId } = useApp();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Read initial state from URL hash (e.g. #brain/abc123)
-  const initHash = () => {
-    const m = window.location.hash.match(/^#brain\/(.+)/);
-    return m ? { tab: 'detail', id: m[1] } : { tab: 'dashboard', id: null };
-  };
-  const init = initHash();
+  const activeTab  = searchParams.get('tab')    || 'dashboard';
+  const selectedId = searchParams.get('brain')  || null;
 
-  const [activeTab,     setActiveTab]     = useState(init.tab);
   const [brains,        setBrains]        = useState([]);
   const [loadingBrains, setLoadingBrains] = useState(true);
   const [showCreate,    setShowCreate]    = useState(false);
   const [error,         setError]         = useState('');
 
   // Brain detail state
-  const [selectedId,    setSelectedId]    = useState(init.id);
   const [selectedBrain, setSelectedBrain] = useState(null);
-  const [loadingDetail, setLoadingDetail] = useState(!!init.id);
+  const [loadingDetail, setLoadingDetail] = useState(!!selectedId);
 
   const loadBrains = useCallback(async (silent = false) => {
     if (!locationId) return;
@@ -1812,10 +1808,11 @@ export default function Brain() {
 
   useEffect(() => { loadBrains(); }, [loadBrains]);
 
-  // Auto-load brain detail if URL hash had a brain ID on mount
+  // Auto-load brain detail when selectedId is present in URL
   useEffect(() => {
-    if (init.id && locationId) loadBrainDetail(init.id);
-  }, [locationId]);
+    if (selectedId && locationId) loadBrainDetail(selectedId);
+    else if (!selectedId) setSelectedBrain(null);
+  }, [selectedId, locationId]);
 
   // Poll every 5s while any brain is actively syncing or processing
   useEffect(() => {
@@ -1828,7 +1825,6 @@ export default function Brain() {
 
   async function loadBrainDetail(brainId) {
     setLoadingDetail(true);
-    setSelectedId(brainId);
     try {
       const r = await apiFetch(`/brain/${brainId}`, locationId);
       if (r.success) setSelectedBrain(r.data);
@@ -1838,9 +1834,7 @@ export default function Brain() {
   }
 
   function handleSelectBrain(brainId) {
-    loadBrainDetail(brainId);
-    setActiveTab('detail');
-    window.location.hash = `brain/${brainId}`;
+    setSearchParams({ tab: 'detail', brain: brainId });
   }
 
   async function handleCreate(opts) {
@@ -1848,30 +1842,19 @@ export default function Brain() {
     if (!r.success) throw new Error(r.error || 'Failed to create brain.');
     setShowCreate(false);
     await loadBrains();
-    handleSelectBrain(r.data.brainId);
+    setSearchParams({ tab: 'detail', brain: r.data.brainId });
   }
 
   async function handleDeleted(brainId) {
     const r = await apiFetch(`/brain/${brainId}`, locationId, { method: 'DELETE' });
     if (r.success) {
-      setSelectedId(null);
-      setSelectedBrain(null);
-      setActiveTab('dashboard');
-      window.location.hash = '';
+      setSearchParams({ tab: 'dashboard' });
       await loadBrains();
     }
   }
 
   function handleBack() {
-    setSelectedId(null);
-    setSelectedBrain(null);
-    setActiveTab('dashboard');
-    window.location.hash = '';
-  }
-
-  const navTabs = [...NAV_TABS];
-  if (selectedId) {
-    navTabs.push({ id: 'detail', label: selectedBrain ? selectedBrain.name : 'Brain' });
+    setSearchParams({ tab: 'dashboard' });
   }
 
   return (
@@ -1887,7 +1870,7 @@ export default function Brain() {
       <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', padding: '0 24px' }}>
         <div style={{ display: 'flex', gap: 0, flex: 1 }}>
           {NAV_TABS.map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            <button key={t.id} onClick={() => setSearchParams({ tab: t.id })} style={{
               background: 'none', border: 'none', borderBottom: activeTab === t.id ? `2px solid ${C.blue}` : '2px solid transparent',
               color: activeTab === t.id ? C.textPri : C.textMuted,
               padding: '14px 18px', fontSize: 14, fontWeight: activeTab === t.id ? 600 : 400,
@@ -1897,7 +1880,7 @@ export default function Brain() {
             </button>
           ))}
           {selectedId && (
-            <button onClick={() => setActiveTab('detail')} style={{
+            <button onClick={() => setSearchParams({ tab: 'detail', brain: selectedId })} style={{
               background: 'none', border: 'none', borderBottom: activeTab === 'detail' ? `2px solid ${C.blue}` : '2px solid transparent',
               color: activeTab === 'detail' ? C.textPri : C.textMuted,
               padding: '14px 18px', fontSize: 14, fontWeight: activeTab === 'detail' ? 600 : 400,
