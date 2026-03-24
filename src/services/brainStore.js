@@ -347,11 +347,71 @@ async function addDocument(locationId, brainId, { text, sourceLabel, url, isPrim
  * Ingest a YouTube video transcript into a brain.
  * isPrimary = true boosts this doc's chunks 1.5× in search results.
  */
-const YT_PLAYER_URL  = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
-const YT_ANDROID_VER = '21.03.36';
-const YT_ANDROID_SDK = 36;
-const YT_ANDROID_UA  = `com.google.android.youtube/${YT_ANDROID_VER}(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip`;
-const YT_BROWSER_UA  = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
+const YT_PLAYER_URL      = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
+const YT_RESOLVE_URL     = 'https://www.youtube.com/youtubei/v1/navigation/resolve_url?prettyPrint=false';
+const YT_ANDROID_VER     = '21.03.36';
+const YT_ANDROID_SDK     = 36;
+const YT_ANDROID_UA      = `com.google.android.youtube/${YT_ANDROID_VER}(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip`;
+const YT_BROWSER_UA      = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
+
+/**
+ * Resolve a YouTube @handle or channel URL to a UC channel ID using the
+ * InnerTube navigation/resolve_url endpoint (same transport as the player API).
+ */
+async function resolveHandleToChannelId(handle) {
+  // handle is like '@AlexBerman' or 'AlexBerman'
+  const cleanHandle = handle.startsWith('@') ? handle : '@' + handle;
+  const url = `https://www.youtube.com/${cleanHandle}`;
+  console.log('[resolveHandle] resolving', url, 'via InnerTube resolve_url');
+
+  const visitorData = await getYtVisitorData().catch(() => null);
+  const body = {
+    context: {
+      client: {
+        clientName:       'ANDROID',
+        clientVersion:    YT_ANDROID_VER,
+        androidSdkVersion: YT_ANDROID_SDK,
+        hl: 'en',
+        gl: 'US',
+        ...(visitorData ? { visitorData } : {}),
+      },
+    },
+    url,
+  };
+
+  const res = await fetch(YT_RESOLVE_URL, {
+    method:  'POST',
+    headers: {
+      'Content-Type':              'application/json',
+      'User-Agent':                YT_ANDROID_UA,
+      'X-YouTube-Client-Name':    '3',
+      'X-YouTube-Client-Version': YT_ANDROID_VER,
+    },
+    body: JSON.stringify(body),
+  });
+
+  console.log('[resolveHandle] resolve_url status:', res.status);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    console.error('[resolveHandle] resolve_url failed:', res.status, text.slice(0, 300));
+    throw new Error(`resolve_url returned ${res.status}`);
+  }
+
+  const json = await res.json();
+  console.log('[resolveHandle] response keys:', Object.keys(json).join(', '));
+
+  // Response shape: { endpoint: { browseEndpoint: { browseId: 'UCxxxxxx' } } }
+  const browseId = json?.endpoint?.browseEndpoint?.browseId
+    || json?.endpoint?.channelPageEndpoint?.browseId
+    || null;
+
+  console.log('[resolveHandle] browseId:', browseId);
+  if (!browseId || !browseId.startsWith('UC')) {
+    console.error('[resolveHandle] unexpected response:', JSON.stringify(json).slice(0, 500));
+    throw new Error(`Could not extract UC channel ID from resolve_url response for ${handle}`);
+  }
+  return browseId;
+}
 
 // Cache visitorData for ~5 min — short enough to avoid stale bot-detect failures
 let _ytVisitorData = null;
@@ -791,95 +851,19 @@ async function getChannelPlaylists(channelUrl) {
     return [{ id: uploadsId, title: 'All Videos (uploads)' }];
   }
 
-  // ── Step 3: @handle — scrape the channel page to get UC ID (avoids browse API) ─
+  // ── Step 3: @handle — use InnerTube resolve_url (same transport as player API) ─
   const handle = atMatch ? ('@' + atMatch[1]) : (channelUrl?.startsWith('@') ? channelUrl : null);
   if (!handle) {
     console.error('[getChannelPlaylists] cannot resolve identifier from:', channelUrl);
     throw new Error(`Cannot resolve channel identifier from: ${channelUrl}`);
   }
 
-  console.log('[getChannelPlaylists] resolving @handle via page scrape:', handle);
+  console.log('[getChannelPlaylists] resolving @handle via InnerTube resolve_url:', handle);
   try {
-    // Try /about page first — smaller page, reliably contains channelId
-    const urlsToTry = [
-      `https://www.youtube.com/${handle}/about`,
-      `https://www.youtube.com/${handle}`,
-    ];
-
-    let resolvedId = null;
-
-    for (const pageUrl of urlsToTry) {
-      if (resolvedId) break;
-      console.log('[getChannelPlaylists] trying URL:', pageUrl);
-
-      let res;
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
-        res = await fetch(pageUrl, {
-          signal: controller.signal,
-          headers: {
-            'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Cache-Control':   'no-cache',
-            'Sec-Fetch-Site':  'none',
-            'Sec-Fetch-Mode':  'navigate',
-            'Sec-Fetch-Dest':  'document',
-          },
-        });
-        clearTimeout(timeout);
-      } catch (fetchErr) {
-        console.warn('[getChannelPlaylists] fetch failed for', pageUrl, ':', fetchErr.message);
-        continue;
-      }
-
-      console.log('[getChannelPlaylists] response:', res.status, res.statusText, 'url:', res.url);
-
-      if (!res.ok) {
-        console.warn('[getChannelPlaylists] non-OK response', res.status, 'for', pageUrl);
-        continue;
-      }
-
-      const html = await res.text();
-      console.log('[getChannelPlaylists] HTML length:', html.length, '| first 200 chars:', html.slice(0, 200).replace(/\n/g, ' '));
-
-      // Ordered by reliability
-      const patterns = [
-        { label: 'canonical link',  re: /<link[^>]+rel="canonical"[^>]+href="https?:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{20,})"/ },
-        { label: 'meta channelId',  re: /<meta[^>]+itemprop="channelId"[^>]+content="(UC[a-zA-Z0-9_-]{20,})"/ },
-        { label: 'externalId JSON', re: /"externalId":"(UC[a-zA-Z0-9_-]{20,})"/ },
-        { label: 'browseId JSON',   re: /"browseId":"(UC[a-zA-Z0-9_-]{20,})"/ },
-        { label: 'channelId JSON',  re: /"channelId":"(UC[a-zA-Z0-9_-]{20,})"/ },
-        { label: 'channel URL',     re: /youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{20,})/ },
-      ];
-
-      for (const { label, re } of patterns) {
-        const m = html.match(re);
-        if (m) {
-          resolvedId = m[1];
-          console.log('[getChannelPlaylists] found UC ID via', label, ':', resolvedId);
-          break;
-        }
-      }
-
-      if (!resolvedId) {
-        // Log a useful snippet to diagnose what YouTube returned
-        const snippet = html.slice(0, 800).replace(/\s+/g, ' ');
-        console.warn('[getChannelPlaylists] UC ID not found in page from', pageUrl);
-        console.warn('[getChannelPlaylists] page snippet:', snippet);
-      }
-    }
-
-    if (!resolvedId) {
-      throw new Error(`Could not extract channel ID from any page for ${handle}`);
-    }
-
-    const uploadsId = 'UU' + resolvedId.slice(2);
-    console.log('[getChannelPlaylists] uploads playlist ID:', uploadsId, 'for handle:', handle);
+    const resolvedChannelId = await resolveHandleToChannelId(handle);
+    const uploadsId = 'UU' + resolvedChannelId.slice(2);
+    console.log('[getChannelPlaylists] resolved', handle, '→', resolvedChannelId, '→ uploads:', uploadsId);
     return [{ id: uploadsId, title: 'All Videos (uploads)' }];
-
   } catch (e) {
     console.error('[getChannelPlaylists] handle resolution failed for', handle,
       '| message:', e.message, '| stack:', e.stack);
