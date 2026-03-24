@@ -313,7 +313,7 @@ async function removeChannelFromBrain(locationId, brainId, channelId) {
 /**
  * Add a text document to a brain.
  */
-async function addDocument(locationId, brainId, { text, sourceLabel, url, isPrimary = false }) {
+async function addDocument(locationId, brainId, { text, sourceLabel, url, isPrimary = false, videoMeta = null }) {
   if (!text || text.trim().length === 0) throw new Error('No text content to add.');
 
   // Verify brain exists
@@ -335,6 +335,7 @@ async function addDocument(locationId, brainId, { text, sourceLabel, url, isPrim
     url:         url || '',
     isPrimary:   !!isPrimary,
     chunkCount:  chunks.length,
+    ...(videoMeta ? { videoMeta } : {}),
     addedAt:     now,
   });
   await rSet(docsKey(locationId, brainId), docs);
@@ -580,7 +581,10 @@ async function fetchYoutubeTranscript(videoId, locationId) {
     }
   }
 
-  const title = playerJson.videoDetails?.title || null;
+  const title       = playerJson.videoDetails?.title || null;
+  const lengthSecs  = parseInt(playerJson.videoDetails?.lengthSeconds || 0, 10);
+  const viewCount   = parseInt(playerJson.videoDetails?.viewCount || 0, 10);
+  const publishDate = playerJson.microformat?.playerMicroformatRenderer?.publishDate || null;
 
   const tracks = playerJson.captions?.playerCaptionsTracklistRenderer?.captionTracks;
   if (!tracks || !tracks.length) throw new Error('No captions available for this video. Try a video with CC enabled.');
@@ -595,8 +599,8 @@ async function fetchYoutubeTranscript(videoId, locationId) {
   if (!captionRes.ok) throw new Error(`Caption fetch failed: ${captionRes.status}`);
   const xml = await captionRes.text();
   if (!xml || xml.length < 50) throw new Error('Empty caption response — captions may be restricted for this video.');
-  // Parse XML into transcript text
-  return parseYoutubeXml(xml, title);
+  const parsed = parseYoutubeXml(xml, title);
+  return { ...parsed, lengthSecs, viewCount, publishDate };
 }
 
 function parseYoutubeXml(xml, title) {
@@ -634,7 +638,8 @@ async function addYoutubeVideo(locationId, brainId, videoUrl, titleHint, isPrima
   const videoId = m ? m[1] : videoUrl.length === 11 ? videoUrl : null;
   if (!videoId) throw new Error('Invalid YouTube URL — could not extract video ID.');
 
-  const { transcript, title: pageTitle } = await fetchYoutubeTranscript(videoId, locationId);
+  const { transcript, title: pageTitle, lengthSecs, viewCount, publishDate } =
+    await fetchYoutubeTranscript(videoId, locationId);
   if (!transcript || transcript.trim().length < 50) throw new Error('Transcript too short or unavailable for this video.');
 
   const label  = titleHint || pageTitle || `YouTube: ${videoId}`;
@@ -643,6 +648,12 @@ async function addYoutubeVideo(locationId, brainId, videoUrl, titleHint, isPrima
     url:         `https://www.youtube.com/watch?v=${videoId}`,
     sourceLabel: label,
     isPrimary:   !!isPrimary,
+    // YouTube metadata stored on the doc for display in Videos tab
+    videoMeta: {
+      lengthSecs:  lengthSecs  || 0,
+      viewCount:   viewCount   || 0,
+      publishDate: publishDate || null,
+    },
   });
 
   return { ...result, videoId, title: label };

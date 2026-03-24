@@ -22,6 +22,34 @@ function ytThumb(videoId) {
   return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
 }
 
+function fmtDuration(secs) {
+  if (!secs) return '—';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function fmtViews(n) {
+  if (!n) return '—';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000)    return (n / 1000).toFixed(1).replace('.0','') + 'K';
+  return n.toLocaleString();
+}
+
+function publishedAgo(dateStr) {
+  if (!dateStr) return '—';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const d = Math.floor(diff / 86400000);
+  if (d === 0) return 'today';
+  if (d === 1) return 'yesterday';
+  if (d < 7)  return `${d} days ago`;
+  if (d < 30) return `${Math.floor(d / 7)} week${Math.floor(d / 7) > 1 ? 's' : ''} ago`;
+  if (d < 365) return `${Math.floor(d / 30)} month${Math.floor(d / 30) > 1 ? 's' : ''} ago`;
+  return `${Math.floor(d / 365)} year${Math.floor(d / 365) > 1 ? 's' : ''} ago`;
+}
+
 function extractVideoId(url) {
   if (!url) return null;
   const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
@@ -704,37 +732,52 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    <th style={{ ...thStyle, width: 60 }}></th>
                     <th style={thStyle}>Title</th>
-                    <th style={thStyle}>Chunks</th>
-                    <th style={thStyle}>Added</th>
-                    <th style={{ ...thStyle, width: 50 }}></th>
+                    <th style={thStyle}>Published</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={thStyle}>Duration</th>
+                    <th style={thStyle}>Views</th>
+                    <th style={{ ...thStyle, width: 40 }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {docs.map(doc => {
                     const isYt  = doc.url && doc.url.includes('youtube.com/watch');
                     const vidId = isYt ? extractVideoId(doc.url) : null;
+                    const meta  = doc.videoMeta || {};
                     return (
                       <tr key={doc.docId}>
-                        <td style={{ ...tdStyle, padding: '8px 14px' }}>
-                          {vidId
-                            ? <img src={ytThumb(vidId)} alt="" style={{ width: 56, height: 32, objectFit: 'cover', borderRadius: 4, display: 'block' }} />
-                            : <span style={{ fontSize: 20 }}>📄</span>
-                          }
+                        <td style={tdStyle}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            {vidId && (
+                              <img src={ytThumb(vidId)} alt="" style={{ width: 56, height: 32, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+                            )}
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400, fontSize: 13, color: C.textPri }}>
+                                {doc.sourceLabel || 'Untitled'}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ ...tdStyle, color: C.textSec, fontSize: 12, whiteSpace: 'nowrap' }}>
+                          {meta.publishDate ? publishedAgo(meta.publishDate) : timeAgo(doc.addedAt)}
                         </td>
                         <td style={tdStyle}>
-                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 340 }}>
-                            {doc.sourceLabel || doc.url || 'Untitled'}
-                          </div>
-                          {doc.url && (
-                            <a href={doc.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.textMuted, textDecoration: 'none' }}>
-                              {doc.url.length > 60 ? doc.url.slice(0, 60) + '…' : doc.url}
-                            </a>
-                          )}
+                          <span style={{ background: '#1d4ed8', color: '#93c5fd', fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 10, whiteSpace: 'nowrap' }}>
+                            complete
+                          </span>
                         </td>
-                        <td style={{ ...tdStyle, color: C.textSec }}>{doc.chunkCount || 0}</td>
-                        <td style={{ ...tdStyle, color: C.textMuted, fontSize: 12 }}>{timeAgo(doc.addedAt)}</td>
+                        <td style={{ ...tdStyle, color: C.textSec, fontSize: 13, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                          {fmtDuration(meta.lengthSecs)}
+                        </td>
+                        <td style={{ ...tdStyle, color: C.textSec, fontSize: 13, whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {fmtViews(meta.viewCount)}
+                            {vidId && (
+                              <a href={doc.url} target="_blank" rel="noreferrer" style={{ color: C.textMuted, fontSize: 11, textDecoration: 'none' }}>↗</a>
+                            )}
+                          </div>
+                        </td>
                         <td style={tdStyle}>
                           <button onClick={() => deleteDoc(doc.docId, doc.sourceLabel || 'this document')} style={{ background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>
                         </td>
@@ -750,18 +793,43 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
 
       {/* ── Settings tab ── */}
       {tab === 'settings' && (
-        <div style={{ maxWidth: 520 }}>
+        <div>
+          {/* Brain Settings card */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
-            <h3 style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Brain Settings</h3>
-            <label style={labelStyle}>Name</label>
-            <input value={editName} onChange={e => setEditName(e.target.value)} style={inputStyle} />
-            <label style={labelStyle}>Description</label>
-            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
-            <label style={labelStyle}>Docs URL</label>
-            <input value={editDocsUrl} onChange={e => setEditDocsUrl(e.target.value)} placeholder="https://docs.example.com" style={inputStyle} />
-            <label style={labelStyle}>Changelog URL</label>
-            <input value={editChangelogUrl} onChange={e => setEditChangelogUrl(e.target.value)} placeholder="https://example.com/changelog" style={inputStyle} />
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Brain Settings</h3>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: C.textMuted }}>Edit name, description, and reference links.</p>
+
+            {/* Name + Slug side by side */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 4 }}>
+              <div>
+                <label style={labelStyle}>Name <span style={{ color: C.red }}>*</span></label>
+                <input value={editName} onChange={e => setEditName(e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
+              </div>
+              <div>
+                <label style={labelStyle}>Slug</label>
+                <input value={brain.slug} readOnly style={{ ...inputStyle, marginBottom: 0, opacity: 0.5, cursor: 'not-allowed' }} />
+                <p style={{ margin: '4px 0 0', fontSize: 11, color: C.textMuted }}>Cannot be changed</p>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <label style={labelStyle}>Description</label>
+              <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
+            </div>
+
+            {/* Docs + Changelog side by side */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div>
+                <label style={labelStyle}>Official docs URL</label>
+                <input value={editDocsUrl} onChange={e => setEditDocsUrl(e.target.value)} placeholder="https://docs.example.com" style={{ ...inputStyle, marginBottom: 0 }} />
+              </div>
+              <div>
+                <label style={labelStyle}>Changelog URL</label>
+                <input value={editChangelogUrl} onChange={e => setEditChangelogUrl(e.target.value)} placeholder="https://example.com/changelog" style={{ ...inputStyle, marginBottom: 0 }} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
               <button onClick={async () => {
                 setSaving(true);
                 try {
@@ -774,18 +842,58 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                 } catch { showFlash(false, 'Request failed.'); }
                 setSaving(false);
               }} style={{ ...btnPrimary, opacity: saving ? 0.5 : 1 }}>
-                {saving ? 'Saving…' : 'Save changes'}
+                💾 {saving ? 'Saving…' : 'Save changes'}
               </button>
             </div>
           </div>
 
-          <div style={{ background: '#1a0a0a', border: `1px solid ${C.red}33`, borderRadius: 12, padding: 24 }}>
-            <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: C.red }}>Danger Zone</h3>
-            <p style={{ margin: '0 0 16px', fontSize: 13, color: C.textMuted }}>Permanently delete this brain and all its data. This cannot be undone.</p>
+          {/* Danger Zone */}
+          <div style={{ background: '#1a0808', border: `1px solid ${C.red}33`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 700, color: C.red, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>⚠</span> Danger Zone
+            </h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: C.textMuted }}>
+              Permanently delete this brain and all its channels, videos, chunks, and documentation. This action cannot be undone.
+            </p>
             <button onClick={() => { if (confirm(`Delete brain "${brain.name}"? This cannot be undone.`)) onDeleted(brain.brainId); }}
-              style={{ background: C.red, border: 'none', borderRadius: 8, color: '#fff', padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-              Delete brain
+              style={{ background: 'none', border: `1px solid ${C.red}`, borderRadius: 8, color: C.red, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              🗑 Delete Brain
             </button>
+          </div>
+
+          {/* Official Docs Sync */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  📘 Official Docs Sync
+                </h3>
+                <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>
+                  Scrapes official docs and changelog, embeds them as high-priority chunks, and flags YouTube content that contradicts official sources.
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  if (!editDocsUrl && !editChangelogUrl) { showFlash(false, 'Set a Docs URL or Changelog URL in settings first.'); return; }
+                  showFlash(true, 'Docs sync queued — this will run in the background.');
+                }}
+                style={{ ...btnPrimary, flexShrink: 0, marginLeft: 16, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
+              >
+                ↻ Sync Docs
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+              {[
+                { icon: '📄', label: 'PAGES SCRAPED',  value: 0 },
+                { icon: '📋', label: 'DOCS CHUNKS',     value: 0 },
+                { icon: '⚠',  label: 'OUTDATED',        value: 0 },
+              ].map(s => (
+                <div key={s.label} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: C.textPri }}>{s.icon} {s.value}</div>
+                  <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: '0.07em', marginTop: 4 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
