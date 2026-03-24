@@ -253,26 +253,89 @@ async function addDocument(locationId, brainId, { text, sourceLabel, url, isPrim
  * Ingest a YouTube video transcript into a brain.
  * isPrimary = true boosts this doc's chunks 1.5× in search results.
  */
+const YT_PLAYER_URL = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
+const YT_ANDROID_VER = '20.10.38';
+const YT_ANDROID_UA  = `com.google.android.youtube/${YT_ANDROID_VER} (Linux; U; Android 14)`;
+const YT_BROWSER_UA  = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)';
+
+async function fetchYoutubeTranscript(videoId) {
+  // 1. Get caption tracks via Android InnerTube player endpoint
+  const playerRes = await fetch(YT_PLAYER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': YT_ANDROID_UA },
+    body: JSON.stringify({
+      context: { client: { clientName: 'ANDROID', clientVersion: YT_ANDROID_VER } },
+      videoId,
+    }),
+  });
+
+  if (!playerRes.ok) throw new Error(`YouTube player API returned ${playerRes.status}`);
+  const playerJson = await playerRes.json();
+
+  const playability = playerJson.playabilityStatus?.status;
+  if (playability && playability !== 'OK') {
+    throw new Error(`Video unavailable: ${playerJson.playabilityStatus?.reason || playability}`);
+  }
+
+  const title = playerJson.videoDetails?.title || null;
+
+  const tracks = playerJson.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+  if (!tracks || !tracks.length) throw new Error('No captions available for this video. Try a video with CC enabled.');
+
+  // 2. Prefer English, fall back to first available
+  const track = tracks.find(t => t.languageCode === 'en') ||
+                tracks.find(t => t.languageCode?.startsWith('en')) ||
+                tracks[0];
+
+  // 3. Fetch caption XML using browser UA
+  const captionRes = await fetch(track.baseUrl, {
+    headers: { 'User-Agent': YT_BROWSER_UA },
+  });
+  if (!captionRes.ok) throw new Error(`Caption fetch failed: ${captionRes.status}`);
+  const xml = await captionRes.text();
+  if (!xml || xml.length < 50) throw new Error('Empty caption response — captions may be restricted for this video.');
+
+  // 4. Parse XML: handle both <p t="..." d="..."><s>text</s></p> and <text start="..." dur="...">text</text>
+  function decodeEntities(s) {
+    return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+            .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
+  }
+
+  let lines = [];
+  // Try new format first: <p t="..." d="...">...</p>
+  const pMatches = [...xml.matchAll(/<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g)];
+  if (pMatches.length > 0) {
+    for (const [, , , inner] of pMatches) {
+      const sMatches = [...inner.matchAll(/<s[^>]*>([^<]*)<\/s>/g)];
+      const text = sMatches.length > 0
+        ? sMatches.map(m => m[1]).join('')
+        : inner.replace(/<[^>]+>/g, '');
+      const decoded = decodeEntities(text).replace(/\n/g, ' ').trim();
+      if (decoded) lines.push(decoded);
+    }
+  } else {
+    // Old format: <text start="..." dur="...">text</text>
+    for (const [, , , text] of xml.matchAll(/<text[^>]*>([^<]*)<\/text>/g)) {
+      const decoded = decodeEntities(text).replace(/\n/g, ' ').trim();
+      if (decoded) lines.push(decoded);
+    }
+  }
+
+  const paragraphs = [];
+  for (let i = 0; i < lines.length; i += 10) paragraphs.push(lines.slice(i, i + 10).join(' '));
+  return { transcript: paragraphs.join('\n\n'), title };
+}
+
 async function addYoutubeVideo(locationId, brainId, videoUrl, titleHint, isPrimary = false) {
   const m = videoUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
   const videoId = m ? m[1] : videoUrl.length === 11 ? videoUrl : null;
   if (!videoId) throw new Error('Invalid YouTube URL — could not extract video ID.');
 
-  const { getSubtitles } = require('youtube-captions-scraper');
-  let captions;
-  try {
-    captions = await getSubtitles({ videoID: videoId, lang: 'en' });
-  } catch {
-    captions = await getSubtitles({ videoID: videoId, lang: 'en', auto: true });
-  }
-  if (!captions || !captions.length) throw new Error('No captions/transcript available for this video.');
+  const { transcript, title: pageTitle } = await fetchYoutubeTranscript(videoId);
+  if (!transcript || transcript.trim().length < 50) throw new Error('Transcript too short or unavailable for this video.');
 
-  const lines = captions.map(c => c.text.replace(/\n/g, ' ').trim()).filter(Boolean);
-  const paragraphs = [];
-  for (let i = 0; i < lines.length; i += 10) paragraphs.push(lines.slice(i, i + 10).join(' '));
-  const transcript = paragraphs.join('\n\n');
-
-  const label  = titleHint || `YouTube: ${videoId}`;
+  const label  = titleHint || pageTitle || `YouTube: ${videoId}`;
   const result = await addDocument(locationId, brainId, {
     text:        transcript,
     url:         `https://www.youtube.com/watch?v=${videoId}`,
