@@ -272,8 +272,85 @@ async function getYtVisitorData() {
   return _ytVisitorData;
 }
 
-async function fetchYoutubeTranscript(videoId) {
-  // 1. Get fresh visitorData to pass bot detection, then call Android InnerTube player
+async function getYoutubeOAuthToken(locationId) {
+  if (!locationId) return null;
+  try {
+    const registry = require('../tools/toolRegistry');
+    const configs  = await registry.getToolConfig(locationId);
+    const yt = configs && configs.social_youtube;
+    if (!yt || !yt.accessToken) return null;
+
+    // Check if token needs refresh (Google tokens expire after 1h)
+    if (yt.refreshToken && yt.tokenExpiry && Date.now() > yt.tokenExpiry - 60000) {
+      const r = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id:     process.env.GOOGLE_CLIENT_ID,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          refresh_token: yt.refreshToken,
+          grant_type:    'refresh_token',
+        }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        const newToken = {
+          ...yt,
+          accessToken: data.access_token,
+          tokenExpiry: Date.now() + (data.expires_in || 3600) * 1000,
+        };
+        await registry.saveToolConfig(locationId, 'social_youtube', newToken);
+        return data.access_token;
+      }
+    }
+    return yt.accessToken;
+  } catch { return null; }
+}
+
+async function fetchYoutubeTranscript(videoId, locationId) {
+  // Priority 1: use YouTube OAuth token from Social Planner (most reliable — authenticated)
+  const oauthToken = await getYoutubeOAuthToken(locationId);
+
+  if (oauthToken) {
+    try {
+      // With OAuth: use official captions API to list tracks, then fetch with Bearer auth
+      const listRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=&fields=items(snippet(title))`,
+        { headers: { Authorization: `Bearer ${oauthToken}` } }
+      );
+      // Get title separately via a simple fetch
+      const titleRes = await fetch(YT_PLAYER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': YT_ANDROID_UA },
+        body: JSON.stringify({
+          context: { client: { clientName: 'ANDROID', clientVersion: YT_ANDROID_VER } },
+          videoId,
+        }),
+      });
+      const playerJson = titleRes.ok ? await titleRes.json() : {};
+      const title = playerJson.videoDetails?.title || null;
+      const tracks = playerJson.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+      if (tracks && tracks.length) {
+        const track = tracks.find(t => t.languageCode === 'en') ||
+                      tracks.find(t => t.languageCode?.startsWith('en')) ||
+                      tracks[0];
+        // Fetch caption with OAuth Bearer token — bypasses bot detection entirely
+        const captionRes = await fetch(track.baseUrl, {
+          headers: {
+            'Authorization': `Bearer ${oauthToken}`,
+            'User-Agent': YT_BROWSER_UA,
+          },
+        });
+        if (captionRes.ok) {
+          const xml = await captionRes.text();
+          if (xml && xml.length > 50) return { xml, title };
+        }
+      }
+    } catch { /* fall through to unauthenticated path */ }
+  }
+
+  // Priority 2: visitorData + Android client (unauthenticated fallback)
   const visitorData = await getYtVisitorData();
   const playerRes = await fetch(YT_PLAYER_URL, {
     method: 'POST',
@@ -295,7 +372,6 @@ async function fetchYoutubeTranscript(videoId) {
 
   const playability = playerJson.playabilityStatus?.status;
   if (playability && playability !== 'OK') {
-    // Invalidate cached visitorData so next attempt gets a fresh one
     _ytVisitorData = null;
     throw new Error(`Video unavailable: ${playerJson.playabilityStatus?.reason || playability}`);
   }
@@ -305,28 +381,28 @@ async function fetchYoutubeTranscript(videoId) {
   const tracks = playerJson.captions?.playerCaptionsTracklistRenderer?.captionTracks;
   if (!tracks || !tracks.length) throw new Error('No captions available for this video. Try a video with CC enabled.');
 
-  // 2. Prefer English, fall back to first available
   const track = tracks.find(t => t.languageCode === 'en') ||
                 tracks.find(t => t.languageCode?.startsWith('en')) ||
                 tracks[0];
 
-  // 3. Fetch caption XML using browser UA
   const captionRes = await fetch(track.baseUrl, {
     headers: { 'User-Agent': YT_BROWSER_UA },
   });
   if (!captionRes.ok) throw new Error(`Caption fetch failed: ${captionRes.status}`);
   const xml = await captionRes.text();
   if (!xml || xml.length < 50) throw new Error('Empty caption response — captions may be restricted for this video.');
+  // Parse XML into transcript text
+  return parseYoutubeXml(xml, title);
+}
 
-  // 4. Parse XML: handle both <p t="..." d="..."><s>text</s></p> and <text start="..." dur="...">text</text>
+function parseYoutubeXml(xml, title) {
   function decodeEntities(s) {
     return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
             .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
             .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
   }
 
-  let lines = [];
-  // Try new format first: <p t="..." d="...">...</p>
+  const lines = [];
   const pMatches = [...xml.matchAll(/<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g)];
   if (pMatches.length > 0) {
     for (const [, , , inner] of pMatches) {
@@ -338,7 +414,6 @@ async function fetchYoutubeTranscript(videoId) {
       if (decoded) lines.push(decoded);
     }
   } else {
-    // Old format: <text start="..." dur="...">text</text>
     for (const [, , , text] of xml.matchAll(/<text[^>]*>([^<]*)<\/text>/g)) {
       const decoded = decodeEntities(text).replace(/\n/g, ' ').trim();
       if (decoded) lines.push(decoded);
@@ -355,7 +430,7 @@ async function addYoutubeVideo(locationId, brainId, videoUrl, titleHint, isPrima
   const videoId = m ? m[1] : videoUrl.length === 11 ? videoUrl : null;
   if (!videoId) throw new Error('Invalid YouTube URL — could not extract video ID.');
 
-  const { transcript, title: pageTitle } = await fetchYoutubeTranscript(videoId);
+  const { transcript, title: pageTitle } = await fetchYoutubeTranscript(videoId, locationId);
   if (!transcript || transcript.trim().length < 50) throw new Error('Transcript too short or unavailable for this video.');
 
   const label  = titleHint || pageTitle || `YouTube: ${videoId}`;

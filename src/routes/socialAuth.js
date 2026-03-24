@@ -38,7 +38,7 @@ const PLATFORMS = {
   google: {
     authUrl:   'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUrl:  'https://oauth2.googleapis.com/token',
-    scope:     'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly https://www.googleapis.com/auth/business.manage',
+    scope:     'https://www.googleapis.com/auth/youtube.force-ssl https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly https://www.googleapis.com/auth/business.manage',
     clientId:  () => process.env.GOOGLE_CLIENT_ID,
     secret:    () => process.env.GOOGLE_CLIENT_SECRET,
     extra:     { access_type: 'offline', prompt: 'consent' },
@@ -145,7 +145,7 @@ router.get('/:platform/callback', async (req, res) => {
     const redirectUri  = callbackUrl(req, platform);
 
     // ── Exchange code for access token ────────────────────────────────────────
-    let accessToken, refreshToken;
+    let accessToken, refreshToken, tokenExpiry;
 
     if (platform === 'tiktok') {
       const r = await axios.post(cfg.tokenUrl, new URLSearchParams({
@@ -169,6 +169,7 @@ router.get('/:platform/callback', async (req, res) => {
       }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
       accessToken  = r.data.access_token;
       refreshToken = r.data.refresh_token;
+      if (r.data.expires_in) tokenExpiry = Date.now() + r.data.expires_in * 1000;
     }
 
     if (!accessToken) throw new Error('No access token received');
@@ -207,13 +208,14 @@ router.get('/:platform/callback', async (req, res) => {
         params: { part: 'snippet,statistics', mine: true, access_token: accessToken },
       });
       accounts = (chRes.data.items || []).map(ch => ({
-        id:         ch.id,
-        name:       ch.snippet?.title,
-        picture:    ch.snippet?.thumbnails?.default?.url,
-        followers:  ch.statistics?.subscriberCount,
-        token:      accessToken,
-        refresh:    refreshToken,
-        platform:   'google',
+        id:          ch.id,
+        name:        ch.snippet?.title,
+        picture:     ch.snippet?.thumbnails?.default?.url,
+        followers:   ch.statistics?.subscriberCount,
+        token:       accessToken,
+        refresh:     refreshToken,
+        tokenExpiry: tokenExpiry || null,
+        platform:    'google',
         locationId,
       }));
 
@@ -353,8 +355,9 @@ async function saveAccount(locationId, platform, account) {
   const config = {
     pageAccessToken: account.token,
     accessToken:     account.token,
-    userAccessToken: account.userToken || account.token, // user-level token for Ad Library
+    userAccessToken: account.userToken || account.token,
     refreshToken:    account.refresh || '',
+    tokenExpiry:     account.tokenExpiry || null,
     pageId:          account.id,
     pageName:        account.name,
     picture:         account.picture || '',
