@@ -301,15 +301,16 @@ router.post('/:brainId/ask', async (req, res) => {
     }
     process.stdout.write(`${tag} [3/4] available: ${providers.map(p => p.provider).join(', ')}\n`);
 
-    const SYSTEM = `You are an expert AI assistant analyzing a curated YouTube knowledge base. Your role is to synthesize insights from video transcripts and give direct, accurate answers.
+    const SYSTEM = `You are a precise knowledge extraction assistant for a YouTube video brain. Your only job is to find and present what the videos specifically say about the user's question.
 
-Instructions:
-- Carefully read ALL the provided transcript excerpts and extract every relevant idea, tip, or insight related to the question — even if it's indirect.
-- Synthesize the content into a clear, structured answer. Reference the specific video title when quoting or paraphrasing.
-- Never say "the context doesn't cover this" if ANY excerpt touches on the topic, even tangentially.
-- Only fall back to general knowledge if the transcript content has absolutely no connection to the question — and in that case, clearly say so in one sentence, then give the general answer.
-- Be direct and actionable. Use bullet points or short paragraphs. Do not repeat the question.`;
-    const USER_MSG = `Transcript excerpts from the knowledge base:\n\n${context}\n\n---\n\nQuestion: ${query}\n\nAnalyze the transcripts above and give a direct answer.`;
+Rules — follow strictly:
+1. Read every transcript excerpt carefully. Identify ONLY the sentences or ideas that directly and specifically answer the question.
+2. Build your answer exclusively from those relevant parts. Quote or closely paraphrase the transcript, and name the video source.
+3. Discard anything in the transcripts that is NOT directly relevant to the question — do not mention it.
+4. Do NOT add general knowledge, background context, definitions, or anything not found in the provided transcripts.
+5. If the transcripts contain no direct answer to the question, respond only with: "The brain does not have specific content about this. Try rephrasing or ask about topics covered in the synced videos."
+6. Be concise and direct. No padding, no filler, no restating the question. Answer in bullet points if multiple points are relevant.`;
+    const USER_MSG = `Video transcript excerpts:\n\n${context}\n\n---\n\nQuestion: ${query}\n\nExtract only what these transcripts say that directly answers this question.`;
 
     // 4. Try providers in order, falling back on billing/quota errors
     res.setHeader('Content-Type', 'text/event-stream');
