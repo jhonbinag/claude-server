@@ -24,7 +24,6 @@ const authenticate = require('../middleware/authenticate');
 const brain        = require('../services/brainStore');
 const Anthropic    = require('@anthropic-ai/sdk');
 const toolRegistry = require('../tools/toolRegistry');
-const config       = require('../config');
 
 router.use(authenticate);
 
@@ -222,24 +221,31 @@ router.delete('/:brainId/docs/:docId', async (req, res) => {
 // ── AI-powered ask (RAG) ──────────────────────────────────────────────────────
 
 // ── Provider detection for RAG ────────────────────────────────────────────────
-// Returns { provider, key, model } using the same priority as claudeService.js
+// Priority:
+//   1. User's own per-location keys (Anthropic, OpenRouter, OpenAI) — from Settings
+//   2. Server-level shared keys (Gemini, Groq) — free-tier fallback
+// NEVER uses the server's ANTHROPIC_API_KEY — that key belongs to the platform,
+// not to any individual user. Each user must add their own Claude key in Settings.
 async function detectProvider(locationId) {
   const configs = await toolRegistry.loadToolConfigs(locationId);
 
-  const anthropicKey  = configs.anthropic?.apiKey   || config.anthropic?.apiKey;
-  const openrouterKey = configs.openrouter?.apiKey;
+  // ── Per-location user keys (paid providers) ────────────────────────────────
+  const anthropicKey    = configs.anthropic?.apiKey;                              // Settings → Claude AI
+  const openrouterKey   = configs.openrouter?.apiKey;                             // Settings → OpenRouter
   const openrouterModel = configs.openrouter?.model || 'openai/gpt-4o-mini';
-  const googleKey     = process.env.GOOGLE_API_KEY;
-  const geminiModel   = process.env.GEMINI_MODEL    || 'gemini-2.0-flash';
-  const groqKey       = process.env.GROQ_API_KEY;
-  const groqModel     = process.env.GROQ_MODEL      || 'llama-3.1-8b-instant';
-  const openaiKey     = process.env.OPENAI_API_KEY;
+  const openaiKey       = configs.openai?.apiKey;                                 // Settings → OpenAI
+
+  // ── Server-level shared keys (free-tier, no user config needed) ───────────
+  const googleKey   = process.env.GOOGLE_API_KEY;
+  const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const groqKey     = process.env.GROQ_API_KEY;
+  const groqModel   = process.env.GROQ_MODEL   || 'llama-3.1-8b-instant';
 
   if (anthropicKey)  return { provider: 'anthropic',  key: anthropicKey,  model: 'claude-sonnet-4-6' };
   if (openrouterKey) return { provider: 'openrouter', key: openrouterKey, model: openrouterModel };
+  if (openaiKey)     return { provider: 'openai',     key: openaiKey,     model: 'gpt-4o-mini' };
   if (googleKey)     return { provider: 'google',     key: googleKey,     model: geminiModel };
   if (groqKey)       return { provider: 'groq',       key: groqKey,       model: groqModel };
-  if (openaiKey)     return { provider: 'openai',     key: openaiKey,     model: 'gpt-4o-mini' };
   return null;
 }
 
