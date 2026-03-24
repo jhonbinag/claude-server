@@ -248,6 +248,9 @@ async function getProviderList(locationId) {
 function isFallbackError(err) {
   const msg = err?.message || '';
   return (
+    err instanceof SyntaxError ||
+    msg.includes('not valid JSON') ||
+    msg.includes('DOCTYPE') ||
     msg.includes('credit balance') ||
     msg.includes('insufficient_quota') ||
     msg.includes('quota') ||
@@ -358,7 +361,8 @@ Rules:
           const hostname = provider === 'openrouter' ? 'openrouter.ai'
                          : provider === 'groq'       ? 'api.groq.com'
                          : 'api.openai.com';
-          const oRes = await fetch(`https://${hostname}/openai/v1/chat/completions`, {
+          const apiPath = provider === 'openrouter' ? '/api/v1/chat/completions' : '/openai/v1/chat/completions';
+          const oRes = await fetch(`https://${hostname}${apiPath}`, {
             method: 'POST',
             headers: {
               'Content-Type':  'application/json',
