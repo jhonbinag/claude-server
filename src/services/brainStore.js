@@ -728,21 +728,36 @@ async function getStatus(locationId, brainId) {
  */
 async function getChannelPlaylists(channelUrl) {
   const { Innertube } = await import('youtubei.js');
-  const yt = await Innertube.create({ retrieve_player: false });
 
-  // Resolve the channel identifier
+  // If it's a video URL, extract the channel UC ID via video info (most reliable path)
+  const videoMatch = (channelUrl || '').match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  if (videoMatch) {
+    const yt = await Innertube.create({ retrieve_player: true });
+    const info = await yt.getInfo(videoMatch[1]);
+    const channelId = info.basic_info?.channel_id;
+    if (!channelId) throw new Error('Could not resolve channel from video URL.');
+    const channel = await yt.getChannel(channelId);
+    const plTab   = await channel.getPlaylists();
+    const plItems = plTab?.playlists || [];
+    return plItems.map(pl => ({
+      id:    pl.content_id,
+      title: pl.metadata?.title?.text || pl.metadata?.title?.runs?.[0]?.text || 'Untitled',
+    })).filter(pl => pl.id);
+  }
+
+  // Channel URL — extract UC ID or @handle
+  const yt = await Innertube.create({ retrieve_player: false });
+  const ucMatch = (channelUrl || '').match(/youtube\.com\/channel\/(UC[^/?&]+)/);
+  const atMatch = (channelUrl || '').match(/youtube\.com\/@([^/?&]+)/);
   let identifier;
-  const ucMatch  = (channelUrl || '').match(/youtube\.com\/channel\/(UC[^/?&]+)/);
-  const atMatch  = (channelUrl || '').match(/youtube\.com\/@([^/?&]+)/);
   if (ucMatch)                          identifier = ucMatch[1];
   else if (atMatch)                     identifier = '@' + atMatch[1];
   else if (channelUrl?.startsWith('@')) identifier = channelUrl;
-  else                                  identifier = channelUrl;
+  else throw new Error(`Cannot resolve channel identifier from: ${channelUrl}`);
 
   const channel = await yt.getChannel(identifier);
   const plTab   = await channel.getPlaylists();
   const plItems = plTab?.playlists || [];
-
   return plItems.map(pl => ({
     id:    pl.content_id,
     title: pl.metadata?.title?.text || pl.metadata?.title?.runs?.[0]?.text || 'Untitled',
