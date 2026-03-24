@@ -413,13 +413,27 @@ async function resolveHandleToChannelId(handle) {
   return browseId;
 }
 
+// Suppress youtubei.js parser warnings (non-fatal type mismatches from YouTube response changes)
+let _ytImportDone = false;
+async function getInnertube() {
+  const mod = await import('youtubei.js');
+  if (!_ytImportDone) {
+    try {
+      // Log.Level: 0=NONE 1=ERROR 2=WARNING 3=INFO 4=DEBUG
+      mod.Log?.setLevel?.(0);
+    } catch {}
+    _ytImportDone = true;
+  }
+  return mod.Innertube;
+}
+
 // Cache visitorData for ~5 min — short enough to avoid stale bot-detect failures
 let _ytVisitorData = null;
 let _ytVisitorDataExpiry = 0;
 async function getYtVisitorData(force = false) {
   if (!force && _ytVisitorData && Date.now() < _ytVisitorDataExpiry) return _ytVisitorData;
   try {
-    const { Innertube } = await import('youtubei.js');
+    const Innertube = await getInnertube();
     const yt = await Innertube.create({ retrieve_player: false });
     _ytVisitorData = yt.session.context.client.visitorData || null;
     _ytVisitorDataExpiry = Date.now() + 5 * 60 * 1000;
@@ -437,7 +451,7 @@ async function getChannelFromVideo(videoUrl) {
   const videoId = m ? m[1] : videoUrl.length === 11 ? videoUrl : null;
   if (!videoId) throw new Error('Invalid YouTube URL.');
 
-  const { Innertube } = await import('youtubei.js');
+  const Innertube = await getInnertube();
   const yt = await Innertube.create({ retrieve_player: true });
   const info = await yt.getInfo(videoId);
 
@@ -473,7 +487,7 @@ async function getChannelFromVideo(videoUrl) {
  * Optionally accepts channelId to update channel stats after ingestion.
  */
 async function addPlaylistToBrain(locationId, brainId, playlistId, { isPrimary = false, onProgress, channelId } = {}) {
-  const { Innertube } = await import('youtubei.js');
+  const Innertube = await getInnertube();
   const yt = await Innertube.create({ retrieve_player: false });
 
   console.log('[addPlaylistToBrain] fetching playlist:', playlistId);
@@ -797,7 +811,7 @@ async function getStatus(locationId, brainId) {
  */
 async function getChannelPlaylists(channelUrl) {
   console.log('[getChannelPlaylists] input channelUrl:', channelUrl);
-  const { Innertube } = await import('youtubei.js');
+  const Innertube = await getInnertube();
 
   // ── Step 1: resolve a UC channel ID ─────────────────────────────────────────
   let channelId = null;
