@@ -693,13 +693,12 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
             </label>
             {/* Manual sync icon button */}
             <button
-              title="Sync now"
-              disabled={syncing}
+              title={batchProcessing ? 'Processing transcripts…' : 'Sync now'}
+              disabled={syncing || batchProcessing}
               onClick={async () => {
                 setSyncing(true);
                 showFlash(true, 'Collecting videos for all channels…');
                 try {
-                  // Queue every channel — discovers video metadata, no transcript fetching
                   const chs = channels.filter(c => c.channelUrl);
                   let totalDiscovered = 0;
                   for (const ch of chs) {
@@ -718,11 +717,11 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
               style={{
                 ...btnSecondary, padding: '7px 10px', fontSize: 16, lineHeight: 1,
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                opacity: syncing ? 0.5 : 1,
+                opacity: (syncing || batchProcessing) ? 0.5 : 1,
               }}>
               <span style={{
                 display: 'inline-block',
-                animation: syncing ? 'spin 1s linear infinite' : 'none',
+                animation: (syncing || batchProcessing) ? 'spin 1s linear infinite' : 'none',
               }}>↻</span>
             </button>
             <button onClick={() => setShowAddChannel(true)} style={btnPrimary}>+ Add Channel</button>
@@ -792,10 +791,10 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                     <td style={{ ...tdStyle, color: C.textMuted, fontSize: 12 }}>{ch.lastSynced ? timeAgo(ch.lastSynced) : 'Never'}</td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                       <button
-                        title="Sync this channel"
-                        disabled={syncingChannelId === ch.channelId}
+                        title={batchProcessing ? 'Processing transcripts…' : 'Sync this channel'}
+                        disabled={syncingChannelId === ch.channelId || batchProcessing}
                         onClick={() => syncChannel(ch.channelId, ch.channelName)}
-                        style={{ background: 'none', border: 'none', color: syncingChannelId === ch.channelId ? C.blue : C.textMuted, cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>
+                        style={{ background: 'none', border: 'none', color: (syncingChannelId === ch.channelId || batchProcessing) ? C.blue : C.textMuted, cursor: (syncingChannelId === ch.channelId || batchProcessing) ? 'default' : 'pointer', fontSize: 14, padding: '2px 6px' }}>
                         <span style={{ display: 'inline-block', animation: syncingChannelId === ch.channelId ? 'spin 1s linear infinite' : 'none' }}>↻</span>
                       </button>
                       <button onClick={() => deleteChannel(ch.channelId, ch.channelName)} style={{ background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>
@@ -1133,8 +1132,10 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
     try {
       await apiFetch(`/brain/${brainId}/sync`, locationId, { method: 'POST' });
       if (onSyncBrain) onSyncBrain();
+      // Open the brain detail so the user can see the batch processing
+      onSelectBrain(brainId);
     } catch {}
-    setTimeout(() => setSyncingId(null), 3000);
+    setSyncingId(null);
   }
 
   const statCards = [

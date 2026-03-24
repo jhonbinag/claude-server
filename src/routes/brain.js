@@ -46,9 +46,19 @@ router.post('/create', async (req, res) => {
       name, slug, description, docsUrl, changelogUrl, primaryChannel, secondaryChannels, autoSync: !!syncNow,
     });
     res.json({ success: true, data: result });
-    if (syncNow && (primaryChannel?.url || (result.channels || []).length > 0)) {
-      brain.syncBrainChannels(req.locationId, result.brainId)
-        .catch(e => console.error('[brain/create] background sync error:', e));
+    // If syncNow, queue all channels for discovery (frontend drives batch processing)
+    if (syncNow && (result.channels || []).length > 0) {
+      (async () => {
+        try {
+          for (const ch of result.channels) {
+            if (ch.channelUrl) {
+              await brain.queueChannelSync(req.locationId, result.brainId, ch.channelId);
+            }
+          }
+        } catch (e) {
+          console.error('[brain/create] queue sync error:', e.message);
+        }
+      })();
     }
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -104,11 +114,20 @@ router.patch('/:brainId', async (req, res) => {
 
 router.post('/:brainId/sync', async (req, res) => {
   try {
-    // Set stage to needs_sync immediately, then kick off background sync
     await brain.updateBrainMeta(req.locationId, req.params.brainId, { pipelineStage: 'syncing' });
-    res.json({ success: true, message: 'Sync started.' });
-    brain.syncBrainChannels(req.locationId, req.params.brainId)
-      .catch(e => console.error('[brain/sync] background sync error:', e));
+    // Queue all channels for discovery — frontend or cron drives batch processing
+    const brainData = await brain.getBrain(req.locationId, req.params.brainId);
+    const channels  = (brainData.channels || []).filter(c => c.channelUrl);
+    let totalQueued = 0;
+    for (const ch of channels) {
+      try {
+        const r = await brain.queueChannelSync(req.locationId, req.params.brainId, ch.channelId);
+        totalQueued += r.videoCount || r.queued || 0;
+      } catch (e) {
+        console.error(`[brain/sync] queue error for ${ch.channelName}:`, e.message);
+      }
+    }
+    res.json({ success: true, message: 'Sync started.', queued: totalQueued });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
