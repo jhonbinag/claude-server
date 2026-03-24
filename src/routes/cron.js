@@ -13,6 +13,7 @@ const scheduleStore = require('../services/scheduleStore');
 const workflowStore = require('../services/workflowStore');
 const claudeService = require('../services/claudeService');
 const activityLogger = require('../services/activityLogger');
+const brain         = require('../services/brainStore');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -102,6 +103,61 @@ router.get('/run-schedules', cronAuth, async (req, res) => {
     res.json({ success: true, ran, total: due.length, results });
   } catch (err) {
     console.error('[Cron] run-schedules fatal error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── GET /cron/brain-sync ──────────────────────────────────────────────────────
+// Runs weekly — discovers new videos from all channels in brains with autoSync=true.
+// Only collects video metadata (no transcript fetching) to stay within 60s timeout.
+
+router.get('/brain-sync', cronAuth, async (req, res) => {
+  const tag = '[cron/brain-sync]';
+  console.log(tag, 'Starting weekly brain sync');
+
+  try {
+    const locationIds = await brain.listBrainLocations();
+    console.log(tag, `Found ${locationIds.length} location(s) with brains`);
+
+    const results = [];
+    let totalChannels = 0;
+    let totalVideos   = 0;
+
+    for (const locationId of locationIds) {
+      let brains;
+      try {
+        brains = await brain.listBrains(locationId);
+      } catch (e) {
+        console.error(tag, `listBrains failed for ${locationId}:`, e.message);
+        continue;
+      }
+
+      const autoBrains = brains.filter(b => b.autoSync);
+      if (!autoBrains.length) continue;
+
+      console.log(tag, `  ${locationId} — ${autoBrains.length} auto-sync brain(s)`);
+
+      for (const b of autoBrains) {
+        const channels = (b.channels || []).filter(c => c.channelUrl);
+        for (const ch of channels) {
+          totalChannels++;
+          try {
+            const r = await brain.queueChannelSync(locationId, b.brainId, ch.channelId);
+            totalVideos += r.videoCount || r.queued || 0;
+            results.push({ locationId, brainId: b.brainId, channel: ch.channelName, videoCount: r.videoCount || r.queued, status: 'ok' });
+            console.log(tag, `    ✓ ${ch.channelName} — ${r.videoCount || r.queued} videos`);
+          } catch (e) {
+            console.error(tag, `    ✗ ${ch.channelName}: ${e.message}`);
+            results.push({ locationId, brainId: b.brainId, channel: ch.channelName, status: 'error', error: e.message });
+          }
+        }
+      }
+    }
+
+    console.log(tag, `Done — ${totalChannels} channel(s), ${totalVideos} total videos catalogued`);
+    res.json({ success: true, locations: locationIds.length, channels: totalChannels, videos: totalVideos, results });
+  } catch (err) {
+    console.error(tag, 'Fatal error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

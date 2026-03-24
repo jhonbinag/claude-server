@@ -613,14 +613,14 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
             {/* Auto-sync toggle */}
-            <label title={autoSync ? 'Auto-sync ON — syncs daily' : 'Auto-sync OFF — manual only'}
+            <label title={autoSync ? 'Auto-sync ON — discovers new videos every Monday at 8am' : 'Auto-sync OFF — manual only'}
               onClick={async e => {
                 e.preventDefault();
                 const next = !autoSync;
                 setAutoSync(next);
                 try {
                   await apiFetch(`/brain/${brain.brainId}`, locationId, { method: 'PATCH', body: { autoSync: next } });
-                  showFlash(true, next ? 'Auto-sync enabled — will re-sync daily.' : 'Auto-sync disabled.');
+                  showFlash(true, next ? 'Auto-sync enabled — will discover new videos every Monday.' : 'Auto-sync disabled.');
                 } catch { setAutoSync(!next); }
               }}
               style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', userSelect: 'none' }}>

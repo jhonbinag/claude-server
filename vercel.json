@@ -15,6 +15,10 @@
     {
       "path": "/cron/run-schedules",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/cron/brain-sync",
+      "schedule": "0 8 * * 1"
     }
   ],
   "env": {

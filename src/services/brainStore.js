@@ -77,13 +77,30 @@ async function rDel(key) {
   await redisReq(['DEL', key]);
 }
 
+async function rSAdd(key, member) {
+  if (!isRedisEnabled) { _mem[key] = [...(_mem[key] || []).filter(x => x !== member), member]; return; }
+  await redisReq(['SADD', key, member]);
+}
+
+async function rSMembers(key) {
+  if (!isRedisEnabled) return _mem[key] || [];
+  const r = await redisReq(['SMEMBERS', key]);
+  return Array.isArray(r) ? r : [];
+}
+
+async function rSRem(key, member) {
+  if (!isRedisEnabled) { _mem[key] = (_mem[key] || []).filter(x => x !== member); return; }
+  await redisReq(['SREM', key, member]);
+}
+
 // ── Key helpers ───────────────────────────────────────────────────────────────
 
-const brainsKey    = (loc)                => `hltools:brains:${loc}`;
-const docsKey      = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:docs`;
-const chunksKey    = (loc, brainId, docId)=> `hltools:brain:${loc}:${brainId}:chunks:${docId}`;
-const syncQueueKey = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:syncqueue`;
-const videosKey    = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:videos`;
+const brainsKey         = (loc)                => `hltools:brains:${loc}`;
+const docsKey           = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:docs`;
+const chunksKey         = (loc, brainId, docId)=> `hltools:brain:${loc}:${brainId}:chunks:${docId}`;
+const syncQueueKey      = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:syncqueue`;
+const videosKey         = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:videos`;
+const BRAIN_LOCS_KEY    = 'hltools:brain-locations'; // Redis set of all locationIds with brains
 
 // ── Text chunking ─────────────────────────────────────────────────────────────
 
@@ -202,6 +219,8 @@ async function createBrain(locationId, { name, slug, description, docsUrl, chang
   const brains = (await rGet(brainsKey(locationId))) || [];
   brains.push(brain);
   await rSet(brainsKey(locationId), brains);
+  // Register locationId in the global set so cron can enumerate it
+  await rSAdd(BRAIN_LOCS_KEY, locationId).catch(() => {});
   return brain;
 }
 
@@ -254,7 +273,10 @@ async function deleteBrain(locationId, brainId) {
 
   // Remove from brains list
   const brains = (await rGet(brainsKey(locationId))) || [];
-  await rSet(brainsKey(locationId), brains.filter(b => b.brainId !== brainId));
+  const remaining = brains.filter(b => b.brainId !== brainId);
+  await rSet(brainsKey(locationId), remaining);
+  // If no brains left, remove location from global set
+  if (remaining.length === 0) await rSRem(BRAIN_LOCS_KEY, locationId).catch(() => {});
   return { deleted: brainId };
 }
 
@@ -1349,4 +1371,6 @@ module.exports = {
   // Video catalogue
   listVideos,
   generateVideoTranscript,
+  // Auto-sync
+  listBrainLocations: () => rSMembers(BRAIN_LOCS_KEY),
 };
