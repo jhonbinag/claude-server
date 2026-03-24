@@ -346,6 +346,8 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   const [loadingDocs,       setLoadingDocs]       = useState(false);
   const [showAddChannel,    setShowAddChannel]    = useState(false);
   const [flash,             setFlash]             = useState(null);
+  const [syncing,           setSyncing]           = useState(false);
+  const [autoSync,          setAutoSync]          = useState(brain.autoSync === true);
 
   // Edit brain settings
   const [editName,          setEditName]          = useState(brain.name);
@@ -548,14 +550,54 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
             {brain.description && <p style={{ margin: '8px 0 0', color: C.textMuted, fontSize: 13 }}>{brain.description}</p>}
           </div>
           {/* Action buttons */}
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            <button onClick={async () => {
-              try {
-                await apiFetch(`/brain/${brain.brainId}/sync`, locationId, { method: 'POST' });
-                showFlash(true, 'Sync started — ingesting all channels in background.');
-                onRefresh();
-              } catch { showFlash(false, 'Failed to start sync.'); }
-            }} style={btnSecondary}>↻ Sync Now</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+            {/* Auto-sync toggle */}
+            <label title={autoSync ? 'Auto-sync ON — syncs daily' : 'Auto-sync OFF — manual only'}
+              onClick={async e => {
+                e.preventDefault();
+                const next = !autoSync;
+                setAutoSync(next);
+                try {
+                  await apiFetch(`/brain/${brain.brainId}`, locationId, { method: 'PATCH', body: { autoSync: next } });
+                  showFlash(true, next ? 'Auto-sync enabled — will re-sync daily.' : 'Auto-sync disabled.');
+                } catch { setAutoSync(!next); }
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', userSelect: 'none' }}>
+              <span style={{ fontSize: 12, color: C.textMuted }}>Auto</span>
+              <div style={{
+                width: 36, height: 20, borderRadius: 10, background: autoSync ? C.blue : C.border,
+                position: 'relative', transition: 'background .2s', flexShrink: 0,
+              }}>
+                <div style={{
+                  position: 'absolute', top: 3, left: autoSync ? 18 : 3,
+                  width: 14, height: 14, borderRadius: '50%', background: '#fff',
+                  transition: 'left .2s',
+                }} />
+              </div>
+            </label>
+            {/* Manual sync icon button */}
+            <button
+              title="Sync now"
+              disabled={syncing}
+              onClick={async () => {
+                setSyncing(true);
+                try {
+                  await apiFetch(`/brain/${brain.brainId}/sync`, locationId, { method: 'POST' });
+                  showFlash(true, 'Sync started — ingesting all channels in background.');
+                  onRefresh();
+                } catch { showFlash(false, 'Failed to start sync.'); }
+                setTimeout(() => setSyncing(false), 2000);
+              }}
+              style={{
+                ...btnSecondary, padding: '7px 10px', fontSize: 16, lineHeight: 1,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                opacity: syncing ? 0.5 : 1,
+              }}>
+              <span style={{
+                display: 'inline-block',
+                animation: syncing ? 'spin 1s linear infinite' : 'none',
+              }}>↻</span>
+            </button>
             <button onClick={() => setShowAddChannel(true)} style={btnPrimary}>+ Add Channel</button>
           </div>
         </div>
@@ -903,10 +945,21 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
 
 // ── Dashboard view ────────────────────────────────────────────────────────────
 
-function DashboardView({ brains, loading, onAddBrain, onSelectBrain }) {
+function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId, onSyncBrain }) {
+  const [syncingId, setSyncingId] = useState(null);
   const totalVideos  = brains.reduce((a, b) => a + (b.docCount || 0), 0);
   const totalChunks  = brains.reduce((a, b) => a + (b.chunkCount || 0), 0);
   const totalChannels = brains.reduce((a, b) => a + (b.channels || []).length, 0);
+
+  async function quickSync(e, brainId) {
+    e.stopPropagation();
+    setSyncingId(brainId);
+    try {
+      await apiFetch(`/brain/${brainId}/sync`, locationId, { method: 'POST' });
+      if (onSyncBrain) onSyncBrain();
+    } catch {}
+    setTimeout(() => setSyncingId(null), 3000);
+  }
 
   const statCards = [
     { label: 'Brains',   value: brains.length,  icon: '🧠' },
@@ -1018,9 +1071,24 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain }) {
                     ? <a href={b.changelogUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: C.textSec, textDecoration: 'none' }}>Changelog</a>
                     : <span style={{ fontSize: 12, color: C.border }}>Changelog</span>
                   }
-                  {pendingCount > 0 && (
-                    <span style={{ marginLeft: 'auto', background: `${C.amber}22`, color: C.amber, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>{pendingCount} pending</span>
-                  )}
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {b.autoSync && (
+                      <span title="Auto-sync enabled" style={{ fontSize: 11, color: C.blue, fontWeight: 600 }}>⟳ auto</span>
+                    )}
+                    {pendingCount > 0 && (
+                      <span style={{ background: `${C.amber}22`, color: C.amber, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>{pendingCount} pending</span>
+                    )}
+                    <button
+                      title="Sync now"
+                      onClick={e => quickSync(e, b.brainId)}
+                      style={{
+                        background: 'none', border: `1px solid ${C.border}`, borderRadius: 6,
+                        color: syncingId === b.brainId ? C.blue : C.textMuted,
+                        padding: '3px 8px', fontSize: 14, cursor: 'pointer', lineHeight: 1,
+                      }}>
+                      <span style={{ display: 'inline-block', animation: syncingId === b.brainId ? 'spin 1s linear infinite' : 'none' }}>↻</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -1422,6 +1490,7 @@ export default function Brain() {
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.textPri, fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column' }}>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       <Header icon="🧠" title="Brain" subtitle="Multi-brain YouTube RAG knowledge base" />
 
       {showCreate && (
@@ -1466,7 +1535,7 @@ export default function Brain() {
         )}
 
         {activeTab === 'dashboard' && (
-          <DashboardView brains={brains} loading={loadingBrains} onAddBrain={() => setShowCreate(true)} onSelectBrain={handleSelectBrain} />
+          <DashboardView brains={brains} loading={loadingBrains} onAddBrain={() => setShowCreate(true)} onSelectBrain={handleSelectBrain} locationId={locationId} onSyncBrain={() => loadBrains(true)} />
         )}
 
         {activeTab === 'pipeline' && (
