@@ -1652,25 +1652,73 @@ function SearchView({ brains, locationId }) {
         </div>
       )}
 
-      {/* Top 5 Sources — accordion ranked by accuracy */}
+      {/* Top 5 Answers — ranked excerpt cards */}
+      {sources?.length > 0 && !asking && (() => {
+        const ANS_COLORS = ['#f59e0b', '#94a3b8', '#cd7c4a', '#6b7280', '#6b7280'];
+        const ANS_LABELS = ['#1 Best Match', '#2', '#3', '#4', '#5'];
+        const maxScore   = Math.max(...sources.map(s => s.score || 0)) || 1;
+        const top5ans    = [...sources].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+        return (
+          <div style={{ marginBottom: 24 }}>
+            <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Top 5 Answers by Accuracy
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {top5ans.map((s, i) => {
+                const pct   = Math.round(((s.score || 0) / maxScore) * 100);
+                const color = ANS_COLORS[i];
+                return (
+                  <div key={i} style={{ background: i === 0 ? 'rgba(245,158,11,0.05)' : C.card, border: `1px solid ${i === 0 ? '#f59e0b55' : C.border}`, borderRadius: 10, padding: '14px 16px' }}>
+                    {/* Header row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color, background: color + '18', border: `1px solid ${color}44`, borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>
+                        {ANS_LABELS[i]}
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.sourceLabel || `Source ${i + 1}`}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color, flexShrink: 0 }}>{pct}%</span>
+                    </div>
+                    {/* Accuracy bar */}
+                    <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.07)', marginBottom: 12, overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2, background: color }} />
+                    </div>
+                    {/* Answer excerpt */}
+                    {s.excerpt && (
+                      <p style={{ margin: 0, fontSize: 13, color: '#cbd5e1', lineHeight: 1.75 }}>
+                        {s.excerpt}{s.excerpt.length >= 300 ? '…' : ''}
+                      </p>
+                    )}
+                    {s.url && (
+                      <a href={s.url} target="_blank" rel="noreferrer"
+                        style={{ display: 'inline-block', marginTop: 8, fontSize: 11, color: C.textMuted, textDecoration: 'none' }}>
+                        ↗ Watch on YouTube
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Top 10 Sources — accordion */}
       {sources?.length > 0 && !asking && (() => {
         const RANK_COLORS = ['#f59e0b','#94a3b8','#cd7c4a','#6b7280','#6b7280','#6b7280','#6b7280','#6b7280','#6b7280','#6b7280'];
-        const RANK_LABELS = ['#1 Best','#2','#3','#4','#5','#6','#7','#8','#9','#10'];
+        const RANK_LABELS = ['#1','#2','#3','#4','#5','#6','#7','#8','#9','#10'];
         const maxScore = Math.max(...sources.map(s => s.score || 0)) || 1;
-        const top5 = [...sources]
-          .sort((a, b) => (b.score || 0) - (a.score || 0))
-          .slice(0, 10);
+        const top10    = [...sources].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 10);
         return (
           <div>
             <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Top {top5.length} Sources by Accuracy
+              Top {top10.length} Sources
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {top5.map((s, i) => {
+              {top10.map((s, i) => {
                 const pct = Math.round(((s.score || 0) / maxScore) * 100);
-                const rankColor = RANK_COLORS[i];
                 return (
-                  <SourceAccordion key={i} s={s} rank={i} pct={pct} rankColor={rankColor} rankLabel={RANK_LABELS[i]} />
+                  <SourceAccordion key={i} s={s} rank={i} pct={pct} rankColor={RANK_COLORS[i]} rankLabel={RANK_LABELS[i]} />
                 );
               })}
             </div>
