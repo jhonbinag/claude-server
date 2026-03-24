@@ -1458,6 +1458,52 @@ function PipelineView({ brains }) {
   );
 }
 
+// ── Source accordion card ─────────────────────────────────────────────────────
+
+function SourceAccordion({ s, rank, pct, rankColor, rankLabel }) {
+  const [open, setOpen] = useState(rank === 0); // #1 open by default
+  return (
+    <div style={{ border: `1px solid ${rank === 0 ? rankColor + '55' : 'rgba(255,255,255,0.07)'}`, borderRadius: 10, overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ width: '100%', background: rank === 0 ? 'rgba(245,158,11,0.05)' : 'rgba(255,255,255,0.02)', border: 'none', cursor: 'pointer', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}
+      >
+        {/* Rank badge */}
+        <span style={{ fontSize: 10, fontWeight: 800, color: rankColor, background: rankColor + '18', border: `1px solid ${rankColor}44`, borderRadius: 6, padding: '2px 7px', flexShrink: 0, minWidth: 42, textAlign: 'center' }}>
+          {rankLabel}
+        </span>
+        {/* Accuracy bar */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {s.sourceLabel || `Source ${rank + 1}`}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+              <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2, background: rankColor, transition: 'width 0.4s ease' }} />
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: rankColor, flexShrink: 0 }}>{pct}%</span>
+          </div>
+        </div>
+        {/* Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {s.url && (
+            <a href={s.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+              style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>↗</a>
+          )}
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+        </div>
+      </button>
+      {open && s.excerpt && (
+        <div style={{ padding: '10px 14px 12px', borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
+            {s.excerpt}{s.excerpt.length >= 300 ? '…' : ''}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Search view ───────────────────────────────────────────────────────────────
 
 function SearchView({ brains, locationId }) {
@@ -1467,7 +1513,6 @@ function SearchView({ brains, locationId }) {
   const [answer,          setAnswer]          = useState('');
   const [sources,         setSources]         = useState(null);
   const [searchMethod,    setSearchMethod]    = useState('');
-  const [showSources,     setShowSources]     = useState(false);
   const [noContext,       setNoContext]        = useState(false);
   const [error,           setError]           = useState('');
   const answerRef = useRef(null);
@@ -1484,7 +1529,6 @@ function SearchView({ brains, locationId }) {
     setSearchMethod('');
     setNoContext(false);
     setError('');
-    setShowSources(false);
 
     try {
       const res = await fetch(`/brain/${selectedBrainId}/ask`, {
@@ -1582,15 +1626,21 @@ function SearchView({ brains, locationId }) {
         </div>
       )}
 
-      {/* AI Answer */}
+      {/* Best Answer */}
       {(answer || (asking && answer)) && (
         <div ref={answerRef} style={{ background: '#0a1628', border: `1px solid ${C.blue}33`, borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
             <span style={{ fontSize: 14 }}>✦</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: C.blue }}>Claude's Answer</span>
-            {sources?.length > 0 && (
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: C.textMuted }}>
-                Based on {sources.length} source{sources.length !== 1 ? 's' : ''}
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.blue }}>Best Answer</span>
+            {searchMethod && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+                padding: '2px 7px', borderRadius: 99,
+                background: searchMethod === 'vector' ? 'rgba(99,102,241,0.15)' : 'rgba(245,158,11,0.12)',
+                color:      searchMethod === 'vector' ? '#a5b4fc'               : '#fbbf24',
+                border:     `1px solid ${searchMethod === 'vector' ? 'rgba(99,102,241,0.3)' : 'rgba(245,158,11,0.25)'}`,
+              }}>
+                {searchMethod === 'vector' ? '⚡ Vector DB' : '🔤 Keyword'}
               </span>
             )}
           </div>
@@ -1615,56 +1665,31 @@ function SearchView({ brains, locationId }) {
         </div>
       )}
 
-      {/* Sources */}
-      {sources?.length > 0 && !asking && (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <button
-              onClick={() => setShowSources(s => !s)}
-              style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 12, cursor: 'pointer', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <span style={{ display: 'inline-block', transform: showSources ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
-              {showSources ? 'Hide' : 'Show'} {sources.length} source{sources.length !== 1 ? 's' : ''}
-            </button>
-            <span style={{
-              fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
-              padding: '2px 7px', borderRadius: 99,
-              background: searchMethod === 'vector' ? 'rgba(99,102,241,0.15)' : 'rgba(245,158,11,0.12)',
-              color:      searchMethod === 'vector' ? '#a5b4fc'               : '#fbbf24',
-              border:     `1px solid ${searchMethod === 'vector' ? 'rgba(99,102,241,0.3)' : 'rgba(245,158,11,0.25)'}`,
-            }}>
-              {searchMethod === 'vector' ? '⚡ Vector' : '🔤 Keyword'}
-            </span>
-          </div>
-          {showSources && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {sources.map((s, i) => (
-                <div key={i} style={{ background: C.card, border: `1px solid ${s.isPrimary ? C.blue + '44' : C.border}`, borderRadius: 10, padding: '12px 14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: s.excerpt ? 8 : 0 }}>
-                    <span style={{ fontSize: 11, color: s.isPrimary ? C.blue : C.textMuted, fontWeight: 700, flexShrink: 0 }}>
-                      {s.isPrimary ? '★' : '·'} {s.sourceLabel || `Source ${i + 1}`}
-                    </span>
-                    <span style={{ fontSize: 10, color: C.textMuted, marginLeft: 'auto', flexShrink: 0 }}>
-                      {Math.round((s.score || 0) * 100)}%
-                    </span>
-                    {s.url && (
-                      <a href={s.url} target="_blank" rel="noreferrer"
-                        style={{ fontSize: 11, color: C.textMuted, textDecoration: 'none', flexShrink: 0 }}>
-                        ↗ Watch
-                      </a>
-                    )}
-                  </div>
-                  {s.excerpt && (
-                    <p style={{ margin: 0, fontSize: 12, color: C.textSec, lineHeight: 1.6, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-                      {s.excerpt}{s.excerpt.length >= 300 ? '…' : ''}
-                    </p>
-                  )}
-                </div>
-              ))}
+      {/* Top 5 Sources — accordion ranked by accuracy */}
+      {sources?.length > 0 && !asking && (() => {
+        const RANK_COLORS = ['#f59e0b', '#94a3b8', '#cd7c4a', '#6b7280', '#6b7280'];
+        const RANK_LABELS = ['#1 Best', '#2', '#3', '#4', '#5'];
+        const maxScore = Math.max(...sources.map(s => s.score || 0)) || 1;
+        const top5 = [...sources]
+          .sort((a, b) => (b.score || 0) - (a.score || 0))
+          .slice(0, 5);
+        return (
+          <div>
+            <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Top {top5.length} Sources
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {top5.map((s, i) => {
+                const pct = Math.round(((s.score || 0) / maxScore) * 100);
+                const rankColor = RANK_COLORS[i];
+                return (
+                  <SourceAccordion key={i} s={s} rank={i} pct={pct} rankColor={rankColor} rankLabel={RANK_LABELS[i]} />
+                );
+              })}
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
