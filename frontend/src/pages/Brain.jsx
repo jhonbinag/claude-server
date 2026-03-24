@@ -361,6 +361,9 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   const [videos,            setVideos]            = useState([]);
   const [loadingVideos,     setLoadingVideos]     = useState(false);
   const [generatingIds,     setGeneratingIds]     = useState(new Set());
+  const [batchProcessing,  setBatchProcessing]  = useState(false);
+  const [batchProgress,    setBatchProgress]    = useState(null);
+  const batchActiveRef = useRef(false);
 
   // YouTube add (in Add Content section within Videos tab)
   const [ytUrl,             setYtUrl]             = useState('');
@@ -422,6 +425,59 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   useEffect(() => {
     if (tab === 'videos') reloadVideos();
   }, [tab, brain.brainId]);
+
+  // Auto-refresh videos while batch processing is active
+  useEffect(() => {
+    if (!batchProcessing) return;
+    const timer = setInterval(reloadVideos, 8000);
+    return () => clearInterval(timer);
+  }, [batchProcessing, brain.brainId]);
+
+  // Cleanup batch processing on unmount
+  useEffect(() => () => { batchActiveRef.current = false; }, []);
+
+  // Batch processing loop — drives server-side /sync-batch from the frontend
+  async function startBatchLoop() {
+    if (batchActiveRef.current) return;
+    batchActiveRef.current = true;
+    setBatchProcessing(true);
+    let totalDone = 0, totalErrors = 0, batchCount = 0;
+    setBatchProgress({ done: 0, remaining: 0, total: 0, errors: 0 });
+
+    while (batchActiveRef.current) {
+      try {
+        const r = await apiFetch(`/brain/${brain.brainId}/sync-batch`, locationId, {
+          method: 'POST', body: { batchSize: 5 },
+        });
+        if (!r.success) { showFlash(false, r.error || 'Batch processing failed.'); break; }
+        totalDone += r.ingested || 0;
+        totalErrors += r.errors || 0;
+        batchCount++;
+        setBatchProgress({
+          done: totalDone,
+          remaining: r.remaining || 0,
+          total: totalDone + totalErrors + (r.remaining || 0),
+          errors: totalErrors,
+        });
+        if (r.done) {
+          showFlash(true, `Processing complete — ${totalDone} video${totalDone !== 1 ? 's' : ''} indexed${totalErrors > 0 ? `, ${totalErrors} error${totalErrors !== 1 ? 's' : ''}` : ''}.`);
+          break;
+        }
+        if (batchCount % 3 === 0) await reloadVideos();
+      } catch (e) { showFlash(false, `Processing error: ${e.message}`); break; }
+    }
+
+    batchActiveRef.current = false;
+    setBatchProcessing(false);
+    setBatchProgress(null);
+    onRefresh();
+    await reloadBrain();
+    await reloadVideos();
+  }
+
+  function stopBatchLoop() {
+    batchActiveRef.current = false;
+  }
 
   async function generateTranscript(videoId) {
     setGeneratingIds(prev => new Set([...prev, videoId]));
@@ -551,17 +607,16 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     setSyncingChannelId(channelId);
     showFlash(true, `Discovering videos for "${name}"…`);
     try {
-      // Collect all video IDs + metadata into the video catalogue (fast — no transcript fetching)
       const q = await apiFetch(`/brain/${brain.brainId}/channels/${channelId}/queue`, locationId, { method: 'POST' });
       if (!q.success) { showFlash(false, q.error || 'Failed to sync channel.'); setSyncingChannelId(null); return; }
 
       const discovered = q.videoCount || q.queued || 0;
-      showFlash(true, `"${name}" — ${discovered} videos discovered. Click "Generate Transcript" on any video to index it.`);
+      showFlash(true, `"${name}" — ${discovered} videos discovered. Starting transcript processing…`);
       onRefresh();
       await reloadBrain();
       await reloadVideos();
-      // Switch to videos tab so user sees results
       setTab('videos');
+      startBatchLoop();
     } catch (e) { showFlash(false, e.message || 'Sync failed.'); }
     setSyncingChannelId(null);
   }
@@ -651,11 +706,12 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                     const q = await apiFetch(`/brain/${brain.brainId}/channels/${ch.channelId}/queue`, locationId, { method: 'POST' });
                     if (q.success) totalDiscovered += q.videoCount || q.queued || 0;
                   }
-                  showFlash(true, `${totalDiscovered} videos discovered — go to Videos tab to generate transcripts.`);
+                  showFlash(true, `${totalDiscovered} videos discovered. Starting transcript processing…`);
                   onRefresh();
                   await reloadBrain();
                   await reloadVideos();
                   setTab('videos');
+                  startBatchLoop();
                 } catch { showFlash(false, 'Sync failed.'); }
                 setSyncing(false);
               }}
@@ -771,9 +827,37 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
               )}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
+              {batchProcessing ? (
+                <button onClick={stopBatchLoop} style={{ ...btnSecondary, fontSize: 12, padding: '6px 14px', color: C.amber, borderColor: `${C.amber}66` }}>■ Stop Processing</button>
+              ) : videos.some(v => v.transcriptStatus === 'pending') ? (
+                <button onClick={startBatchLoop} style={{ ...btnPrimary, fontSize: 12, padding: '6px 14px' }}>▶ Process All Pending</button>
+              ) : null}
               <button onClick={reloadVideos} style={{ ...btnSecondary, fontSize: 12, padding: '6px 14px' }}>↻ Refresh</button>
             </div>
           </div>
+
+          {/* Batch processing progress */}
+          {batchProcessing && batchProgress && (
+            <div style={{ marginBottom: 16, background: '#0d1a2e', border: `1px solid ${C.blue}44`, borderRadius: 10, padding: '12px 16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd' }}>
+                  Processing transcripts\u2026 {batchProgress.done} indexed{batchProgress.errors > 0 ? `, ${batchProgress.errors} errors` : ''} \u2014 {batchProgress.remaining} remaining
+                </span>
+                <span style={{ fontSize: 12, color: C.textMuted }}>
+                  {batchProgress.total > 0 ? Math.round(((batchProgress.done + batchProgress.errors) / batchProgress.total) * 100) : 0}%
+                </span>
+              </div>
+              <div style={{ height: 6, background: '#1e2a3a', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  borderRadius: 3,
+                  background: `linear-gradient(90deg, ${C.blue}, #60a5fa)`,
+                  width: batchProgress.total > 0 ? `${((batchProgress.done + batchProgress.errors) / batchProgress.total) * 100}%` : '0%',
+                  transition: 'width 0.5s ease',
+                }} />
+              </div>
+            </div>
+          )}
 
           {/* No videos state */}
           {!loadingVideos && videos.length === 0 && (
@@ -1582,7 +1666,7 @@ export default function Brain() {
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.textPri, fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column' }}>
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
       <Header icon="🧠" title="Brain" subtitle="Multi-brain YouTube RAG knowledge base" />
 
       {showCreate && (
