@@ -1466,6 +1466,7 @@ function SearchView({ brains, locationId }) {
   const [asking,          setAsking]          = useState(false);
   const [answer,          setAnswer]          = useState('');
   const [sources,         setSources]         = useState(null);
+  const [searchMethod,    setSearchMethod]    = useState('');
   const [showSources,     setShowSources]     = useState(false);
   const [noContext,       setNoContext]        = useState(false);
   const [error,           setError]           = useState('');
@@ -1480,6 +1481,7 @@ function SearchView({ brains, locationId }) {
     setAsking(true);
     setAnswer('');
     setSources(null);
+    setSearchMethod('');
     setNoContext(false);
     setError('');
     setShowSources(false);
@@ -1512,7 +1514,7 @@ function SearchView({ brains, locationId }) {
           if (!line.startsWith('data: ')) continue;
           try {
             const evt = JSON.parse(line.slice(6));
-            if (evt.type === 'sources')     { setSources(evt.sources); }
+            if (evt.type === 'sources')     { setSources(evt.sources); setSearchMethod(evt.searchMethod || 'keyword'); }
             if (evt.type === 'text')        { setAnswer(prev => prev + evt.text); }
             if (evt.type === 'no_context')  { setNoContext(true); }
             if (evt.type === 'error')       { setError(evt.error); }
@@ -1613,28 +1615,49 @@ function SearchView({ brains, locationId }) {
         </div>
       )}
 
-      {/* Sources toggle */}
+      {/* Sources */}
       {sources?.length > 0 && !asking && (
         <div>
-          <button
-            onClick={() => setShowSources(s => !s)}
-            style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 12, cursor: 'pointer', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <span style={{ display: 'inline-block', transform: showSources ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
-            {showSources ? 'Hide' : 'Show'} {sources.length} source{sources.length !== 1 ? 's' : ''}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <button
+              onClick={() => setShowSources(s => !s)}
+              style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 12, cursor: 'pointer', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <span style={{ display: 'inline-block', transform: showSources ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
+              {showSources ? 'Hide' : 'Show'} {sources.length} source{sources.length !== 1 ? 's' : ''}
+            </button>
+            <span style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+              padding: '2px 7px', borderRadius: 99,
+              background: searchMethod === 'vector' ? 'rgba(99,102,241,0.15)' : 'rgba(245,158,11,0.12)',
+              color:      searchMethod === 'vector' ? '#a5b4fc'               : '#fbbf24',
+              border:     `1px solid ${searchMethod === 'vector' ? 'rgba(99,102,241,0.3)' : 'rgba(245,158,11,0.25)'}`,
+            }}>
+              {searchMethod === 'vector' ? '⚡ Vector' : '🔤 Keyword'}
+            </span>
+          </div>
           {showSources && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {sources.map((s, i) => (
-                <div key={i} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 11, color: s.isPrimary ? C.blue : C.textMuted, fontWeight: 600, flexShrink: 0 }}>
-                    {s.isPrimary ? '★' : '·'} Source {i + 1}
-                  </span>
-                  <span style={{ fontSize: 12, color: C.textSec, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.sourceLabel || 'Unknown'}
-                  </span>
-                  {s.url && (
-                    <a href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.textMuted, textDecoration: 'none', flexShrink: 0 }}>↗</a>
+                <div key={i} style={{ background: C.card, border: `1px solid ${s.isPrimary ? C.blue + '44' : C.border}`, borderRadius: 10, padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: s.excerpt ? 8 : 0 }}>
+                    <span style={{ fontSize: 11, color: s.isPrimary ? C.blue : C.textMuted, fontWeight: 700, flexShrink: 0 }}>
+                      {s.isPrimary ? '★' : '·'} {s.sourceLabel || `Source ${i + 1}`}
+                    </span>
+                    <span style={{ fontSize: 10, color: C.textMuted, marginLeft: 'auto', flexShrink: 0 }}>
+                      {Math.round((s.score || 0) * 100)}%
+                    </span>
+                    {s.url && (
+                      <a href={s.url} target="_blank" rel="noreferrer"
+                        style={{ fontSize: 11, color: C.textMuted, textDecoration: 'none', flexShrink: 0 }}>
+                        ↗ Watch
+                      </a>
+                    )}
+                  </div>
+                  {s.excerpt && (
+                    <p style={{ margin: 0, fontSize: 12, color: C.textSec, lineHeight: 1.6, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                      {s.excerpt}{s.excerpt.length >= 300 ? '…' : ''}
+                    </p>
                   )}
                 </div>
               ))}

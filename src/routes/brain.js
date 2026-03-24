@@ -275,7 +275,8 @@ router.post('/:brainId/ask', async (req, res) => {
     process.stdout.write(`${tag} [1/4] querying knowledge base…\n`);
     const t0 = Date.now();
     const chunks = await brain.queryKnowledge(req.locationId, req.params.brainId, query, k);
-    process.stdout.write(`${tag} [1/4] done — ${chunks.length} chunks in ${Date.now() - t0}ms\n`);
+    const searchMethod = chunks._method || 'keyword';
+    process.stdout.write(`${tag} [1/4] done — ${chunks.length} chunks (${searchMethod}) in ${Date.now() - t0}ms\n`);
 
     if (!chunks.length) {
       process.stdout.write(`${tag} ✗ no context found — returning no_context event\n`);
@@ -314,7 +315,7 @@ Instructions:
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('X-Accel-Buffering', 'no');
-    res.write(`data: ${JSON.stringify({ type: 'sources', sources: chunks.map(c => ({ sourceLabel: c.sourceLabel, url: c.url, score: c.score, isPrimary: c.isPrimary })) })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'sources', searchMethod, sources: chunks.map(c => ({ sourceLabel: c.sourceLabel, url: c.url, score: c.score, isPrimary: c.isPrimary, excerpt: (c.text || '').slice(0, 300) })) })}\n\n`);
 
     let answered = false;
     let lastErr  = null;
@@ -506,7 +507,8 @@ router.get('/:brainId/videos', async (req, res) => {
 
 router.post('/:brainId/videos/:videoId/transcript', async (req, res) => {
   try {
-    const result = await brain.generateVideoTranscript(
+    // Queue for batch processing — avoids Vercel 10s timeout
+    const result = await brain.queueVideoForTranscript(
       req.locationId,
       req.params.brainId,
       req.params.videoId,

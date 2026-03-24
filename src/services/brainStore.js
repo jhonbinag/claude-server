@@ -1023,6 +1023,7 @@ async function queryKnowledge(locationId, brainId, queryText, k = 5) {
       results.forEach((r, i) =>
         process.stdout.write(`${tag}   [${i + 1}] score=${r.score.toFixed(3)} source="${r.sourceLabel}"\n`)
       );
+      results._method = 'vector';
       return results;
     }
     if (results !== null) process.stdout.write(`${tag} vector empty — falling back to keyword\n`);
@@ -1055,6 +1056,7 @@ async function queryKnowledge(locationId, brainId, queryText, k = 5) {
   results.forEach((r, i) =>
     process.stdout.write(`${tag}   [${i + 1}] score=${r.score.toFixed(3)} source="${r.sourceLabel}"\n`)
   );
+  results._method = 'keyword';
   return results;
 }
 
@@ -1708,6 +1710,26 @@ function isEnabled() {
 }
 
 /**
+ * Queue a single video for transcript generation via the existing batch processor.
+ * Returns immediately — no timeout risk on Vercel.
+ */
+async function queueVideoForTranscript(locationId, brainId, videoId) {
+  const vids = (await rGet(videosKey(locationId, brainId))) || [];
+  const vr   = vids.find(v => v.videoId === videoId);
+  if (!vr) throw new Error('Video not found in catalogue');
+
+  const currentQueue = (await rGet(syncQueueKey(locationId, brainId))) || [];
+  if (!currentQueue.find(q => q.videoId === videoId)) {
+    currentQueue.push({ videoId, title: vr.title || '', isPrimary: !!vr.isPrimary });
+    await rSet(syncQueueKey(locationId, brainId), currentQueue);
+  }
+
+  await _updateVideoRecord(locationId, brainId, videoId, { transcriptStatus: 'queued', transcriptError: null });
+  process.stdout.write(`[queueTranscript ${videoId}] queued (queue length: ${currentQueue.length})\n`);
+  return { queued: true, videoId };
+}
+
+/**
  * Re-upsert all existing Redis chunks into the Upstash Vector index.
  * Use this to backfill vector embeddings for brains synced before vector was enabled.
  */
@@ -1763,6 +1785,7 @@ module.exports = {
   generateVideoTranscript,
   getVideoTranscriptText,
   reindexBrain,
+  queueVideoForTranscript,
   // Auto-sync
   listBrainLocations: () => rSMembers(BRAIN_LOCS_KEY),
 };
