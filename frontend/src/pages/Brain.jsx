@@ -126,143 +126,8 @@ const btnSecondary = {
 
 const NAV_TABS = [
   { id: 'dashboard', label: 'Dashboard' },
-  { id: 'pipeline',  label: 'Pipeline' },
   { id: 'search',    label: 'Search' },
-  { id: 'mcp',       label: 'MCP' },
 ];
-
-// ── Create Brain Modal ────────────────────────────────────────────────────────
-
-function CreateBrainModal({ onClose, onCreate }) {
-  const [name,              setName]              = useState('');
-  const [slug,              setSlug]              = useState('');
-  const [description,       setDescription]       = useState('');
-  const [channelName,       setChannelName]       = useState('');
-  const [channelUrl,        setChannelUrl]        = useState('');
-  const [secondaryChannels, setSecondaryChannels] = useState([]);
-  const [syncNow,           setSyncNow]           = useState(true);
-  const [slugEdited,        setSlugEdited]        = useState(false);
-  const [creating,          setCreating]          = useState(false);
-  const [error,             setError]             = useState('');
-
-  useEffect(() => {
-    if (!slugEdited && name) setSlug(slugify(name));
-  }, [name, slugEdited]);
-
-  function addSecondary() {
-    setSecondaryChannels(prev => [...prev, { name: '', url: '' }]);
-  }
-  function updateSecondary(i, field, val) {
-    setSecondaryChannels(prev => prev.map((c, idx) => idx === i ? { ...c, [field]: val } : c));
-  }
-  function removeSecondary(i) {
-    setSecondaryChannels(prev => prev.filter((_, idx) => idx !== i));
-  }
-
-  async function handleCreate() {
-    if (!name.trim()) { setError('Name is required.'); return; }
-    setCreating(true);
-    setError('');
-    try {
-      await onCreate({
-        name:        name.trim(),
-        slug:        slug.trim() || slugify(name),
-        description: description.trim(),
-        primaryChannel: channelName.trim() ? { name: channelName.trim(), url: channelUrl.trim() } : undefined,
-        secondaryChannels: secondaryChannels.filter(c => c.name.trim()),
-        syncNow,
-      });
-    } catch (e) {
-      setError(e.message || 'Failed to create brain.');
-    }
-    setCreating(false);
-  }
-
-  const sectionLabel = {
-    fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
-    color: C.textMuted, marginBottom: 10, marginTop: 4,
-  };
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-    }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{
-        background: C.card, border: `1px solid ${C.border}`, borderRadius: 16,
-        padding: 28, width: '100%', maxWidth: 480,
-        maxHeight: '90vh', overflowY: 'auto',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.textPri }}>Create a new brain</h2>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: C.textMuted }}>
-              A brain groups YouTube channels into a searchable knowledge base.
-            </p>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 20, cursor: 'pointer', marginLeft: 12, flexShrink: 0 }}>✕</button>
-        </div>
-
-        <div style={{ borderBottom: `1px solid ${C.border}`, margin: '16px 0' }} />
-
-        {error && (
-          <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: '#1c0a00', border: `1px solid ${C.red}44`, color: '#f87171', fontSize: 13 }}>
-            {error}
-          </div>
-        )}
-
-        <label style={labelStyle}>Name <span style={{ color: C.red }}>*</span></label>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. AI Research" style={inputStyle} autoFocus />
-
-        <label style={labelStyle}>Slug <span style={{ color: C.red }}>*</span></label>
-        <input value={slug} onChange={e => { setSlug(e.target.value); setSlugEdited(true); }} placeholder="e.g. ai-research" style={{ ...inputStyle, marginBottom: 4 }} />
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>URL-friendly ID. Auto-generated from name.</p>
-
-        <label style={labelStyle}>Description</label>
-        <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="What is this brain about?" rows={3} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
-
-        <div style={{ borderBottom: `1px solid ${C.border}`, margin: '4px 0 16px' }} />
-        <div style={sectionLabel}>Primary Channel</div>
-
-        <label style={labelStyle}>Channel name <span style={{ color: C.red }}>*</span></label>
-        <input value={channelName} onChange={e => setChannelName(e.target.value)} placeholder="e.g. Andrej Karpathy" style={inputStyle} />
-
-        <label style={labelStyle}>Channel URL <span style={{ color: C.red }}>*</span></label>
-        <input value={channelUrl} onChange={e => setChannelUrl(e.target.value)} placeholder="https://youtube.com/@karpathy" style={{ ...inputStyle, marginBottom: 4 }} />
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>Accepts @handle, channel URL, or UC ID.</p>
-
-        {secondaryChannels.map((ch, i) => (
-          <div key={i} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Secondary Channel {i + 1}</span>
-              <button onClick={() => removeSecondary(i)} style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 16 }}>✕</button>
-            </div>
-            <input value={ch.name} onChange={e => updateSecondary(i, 'name', e.target.value)} placeholder="Channel name" style={{ ...inputStyle, marginBottom: 8 }} />
-            <input value={ch.url} onChange={e => updateSecondary(i, 'url', e.target.value)} placeholder="Channel URL or @handle" style={{ ...inputStyle, marginBottom: 0 }} />
-          </div>
-        ))}
-
-        <button onClick={addSecondary} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 20 }}>
-          + Add a secondary channel (optional)
-        </button>
-
-        <div style={{ borderBottom: `1px solid ${C.border}`, margin: '0 0 16px' }} />
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
-          <input type="checkbox" checked={syncNow} onChange={e => setSyncNow(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer' }} />
-          <span style={{ fontSize: 13, color: '#d1d5db' }}>Start initial sync immediately &amp; enable weekly updates</span>
-        </label>
-
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 24 }}>
-          <button onClick={onClose} style={btnSecondary}>Cancel</button>
-          <button onClick={handleCreate} disabled={creating || !name.trim()} style={{ ...btnPrimary, opacity: (creating || !name.trim()) ? 0.5 : 1, cursor: (creating || !name.trim()) ? 'not-allowed' : 'pointer' }}>
-            {creating ? 'Creating…' : 'Create brain'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Add Channel Modal ─────────────────────────────────────────────────────────
 
@@ -495,7 +360,7 @@ function ChangeLogModal({ brain, onClose }) {
 // ── Brain Detail view ─────────────────────────────────────────────────────────
 
 function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialModal, onModalOpened }) {
-  const [tab,               setTab]               = useState(brain.isShared ? 'progress' : 'channels');
+  const [tab,               setTab]               = useState('videos');
   const [docs,              setDocs]              = useState(brain.docs || []);
   const [channels,          setChannels]          = useState(brain.channels || []);
   const [loadingDocs,       setLoadingDocs]       = useState(false);
@@ -855,12 +720,9 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
   const totalChunks = docs.reduce((a, d) => a + (d.chunkCount || 0), 0);
   const videoCount = videos.length || brain.videoCount || ytDocs.length;
 
-  const isSharedBrain = !!brain.isShared;
+  // Users only see Videos tab — all management tabs are admin-only
   const detailTabs = [
-    { id: 'progress', label: 'Progress' },
-    ...(!isSharedBrain ? [{ id: 'channels', label: `Channels (${channels.length})` }] : []),
-    { id: 'videos',   label: `Videos (${videoCount})` },
-    ...(!isSharedBrain ? [{ id: 'settings', label: 'Settings' }] : []),
+    { id: 'videos', label: `Videos (${videoCount})` },
   ];
 
   const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.textMuted, borderBottom: `1px solid ${C.border}` };
@@ -2492,7 +2354,6 @@ export default function Brain() {
 
   const [brains,        setBrains]        = useState([]);
   const [loadingBrains, setLoadingBrains] = useState(true);
-  const [showCreate,    setShowCreate]    = useState(false);
   const [error,         setError]         = useState('');
 
   // Brain detail state
@@ -2549,14 +2410,6 @@ export default function Brain() {
     handleSelectBrain(brainId);
   }
 
-  async function handleCreate(opts) {
-    const r = await apiFetch('/brain/create', locationId, { method: 'POST', body: opts });
-    if (!r.success) throw new Error(r.error || 'Failed to create brain.');
-    setShowCreate(false);
-    await loadBrains();
-    updateParams({ tab: 'detail', brain: r.data.brainId });
-  }
-
   async function handleDeleted(brainId) {
     const r = await apiFetch(`/brain/${brainId}`, locationId, { method: 'DELETE' });
     if (r.success) {
@@ -2573,10 +2426,6 @@ export default function Brain() {
     <div style={{ height: '100%', background: C.bg, color: C.textPri, fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
       <Header icon="🧠" title="Brain" subtitle="Multi-brain YouTube RAG knowledge base" />
-
-      {showCreate && (
-        <CreateBrainModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />
-      )}
 
       {/* Top nav */}
       <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', padding: '0 24px' }}>

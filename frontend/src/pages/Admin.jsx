@@ -400,11 +400,13 @@ export default function Admin() {
     setBrainSettingsForm({ name: b.name || '', description: b.description || '', autoSync: !!b.autoSync });
     setBrainVideos([]);
     setBrainStatus(null);
-    // Fetch status
-    const statusRes = await adminFetch(`/brain/${b.brainId}/status`, { adminKey });
+    // Non-shared brains need ?loc= so backend resolves the right locationId
+    const locSuffix = (!b.isShared && b._locationId) ? `?loc=${encodeURIComponent(b._locationId)}` : '';
+    const [statusRes, detailRes] = await Promise.all([
+      adminFetch(`/brain/${b.brainId}/status${locSuffix}`, { adminKey }),
+      adminFetch(`/brain/${b.brainId}${locSuffix}`, { adminKey }),
+    ]);
     if (statusRes.success) setBrainStatus(statusRes);
-    // Fetch videos list via brain detail
-    const detailRes = await adminFetch(`/brain/${b.brainId}`, { adminKey });
     if (detailRes.success) {
       setBrainVideos(detailRes.data?.videos || []);
       setSelectedBrain(prev => prev?.brainId === b.brainId ? { ...prev, ...detailRes.data } : prev);
@@ -546,6 +548,11 @@ export default function Admin() {
   }
 
   // ── Dashboard ─────────────────────────────────────────────────────────────
+
+  // Query suffix for brain API calls when the brain lives in a user location (not __shared__)
+  const brainLocQ = selectedBrain && !selectedBrain.isShared && selectedBrain._locationId
+    ? `?loc=${encodeURIComponent(selectedBrain._locationId)}`
+    : '';
 
   // TAB_STYLE used for sub-tabs within each section (billing, brain, plan-tiers, etc.)
   const TAB_STYLE = (active) => ({
@@ -1762,22 +1769,28 @@ export default function Admin() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
                 {sharedBrains.length === 0 && !brainLoading && (
                   <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#4b5563', padding: 40 }}>
-                    No shared brains yet. Create one to get started.
+                    No brains found across any location.
                   </div>
                 )}
                 {sharedBrains.map(b => (
                   <div
-                    key={b.brainId}
+                    key={`${b._locationId}-${b.brainId}`}
                     onClick={() => loadBrainDetail(b)}
                     style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'border-color .15s' }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = '#7c3aed'}
                     onMouseLeave={e => e.currentTarget.style.borderColor = '#2a2a2a'}
                   >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
                       <span style={{ fontSize: 15, fontWeight: 600, color: '#e5e7eb' }}>{b.name}</span>
                       <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: b.pipelineStage === 'ready' ? '#14532d' : '#3a2e0a', color: b.pipelineStage === 'ready' ? '#4ade80' : '#facc15', flexShrink: 0 }}>
                         {b.pipelineStage || 'new'}
                       </span>
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      {b.isShared
+                        ? <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', fontWeight: 600 }}>Shared</span>
+                        : <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', fontWeight: 600, fontFamily: 'monospace' }}>{b._locationId?.slice(0, 14)}…</span>
+                      }
                     </div>
                     {b.description && <p style={{ color: '#6b7280', fontSize: 12, margin: '0 0 10px', lineHeight: 1.5 }}>{b.description}</p>}
                     <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#4b5563' }}>
@@ -1825,7 +1838,7 @@ export default function Admin() {
                       disabled={brainSyncing}
                       onClick={async () => {
                         setBrainSyncing(true);
-                        await adminFetch(`/brain/${selectedBrain.brainId}/sync`, { method: 'POST', adminKey });
+                        await adminFetch(`/brain/${selectedBrain.brainId}/sync${brainLocQ}`, { method: 'POST', adminKey });
                         await loadBrainDetail(selectedBrain);
                         setBrainSyncing(false);
                         flash('✓ Sync queued');
@@ -1851,7 +1864,7 @@ export default function Admin() {
                         disabled={brainChannelAdding || !brainChannelInput.trim()}
                         onClick={async () => {
                           setBrainChannelAdding(true);
-                          const res = await adminFetch(`/brain/${selectedBrain.brainId}/channels`, {
+                          const res = await adminFetch(`/brain/${selectedBrain.brainId}/channels${brainLocQ}`, {
                             method: 'POST', adminKey, body: { channelUrl: brainChannelInput.trim() },
                           });
                           setBrainChannelAdding(false);
@@ -1881,7 +1894,7 @@ export default function Admin() {
                             <button
                               onClick={async () => {
                                 if (!confirm(`Remove channel "${ch.channelTitle || ch.channelId}"?`)) return;
-                                const res = await adminFetch(`/brain/${selectedBrain.brainId}/channels/${ch.channelId}`, { method: 'DELETE', adminKey });
+                                const res = await adminFetch(`/brain/${selectedBrain.brainId}/channels/${ch.channelId}${brainLocQ}`, { method: 'DELETE', adminKey });
                                 if (res.success) { flash('✓ Channel removed'); await loadBrainDetail(selectedBrain); }
                                 else flash(`✗ ${res.error}`);
                               }}
@@ -1953,7 +1966,7 @@ export default function Admin() {
                         disabled={brainSettingsSaving}
                         onClick={async () => {
                           setBrainSettingsSaving(true);
-                          const res = await adminFetch(`/brain/${selectedBrain.brainId}`, {
+                          const res = await adminFetch(`/brain/${selectedBrain.brainId}${brainLocQ}`, {
                             method: 'PATCH', adminKey,
                             body: { name: brainSettingsForm.name, description: brainSettingsForm.description, autoSync: brainSettingsForm.autoSync },
                           });
@@ -1973,7 +1986,7 @@ export default function Admin() {
                       <button
                         onClick={async () => {
                           if (!confirm(`Delete brain "${selectedBrain.name}"? This will remove all videos and data.`)) return;
-                          const res = await adminFetch(`/brain/${selectedBrain.brainId}`, { method: 'DELETE', adminKey });
+                          const res = await adminFetch(`/brain/${selectedBrain.brainId}${brainLocQ}`, { method: 'DELETE', adminKey });
                           if (res.success) {
                             flash('✓ Brain deleted');
                             setSelectedBrain(null);

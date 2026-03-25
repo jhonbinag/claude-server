@@ -41,8 +41,12 @@ router.use((req, res, next) => {
   return authenticate(req, res, next);
 });
 
-// Resolve where a brain's data lives: user's own location or shared
-async function getLocId(locationId, brainId) {
+// Resolve where a brain's data lives.
+// Admin can pass ?loc=<locationId> to scope to a specific user location.
+async function getLocId(req, brainId) {
+  const locationId = req.locationId;
+  // Admin with explicit loc query param (e.g. for non-shared brains)
+  if (req.isAdmin && req.query && req.query.loc) return req.query.loc;
   if (locationId === SHARED_LOC) return SHARED_LOC;
   try {
     const ownBrains = await brain.listBrains(locationId);
@@ -55,17 +59,23 @@ async function getLocId(locationId, brainId) {
 router.get('/list', async (req, res) => {
   try {
     if (req.isAdmin) {
-      // Admin context: return only shared brains
-      const brains = await brain.listBrains(SHARED_LOC);
-      return res.json({ success: true, data: brains });
+      // Admin context: return ALL brains across every location + shared
+      const locationIds = await brain.listBrainLocations();
+      const allLocIds   = [...new Set([...locationIds, SHARED_LOC])];
+      const results     = await Promise.all(allLocIds.map(async locId => {
+        const brains = await brain.listBrains(locId);
+        return brains.map(b => ({
+          ...b,
+          _locationId: locId,
+          isShared: locId === SHARED_LOC,
+        }));
+      }));
+      return res.json({ success: true, data: results.flat() });
     }
-    // User context: merge own brains + shared brains (tagged isShared)
-    const [ownBrains, sharedBrains] = await Promise.all([
-      brain.listBrains(req.locationId),
-      brain.listBrains(SHARED_LOC),
-    ]);
+    // User context: only shared brains (admin-managed), tagged isShared
+    const sharedBrains = await brain.listBrains(SHARED_LOC);
     const shared = sharedBrains.map(b => ({ ...b, isShared: true }));
-    res.json({ success: true, data: [...ownBrains, ...shared] });
+    res.json({ success: true, data: shared });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -162,7 +172,7 @@ router.post('/:brainId/sync', async (req, res) => {
 
 router.get('/:brainId', async (req, res) => {
   try {
-    const locId  = await getLocId(req.locationId, req.params.brainId);
+    const locId  = await getLocId(req, req.params.brainId);
     const result = await brain.getBrain(locId, req.params.brainId);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -174,7 +184,7 @@ router.get('/:brainId', async (req, res) => {
 
 router.get('/:brainId/status', async (req, res) => {
   try {
-    const locId  = await getLocId(req.locationId, req.params.brainId);
+    const locId  = await getLocId(req, req.params.brainId);
     const status = await brain.getStatus(locId, req.params.brainId);
     res.json({ success: true, ...status });
   } catch (err) {
@@ -310,7 +320,7 @@ router.post('/:brainId/ask', async (req, res) => {
     // 1. Retrieve relevant chunks
     process.stdout.write(`${tag} [1/4] querying knowledge base…\n`);
     const t0 = Date.now();
-    const dataLocId = await getLocId(req.locationId, req.params.brainId);
+    const dataLocId = await getLocId(req, req.params.brainId);
     const chunks = await brain.queryKnowledge(dataLocId, req.params.brainId, query, k);
     const searchMethod = chunks._method || 'keyword';
     process.stdout.write(`${tag} [1/4] done — ${chunks.length} chunks (${searchMethod}) in ${Date.now() - t0}ms\n`);
@@ -464,7 +474,7 @@ router.post('/:brainId/query', async (req, res) => {
   if (!query) return res.status(400).json({ success: false, error: '"query" is required.' });
   try {
     process.stdout.write(`[brain/query brain=${req.params.brainId?.slice(-6)}] "${query}" k=${k || 5}\n`);
-    const qLocId = await getLocId(req.locationId, req.params.brainId);
+    const qLocId = await getLocId(req, req.params.brainId);
     const results = await brain.queryKnowledge(
       qLocId,
       req.params.brainId,
@@ -511,7 +521,7 @@ router.post('/:brainId/channels/:channelId/queue', async (req, res) => {
 
 router.post('/:brainId/sync-batch', async (req, res) => {
   try {
-    const locId  = await getLocId(req.locationId, req.params.brainId);
+    const locId  = await getLocId(req, req.params.brainId);
     const result = await brain.processSyncBatch(locId, req.params.brainId, req.body.batchSize || 5);
     res.json({ success: true, ...result });
   } catch (err) {
@@ -536,7 +546,7 @@ router.post('/:brainId/channels/:channelId/sync', async (req, res) => {
 
 router.get('/:brainId/videos', async (req, res) => {
   try {
-    const locId  = await getLocId(req.locationId, req.params.brainId);
+    const locId  = await getLocId(req, req.params.brainId);
     const videos = await brain.listVideos(locId, req.params.brainId);
     res.json({ success: true, data: videos });
   } catch (err) {
