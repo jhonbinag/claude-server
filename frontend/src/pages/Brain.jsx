@@ -2473,6 +2473,15 @@ export default function Brain() {
   const activeTab  = searchParams.get('tab')    || 'dashboard';
   const selectedId = searchParams.get('brain')  || null;
 
+  // Helper: update search params while preserving parent hub's 'view' param
+  const updateParams = (params) => {
+    const next = new URLSearchParams(searchParams);
+    // Clear brain-specific keys first
+    next.delete('tab'); next.delete('brain');
+    for (const [k, v] of Object.entries(params)) next.set(k, v);
+    setSearchParams(next, { replace: true });
+  };
+
   const [brains,        setBrains]        = useState([]);
   const [loadingBrains, setLoadingBrains] = useState(true);
   const [showCreate,    setShowCreate]    = useState(false);
@@ -2524,7 +2533,7 @@ export default function Brain() {
   }
 
   function handleSelectBrain(brainId) {
-    setSearchParams({ tab: 'detail', brain: brainId });
+    updateParams({ tab: 'detail', brain: brainId });
   }
 
   function handleOpenBrainModal(brainId, modal) {
@@ -2537,19 +2546,19 @@ export default function Brain() {
     if (!r.success) throw new Error(r.error || 'Failed to create brain.');
     setShowCreate(false);
     await loadBrains();
-    setSearchParams({ tab: 'detail', brain: r.data.brainId });
+    updateParams({ tab: 'detail', brain: r.data.brainId });
   }
 
   async function handleDeleted(brainId) {
     const r = await apiFetch(`/brain/${brainId}`, locationId, { method: 'DELETE' });
     if (r.success) {
-      setSearchParams({ tab: 'dashboard' });
+      updateParams({ tab: 'dashboard' });
       await loadBrains();
     }
   }
 
   function handleBack() {
-    setSearchParams({ tab: 'dashboard' });
+    updateParams({ tab: 'dashboard' });
   }
 
   return (
@@ -2565,7 +2574,7 @@ export default function Brain() {
       <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', padding: '0 24px' }}>
         <div style={{ display: 'flex', gap: 0, flex: 1 }}>
           {NAV_TABS.map(t => (
-            <button key={t.id} onClick={() => setSearchParams({ tab: t.id })} style={{
+            <button key={t.id} onClick={() => updateParams({ tab: t.id })} style={{
               background: 'none', border: 'none', borderBottom: activeTab === t.id ? `2px solid ${C.blue}` : '2px solid transparent',
               color: activeTab === t.id ? C.textPri : C.textMuted,
               padding: '14px 18px', fontSize: 14, fontWeight: activeTab === t.id ? 600 : 400,
@@ -2575,7 +2584,7 @@ export default function Brain() {
             </button>
           ))}
           {selectedId && (
-            <button onClick={() => setSearchParams({ tab: 'detail', brain: selectedId })} style={{
+            <button onClick={() => updateParams({ tab: 'detail', brain: selectedId })} style={{
               background: 'none', border: 'none', borderBottom: activeTab === 'detail' ? `2px solid ${C.blue}` : '2px solid transparent',
               color: activeTab === 'detail' ? C.textPri : C.textMuted,
               padding: '14px 18px', fontSize: 14, fontWeight: activeTab === 'detail' ? 600 : 400,

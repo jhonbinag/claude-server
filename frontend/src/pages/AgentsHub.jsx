@@ -1,5 +1,5 @@
-import { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { useSearchParams } from 'react-router-dom';
 import AuthGate from '../components/AuthGate';
 import Spinner from '../components/Spinner';
 import Agents from './Agents';
@@ -33,7 +33,15 @@ const tabBtnBase = {
 
 export default function AgentsHub() {
   const { isAuthenticated, isAuthLoading } = useApp();
-  const [tab, setTab] = useState('agents');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('view') || 'agents';
+  const setTab = (t) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('view', t);
+    // Clear Brain's internal params when switching away from brain tab
+    if (t !== 'brain') { next.delete('tab'); next.delete('brain'); }
+    setSearchParams(next, { replace: true });
+  };
 
   if (isAuthLoading) return <Spinner />;
   if (!isAuthenticated) return <AuthGate icon="🤖" title="Agents & Brain" subtitle="Open this app from GHL to access agents and brain." />;
