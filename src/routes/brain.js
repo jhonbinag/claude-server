@@ -538,6 +538,39 @@ router.get('/:brainId/videos/:videoId/transcript', async (req, res) => {
   }
 });
 
+// ── Changelog notes (manual docs / notes per brain) ──────────────────────────
+
+router.post('/:brainId/changelog', async (req, res) => {
+  const { title, text = '', noteType = 'note' } = req.body;
+  if (!title?.trim()) return res.status(400).json({ success: false, error: '"title" is required.' });
+  try {
+    const b = await brain.getBrain(req.locationId, req.params.brainId);
+    const entry = {
+      id:    `note_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      ts:    new Date().toISOString(),
+      type:  noteType,
+      title: title.trim(),
+      text:  text.trim(),
+    };
+    const notes  = [...(b.notes || []), entry];
+    const result = await brain.updateBrainMeta(req.locationId, req.params.brainId, { notes });
+    res.json({ success: true, entry, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.delete('/:brainId/changelog/:entryId', async (req, res) => {
+  try {
+    const b     = await brain.getBrain(req.locationId, req.params.brainId);
+    const notes = (b.notes || []).filter(n => n.id !== req.params.entryId);
+    await brain.updateBrainMeta(req.locationId, req.params.brainId, { notes });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Remove channel from brain ─────────────────────────────────────────────────
 
 router.post('/:brainId/reindex', async (req, res) => {

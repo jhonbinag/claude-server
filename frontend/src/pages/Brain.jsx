@@ -394,6 +394,13 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   const [docPrimary,        setDocPrimary]        = useState(false);
   const [addingDoc,         setAddingDoc]         = useState(false);
 
+  // Changelog notes
+  const [noteTitle,         setNoteTitle]         = useState('');
+  const [noteText,          setNoteText]          = useState('');
+  const [noteType,          setNoteType]          = useState('note');
+  const [noteAdding,        setNoteAdding]        = useState(false);
+  const [showNoteForm,      setShowNoteForm]      = useState(false);
+
   const showFlash = (ok, text) => {
     setFlash({ ok, text });
     setTimeout(() => setFlash(null), 4000);
@@ -662,10 +669,11 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   const videoCount = videos.length || brain.videoCount || ytDocs.length;
 
   const detailTabs = [
-    { id: 'progress', label: 'Progress' },
-    { id: 'channels', label: `Channels (${channels.length})` },
-    { id: 'videos',   label: `Videos (${videoCount})` },
-    { id: 'settings', label: 'Settings' },
+    { id: 'progress',  label: 'Progress' },
+    { id: 'channels',  label: `Channels (${channels.length})` },
+    { id: 'videos',    label: `Videos (${videoCount})` },
+    { id: 'changelog', label: '📋 Changelog' },
+    { id: 'settings',  label: 'Settings' },
   ];
 
   const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.textMuted, borderBottom: `1px solid ${C.border}` };
@@ -1097,6 +1105,191 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
       )}
 
       {/* ── Settings tab ── */}
+      {/* ── Changelog tab ── */}
+      {tab === 'changelog' && (() => {
+        // Merge syncLog (auto) + notes (manual), newest first
+        const syncEntries = (brain.syncLog || []).map(e => ({ ...e, _kind: 'sync' }));
+        const noteEntries = (brain.notes   || []).map(e => ({ ...e, _kind: 'note' }));
+        const allEntries  = [...syncEntries, ...noteEntries].sort((a, b) => new Date(b.ts) - new Date(a.ts));
+
+        async function addNote() {
+          if (!noteTitle.trim()) return;
+          setNoteAdding(true);
+          try {
+            const r = await apiFetch(`/brain/${brain.brainId}/changelog`, locationId, {
+              method: 'POST',
+              body:   { title: noteTitle, text: noteText, noteType },
+            });
+            if (r.success) {
+              showFlash(true, 'Note added.');
+              setNoteTitle(''); setNoteText(''); setNoteType('note'); setShowNoteForm(false);
+              onRefresh();
+            } else showFlash(false, r.error || 'Failed to add note.');
+          } catch { showFlash(false, 'Request failed.'); }
+          setNoteAdding(false);
+        }
+
+        async function deleteNote(entryId) {
+          if (!confirm('Delete this note?')) return;
+          try {
+            const r = await apiFetch(`/brain/${brain.brainId}/changelog/${entryId}`, locationId, { method: 'DELETE' });
+            if (r.success) { showFlash(true, 'Note deleted.'); onRefresh(); }
+            else showFlash(false, r.error || 'Delete failed.');
+          } catch { showFlash(false, 'Request failed.'); }
+        }
+
+        const NOTE_TYPES = [
+          { value: 'note',   label: '📝 Note',    color: '#60a5fa' },
+          { value: 'fix',    label: '🔧 Fix',     color: '#4ade80' },
+          { value: 'update', label: '⬆ Update',  color: '#a78bfa' },
+          { value: 'issue',  label: '⚠ Issue',   color: '#fbbf24' },
+        ];
+
+        return (
+          <div>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.textPri }}>📋 {brain.name} — Changelog</h3>
+                <p style={{ margin: '4px 0 0', fontSize: 13, color: C.textMuted }}>
+                  All sync runs and manual notes for this brain, newest first.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowNoteForm(f => !f)}
+                style={{ ...btnPrimary, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, flexShrink: 0 }}
+              >
+                {showNoteForm ? '✕ Cancel' : '+ Add Note'}
+              </button>
+            </div>
+
+            {/* Add note form */}
+            {showNoteForm && (
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+                <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 700, color: C.textPri }}>New Changelog Entry</h4>
+
+                {/* Type picker */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  {NOTE_TYPES.map(t => (
+                    <button key={t.value} onClick={() => setNoteType(t.value)} style={{
+                      padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      background: noteType === t.value ? `${t.color}22` : 'transparent',
+                      border: `1px solid ${noteType === t.value ? t.color : C.border}`,
+                      color: noteType === t.value ? t.color : C.textMuted,
+                      transition: 'all .15s',
+                    }}>{t.label}</button>
+                  ))}
+                </div>
+
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: C.textMuted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Title <span style={{ color: C.red }}>*</span>
+                </label>
+                <input
+                  value={noteTitle}
+                  onChange={e => setNoteTitle(e.target.value)}
+                  placeholder="e.g. Added new channel, Fixed transcript errors…"
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, background: '#0a0f1a', border: `1px solid ${C.border}`, color: C.textPri, fontSize: 13, marginBottom: 12, boxSizing: 'border-box' }}
+                />
+
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: C.textMuted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Details (optional)
+                </label>
+                <textarea
+                  value={noteText}
+                  onChange={e => setNoteText(e.target.value)}
+                  placeholder="Describe what changed, why, or any relevant context…"
+                  rows={4}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, background: '#0a0f1a', border: `1px solid ${C.border}`, color: C.textPri, fontSize: 13, resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box' }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+                  <button
+                    onClick={addNote}
+                    disabled={!noteTitle.trim() || noteAdding}
+                    style={{ ...btnPrimary, opacity: (!noteTitle.trim() || noteAdding) ? 0.5 : 1 }}
+                  >
+                    {noteAdding ? 'Saving…' : '💾 Save Entry'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Entry feed */}
+            {allEntries.length === 0 ? (
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, textAlign: 'center' }}>
+                <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
+                <p style={{ margin: 0, fontSize: 14, color: C.textMuted }}>No entries yet. Run a sync or add a note to start the changelog.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {allEntries.map((entry, i) => {
+                  if (entry._kind === 'sync') {
+                    const hasErrors = (entry.errors || 0) > 0;
+                    return (
+                      <div key={i} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 5, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)', color: C.green, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            ⟳ Auto Sync
+                          </span>
+                          {entry.channel && (
+                            <span style={{ fontSize: 12, color: C.textSec }}>{entry.channel}</span>
+                          )}
+                          <span style={{ marginLeft: 'auto', fontSize: 12, color: C.textMuted }}>{timeAgo(entry.ts)}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                          <div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: C.green, lineHeight: 1 }}>+{entry.ingested || 0}</div>
+                            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>Videos ingested</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: hasErrors ? C.amber : C.textMuted, lineHeight: 1 }}>{entry.errors || 0}</div>
+                            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>Errors</div>
+                          </div>
+                          {entry.docCount != null && (
+                            <div>
+                              <div style={{ fontSize: 18, fontWeight: 700, color: C.textPri, lineHeight: 1 }}>{entry.docCount}</div>
+                              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>Total docs</div>
+                            </div>
+                          )}
+                          {entry.chunkCount != null && (
+                            <div>
+                              <div style={{ fontSize: 18, fontWeight: 700, color: C.textPri, lineHeight: 1 }}>{entry.chunkCount?.toLocaleString()}</div>
+                              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>Total chunks</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Manual note entry
+                  const t = NOTE_TYPES.find(x => x.value === entry.type) || NOTE_TYPES[0];
+                  return (
+                    <div key={entry.id || i} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: entry.text ? 10 : 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 5, background: `${t.color}18`, border: `1px solid ${t.color}40`, color: t.color, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          {t.label}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: C.textPri, flex: 1 }}>{entry.title}</span>
+                        <span style={{ fontSize: 12, color: C.textMuted, flexShrink: 0 }}>{timeAgo(entry.ts)}</span>
+                        <button
+                          onClick={() => deleteNote(entry.id)}
+                          style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
+                          title="Delete note"
+                        >✕</button>
+                      </div>
+                      {entry.text && (
+                        <p style={{ margin: 0, fontSize: 13, color: C.textSec, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{entry.text}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {tab === 'settings' && (
         <div>
           {/* Brain Settings card */}
