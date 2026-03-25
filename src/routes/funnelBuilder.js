@@ -225,8 +225,12 @@ function resolveAI(req, storedKey) {
   };
 }
 
-function saveWithFunnelHint(locationId, pageId, pageJson, funnelId, colorScheme) {
-  return savePageData(locationId, pageId, pageJson, { ...(funnelId ? { funnelId } : {}), ...(colorScheme ? { colorScheme } : {}) });
+function saveWithFunnelHint(locationId, pageId, pageJson, funnelId, colorScheme, extraHints = {}) {
+  return savePageData(locationId, pageId, pageJson, {
+    ...(funnelId    ? { funnelId }    : {}),
+    ...(colorScheme ? { colorScheme } : {}),
+    ...extraHints,
+  });
 }
 
 // Multer: store in memory (we only need the buffer for base64)
@@ -990,8 +994,10 @@ async function figmaExtractContent(fileKey, nodeId, authHeader) {
 
     const texts  = sections.flatMap(s => s.items.filter(it => it.type === 'text').map(it => it.text));
     const colors = [...globalColors].filter(Boolean).slice(0, 30);
+    // Extract unique font families referenced in the spec (font:"FamilyName" markers)
+    const fonts  = [...new Set([...spec.matchAll(/font:"([^"]+)"/g)].map(m => m[1]))].filter(Boolean).slice(0, 10);
 
-    return { texts, colors, spec, sectionCount: sections.length, imageNodes };
+    return { texts, colors, spec, sectionCount: sections.length, imageNodes, fonts };
 
   } catch (e) {
     const msg = e.message || '';
@@ -1836,6 +1842,7 @@ ${Object.keys(figmaImageUrlMap).length > 0
 10. For [3-COLUMN LAYOUT]: three column elements each with width:4.
 11. If spec shows a gradient background (e.g. linear-gradient(...)), use that CSS string as backgroundColor.value.
 12. Mobile styles: fontSize = 60% of desktop, paddingTop/Bottom = 50% of desktop.${extraContext ? `\n13. Additional instructions: ${extraContext}` : ''}
+14. Add a top-level "figmaCSS" key: a CSS string for ANY effect GHL's native builder cannot achieve — custom Google Fonts (already imported via @import, just add font-family rules on c-heading/c-paragraph), gradient text (background:linear-gradient;-webkit-background-clip:text;-webkit-text-fill-color:transparent), glassmorphism (backdrop-filter:blur(...)), box-shadow on c-column or c-section, hover states, clip-path, or other advanced CSS. Target GHL elements: c-section, c-row, c-column, c-heading, c-paragraph, c-button, c-image. If nothing special is needed, set "figmaCSS":"".
 
 Output ONLY the JSON object. No markdown, no explanation.`;
       } else {
@@ -1933,7 +1940,7 @@ Output ONLY the JSON object. No explanation.`;
     }
 
     try {
-      const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId, colorScheme);
+      const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId, colorScheme, { figmaFonts: figmaContent.fonts || [] });
       const warn    = saveRes?.firestoreWarning;
       send('log', { msg: `"${page.name}" saved — ${pageJson.sections.length} sections`, level: 'success' });
       send('page_done', { index: i, pageId: page.id, name: page.name, pageType, sectionsCount: pageJson.sections.length, warning: warn || undefined });
@@ -3800,7 +3807,7 @@ Write ${stageLabel}. Make copy specific to this section's role ("${tmplName}"). 
     try {
       // ── Step C: Upload to Storage + write Firestore ──────────────────────
       send('log', { msg: `[${i+1}/${pages.length}] Uploading to Firebase Storage...`, level: 'info' });
-      const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId, colorScheme);
+      const saveRes = await saveWithFunnelHint(req.locationId, page.id, pageJson, funnelId, colorScheme, { figmaFonts: figmaContent.fonts || [] });
       const warn    = saveRes?.firestoreWarning;
       if (warn) {
         send('log', { msg: `[${i+1}/${pages.length}] Firestore warning: ${warn.slice(0, 120)}`, level: 'warn' });

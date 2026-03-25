@@ -981,6 +981,19 @@ async function savePageData(locationId, pageId, sectionsJson, hints = {}) {
   const metaDescription = hints.metaDescription || '';
   const palette         = extractColors(colorScheme);
 
+  // Build extra CSS from Figma: custom Google Fonts + AI-generated overrides for unsupported effects
+  const figmaFonts = (hints.figmaFonts || []).filter(f =>
+    !['Open Sans','Merriweather','Arial','Helvetica','Georgia','Times New Roman',
+      'Roboto','sans-serif','serif','monospace','cursive'].includes(f)
+  );
+  const figmaCSS  = (sectionsJson.figmaCSS || '').trim();
+  let   extraCSS  = '';
+  if (figmaFonts.length > 0) {
+    const q = figmaFonts.map(f => `family=${encodeURIComponent(f)}:ital,wght@0,400;0,500;0,600;0,700;1,400`).join('&');
+    extraCSS += `@import url('https://fonts.googleapis.com/css2?${q}&display=swap');\n`;
+  }
+  if (figmaCSS) extraCSS += figmaCSS + '\n';
+
   // Convert AI output → GHL's ACTUAL native Storage format (metaData + flat elements[])
   const allSections = convertSectionsToGHL(aiSections, pageId, funnelId, locationId, colorScheme);
   // Drop sections with no elements (elements[] has only row+col with no leaves)
@@ -1091,7 +1104,7 @@ c-column{transition:transform .35s cubic-bezier(.25,.8,.25,1),box-shadow .35s ea
 c-column:hover{transform:translateY(-8px) scale(1.02);box-shadow:0 20px 40px rgba(0,0,0,.15)}
 c-button{transition:transform .2s ease,box-shadow .2s ease,background-color .2s ease}
 c-button:hover{transform:translateY(-3px) scale(1.04);box-shadow:0 10px 20px rgba(0,0,0,.25)}
-c-button:active{transform:translateY(1px) scale(.99)}`,
+c-button:active{transform:translateY(1px) scale(.99)}${extraCSS ? '\n/* Figma design overrides */\n' + extraCSS : ''}`,
     trackingCode: { headerCode: '', footerCode: '' },
     fontsForPreview: ["'\"Open Sans\"'", "'Merriweather'", "'Open Sans'"],
   };
