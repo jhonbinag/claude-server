@@ -357,21 +357,32 @@ export default function GHLAssistant() {
       convIdRef.current = newId;
       setConvId(newId);
     }
+
+    // Build conversation history from current messages (last 10 turns)
+    const history = [];
+    for (const m of messagesRef.current) {
+      if (m.type === 'user')  history.push({ role: 'user',      content: m.text });
+      else if (m.type === 'text') history.push({ role: 'assistant', content: m.text });
+    }
+    const conversationHistory = history.slice(-10);
+
     setMessages(prev => [...prev, { type: 'user', text: taskText.trim() }]);
 
     let fullTask;
     if (opts.conversational) {
-      // Conversation mode: Claude answers from persona knowledge, no tool calls
+      // Conversation mode: answer from persona knowledge only, no tool calls
       fullTask = activePersona
         ? `[System Context — ${activePersona.title}]:\n${activePersona.content}\n\n---\n\nIMPORTANT: Answer the following question conversationally based on the context above. Do not call any tools.\n\n${taskText.trim()}`
         : `IMPORTANT: Answer the following question conversationally. Do not call any tools.\n\n${taskText.trim()}`;
     } else {
-      fullTask = activePersona
+      // Command mode: [DIRECT] prefix tells Claude to be concise and only answer what was asked
+      const base = activePersona
         ? `[System Context — ${activePersona.title}]:\n${activePersona.content}\n\n---\n\n${taskText.trim()}`
         : taskText.trim();
+      fullTask = `[DIRECT] ${base}`;
     }
 
-    await stream('/claude/task', { task: fullTask }, (evtType, data) => {
+    await stream('/claude/task', { task: fullTask, conversationHistory }, (evtType, data) => {
       setMessages(prev => applyEvent(prev, evtType, data));
     }, apiKey);
   }, [isRunning, stream, apiKey, activePersona]);

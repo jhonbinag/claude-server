@@ -43,7 +43,7 @@ router.use(authenticate);
 // ─── POST /claude/task — Streaming SSE ────────────────────────────────────────
 
 router.post('/task', async (req, res) => {
-  const { task, allowedIntegrations } = req.body;
+  const { task, allowedIntegrations, conversationHistory } = req.body;
 
   if (!task || typeof task !== 'string' || !task.trim()) {
     return res.status(400).json({
@@ -72,6 +72,7 @@ router.post('/task', async (req, res) => {
       locationId:          req.locationId,
       companyId:           req.companyId,
       allowedIntegrations: Array.isArray(allowedIntegrations) ? allowedIntegrations : null,
+      conversationHistory: Array.isArray(conversationHistory) ? conversationHistory.slice(-10) : [],
       onEvent: (evt) => {
         switch (evt.type) {
           case 'text':

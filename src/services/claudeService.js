@@ -190,6 +190,10 @@ ${hasFacebook ? '- Use facebook_create_campaign to set up the Facebook campaign\
 - **Professional quality**: all generated copy and images should be polished, on-brand, and ready to use.
 - **Show your work**: after each major step, briefly note what was created and its GHL ID/URL.
 - **Error handling**: if a tool fails, try an alternative approach and explain what happened.
+
+## Response style:
+- When a request begins with [DIRECT]: answer ONLY what was asked. Return the data, result, or confirmation — nothing else. No suggestions, no extra steps, no commentary.
+- When continuing a conversation, stay aware of prior context and do not repeat information already given.
 `;
 }
 
@@ -209,7 +213,7 @@ ${hasFacebook ? '- Use facebook_create_campaign to set up the Facebook campaign\
  * @param {string[]=} options.allowedIntegrations  Optional whitelist of external
  *   integration categories (e.g. ['openai','sendgrid']). null = all enabled.
  */
-async function runTaskWithAnthropic({ task, locationId, companyId, allowedIntegrations, onEvent }) {
+async function runTaskWithAnthropic({ task, locationId, companyId, allowedIntegrations, onEvent, conversationHistory }) {
   const client = await getClientForLocation(locationId);
   const emit   = onEvent || (() => {});
 
@@ -221,7 +225,9 @@ async function runTaskWithAnthropic({ task, locationId, companyId, allowedIntegr
     toolRegistry.getEnabledIntegrations(locationId),
   ]);
 
-  const messages = [{ role: 'user', content: task }];
+  // Prepend prior conversation turns so Claude has full context
+  const history  = Array.isArray(conversationHistory) ? conversationHistory : [];
+  const messages = [...history, { role: 'user', content: task }];
   let turns         = 0;
   let toolCallCount = 0;
   let finalText     = '';
@@ -432,7 +438,7 @@ function geminiPost(body, retries = 3) {
   });
 }
 
-async function runTaskWithGemini({ task, locationId, companyId, allowedIntegrations, onEvent }) {
+async function runTaskWithGemini({ task, locationId, companyId, allowedIntegrations, onEvent, conversationHistory }) {
   const emit = onEvent || (() => {});
 
   const [tools, enabledIntegrations] = await Promise.all([
@@ -444,7 +450,11 @@ async function runTaskWithGemini({ task, locationId, companyId, allowedIntegrati
   const geminiFns    = toGeminiFunctions(tools);
 
   // Gemini conversation history
-  const contents = [{ role: 'user', parts: [{ text: task }] }];
+  const history  = Array.isArray(conversationHistory) ? conversationHistory : [];
+  const contents = [
+    ...history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+    { role: 'user', parts: [{ text: task }] },
+  ];
 
   let turns         = 0;
   let toolCallCount = 0;
@@ -586,7 +596,7 @@ function openAIPost(hostname, apiKey, body, retries = 4) {
   });
 }
 
-async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegrations, onEvent }, hostname, apiKey, model) {
+async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegrations, onEvent, conversationHistory }, hostname, apiKey, model) {
   const emit    = onEvent || (() => {});
   const isGroq  = hostname === 'api.groq.com';
 
@@ -604,9 +614,11 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
   const openAITools  = isGroq ? toGroqFunctions(tools) : toOpenAIFunctions(tools);
   const maxTokens    = isGroq ? 1024 : 4096;
 
+  const history  = Array.isArray(conversationHistory) ? conversationHistory : [];
   const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user',   content: task },
+    { role: 'system',  content: systemPrompt },
+    ...history.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+    { role: 'user',    content: task },
   ];
 
   let turns         = 0;
