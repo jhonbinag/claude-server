@@ -130,12 +130,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose
               background: claudeReady ? '#4ade80' : '#f59e0b',
               boxShadow: claudeReady ? '0 0 6px #4ade8088' : '0 0 6px #f59e0b88',
             }} />
-            {!collapsed && (
-              <span style={{ fontSize: 12, color: claudeReady ? '#4ade80' : '#f59e0b', fontWeight: 500 }}>
-                {claudeReady ? 'Live' : 'Setup required'}
-              </span>
-            )}
-          </div>
+            </div>
 
           {/* Logout */}
           <button

@@ -15,30 +15,31 @@ export default function TopBar({ onMenuClick }) {
 
   return (
     <header className="hl-topbar">
-      {/* Hamburger — mobile only */}
-      <button
-        onClick={onMenuClick}
-        className="md:hidden"
-        style={{
-          flexShrink: 0,
-          width: 32, height: 32,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'transparent',
-          border: '1px solid var(--sidebar-border)',
-          borderRadius: 7,
-          color: 'var(--text-muted)',
-          cursor: 'pointer',
-          fontSize: 14,
-        }}
-        aria-label="Toggle menu"
-      >
-        ☰
-      </button>
 
-      {/* Search area */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+      {/* Left — hamburger, mobile only (hidden on md+) */}
+      <div className="md:hidden" style={{ flexShrink: 0 }}>
+        <button
+          onClick={onMenuClick}
+          style={{
+            width: 32, height: 32,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'transparent',
+            border: '1px solid var(--sidebar-border)',
+            borderRadius: 7,
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            fontSize: 14,
+          }}
+          aria-label="Toggle menu"
+        >
+          ☰
+        </button>
+      </div>
+
+      {/* Center — search */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {searchOpen ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative', flex: 1, maxWidth: 340 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative', width: '100%', maxWidth: 420 }}>
             <span style={{ position: 'absolute', left: 10, color: 'var(--text-muted)', fontSize: 13, pointerEvents: 'none' }}>🔍</span>
             <input
               ref={inputRef}
@@ -76,7 +77,8 @@ export default function TopBar({ onMenuClick }) {
               fontSize: 13,
               cursor: 'pointer',
               transition: 'border-color .15s',
-              minWidth: 140,
+              width: '100%',
+              maxWidth: 420,
             }}
             onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--nav-active-clr)'}
             onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--search-border)'}
@@ -93,17 +95,16 @@ export default function TopBar({ onMenuClick }) {
         )}
       </div>
 
-      {/* Right: status dot + theme toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-        {/* Status */}
+      {/* Right — status dot + theme toggle */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, width: 'auto', justifyContent: 'flex-end' }}>
+        {/* Status dot */}
         <div title={claudeReady ? 'API connected' : 'API not configured'} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{
             width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
             background: claudeReady ? '#4ade80' : '#f59e0b',
             boxShadow: claudeReady ? '0 0 5px #4ade8088' : '0 0 5px #f59e0b88',
           }} />
-          <span style={{ fontSize: 12, color: claudeReady ? '#4ade80' : '#f59e0b', fontWeight: 500 }}
-            className="hidden lg:inline">
+          <span style={{ fontSize: 12, color: claudeReady ? '#4ade80' : '#f59e0b', fontWeight: 500 }}>
             {claudeReady ? 'Live' : 'Setup'}
           </span>
         </div>
@@ -127,14 +128,8 @@ export default function TopBar({ onMenuClick }) {
           }}
           aria-label="Toggle theme"
         >
-          {/* Track icons */}
-          <span style={{
-            position: 'absolute', left: 6, fontSize: 10, opacity: isDark ? 0.9 : 0.3, transition: 'opacity .2s',
-          }}>🌙</span>
-          <span style={{
-            position: 'absolute', right: 6, fontSize: 10, opacity: isDark ? 0.3 : 0.9, transition: 'opacity .2s',
-          }}>☀️</span>
-          {/* Thumb */}
+          <span style={{ position: 'absolute', left: 6, fontSize: 10, opacity: isDark ? 0.9 : 0.3, transition: 'opacity .2s' }}>🌙</span>
+          <span style={{ position: 'absolute', right: 6, fontSize: 10, opacity: isDark ? 0.3 : 0.9, transition: 'opacity .2s' }}>☀️</span>
           <span style={{
             width: 20, height: 20,
             borderRadius: '50%',
