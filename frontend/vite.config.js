@@ -13,13 +13,14 @@ export default defineConfig({
     port: 3001,
     // Proxy all API calls to Express in dev so no CORS issues
     proxy: {
-      '/claude': 'http://localhost:3000',
-      '/tools':  'http://localhost:3000',
-      '/ads':    'http://localhost:3000',
-      '/api':    'http://localhost:3000',
-      '/oauth':  'http://localhost:3000',
-      '/webhooks': 'http://localhost:3000',
-      '/health': 'http://localhost:3000',
+      '/claude':  'http://localhost:3000',
+      '/tools':   'http://localhost:3000',
+      '/ads':     'http://localhost:3000',
+      '/api':     'http://localhost:3000',
+      '/oauth':   'http://localhost:3000',
+      '/webhooks':'http://localhost:3000',
+      '/health':  'http://localhost:3000',
+      '/improve': 'http://localhost:3000',
     },
   },
 });
