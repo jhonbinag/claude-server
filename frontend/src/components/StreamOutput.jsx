@@ -239,12 +239,7 @@ function Block({ msg }) {
       );
 
     case 'done':
-      return (
-        <div className="fade-up text-xs text-green-400 font-medium"
-          style={{ borderLeft: '2px solid #22c55e', paddingLeft: '.75rem' }}>
-          ✓ Complete — {msg.turns} turn{msg.turns !== 1 ? 's' : ''}, {msg.toolCallCount} tool call{msg.toolCallCount !== 1 ? 's' : ''}
-        </div>
-      );
+      return null;
 
     case 'error':
       return (
