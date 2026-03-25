@@ -1315,15 +1315,29 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
               <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
             </div>
 
-            {/* Docs + Changelog side by side */}
+            {/* Docs + Changelog — read-only link display */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div>
-                <label style={labelStyle}>Official docs URL</label>
-                <input value={editDocsUrl} onChange={e => setEditDocsUrl(e.target.value)} placeholder="https://docs.example.com" style={{ ...inputStyle, marginBottom: 0 }} />
+                <label style={labelStyle}>Official Docs URL</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, background: '#0a0f1a', border: `1px solid ${C.border}`, minHeight: 38 }}>
+                  {brain.docsUrl
+                    ? <a href={brain.docsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: C.blue, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        📄 {brain.docsUrl}
+                      </a>
+                    : <span style={{ fontSize: 13, color: C.textMuted }}>Not set</span>
+                  }
+                </div>
               </div>
               <div>
                 <label style={labelStyle}>Changelog URL</label>
-                <input value={editChangelogUrl} onChange={e => setEditChangelogUrl(e.target.value)} placeholder="https://example.com/changelog" style={{ ...inputStyle, marginBottom: 0 }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, background: '#0a0f1a', border: `1px solid ${C.border}`, minHeight: 38 }}>
+                  {brain.changelogUrl
+                    ? <a href={brain.changelogUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: C.blue, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        📋 {brain.changelogUrl}
+                      </a>
+                    : <span style={{ fontSize: 13, color: C.textMuted }}>Not set</span>
+                  }
+                </div>
               </div>
             </div>
 
@@ -1333,7 +1347,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                 try {
                   const r = await apiFetch(`/brain/${brain.brainId}`, locationId, {
                     method: 'PATCH',
-                    body: { name: editName, description: editDesc, docsUrl: editDocsUrl, changelogUrl: editChangelogUrl },
+                    body: { name: editName, description: editDesc },
                   });
                   if (r.success) { showFlash(true, 'Brain settings saved.'); onRefresh(); }
                   else showFlash(false, r.error || 'Save failed.');
@@ -1712,14 +1726,20 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
                 )}
 
                 {/* Footer links */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
                   {b.docsUrl
-                    ? <a href={b.docsUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: C.textSec, textDecoration: 'none' }}>Docs</a>
-                    : <span style={{ fontSize: 12, color: C.border }}>Docs</span>
+                    ? <a href={b.docsUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                        style={{ fontSize: 12, fontWeight: 600, color: C.blue, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, background: `${C.blue}18`, border: `1px solid ${C.blue}33` }}>
+                        📄 Docs ↗
+                      </a>
+                    : <span style={{ fontSize: 12, color: C.border, padding: '3px 8px' }}>No Docs</span>
                   }
                   {b.changelogUrl
-                    ? <a href={b.changelogUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: C.textSec, textDecoration: 'none' }}>Changelog</a>
-                    : <span style={{ fontSize: 12, color: C.border }}>Changelog</span>
+                    ? <a href={b.changelogUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                        style={{ fontSize: 12, fontWeight: 600, color: '#a78bfa', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.25)' }}>
+                        📋 Changelog ↗
+                      </a>
+                    : <span style={{ fontSize: 12, color: C.border, padding: '3px 8px' }}>No Changelog</span>
                   }
                   <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
                     {b.autoSync && (
