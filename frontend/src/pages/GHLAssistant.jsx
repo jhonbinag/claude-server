@@ -646,7 +646,7 @@ export default function GHLAssistant() {
   }
 
   function selectSlashCommand(cmd) {
-    setTask(cmd.placeholder);
+    setTask(cmd.cmd + ' ');
     setSlashOpen(false);
     setTimeout(() => textareaRef.current?.focus(), 0);
   }
