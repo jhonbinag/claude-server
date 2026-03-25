@@ -27,6 +27,22 @@ function getInitialUserId() {
 }
 
 export function AppProvider({ children }) {
+  // ── Theme ─────────────────────────────────────────────────────────────────
+  const [theme, setThemeState] = useState(() => {
+    const saved = localStorage.getItem('hl_theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', saved);
+    return saved;
+  });
+
+  const toggleTheme = () => {
+    setThemeState(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('hl_theme', next);
+      document.documentElement.setAttribute('data-theme', next);
+      return next;
+    });
+  };
+
   const [locationId,         setLocationId]         = useState(getInitialLocationId);
   // Auth is immediate: if we have a locationId, user is in. No API gatekeeping.
   const [isAuthenticated,    setIsAuthenticated]    = useState(() => !!getInitialLocationId());
@@ -199,6 +215,9 @@ export function AppProvider({ children }) {
       userRole,
       allowedFeatures,
       canAccess,
+      // Theme
+      theme,
+      toggleTheme,
       // Actions
       activate,
       login: activate,

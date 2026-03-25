@@ -143,8 +143,8 @@ body {
 /* ── Ads Generator form panel width ──────────────────────────────────────── */
 .ads-form-panel {
   width: 100%;
-  flex: 1;           /* fill remaining height on mobile so it can scroll */
-  min-height: 0;     /* allows flex child to shrink below content height  */
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   border-right: none;
 }
@@ -154,5 +154,130 @@ body {
     flex-shrink: 0;
     width: 420px;
     border-right: 1px solid rgba(255,255,255,0.06);
+  }
+}
+
+/* ── Theme tokens ─────────────────────────────────────────────────────────── */
+:root,
+html[data-theme="dark"] {
+  --sidebar-bg:       #0a0d14;
+  --sidebar-border:   rgba(255,255,255,0.07);
+  --topbar-bg:        rgba(10,13,20,0.97);
+  --content-bg:       #0f0f13;
+  --text-primary:     #e2e8f0;
+  --text-secondary:   #9ca3af;
+  --text-muted:       #6b7280;
+  --search-bg:        rgba(255,255,255,0.05);
+  --search-border:    rgba(255,255,255,0.1);
+  --nav-active-bg:    rgba(99,102,241,0.14);
+  --nav-active-clr:   #a5b4fc;
+  --nav-hover-bg:     rgba(255,255,255,0.05);
+  --toggle-track:     rgba(255,255,255,0.08);
+  --toggle-border:    rgba(255,255,255,0.12);
+  --divider:          rgba(255,255,255,0.07);
+  --scrollbar-thumb:  rgba(255,255,255,0.14);
+}
+
+html[data-theme="light"] {
+  --bg:               #f0f2f5;
+  --sidebar-bg:       #ffffff;
+  --sidebar-border:   #e5e7eb;
+  --topbar-bg:        rgba(255,255,255,0.97);
+  --content-bg:       #f0f2f5;
+  --text-primary:     #111827;
+  --text-secondary:   #4b5563;
+  --text-muted:       #9ca3af;
+  --search-bg:        #f3f4f6;
+  --search-border:    #d1d5db;
+  --nav-active-bg:    rgba(99,102,241,0.1);
+  --nav-active-clr:   #6366f1;
+  --nav-hover-bg:     rgba(0,0,0,0.04);
+  --toggle-track:     rgba(0,0,0,0.06);
+  --toggle-border:    #d1d5db;
+  --divider:          #e5e7eb;
+  --scrollbar-thumb:  rgba(0,0,0,0.16);
+  --accent:           #6366f1;
+}
+
+/* Propagate theme background to body */
+html[data-theme="light"] body { background: var(--content-bg); color: var(--text-primary); }
+
+/* ── App shell ────────────────────────────────────────────────────────────── */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--content-bg);
+  color: var(--text-primary);
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────────── */
+.hl-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  transition: width 0.22s ease;
+  overflow: hidden;
+  position: relative;
+  z-index: 40;
+}
+.hl-sidebar.expanded  { width: 224px; }
+.hl-sidebar.collapsed { width: 56px; }
+
+.hl-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  border-radius: 8px;
+  margin-bottom: 2px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-muted);
+  transition: background .13s, color .13s;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.hl-nav-item:hover  { background: var(--nav-hover-bg); color: var(--text-primary); }
+.hl-nav-item.active { background: var(--nav-active-bg); color: var(--nav-active-clr); font-weight: 600; }
+
+/* ── TopBar ───────────────────────────────────────────────────────────────── */
+.hl-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  background: var(--topbar-bg);
+  border-bottom: 1px solid var(--sidebar-border);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+/* ── Light-mode scrollbar ────────────────────────────────────────────────── */
+html[data-theme="light"] ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); }
+
+/* ── Mobile: sidebar becomes overlay ─────────────────────────────────────── */
+@media (max-width: 767px) {
+  .hl-sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease, width 0.22s ease;
+  }
+  .hl-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+  .hl-sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 39;
   }
 }
