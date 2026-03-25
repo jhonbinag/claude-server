@@ -28,14 +28,23 @@ export default function App() {
 
         {/* All other routes share the AppShell (sidebar + topbar) */}
         <Route element={<AppShell />}>
-          <Route path="/"           element={<Dashboard />} />
-          <Route path="/builder"    element={<Gated feature="funnel_builder" element={<FunnelBuilder />} />} />
-          <Route path="/agents"     element={<Gated feature="agents"         element={<AgentsHub />} />} />
-          <Route path="/workflows"  element={<Gated feature="workflows"      element={<Workflows />} />} />
-          <Route path="/ads"        element={<Gated feature="ads_generator"  element={<AdsHub />} />} />
-          <Route path="/social"     element={<Gated feature="social_planner" element={<SocialHub />} />} />
-          <Route path="/settings"   element={<Settings />} />
-          <Route path="*"           element={<Navigate to="/" replace />} />
+          <Route path="/"                element={<Dashboard />} />
+          <Route path="/funnel-builder"  element={<Gated feature="funnel_builder" element={<FunnelBuilder />} />} />
+          <Route path="/agents"          element={<AgentsHub />} />
+          <Route path="/workflows"       element={<Gated feature="workflows"      element={<Workflows />} />} />
+          <Route path="/ads"             element={<AdsHub />} />
+          <Route path="/social"          element={<SocialHub />} />
+          <Route path="/settings"        element={<Settings />} />
+
+          {/* Legacy redirects — keep old bookmarks/links working */}
+          <Route path="/brain"           element={<Navigate to="/agents"   replace />} />
+          <Route path="/ads-generator"   element={<Navigate to="/ads"      replace />} />
+          <Route path="/ad-library"      element={<Navigate to="/ads"      replace />} />
+          <Route path="/manychat"        element={<Navigate to="/social"   replace />} />
+          <Route path="/billing"         element={<Navigate to="/settings" replace />} />
+          <Route path="/builder"         element={<Navigate to="/funnel-builder" replace />} />
+
+          <Route path="*"                element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </AppProvider>

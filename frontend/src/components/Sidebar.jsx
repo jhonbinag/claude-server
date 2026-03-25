@@ -2,13 +2,13 @@ import { Link, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 
 const NAV = [
-  { to: '/',               label: 'Dashboard',  icon: '⊞' },
-  { to: '/builder',        label: 'Builder',    icon: '🏗', feature: 'funnel_builder' },
-  { to: '/agents',         label: 'Agents',     icon: '�', feature: 'agents' },
-  { to: '/workflows',      label: 'Workflows',  icon: '⟳',  feature: 'workflows' },
-  { to: '/ads',            label: 'Ads',        icon: '⚡', feature: 'ads_generator' },
-  { to: '/social',         label: 'Social',     icon: '📱', feature: 'social_planner' },
-  { to: '/settings',       label: 'Settings',   icon: '⚙' },
+  { to: '/',               label: 'Dashboard',         icon: '⊞' },
+  { to: '/funnel-builder', label: 'Builder',            icon: '🏗', feature: 'funnel_builder' },
+  { to: '/agents',         label: 'Agents',             icon: '🤖' },
+  { to: '/workflows',      label: 'Workflows',          icon: '⟳',  feature: 'workflows' },
+  { to: '/ads',            label: 'Ads',                icon: '⚡' },
+  { to: '/social',         label: 'ManyChat & Socials', icon: '💬' },
+  { to: '/settings',       label: 'Settings',           icon: '⚙' },
 ];
 
 export default function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose }) {

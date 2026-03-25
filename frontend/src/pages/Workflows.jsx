@@ -16,6 +16,7 @@ import Header             from '../components/Header';
 import StreamOutput       from '../components/StreamOutput';
 import Spinner            from '../components/Spinner';
 import { INTEGRATIONS }   from '../lib/integrations';
+import GHLAssistant       from './GHLAssistant';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -400,6 +401,10 @@ export default function Workflows() {
   const [copyDone,  setCopyDone]  = useState(false);
   const [showOutput,setShowOutput]= useState(false);
 
+  // ── Hub tabs: 'assistant' | 'canvas' ──────────────────────────────────────
+  const [wfTab,     setWfTab]     = useState('assistant');
+  const [canvasMode,setCanvasMode]= useState(false); // false = workflow list, true = canvas editor
+
   // Schedule state
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [schedules,         setSchedules]         = useState([]);
@@ -620,12 +625,14 @@ export default function Workflows() {
     setCurrentId(wf.id);
     setWebhookUrl(`${window.location.origin}/workflows/trigger/${wf.webhookToken}`);
     setMessages([]); setShowSaved(false); setSelectedEdge(null); setSelectedNode(null);
+    setCanvasMode(true);
   };
 
   const newWorkflow = () => {
     setNodes([]); setEdges([]); setWfName(''); setContext([]);
     setMessages([]); setCurrentId(null); setWebhookUrl('');
     setSelectedEdge(null); setSelectedNode(null); setShowOutput(false);
+    setCanvasMode(true);
   };
 
   const applyTemplate = tpl => {
@@ -703,13 +710,105 @@ export default function Workflows() {
     ? edgePath(connecting.x, connecting.y, mousePos.x, mousePos.y)
     : null;
 
+  const WF_TABS = [
+    { key: 'assistant', label: '🤖 AI Assistant' },
+    { key: 'canvas',    label: '⟳ Workflows'     },
+  ];
+
   return (
     <div className="flex flex-col" style={{ height: '100%', background: '#0f0f13' }}>
-      <Header icon="🔀" title="Workflow Builder" subtitle="Visual canvas — drag, connect, map fields, run" />
+      <Header icon="🔀" title="Workflows" subtitle="AI Assistant · Visual Canvas Builder" />
 
-      {/* Toolbar */}
+      {/* ── Top tab bar ── */}
+      <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, background: '#0f0f13' }}>
+        {WF_TABS.map(({ key, label }) => (
+          <button key={key} onClick={() => setWfTab(key)} style={{
+            padding: '11px 18px', fontSize: 13, fontWeight: 500, border: 'none',
+            borderBottom: `2px solid ${wfTab === key ? '#6366f1' : 'transparent'}`,
+            cursor: 'pointer', transition: 'color .15s, border-color .15s',
+            background: 'transparent', color: wfTab === key ? '#a5b4fc' : '#6b7280', marginBottom: -1,
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* ── AI Assistant tab ── */}
+      {wfTab === 'assistant' && (
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <GHLAssistant />
+        </div>
+      )}
+
+      {/* ── Workflows tab — List view (default) ── */}
+      {wfTab === 'canvas' && !canvasMode && (
+        <div className="flex-1 overflow-y-auto p-6" style={{ minHeight: 0 }}>
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-white font-semibold text-base">My Workflows</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Build, schedule and automate multi-step AI workflows</p>
+            </div>
+            <button onClick={() => newWorkflow()} className="btn-primary px-4 py-2 text-sm">
+              + New Workflow
+            </button>
+          </div>
+
+          {saved.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="text-5xl mb-4">⟳</div>
+              <p className="text-white font-semibold mb-1">No workflows yet</p>
+              <p className="text-gray-500 text-sm mb-5">Create your first automated workflow with drag-and-drop nodes</p>
+              <button onClick={() => newWorkflow()} className="btn-primary px-6 py-2 text-sm">
+                + New Workflow
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+              {saved.map(wf => (
+                <div key={wf.id}
+                  className="glass rounded-2xl p-5 cursor-pointer transition-all"
+                  style={{ border: '1px solid rgba(99,102,241,0.15)' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.4)'; e.currentTarget.style.background = 'rgba(99,102,241,0.05)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.15)'; e.currentTarget.style.background = ''; }}
+                  onClick={() => loadWorkflow(wf)}
+                >
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <p className="text-white font-semibold text-sm truncate">{wf.name}</p>
+                      {wf.context && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{wf.context}</p>}
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); fetch(`/workflows/${wf.id}`, { method: 'DELETE', headers: { 'x-location-id': locationId } }).then(() => loadSaved()); }}
+                      className="text-gray-600 hover:text-red-400 text-base flex-shrink-0 transition-colors"
+                      title="Delete workflow"
+                    >×</button>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <span>⬡ {wf.steps?.length || 0} nodes</span>
+                    {schedules.filter(s => s.workflowId === wf.id && s.status === 'active').length > 0 && (
+                      <span className="text-indigo-400">⏰ Scheduled</span>
+                    )}
+                  </div>
+                  <div className="mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span className="text-xs text-indigo-400 font-medium">Open in Canvas →</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Workflows tab — Canvas mode ── */}
+      {wfTab === 'canvas' && canvasMode && (
+      <div className="flex flex-col" style={{ flex: 1, minHeight: 0 }}>
+        {/* Back + canvas toolbar */}
       <div className="flex items-center gap-2 px-4 py-2 flex-shrink-0"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)' }}>
+        <button onClick={() => { setCanvasMode(false); loadSaved(); }}
+          className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap"
+          style={{ color: '#6b7280' }}>
+          ← Back
+        </button>
+        <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
         <input value={wfName} onChange={e => setWfName(e.target.value)} placeholder="Workflow name…"
           className="field text-sm" style={{ width: 200 }} />
         <input value={context} onChange={e => setContext(e.target.value)}
@@ -1147,6 +1246,8 @@ export default function Workflows() {
             </p>
           </div>
         </div>
+      )}
+      </div>
       )}
     </div>
   );
