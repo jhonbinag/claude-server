@@ -97,14 +97,15 @@ router.delete('/:brainId', async (req, res) => {
 // ── Update brain metadata ─────────────────────────────────────────────────────
 
 router.patch('/:brainId', async (req, res) => {
-  const { name, description, docsUrl, changelogUrl, autoSync } = req.body;
+  const { name, description, docsUrl, changelogUrl, autoSync, pipelineStage } = req.body;
   try {
     const result = await brain.updateBrainMeta(req.locationId, req.params.brainId, {
-      ...(name        !== undefined && { name:        name.trim() }),
-      ...(description !== undefined && { description: description.trim() }),
-      ...(docsUrl     !== undefined && { docsUrl:     docsUrl.trim() }),
-      ...(changelogUrl !== undefined && { changelogUrl: changelogUrl.trim() }),
-      ...(autoSync    !== undefined && { autoSync:    !!autoSync }),
+      ...(name          !== undefined && { name:          name.trim() }),
+      ...(description   !== undefined && { description:   description.trim() }),
+      ...(docsUrl       !== undefined && { docsUrl:       docsUrl.trim() }),
+      ...(changelogUrl  !== undefined && { changelogUrl:  changelogUrl.trim() }),
+      ...(autoSync      !== undefined && { autoSync:      !!autoSync }),
+      ...(pipelineStage !== undefined && { pipelineStage }),
     });
     res.json({ success: true, data: result });
   } catch (err) {

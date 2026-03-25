@@ -630,6 +630,11 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
   // Cleanup batch processing on unmount
   useEffect(() => () => { batchActiveRef.current = false; }, []);
 
+  // Auto-resume batch loop if processing was in progress when page was last loaded
+  useEffect(() => {
+    if (brain.pipelineStage === 'processing') startBatchLoop();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Batch processing loop — drives server-side /sync-batch from the frontend
   async function startBatchLoop() {
     if (batchActiveRef.current) return;
@@ -637,6 +642,9 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
     setBatchProcessing(true);
     let totalDone = 0, totalErrors = 0, batchCount = 0;
     setBatchProgress({ done: 0, remaining: 0, total: 0, errors: 0 });
+
+    // Persist processing state so page reload resumes instead of showing "Process Pending"
+    apiFetch(`/brain/${brain.brainId}`, locationId, { method: 'PATCH', body: { pipelineStage: 'processing' } });
 
     const COOLDOWN_MS = 120_000; // 2 minutes between batches
 
@@ -657,6 +665,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
         });
         await reloadVideos();
         if (r.done) {
+          apiFetch(`/brain/${brain.brainId}`, locationId, { method: 'PATCH', body: { pipelineStage: 'ready' } });
           showFlash(true, `Processing complete — ${totalDone} video${totalDone !== 1 ? 's' : ''} indexed${totalErrors > 0 ? `, ${totalErrors} error${totalErrors !== 1 ? 's' : ''}` : ''}.`);
           break;
         }
