@@ -55,7 +55,7 @@ export default function AgentsHub() {
           </button>
         ))}
       </div>
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {tab === 'agents' ? <Agents /> : <Brain />}
       </div>
     </div>

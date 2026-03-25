@@ -630,10 +630,8 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
   // Cleanup batch processing on unmount
   useEffect(() => () => { batchActiveRef.current = false; }, []);
 
-  // Auto-resume batch loop if processing was in progress when page was last loaded
-  useEffect(() => {
-    if (brain.pipelineStage === 'processing') startBatchLoop();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // NOTE: auto-resume removed — user must manually click "Process All Pending"
+  // to avoid unwanted processing on page load
 
   // Batch processing loop — drives server-side /sync-batch from the frontend
   async function startBatchLoop() {
@@ -2555,7 +2553,7 @@ export default function Brain() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, color: C.textPri, fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100%', background: C.bg, color: C.textPri, fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
       <Header icon="🧠" title="Brain" subtitle="Multi-brain YouTube RAG knowledge base" />
 
