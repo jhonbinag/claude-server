@@ -2221,13 +2221,15 @@ function SearchView({ brains, locationId }) {
         </div>
       )}
 
-      {/* Self-improvement panel — appears after answer streams in */}
+      {/* Self-improvement panel — auto-starts 3s after answer, runs continuously in background */}
       {answer && !asking && (
         <SelfImprovementPanel
           type="brain_answer"
           artifact={answer}
           context={{ query }}
           onApply={(improved) => setAnswer(improved)}
+          autoStart={true}
+          continuous={true}
         />
       )}
 

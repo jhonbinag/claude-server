@@ -196,7 +196,7 @@ function LedgerRow({ entry, index, scorerLabel = 'Haiku', generatorLabel = 'Sonn
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function SelfImprovementPanel({ type, artifact, context = {}, onApply, label }) {
+export default function SelfImprovementPanel({ type, artifact, context = {}, onApply, label, autoStart = false, continuous = false }) {
   const { locationId } = useApp();
   const [phase,        setPhase]        = useState('idle');
   const [activeRole,   setActiveRole]   = useState(null);   // 'scorer' | 'generator' | null
@@ -209,9 +209,22 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
   const [iterations,   setIterations]   = useState(3);
   const [error,        setError]        = useState('');
   const [expanded,     setExpanded]     = useState(false);
-  const abortRef = useRef(false);
+  const [totalRounds,  setTotalRounds]  = useState(0);
+  const abortRef      = useRef(false);
+  const runningRef    = useRef(false);
+  const autoFiredRef  = useRef(false);
+  const continuousRef = useRef(continuous);
+  continuousRef.current = continuous;
 
   const displayLabel = label || TYPE_LABELS[type] || 'Content';
+
+  // Auto-start 3 seconds after the answer appears
+  useEffect(() => {
+    if (!autoStart || autoFiredRef.current || !artifact?.trim()) return;
+    autoFiredRef.current = true;
+    const timer = setTimeout(() => { if (!runningRef.current) runLoop(artifact); }, 3000);
+    return () => clearTimeout(timer);
+  }, [autoStart, artifact]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function apiFetch(path, body) {
     const res = await fetch(path, {
@@ -224,28 +237,31 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
     return data;
   }
 
-  async function runLoop() {
-    if (!artifact?.trim()) return;
+  async function runLoop(artifactInput) {
+    const startArtifact = (typeof artifactInput === 'string' && artifactInput.trim()) ? artifactInput : artifact;
+    if (!startArtifact?.trim() || runningRef.current) return;
+    runningRef.current = true;
     setPhase('running');
     setError('');
     setLedger([]);
-    setBestArtifact(artifact);
+    setBestArtifact(startArtifact);
+    setBestScore(null);
     abortRef.current = false;
     const localLedger = [];
+    let localBest = startArtifact;
 
     try {
       // ── Baseline score ──────────────────────────────────────────────────
       setActiveRole('scorer'); setRoleTask('Scoring baseline…');
-      const baseline = await apiFetch('/improve/score', { type, artifact, context });
+      const baseline = await apiFetch('/improve/score', { type, artifact: startArtifact, context });
       setScoreData(baseline);
-      setBestArtifact(artifact);
       setBestScore(baseline.score);
       // Pick up provider/model labels from first response
       if (baseline.scorerLabel) {
         setProviderInfo({ scorerLabel: baseline.scorerLabel, generatorLabel: baseline.generatorLabel || 'Sonnet', provider: baseline.provider || 'anthropic' });
       }
 
-      let current     = artifact;
+      let current     = startArtifact;
       let currentData = baseline;
 
       // ── Exploit-or-revert loop ──────────────────────────────────────────
@@ -291,30 +307,50 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
           setScoreData(newData);
           setBestArtifact(current);
           setBestScore(newData.score);
+          localBest   = current;
         }
       }
 
       setActiveRole(null); setRoleTask('');
-      setPhase('done');
+      runningRef.current = false;
+
+      const improved = localBest !== startArtifact;
+
+      // Auto-apply whenever an improvement is found
+      if (improved) onApply?.(localBest);
+
+      // Continuous mode: rerun automatically if improvement was found, stop if plateau
+      if (continuousRef.current && !abortRef.current && improved) {
+        setTotalRounds(r => r + 1);
+        setLedger([]);
+        setScoreData(null);
+        setBestScore(null);
+        setBestArtifact('');
+        setTimeout(() => runLoop(localBest), 2000);
+      } else {
+        setPhase('done');
+      }
     } catch (e) {
       // Show a clean error message — strip any raw HTTP 400 JSON dump
       const msg = e.message?.length > 200 ? e.message.slice(0, 200) + '…' : e.message;
       setError(msg);
       setActiveRole(null); setRoleTask('');
       setPhase('error');
+      runningRef.current = false;
     }
   }
 
   function handleStop() {
     abortRef.current = true;
+    runningRef.current = false;
     setActiveRole(null); setRoleTask('');
     setPhase('done');
   }
 
   function handleRerun() {
     setPhase('idle'); setLedger([]); setScoreData(null);
-    setBestScore(null); setBestArtifact(''); setExpanded(true);
-    setTimeout(runLoop, 0);
+    setBestScore(null); setBestArtifact(''); setTotalRounds(0); setExpanded(true);
+    setTimeout(() => runLoop(artifact), 0);
   }
 
   if (!artifact?.trim()) return null;
@@ -331,17 +367,27 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
         style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', borderBottom: expanded ? '1px solid rgba(99,102,241,0.15)' : 'none' }}
       >
         <span style={{ fontSize: 12 }}>🔬</span>
-        <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>
+        <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           Auto-Improve {displayLabel}
+          {continuous && (
+            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', color: '#a5b4fc' }}>
+              ♾ Auto
+            </span>
+          )}
+          {totalRounds > 0 && (
+            <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>
+              Round {totalRounds + 1}
+            </span>
+          )}
           {bestScore !== null && (
-            <span style={{ marginLeft: 7, fontSize: 9.5, fontWeight: 600, padding: '2px 6px', borderRadius: 99, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>
+            <span style={{ fontSize: 9.5, fontWeight: 600, padding: '2px 6px', borderRadius: 99, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>
               Best: {bestScore}/100
             </span>
           )}
         </span>
 
         {phase === 'idle' && (
-          <button onClick={e => { e.stopPropagation(); setExpanded(true); runLoop(); }}
+          <button onClick={e => { e.stopPropagation(); setExpanded(true); runLoop(artifact); }}
             style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 5, background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.35)', color: '#a5b4fc', cursor: 'pointer' }}>
             ▶ Run
           </button>
