@@ -3,15 +3,11 @@ import { useApp } from '../context/AppContext';
 
 const NAV = [
   { to: '/',               label: 'Dashboard',  icon: '⊞' },
-  { to: '/agents',         label: 'Agents',     icon: '🤖', feature: 'agents' },
-  { to: '/brain',          label: 'Brain',      icon: '🧠' },
-  { to: '/funnel-builder', label: 'Builder',    icon: '🏗', feature: 'funnel_builder' },
+  { to: '/builder',        label: 'Builder',    icon: '🏗', feature: 'funnel_builder' },
+  { to: '/agents',         label: 'Agents',     icon: '�', feature: 'agents' },
   { to: '/workflows',      label: 'Workflows',  icon: '⟳',  feature: 'workflows' },
-  { to: '/ads-generator',  label: 'Bulk Ads',   icon: '⚡', feature: 'ads_generator' },
-  { to: '/ad-library',     label: 'Ad Library', icon: '📊', feature: 'ad_library' },
-  { to: '/manychat',       label: 'ManyChat',   icon: '💬', feature: 'manychat' },
+  { to: '/ads',            label: 'Ads',        icon: '⚡', feature: 'ads_generator' },
   { to: '/social',         label: 'Social',     icon: '📱', feature: 'social_planner' },
-  { to: '/billing',        label: 'Billing',    icon: '💳' },
   { to: '/settings',       label: 'Settings',   icon: '⚙' },
 ];
 

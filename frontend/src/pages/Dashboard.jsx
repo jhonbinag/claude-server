@@ -628,11 +628,10 @@ export default function Dashboard() {
             <div className="space-y-1">
               {canAccess('campaign_builder') && <Link to="/campaign-builder" onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🏗️ Campaign Builder</Link>}
               {canAccess('workflows')        && <Link to="/workflows"        onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🔀 Workflow Builder</Link>}
-              {canAccess('ads_generator')    && <Link to="/ads-generator"    onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🎯 Bulk Ads Generator</Link>}
+              {canAccess('ads_generator')    && <Link to="/ads"              onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🎯 Ads</Link>}
               {canAccess('social_planner')   && <Link to="/social"           onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">📱 Social Planner</Link>}
-              {canAccess('ad_library')       && <Link to="/ad-library"       onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">📊 Ad Library Intel</Link>}
-              {canAccess('settings')         && <Link to="/settings"         onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">⚙️ Integration Settings</Link>}
-              <Link to="/brain" onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">🧠 Brain</Link>
+                            {canAccess('settings')         && <Link to="/settings"         onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">⚙️ Integration Settings</Link>}
+              <Link to="/agents" onClick={() => setSidebarOpen(false)} className="block text-xs text-gray-400 hover:text-indigo-400 py-1">� Agents & Brain</Link>
             </div>
             {userRole && userRole !== 'owner' && (
               <p className="text-xs text-gray-600 mt-2">Role: <span className="text-gray-500 capitalize">{userRole}</span></p>

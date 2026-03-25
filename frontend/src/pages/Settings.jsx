@@ -15,7 +15,6 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { useApp }   from '../context/AppContext';
 import AuthGate     from '../components/AuthGate';
 import Header       from '../components/Header';
@@ -633,9 +632,9 @@ export default function Settings() {
 
                 {/* ── Toggle / upgrade button ───────────────────────────── */}
                 {tierLocked ? (
-                  <Link to="/billing" className="btn-ghost w-full py-1.5 text-xs text-center block" style={{ color: '#fbbf24' }}>
+                  <button onClick={() => setSettingsTab('billing')} className="btn-ghost w-full py-1.5 text-xs text-center block" style={{ color: '#fbbf24', background: 'transparent', border: 'none', cursor: 'pointer' }}>
                     ⬆ Upgrade plan to unlock
-                  </Link>
+                  </button>
                 ) : (
                 <button onClick={() => toggleExpand(cfg.key)} className="btn-ghost w-full py-1.5 text-xs">
                   {isOpen
@@ -833,6 +832,7 @@ export default function Settings() {
         </div>
 
       </main>
+      )}
 
       {/* Toast */}
       {toast && (

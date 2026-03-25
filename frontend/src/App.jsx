@@ -5,16 +5,11 @@ import AppShell        from './components/AppShell';
 import Dashboard       from './pages/Dashboard';
 import Settings        from './pages/Settings';
 import Workflows       from './pages/Workflows';
-import AdsGenerator    from './pages/AdsGenerator';
-import Agents          from './pages/Agents';
-import Billing         from './pages/Billing';
 import Admin           from './pages/Admin';
-import SocialPlanner   from './pages/SocialPlanner';
-import AdLibrary       from './pages/AdLibrary';
-import ManyChatPage    from './pages/ManyChat';
-import GHLAgent        from './pages/GHLAgent';
 import FunnelBuilder   from './pages/FunnelBuilder';
-import Brain           from './pages/Brain';
+import AgentsHub       from './pages/AgentsHub';
+import AdsHub          from './pages/AdsHub';
+import SocialHub       from './pages/SocialHub';
 
 // ── Route wrapper: redirects to dashboard if user lacks the required feature ──
 function Gated({ feature, element }) {
@@ -33,19 +28,14 @@ export default function App() {
 
         {/* All other routes share the AppShell (sidebar + topbar) */}
         <Route element={<AppShell />}>
-          <Route path="/"                element={<Dashboard />} />
-          <Route path="/settings"        element={<Gated feature="settings"       element={<Settings />} />} />
-          <Route path="/workflows"       element={<Gated feature="workflows"      element={<Workflows />} />} />
-          <Route path="/ads-generator"   element={<Gated feature="ads_generator"  element={<AdsGenerator />} />} />
-          <Route path="/agents"          element={<Gated feature="agents"         element={<Agents />} />} />
-          <Route path="/social"          element={<Gated feature="social_planner" element={<SocialPlanner />} />} />
-          <Route path="/ad-library"      element={<Gated feature="ad_library"     element={<AdLibrary />} />} />
-          <Route path="/manychat"        element={<Gated feature="manychat"       element={<ManyChatPage />} />} />
-          <Route path="/ghl-agent"       element={<Gated feature="ghl_agent"      element={<GHLAgent />} />} />
-          <Route path="/funnel-builder"  element={<Gated feature="funnel_builder" element={<FunnelBuilder />} />} />
-          <Route path="/brain"           element={<Brain />} />
-          <Route path="/billing"         element={<Billing />} />
-          <Route path="*"               element={<Navigate to="/" replace />} />
+          <Route path="/"           element={<Dashboard />} />
+          <Route path="/builder"    element={<Gated feature="funnel_builder" element={<FunnelBuilder />} />} />
+          <Route path="/agents"     element={<Gated feature="agents"         element={<AgentsHub />} />} />
+          <Route path="/workflows"  element={<Gated feature="workflows"      element={<Workflows />} />} />
+          <Route path="/ads"        element={<Gated feature="ads_generator"  element={<AdsHub />} />} />
+          <Route path="/social"     element={<Gated feature="social_planner" element={<SocialHub />} />} />
+          <Route path="/settings"   element={<Settings />} />
+          <Route path="*"           element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </AppProvider>
