@@ -220,6 +220,22 @@ export default function Admin() {
   const [ghlProductsLocId,   setGhlProductsLocId]   = useState('');
   const [ghlProductsLoading, setGhlProductsLoading] = useState(false);
 
+  // Brain (shared knowledge base) state
+  const [sharedBrains,       setSharedBrains]       = useState([]);
+  const [brainLoading,       setBrainLoading]        = useState(false);
+  const [selectedBrain,      setSelectedBrain]       = useState(null); // full brain object
+  const [brainDetailTab,     setBrainDetailTab]      = useState('progress'); // 'progress'|'channels'|'videos'|'settings'
+  const [showCreateBrain,    setShowCreateBrain]     = useState(false);
+  const [brainForm,          setBrainForm]           = useState({ name: '', description: '', primaryChannel: '' });
+  const [brainFormSaving,    setBrainFormSaving]     = useState(false);
+  const [brainStatus,        setBrainStatus]         = useState(null); // { stage, queuedCount, processedCount, ... }
+  const [brainVideos,        setBrainVideos]         = useState([]);
+  const [brainChannelInput,  setBrainChannelInput]   = useState('');
+  const [brainChannelAdding, setBrainChannelAdding]  = useState(false);
+  const [brainSettingsForm,  setBrainSettingsForm]   = useState({ name: '', description: '', autoSync: false });
+  const [brainSettingsSaving,setBrainSettingsSaving] = useState(false);
+  const [brainSyncing,       setBrainSyncing]        = useState(false);
+
   // All available integration keys (must match backend externalTools.js + planTierStore)
   const ALL_INTEGRATIONS = [
     { key: 'perplexity',              label: 'Perplexity AI',       icon: '🔍' },
@@ -370,6 +386,30 @@ export default function Admin() {
     } catch {}
   }, [adminKey, rolesLocationId]); // eslint-disable-line
 
+  const loadSharedBrains = useCallback(async () => {
+    setBrainLoading(true);
+    const data = await adminFetch('/brain/list', { adminKey });
+    if (data.success) setSharedBrains(data.data || []);
+    setBrainLoading(false);
+  }, [adminKey]);
+
+  const loadBrainDetail = useCallback(async (b) => {
+    setSelectedBrain(b);
+    setBrainDetailTab('progress');
+    setBrainSettingsForm({ name: b.name || '', description: b.description || '', autoSync: !!b.autoSync });
+    setBrainVideos([]);
+    setBrainStatus(null);
+    // Fetch status
+    const statusRes = await adminFetch(`/brain/${b.brainId}/status`, { adminKey });
+    if (statusRes.success) setBrainStatus(statusRes);
+    // Fetch videos list via brain detail
+    const detailRes = await adminFetch(`/brain/${b.brainId}`, { adminKey });
+    if (detailRes.success) {
+      setBrainVideos(detailRes.data?.videos || []);
+      setSelectedBrain(prev => prev?.brainId === b.brainId ? { ...prev, ...detailRes.data } : prev);
+    }
+  }, [adminKey]);
+
   useEffect(() => {
     if (!authed) return;
     if (tab === 'overview')     loadStats();
@@ -378,6 +418,7 @@ export default function Admin() {
     if (tab === 'app-settings') loadAppSettings();
     if (tab === 'billing')      loadBilling();
     if (tab === 'plan-tiers')   loadTiers();
+    if (tab === 'brain')        loadSharedBrains();
     // Users & Roles tab: ensure locations list is loaded for the dropdown
     if (tab === 'users-roles' && locations.length === 0) loadLocations();
   }, [authed, tab]); // eslint-disable-line
@@ -564,6 +605,7 @@ export default function Admin() {
             { key: 'plan-tiers',   label: '🏅 Plan Tiers' },
             { key: 'users-roles',  label: '👥 Users & Roles' },
             { key: 'app-settings', label: '⚙️ App Settings' },
+            { key: 'brain',        label: '🧠 Brain' },
           ].map((t) => (
             <button key={t.key} onClick={() => setTab(t.key)} style={TAB_STYLE(tab === t.key)}>
               {t.label}
@@ -1532,6 +1574,341 @@ export default function Admin() {
                 }}
                 onFlash={flash}
               />
+            )}
+          </div>
+        )}
+
+        {/* ── Brain Tab ────────────────────────────────────────────────── */}
+        {tab === 'brain' && (
+          <div>
+            {/* Header row */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {selectedBrain && (
+                  <button
+                    onClick={() => { setSelectedBrain(null); setBrainStatus(null); setBrainVideos([]); }}
+                    style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}
+                  >← Back</button>
+                )}
+                <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>
+                  {selectedBrain ? selectedBrain.name : `Shared Brains ${brainLoading ? '…' : `(${sharedBrains.length})`}`}
+                </h3>
+              </div>
+              {!selectedBrain && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={loadSharedBrains} style={{ background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Reload</button>
+                  <button
+                    onClick={() => { setBrainForm({ name: '', description: '', primaryChannel: '' }); setShowCreateBrain(true); }}
+                    style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '6px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+                  >+ New Brain</button>
+                </div>
+              )}
+            </div>
+
+            {/* ── Brain List ── */}
+            {!selectedBrain && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                {sharedBrains.length === 0 && !brainLoading && (
+                  <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#4b5563', padding: 40 }}>
+                    No shared brains yet. Create one to get started.
+                  </div>
+                )}
+                {sharedBrains.map(b => (
+                  <div
+                    key={b.brainId}
+                    onClick={() => loadBrainDetail(b)}
+                    style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'border-color .15s' }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = '#7c3aed'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = '#2a2a2a'}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                      <span style={{ fontSize: 15, fontWeight: 600, color: '#e5e7eb' }}>{b.name}</span>
+                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: b.pipelineStage === 'ready' ? '#14532d' : '#3a2e0a', color: b.pipelineStage === 'ready' ? '#4ade80' : '#facc15', flexShrink: 0 }}>
+                        {b.pipelineStage || 'new'}
+                      </span>
+                    </div>
+                    {b.description && <p style={{ color: '#6b7280', fontSize: 12, margin: '0 0 10px', lineHeight: 1.5 }}>{b.description}</p>}
+                    <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#4b5563' }}>
+                      <span>📺 {(b.channels || []).length} channels</span>
+                      <span>🎬 {b.videoCount ?? 0} videos</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Brain Detail ── */}
+            {selectedBrain && (
+              <div>
+                {/* Sub-tabs */}
+                <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+                  {['progress', 'channels', 'videos', 'settings'].map(t => (
+                    <button key={t} onClick={() => setBrainDetailTab(t)} style={TAB_STYLE(brainDetailTab === t)}>
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Progress sub-tab */}
+                {brainDetailTab === 'progress' && (
+                  <div>
+                    {brainStatus ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, marginBottom: 20 }}>
+                        {[
+                          { label: 'Stage',      value: brainStatus.stage || '—', color: '#a5b4fc' },
+                          { label: 'Queued',     value: brainStatus.queuedCount  ?? '—', color: '#facc15' },
+                          { label: 'Processed',  value: brainStatus.processedCount ?? '—', color: '#4ade80' },
+                          { label: 'Total',      value: brainStatus.totalChunks ?? '—', color: '#e5e7eb' },
+                        ].map(c => (
+                          <div key={c.label} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, padding: '14px 16px' }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: c.color }}>{c.value}</div>
+                            <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{c.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ color: '#6b7280', fontSize: 13 }}>Loading status…</p>
+                    )}
+                    <button
+                      disabled={brainSyncing}
+                      onClick={async () => {
+                        setBrainSyncing(true);
+                        await adminFetch(`/brain/${selectedBrain.brainId}/sync`, { method: 'POST', adminKey });
+                        await loadBrainDetail(selectedBrain);
+                        setBrainSyncing(false);
+                        flash('✓ Sync queued');
+                      }}
+                      style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 20px', fontSize: 14, fontWeight: 600, cursor: brainSyncing ? 'not-allowed' : 'pointer', opacity: brainSyncing ? 0.6 : 1 }}
+                    >
+                      {brainSyncing ? 'Syncing…' : '↻ Trigger Sync'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Channels sub-tab */}
+                {brainDetailTab === 'channels' && (
+                  <div>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                      <input
+                        value={brainChannelInput}
+                        onChange={e => setBrainChannelInput(e.target.value)}
+                        placeholder="YouTube channel URL or ID…"
+                        style={{ flex: 1, padding: '9px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', fontSize: 13 }}
+                      />
+                      <button
+                        disabled={brainChannelAdding || !brainChannelInput.trim()}
+                        onClick={async () => {
+                          setBrainChannelAdding(true);
+                          const res = await adminFetch(`/brain/${selectedBrain.brainId}/channels`, {
+                            method: 'POST', adminKey, body: { channelUrl: brainChannelInput.trim() },
+                          });
+                          setBrainChannelAdding(false);
+                          if (res.success) {
+                            setBrainChannelInput('');
+                            flash('✓ Channel added');
+                            await loadBrainDetail(selectedBrain);
+                          } else {
+                            flash(`✗ ${res.error}`);
+                          }
+                        }}
+                        style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: (brainChannelAdding || !brainChannelInput.trim()) ? 'not-allowed' : 'pointer', opacity: (brainChannelAdding || !brainChannelInput.trim()) ? 0.5 : 1 }}
+                      >
+                        {brainChannelAdding ? 'Adding…' : '+ Add'}
+                      </button>
+                    </div>
+                    {(selectedBrain.channels || []).length === 0 ? (
+                      <p style={{ color: '#4b5563', fontSize: 13 }}>No channels yet.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {(selectedBrain.channels || []).map(ch => (
+                          <div key={ch.channelId} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                            <div style={{ overflow: 'hidden' }}>
+                              <div style={{ color: '#e5e7eb', fontSize: 14, fontWeight: 500, marginBottom: 2 }}>{ch.channelTitle || ch.channelId}</div>
+                              <div style={{ color: '#4b5563', fontSize: 12, fontFamily: 'monospace' }}>{ch.channelUrl || ch.channelId}</div>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                if (!confirm(`Remove channel "${ch.channelTitle || ch.channelId}"?`)) return;
+                                const res = await adminFetch(`/brain/${selectedBrain.brainId}/channels/${ch.channelId}`, { method: 'DELETE', adminKey });
+                                if (res.success) { flash('✓ Channel removed'); await loadBrainDetail(selectedBrain); }
+                                else flash(`✗ ${res.error}`);
+                              }}
+                              style={{ background: 'none', border: '1px solid #f87171', borderRadius: 8, color: '#f87171', padding: '4px 10px', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}
+                            >Remove</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Videos sub-tab */}
+                {brainDetailTab === 'videos' && (
+                  <div>
+                    <div style={{ marginBottom: 10, color: '#9ca3af', fontSize: 13 }}>
+                      {brainVideos.length} video{brainVideos.length !== 1 ? 's' : ''} in this brain
+                    </div>
+                    {brainVideos.length === 0 ? (
+                      <p style={{ color: '#4b5563', fontSize: 13 }}>No videos yet. Add channels and trigger a sync.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 500, overflowY: 'auto' }}>
+                        {brainVideos.map((v, i) => (
+                          <div key={v.videoId || i} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 6, background: v.processed ? '#14532d' : '#2a2a2a', color: v.processed ? '#4ade80' : '#6b7280', flexShrink: 0 }}>
+                              {v.processed ? '✓' : '⏳'}
+                            </span>
+                            <div style={{ flex: 1, overflow: 'hidden' }}>
+                              <div style={{ color: '#e5e7eb', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.title || v.videoId}</div>
+                              {v.channelTitle && <div style={{ color: '#4b5563', fontSize: 11 }}>{v.channelTitle}</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Settings sub-tab */}
+                {brainDetailTab === 'settings' && (
+                  <div style={{ maxWidth: 480 }}>
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Name</label>
+                      <input
+                        value={brainSettingsForm.name}
+                        onChange={e => setBrainSettingsForm(p => ({ ...p, name: e.target.value }))}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', fontSize: 14 }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Description</label>
+                      <textarea
+                        value={brainSettingsForm.description}
+                        onChange={e => setBrainSettingsForm(p => ({ ...p, description: e.target.value }))}
+                        rows={3}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', fontSize: 14, resize: 'vertical' }}
+                      />
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 20 }}>
+                      <input
+                        type="checkbox"
+                        checked={brainSettingsForm.autoSync}
+                        onChange={e => setBrainSettingsForm(p => ({ ...p, autoSync: e.target.checked }))}
+                      />
+                      <span style={{ color: '#e5e7eb', fontSize: 14 }}>Auto-sync channels daily</span>
+                    </label>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <button
+                        disabled={brainSettingsSaving}
+                        onClick={async () => {
+                          setBrainSettingsSaving(true);
+                          const res = await adminFetch(`/brain/${selectedBrain.brainId}`, {
+                            method: 'PATCH', adminKey,
+                            body: { name: brainSettingsForm.name, description: brainSettingsForm.description, autoSync: brainSettingsForm.autoSync },
+                          });
+                          setBrainSettingsSaving(false);
+                          if (res.success) {
+                            flash('✓ Brain settings saved');
+                            setSelectedBrain(prev => ({ ...prev, name: brainSettingsForm.name, description: brainSettingsForm.description, autoSync: brainSettingsForm.autoSync }));
+                            setSharedBrains(prev => prev.map(b => b.brainId === selectedBrain.brainId ? { ...b, ...res.data } : b));
+                          } else {
+                            flash(`✗ ${res.error}`);
+                          }
+                        }}
+                        style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '10px 24px', fontSize: 14, fontWeight: 600, cursor: brainSettingsSaving ? 'not-allowed' : 'pointer', opacity: brainSettingsSaving ? 0.6 : 1 }}
+                      >
+                        {brainSettingsSaving ? 'Saving…' : 'Save Settings'}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Delete brain "${selectedBrain.name}"? This will remove all videos and data.`)) return;
+                          const res = await adminFetch(`/brain/${selectedBrain.brainId}`, { method: 'DELETE', adminKey });
+                          if (res.success) {
+                            flash('✓ Brain deleted');
+                            setSelectedBrain(null);
+                            setBrainStatus(null);
+                            setBrainVideos([]);
+                            loadSharedBrains();
+                          } else {
+                            flash(`✗ ${res.error}`);
+                          }
+                        }}
+                        style={{ background: 'none', border: '1px solid #f87171', borderRadius: 8, color: '#f87171', padding: '10px 20px', fontSize: 14, cursor: 'pointer' }}
+                      >Delete Brain</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Create Brain Modal */}
+            {showCreateBrain && (
+              <div
+                style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+                onClick={() => setShowCreateBrain(false)}
+              >
+                <div onClick={e => e.stopPropagation()} style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 16, padding: '24px 28px', width: '100%', maxWidth: 440 }}>
+                  <h3 style={{ color: '#fff', margin: '0 0 20px', fontSize: 16 }}>Create Shared Brain</h3>
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Name *</label>
+                    <input
+                      value={brainForm.name}
+                      onChange={e => setBrainForm(p => ({ ...p, name: e.target.value }))}
+                      placeholder="e.g. Company Knowledge Base"
+                      autoFocus
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', fontSize: 14 }}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Description</label>
+                    <textarea
+                      value={brainForm.description}
+                      onChange={e => setBrainForm(p => ({ ...p, description: e.target.value }))}
+                      placeholder="What knowledge does this brain contain?"
+                      rows={2}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', fontSize: 14, resize: 'vertical' }}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Primary Channel (optional)</label>
+                    <input
+                      value={brainForm.primaryChannel}
+                      onChange={e => setBrainForm(p => ({ ...p, primaryChannel: e.target.value }))}
+                      placeholder="YouTube channel URL or ID"
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', fontSize: 14 }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      disabled={brainFormSaving || !brainForm.name.trim()}
+                      onClick={async () => {
+                        setBrainFormSaving(true);
+                        const res = await adminFetch('/brain/create', {
+                          method: 'POST', adminKey,
+                          body: {
+                            name: brainForm.name.trim(),
+                            description: brainForm.description.trim(),
+                            ...(brainForm.primaryChannel.trim() ? { primaryChannel: brainForm.primaryChannel.trim() } : {}),
+                          },
+                        });
+                        setBrainFormSaving(false);
+                        if (res.success) {
+                          setShowCreateBrain(false);
+                          flash('✓ Brain created');
+                          await loadSharedBrains();
+                        } else {
+                          flash(`✗ ${res.error}`);
+                        }
+                      }}
+                      style={{ flex: 1, background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '10px', fontSize: 14, fontWeight: 600, cursor: (brainFormSaving || !brainForm.name.trim()) ? 'not-allowed' : 'pointer', opacity: (brainFormSaving || !brainForm.name.trim()) ? 0.5 : 1 }}
+                    >
+                      {brainFormSaving ? 'Creating…' : 'Create Brain'}
+                    </button>
+                    <button onClick={() => setShowCreateBrain(false)} style={{ padding: '10px 20px', background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         )}

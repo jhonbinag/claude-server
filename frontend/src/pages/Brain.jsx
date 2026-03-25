@@ -495,7 +495,7 @@ function ChangeLogModal({ brain, onClose }) {
 // ── Brain Detail view ─────────────────────────────────────────────────────────
 
 function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialModal, onModalOpened }) {
-  const [tab,               setTab]               = useState('channels');
+  const [tab,               setTab]               = useState(brain.isShared ? 'progress' : 'channels');
   const [docs,              setDocs]              = useState(brain.docs || []);
   const [channels,          setChannels]          = useState(brain.channels || []);
   const [loadingDocs,       setLoadingDocs]       = useState(false);
@@ -855,11 +855,12 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
   const totalChunks = docs.reduce((a, d) => a + (d.chunkCount || 0), 0);
   const videoCount = videos.length || brain.videoCount || ytDocs.length;
 
+  const isSharedBrain = !!brain.isShared;
   const detailTabs = [
-    { id: 'progress',  label: 'Progress' },
-    { id: 'channels',  label: `Channels (${channels.length})` },
-    { id: 'videos',    label: `Videos (${videoCount})` },
-    { id: 'settings',  label: 'Settings' },
+    { id: 'progress', label: 'Progress' },
+    ...(!isSharedBrain ? [{ id: 'channels', label: `Channels (${channels.length})` }] : []),
+    { id: 'videos',   label: `Videos (${videoCount})` },
+    ...(!isSharedBrain ? [{ id: 'settings', label: 'Settings' }] : []),
   ];
 
   const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.textMuted, borderBottom: `1px solid ${C.border}` };
@@ -912,8 +913,11 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
               );
             })()}
           </div>
-          {/* Action buttons */}
+          {/* Action buttons — hidden for shared (read-only) brains */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+            {isSharedBrain && (
+              <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', fontWeight: 600 }}>Shared by Admin</span>
+            )}
             {/* Auto-sync toggle */}
             <label title={autoSync ? 'Auto-sync ON — discovers new videos every Monday at 8am' : 'Auto-sync OFF — manual only'}
               onClick={async e => {
@@ -1851,9 +1855,8 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
       {!loading && brains.length === 0 && (
         <div style={{ background: C.card, border: `1px dashed ${C.border}`, borderRadius: 16, padding: '60px 20px', textAlign: 'center' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🧠</div>
-          <h3 style={{ margin: '0 0 8px', color: C.textPri, fontSize: 18 }}>No brains yet</h3>
-          <p style={{ color: C.textMuted, fontSize: 14, margin: '0 0 24px' }}>Create a brain to start ingesting YouTube channels.</p>
-          <button onClick={onAddBrain} style={btnPrimary}>+ Add Brain</button>
+          <h3 style={{ margin: '0 0 8px', color: C.textPri, fontSize: 18 }}>No shared brains yet</h3>
+          <p style={{ color: C.textMuted, fontSize: 14, margin: 0 }}>Your administrator will add knowledge bases here — you'll see them once created.</p>
         </div>
       )}
 
@@ -1872,7 +1875,12 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
               >
                 {/* Name + health badge */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: C.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{b.name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: C.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</span>
+                    {b.isShared && (
+                      <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.35)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shared</span>
+                    )}
+                  </div>
                   {b.pipelineStage === 'syncing' || b.pipelineStage === 'processing' ? (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: C.blue, flexShrink: 0, marginLeft: 10 }}>
                       <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.blue, display: 'inline-block' }} />
@@ -2594,9 +2602,6 @@ export default function Brain() {
             </button>
           )}
         </div>
-        <button onClick={() => setShowCreate(true)} style={{ ...btnPrimary, fontSize: 13, padding: '8px 16px', flexShrink: 0 }}>
-          + Add Brain
-        </button>
       </div>
 
       {/* Page content */}

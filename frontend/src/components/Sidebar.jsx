@@ -14,6 +14,18 @@ const NAV = [
 
 const CHANGELOG = [
   {
+    version: 'v2.7',
+    date: 'Mar 2026',
+    label: 'new',
+    items: [
+      'Brain: admin-only management — create, configure, and sync shared knowledge bases from Admin panel',
+      'Brain: all sub-locations automatically see and can search shared brains without separate setup',
+      'Brain: user view hides add/settings/channels — only shows Progress, Videos, and Search tabs',
+      'Brain: "Shared by Admin" badge on brains managed centrally',
+      'Auth: improved connect screen — OAuth install button + manual Location ID entry for team members',
+    ],
+  },
+  {
     version: 'v2.6',
     date: 'Mar 2026',
     label: 'new',
