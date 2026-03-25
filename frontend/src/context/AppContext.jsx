@@ -113,7 +113,7 @@ export function AppProvider({ children }) {
     } catch {}
   }, []);
 
-  // ── On mount: clean URL, save locationId/userId, fetch background status ──
+  // ── On mount: clean URL params and persist locationId/userId ─────────────
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlLoc = params.get('locationId');
@@ -129,27 +129,33 @@ export function AppProvider({ children }) {
       setUserId(urlUid);
     }
 
-    // Clean URL (remove query params)
     if (urlLoc || urlUid) {
       window.history.replaceState({}, '', window.location.pathname);
     }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const locId = urlLoc || locationId;
-    const uid   = urlUid || userId;
-    if (!locId) return;
+  // ── Re-fetch everything whenever locationId changes ───────────────────────
+  useEffect(() => {
+    if (!locationId) return;
 
-    // Fetch claude status + integrations + role in background
-    fetchStatus(locId);
-    loadIntegrations(locId);
-    fetchRole(locId, uid);
+    // Reset all per-location state immediately
+    setClaudeReady(localStorage.getItem(`claude_ready_${locationId}`) === '1');
+    setEnabledTools([]);
+    setIntegrations([]);
+    setIntegrationsLoaded(false);
+    setUserRole('owner');
+    setAllowedFeatures(['*']);
 
-    // Fire-and-forget: sync GHL social accounts → toolRegistry so the
-    // command center counts social connections even before Settings is visited.
+    // Fetch fresh data for this location
+    fetchStatus(locationId);
+    loadIntegrations(locationId);
+    fetchRole(locationId, userId);
+
     fetch('/social/sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-location-id': locId },
+      headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
     }).catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [locationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helper: check if a feature is accessible ─────────────────────────────
   const canAccess = useCallback((feature) => {

@@ -14,6 +14,17 @@ const NAV = [
 
 const CHANGELOG = [
   {
+    version: 'v2.6',
+    date: 'Mar 2026',
+    label: 'new',
+    items: [
+      'AI Assistant: persistent conversation history — all chats saved, resumable from history panel',
+      'AI Assistant: save any prompt to library with a modal + toast notification',
+      'AI Assistant: contact data correctly maps GHL display name (contactName)',
+      'Sub-account sync: switching locations resets all assistant state and reloads fresh data',
+    ],
+  },
+  {
     version: 'v2.5',
     date: 'Mar 2026',
     label: 'new',

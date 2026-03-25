@@ -275,6 +275,26 @@ export default function GHLAssistant() {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { apiKeyRef.current   = apiKey;   }, [apiKey]);
 
+  // Reset all local state when the sub-account switches
+  useEffect(() => {
+    if (!apiKey) return;
+    setMessages([]);
+    setTask('');
+    setConvId(null);
+    convIdRef.current = null;
+    setActivePersona(null);
+    setShowLibrary(false);
+    setShowHistory(false);
+    setTrainFolder(null);
+    setTrainPromptId(null);
+    setTrainMsgs([]);
+    setTrainGenerated('');
+    setTrainInput('');
+    setTrainSaveTitle('');
+    setTrainBrainId('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey]);
+
   // Auto-save conversation whenever streaming finishes
   useEffect(() => {
     const wasRunning = prevRunning.current;
