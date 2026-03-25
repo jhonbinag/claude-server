@@ -379,7 +379,7 @@ export default function Agents() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
+    <div className="flex flex-col" style={{ height: '100%', background: '#0f0f13' }}>
       <Header icon="🤖" title="Agent Studio" subtitle="Manage AI agents connected to GHL Agent Studio" />
 
       <div className="flex-1 overflow-y-auto p-5" style={{ minHeight: 0 }}>

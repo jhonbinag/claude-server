@@ -42,6 +42,7 @@ export default function AppShell() {
           overflowY: 'auto',
           overflowX: 'hidden',
           minHeight: 0,
+          height: '100%',
         }}>
           <Outlet />
         </main>

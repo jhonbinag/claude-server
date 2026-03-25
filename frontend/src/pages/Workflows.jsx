@@ -704,7 +704,7 @@ export default function Workflows() {
     : null;
 
   return (
-    <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
+    <div className="flex flex-col" style={{ height: '100%', background: '#0f0f13' }}>
       <Header icon="🔀" title="Workflow Builder" subtitle="Visual canvas — drag, connect, map fields, run" />
 
       {/* Toolbar */}

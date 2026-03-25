@@ -248,7 +248,7 @@ export default function AdsGenerator() {
   const selectedTone = TONES.find(t => t.value === tone);
 
   return (
-    <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
+    <div className="flex flex-col" style={{ height: '100%', background: '#0f0f13' }}>
       <Header icon="🎯" title="Bulk Ads Generator" subtitle="Competitor research → targeted copy → 4-column ad grid" />
 
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">

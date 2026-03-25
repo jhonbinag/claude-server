@@ -104,7 +104,7 @@ export default function GHLAgent() {
   );
 
   return (
-    <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
+    <div className="flex flex-col" style={{ height: '100%', background: '#0f0f13' }}>
       <Header icon="🤖" title="GHL Agent Builder" subtitle="Generate a brief → Execute in GHL Agent Studio" />
 
       <div className="flex flex-1 overflow-hidden" style={{ minHeight: 0 }}>

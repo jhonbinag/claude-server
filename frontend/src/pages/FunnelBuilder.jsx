@@ -724,7 +724,7 @@ export default function FunnelBuilder() {
   if (!isAuthenticated) return <AuthGate icon="🏗️" title="Native Funnel Builder" />;
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
+    <div className="flex flex-col h-full bg-gray-950 text-white overflow-hidden">
         <Header icon="🏗️" title="Native Builder" subtitle="AI-powered GHL funnel pages, email campaigns & websites" />
 
         {/* Builder mode switcher */}

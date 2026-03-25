@@ -542,7 +542,7 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="flex flex-col" style={{ height: '100vh', background: '#0f0f13' }}>
+    <div className="flex flex-col" style={{ height: '100%', background: '#0f0f13' }}>
       <Header
         icon="🤖"
         title="GTM AI Command Center"
