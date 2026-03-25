@@ -2625,7 +2625,7 @@ export default function Brain() {
                 locationId={locationId}
                 onBack={handleBack}
                 onDeleted={handleDeleted}
-                onRefresh={loadBrains}
+                onRefresh={() => { loadBrains(); if (selectedBrain?.brainId) loadBrainDetail(selectedBrain.brainId); }}
                 initialModal={pendingModal}
                 onModalOpened={() => setPendingModal(null)}
               />
