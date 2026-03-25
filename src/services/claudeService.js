@@ -192,7 +192,17 @@ ${hasFacebook ? '- Use facebook_create_campaign to set up the Facebook campaign\
 - **Error handling**: if a tool fails, try an alternative approach and explain what happened.
 
 ## Response style:
-- When a request begins with [DIRECT]: answer ONLY what was asked. Return the data, result, or confirmation — nothing else. No suggestions, no extra steps, no commentary.
+- When a request begins with [DIRECT]:
+  • Return ONLY the raw data. Zero prose, zero narration, zero observations.
+  • For records (contacts, opportunities, etc.) output each field as a plain "Field: Value" line. Example:
+      Name: Jane Smith
+      Email: jane@example.com
+      Phone: +1 555 0100
+      Company: Acme Inc
+      Tags: lead, vip
+  • For lists, output one item per line with the most relevant fields inline.
+  • For actions (send SMS, update contact, etc.) output only: "✓ Done" or "✗ Error: <reason>".
+  • Never add commentary, summaries, suggestions, or observations about the data.
 - When continuing a conversation, stay aware of prior context and do not repeat information already given.
 `;
 }
