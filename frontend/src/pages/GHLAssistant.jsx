@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import { useApp }          from '../context/AppContext';
 import { useStreamFetch }  from '../hooks/useStreamFetch';
 import AuthGate      from '../components/AuthGate';
@@ -164,6 +165,9 @@ export default function GHLAssistant() {
   const [brains,        setBrains]        = useState([]);
   const [trainBrainId,  setTrainBrainId]  = useState('');
   const [brainLoading,  setBrainLoading]  = useState(false);
+  // ── Save-prompt modal ─────────────────────────────────────────────────────
+  const [saveModal,     setSaveModal]     = useState(false);
+  const [saveTitle,     setSaveTitle]     = useState('');
   // ── Conversation history ───────────────────────────────────────────────────
   const [convId,        setConvId]        = useState(null);
   const [conversations, setConversations] = useState([]);
@@ -410,13 +414,20 @@ export default function GHLAssistant() {
     setActivePersona(prev => prev?.id === p.id ? null : { id: p.id, title: p.title, content: p.content });
   };
 
-  const saveCurrentAsPrompt = async () => {
+  const saveCurrentAsPrompt = () => {
     if (!task.trim() || !activeFolder) return;
-    const title = window.prompt('Prompt title?');
-    if (!title) return;
+    setSaveTitle('');
+    setSaveModal(true);
+  };
+
+  const confirmSavePrompt = async () => {
+    if (!saveTitle.trim()) { toast.error('Please enter a title.'); return; }
+    setSaveModal(false);
     await fetch(`/prompts/folders/${activeFolder}/prompts`, { method: 'POST', headers: apiHeaders,
-      body: JSON.stringify({ title: title.trim(), content: task.trim() }) });
+      body: JSON.stringify({ title: saveTitle.trim(), content: task.trim() }) });
+    setSaveTitle('');
     loadLibrary();
+    toast.success(`Prompt "${saveTitle.trim()}" saved!`);
   };
 
   // ── Persona training refs (stable across re-renders, safe in async callbacks) ──
@@ -1327,6 +1338,58 @@ export default function GHLAssistant() {
           </div>
         </main>
       </div>
+
+      {/* ── Save Prompt Modal ── */}
+      {saveModal && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 300,
+            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => { setSaveModal(false); toast.info('Save cancelled.'); }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: 400,
+              background: '#13131a', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 16, padding: 24,
+              boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
+              display: 'flex', flexDirection: 'column', gap: 16,
+            }}
+          >
+            <div>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>💾 Save Prompt</h3>
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#6b7280' }}>Give this prompt a name to find it later.</p>
+            </div>
+            <input
+              autoFocus
+              value={saveTitle}
+              onChange={e => setSaveTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') confirmSavePrompt(); if (e.key === 'Escape') { setSaveModal(false); toast.info('Save cancelled.'); } }}
+              placeholder="e.g. Weekly report prompt…"
+              className="field w-full"
+              style={{ fontSize: 13 }}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={confirmSavePrompt}
+                className="btn-primary flex-1 py-2 text-sm font-semibold"
+              >
+                💾 Save
+              </button>
+              <button
+                onClick={() => { setSaveModal(false); toast.info('Save cancelled.'); }}
+                className="btn-ghost flex-1 py-2 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
