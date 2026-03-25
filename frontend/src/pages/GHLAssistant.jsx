@@ -164,6 +164,12 @@ export default function GHLAssistant() {
   const [brains,        setBrains]        = useState([]);
   const [trainBrainId,  setTrainBrainId]  = useState('');
   const [brainLoading,  setBrainLoading]  = useState(false);
+  // ── Conversation history ───────────────────────────────────────────────────
+  const [convId,        setConvId]        = useState(null);
+  const [conversations, setConversations] = useState([]);
+  const [showHistory,   setShowHistory]   = useState(false);
+  const convIdRef    = useRef(null);
+  const prevRunning  = useRef(false);
   const { isRunning, stream, stop } = useStreamFetch();
   const [slashOpen,   setSlashOpen]   = useState(false);
   const [slashFilter, setSlashFilter] = useState('');
@@ -246,6 +252,63 @@ export default function GHLAssistant() {
   }, [apiKey]);
 
   useEffect(() => { if (showLibrary) loadBrains(); }, [showLibrary, loadBrains]);
+
+  // ── Conversation history ───────────────────────────────────────────────────
+  const loadConversations = useCallback(async () => {
+    if (!apiKey) return;
+    try {
+      const res  = await fetch('/conversations', { headers: { 'x-location-id': apiKey } });
+      const data = await res.json();
+      if (data.success) setConversations(data.data || []);
+    } catch { /* non-fatal */ }
+  }, [apiKey]);
+
+  useEffect(() => { loadConversations(); }, [loadConversations]);
+
+  // Auto-save conversation whenever streaming finishes
+  useEffect(() => {
+    const wasRunning = prevRunning.current;
+    prevRunning.current = isRunning;
+    if (!wasRunning || isRunning) return; // only fires on true→false transition
+    const cid = convIdRef.current;
+    if (!cid || messages.length === 0) return;
+    const title = (messages.find(m => m.type === 'user')?.text || 'Conversation').slice(0, 60);
+    fetch('/conversations', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'x-location-id': apiKey },
+      body:    JSON.stringify({ id: cid, title, messages }),
+    }).then(() => loadConversations()).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning]);
+
+  const newChat = () => {
+    setMessages([]);
+    setConvId(null);
+    convIdRef.current = null;
+    setShowHistory(false);
+  };
+
+  const openConversation = async (conv) => {
+    try {
+      const res  = await fetch(`/conversations/${conv.id}`, { headers: { 'x-location-id': apiKey } });
+      const data = await res.json();
+      if (data.success) {
+        setMessages(data.data.messages || []);
+        setConvId(conv.id);
+        convIdRef.current = conv.id;
+        setShowHistory(false);
+      }
+    } catch { /* non-fatal */ }
+  };
+
+  const deleteConv = async (e, convId) => {
+    e.stopPropagation();
+    await fetch(`/conversations/${convId}`, {
+      method: 'DELETE', headers: { 'x-location-id': apiKey },
+    }).catch(() => {});
+    loadConversations();
+    if (convIdRef.current === convId) newChat();
+  };
 
   // ── Apply an existing brain as persona (skips training Q&A) ───────────────
   const applyBrainAsPersona = useCallback(async () => {
@@ -537,6 +600,12 @@ export default function GHLAssistant() {
   const handleSubmit = () => {
     const raw = task.trim();
     if (!raw) return;
+    // Start a new conversation if none is active
+    if (!convIdRef.current) {
+      const newId = `conv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      convIdRef.current = newId;
+      setConvId(newId);
+    }
     const isCommand = raw.startsWith('/');
     const resolved = isCommand ? resolveSlashTask(raw) : raw;
     if (!resolved.trim()) return;
@@ -774,10 +843,19 @@ export default function GHLAssistant() {
             />
           )}
 
-          {/* ── Prompt Library trigger + active persona bar ── */}
+          {/* ── Prompt Library trigger + history button + active persona bar ── */}
           <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0"
             style={{ borderTop: '1px solid rgba(99,102,241,0.2)', background: 'rgba(99,102,241,0.06)' }}>
-            <button onClick={() => setShowLibrary(v => !v)}
+            {/* History button */}
+            <button
+              onClick={() => { setShowHistory(v => !v); setShowLibrary(false); }}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all flex-shrink-0"
+              style={{ background: showHistory ? 'rgba(20,184,166,0.25)' : 'rgba(20,184,166,0.08)', border: `1px solid ${showHistory ? '#14b8a6' : 'rgba(20,184,166,0.3)'}`, color: showHistory ? '#5eead4' : '#2dd4bf' }}>
+              💬 {conversations.length > 0
+                ? <span style={{ background: '#14b8a6', color: '#fff', borderRadius: 10, padding: '0 6px', marginLeft: 2 }}>{conversations.length}</span>
+                : <span style={{ color: 'rgba(45,212,191,0.5)', fontWeight: 400 }}>History</span>}
+            </button>
+            <button onClick={() => { setShowLibrary(v => !v); setShowHistory(false); }}
               className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
               style={{ background: showLibrary ? 'rgba(99,102,241,0.3)' : 'rgba(99,102,241,0.12)', border: `1px solid ${showLibrary ? '#6366f1' : 'rgba(99,102,241,0.4)'}`, color: showLibrary ? '#c7d2fe' : '#a5b4fc' }}>
               📚 Prompt Library {library.length > 0 ? <span style={{ background: '#6366f1', color: '#fff', borderRadius: 10, padding: '0 6px', marginLeft: 4 }}>{library.reduce((a, f) => a + f.prompts.length, 0)}</span> : <span style={{ color: 'rgba(165,180,252,0.5)', fontWeight: 400 }}>· Save &amp; reuse prompts</span>}
@@ -799,6 +877,72 @@ export default function GHLAssistant() {
               </button>
             )}
           </div>
+
+          {/* ── Conversation History panel ── */}
+          {showHistory && (
+            <div className="flex-shrink-0 flex flex-col overflow-hidden"
+              style={{ height: 300, borderTop: '1px solid rgba(20,184,166,0.2)', background: '#0c0c12' }}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-3 pt-3 pb-2 flex-shrink-0"
+                style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <span className="text-xs font-semibold text-teal-400">💬 Recent Conversations</span>
+                <button
+                  onClick={newChat}
+                  className="text-xs px-3 py-1 rounded-lg font-semibold flex-shrink-0"
+                  style={{ background: 'rgba(20,184,166,0.15)', border: '1px solid rgba(20,184,166,0.4)', color: '#2dd4bf' }}>
+                  + New Chat
+                </button>
+              </div>
+              {/* List */}
+              <div className="flex-1 overflow-y-auto">
+                {conversations.length === 0 && (
+                  <p className="text-xs text-gray-600 text-center py-6">No conversations yet. Start chatting!</p>
+                )}
+                {conversations.map(conv => {
+                  const isActive = convIdRef.current === conv.id;
+                  const rel = (() => {
+                    const diff = Date.now() - new Date(conv.updatedAt).getTime();
+                    if (diff < 60000)    return 'just now';
+                    if (diff < 3600000)  return `${Math.floor(diff / 60000)}m ago`;
+                    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+                    return `${Math.floor(diff / 86400000)}d ago`;
+                  })();
+                  return (
+                    <div
+                      key={conv.id}
+                      onClick={() => openConversation(conv)}
+                      className="group px-3 py-2.5 cursor-pointer transition-all"
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        background: isActive ? 'rgba(20,184,166,0.1)' : 'transparent',
+                        borderLeft: `2px solid ${isActive ? '#14b8a6' : 'transparent'}`,
+                      }}
+                      onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+                      onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold truncate" style={{ color: isActive ? '#5eead4' : '#e2e8f0' }}>
+                            {conv.title}
+                          </p>
+                          {conv.preview && (
+                            <p className="text-xs mt-0.5 truncate" style={{ color: '#4b5563' }}>{conv.preview}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className="text-xs text-gray-600">{rel}</span>
+                          <button
+                            onClick={(e) => deleteConv(e, conv.id)}
+                            className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 text-xs transition-all"
+                            title="Delete">×</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* ── Prompt Library panel ── */}
           {showLibrary && (

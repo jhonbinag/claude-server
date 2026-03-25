@@ -31,6 +31,7 @@ let knowledgeRoutes;  try { knowledgeRoutes  = require('./src/routes/knowledge')
 let brainRoutes;      try { brainRoutes      = require('./src/routes/brain');       } catch (e) { _errors.brain      = e.message; }
 let rolesRoutes;      try { rolesRoutes      = require('./src/routes/roles');       } catch (e) { _errors.roles      = e.message; }
 let improveRoutes;    try { improveRoutes    = require('./src/routes/improve');     } catch (e) { _errors.improve    = e.message; }
+let convRoutes;       try { convRoutes       = require('./src/routes/conversations'); } catch (e) { _errors.conversations = e.message; }
 let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui          = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
@@ -120,6 +121,7 @@ if (knowledgeRoutes)      app.use('/knowledge',      knowledgeRoutes);
 if (brainRoutes)          app.use('/brain',           brainRoutes);
 if (rolesRoutes)          app.use('/roles',           rolesRoutes);
 if (improveRoutes)        app.use('/improve',         improveRoutes);
+if (convRoutes)           app.use('/conversations',   convRoutes);
 if (uiRoute)         app.use('/',           uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────
