@@ -4,8 +4,11 @@
  * Self-improvement loop endpoints — inspired by Karpathy/autoresearch pattern:
  *   Fixed scorer (tamper-proof rubric) + mutable artifact + exploit-or-revert.
  *
- * POST /improve/score    — score an artifact (Claude Haiku, fast + cheap)
- * POST /improve/generate — generate one improved variant (Claude Sonnet)
+ * POST /improve/score    — score an artifact (fast/cheap model)
+ * POST /improve/generate — generate one improved variant (quality model)
+ *
+ * Automatically uses whichever AI provider is configured for the location:
+ *   Anthropic (per-location key → server key) → OpenAI → Groq → Gemini
  *
  * Client manages the loop: score → generate → score → keep/discard → repeat.
  * This keeps each call under 10s (Vercel free-tier limit).
@@ -14,11 +17,40 @@
 const express      = require('express');
 const router       = express.Router();
 const Anthropic    = require('@anthropic-ai/sdk');
+const https        = require('https');
 const authenticate = require('../middleware/authenticate');
 const toolRegistry = require('../tools/toolRegistry');
 const config       = require('../config');
 
 router.use(authenticate);
+
+// ── Model pairs per provider: fast scorer + quality generator ────────────────
+const PROVIDER_MODELS = {
+  anthropic: {
+    scorer:         'claude-haiku-4-5-20251001',
+    generator:      'claude-sonnet-4-6',
+    scorerLabel:    'Haiku',
+    generatorLabel: 'Sonnet',
+  },
+  openai: {
+    scorer:         'gpt-4o-mini',
+    generator:      'gpt-4o',
+    scorerLabel:    'GPT-4o mini',
+    generatorLabel: 'GPT-4o',
+  },
+  groq: {
+    scorer:         'llama-3.1-8b-instant',
+    generator:      process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    scorerLabel:    'Llama 8B',
+    generatorLabel: 'Llama 70B',
+  },
+  gemini: {
+    scorer:         'gemini-2.0-flash',
+    generator:      process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20',
+    scorerLabel:    'Gemini Flash',
+    generatorLabel: 'Gemini 2.5',
+  },
+};
 
 // ── Fixed scorers (tamper-proof — never modified by the improvement loop) ────
 // Each returns JSON: {score, breakdown, weakest, feedback}
@@ -84,12 +116,98 @@ KEY RULES (from the autoresearch principle — simpler is better):
 Respond with ONLY valid JSON (no markdown, no extra text):
 {"improved":"<full improved content>","description":"<one sentence: what changed and why>"}`;
 
-// ── Get Anthropic client for location ────────────────────────────────────────
-async function getClient(locationId) {
+// ── Detect which AI provider to use for this location ────────────────────────
+// Priority: per-location Anthropic key → server ANTHROPIC_API_KEY → OpenAI → Groq → Gemini
+async function detectProvider(locationId) {
   const configs = await toolRegistry.loadToolConfigs(locationId);
-  const apiKey  = configs.anthropic?.apiKey || config.anthropic?.apiKey;
-  if (!apiKey) throw new Error('Anthropic API key not configured. Add it in Settings → Claude AI.');
-  return new (Anthropic.default || Anthropic)({ apiKey });
+  if (configs.anthropic?.apiKey)  return { provider: 'anthropic', apiKey: configs.anthropic.apiKey };
+  if (config.anthropic?.apiKey)   return { provider: 'anthropic', apiKey: config.anthropic.apiKey };
+  if (process.env.OPENAI_API_KEY) return { provider: 'openai',    apiKey: process.env.OPENAI_API_KEY };
+  if (process.env.GROQ_API_KEY)   return { provider: 'groq',      apiKey: process.env.GROQ_API_KEY };
+  if (process.env.GOOGLE_API_KEY) return { provider: 'gemini',    apiKey: process.env.GOOGLE_API_KEY };
+  throw new Error('No AI provider configured. Add an API key in Settings → Integrations → Claude AI.');
+}
+
+// ── Simple single-turn text completion (no tool calls) ───────────────────────
+async function callAI({ provider, apiKey, model, system, user, maxTokens = 400 }) {
+  // Anthropic SDK
+  if (provider === 'anthropic') {
+    const client = new (Anthropic.default || Anthropic)({ apiKey });
+    const msg = await client.messages.create({
+      model, max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: user }],
+    });
+    return msg.content[0].text.trim();
+  }
+
+  // OpenAI or Groq (OpenAI-compatible REST)
+  if (provider === 'openai' || provider === 'groq') {
+    const hostname = provider === 'groq' ? 'api.groq.com' : 'api.openai.com';
+    return new Promise((resolve, reject) => {
+      const payload = JSON.stringify({
+        model, max_tokens: maxTokens,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user',   content: user },
+        ],
+      });
+      const req = https.request({
+        hostname, path: '/openai/v1/chat/completions', method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+          Authorization: `Bearer ${apiKey}`,
+        },
+      }, resp => {
+        let d = '';
+        resp.on('data', c => d += c);
+        resp.on('end', () => {
+          try {
+            const parsed = JSON.parse(d);
+            if (resp.statusCode >= 400) return reject(new Error(parsed?.error?.message || `HTTP ${resp.statusCode}`));
+            resolve(parsed.choices?.[0]?.message?.content?.trim() || '');
+          } catch (e) { reject(e); }
+        });
+      });
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+  }
+
+  // Google Gemini REST
+  if (provider === 'gemini') {
+    return new Promise((resolve, reject) => {
+      const body = JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: user }] }],
+        generationConfig: { maxOutputTokens: maxTokens },
+      });
+      const req = https.request({
+        hostname: 'generativelanguage.googleapis.com',
+        path:     `/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        method:   'POST',
+        headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      }, resp => {
+        let d = '';
+        resp.on('data', c => d += c);
+        resp.on('end', () => {
+          try {
+            const parsed = JSON.parse(d);
+            if (resp.statusCode >= 400) return reject(new Error(JSON.stringify(parsed).slice(0, 200)));
+            const txt = parsed.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+            resolve(txt.trim());
+          } catch (e) { reject(e); }
+        });
+      });
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+  }
+
+  throw new Error(`Unsupported provider: ${provider}`);
 }
 
 // ── POST /improve/score ───────────────────────────────────────────────────────
@@ -99,7 +217,8 @@ router.post('/score', async (req, res) => {
   if (!artifact?.trim()) return res.status(400).json({ error: 'artifact is required' });
 
   try {
-    const client = await getClient(req.locationId);
+    const { provider, apiKey } = await detectProvider(req.locationId);
+    const models = PROVIDER_MODELS[provider];
 
     const userContent = [
       SCORERS[type],
@@ -107,16 +226,21 @@ router.post('/score', async (req, res) => {
       `\nContent to score:\n${artifact}`,
     ].join('');
 
-    const msg = await client.messages.create({
-      model:      'claude-haiku-4-5-20251001', // Haiku: fast + cheap for scoring
-      max_tokens: 300,
-      system:     'You are an expert evaluator. Respond with ONLY valid JSON. No markdown. No preamble.',
-      messages:   [{ role: 'user', content: userContent }],
+    const raw  = await callAI({
+      provider, apiKey, model: models.scorer, maxTokens: 400,
+      system: 'You are an expert evaluator. Respond with ONLY valid JSON. No markdown. No preamble.',
+      user:   userContent,
     });
 
-    const raw  = msg.content[0].text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    const data = JSON.parse(raw);
-    res.json({ success: true, ...data });
+    const text = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    const data = JSON.parse(text);
+    res.json({
+      success: true,
+      ...data,
+      provider,
+      scorerLabel:    models.scorerLabel,
+      generatorLabel: models.generatorLabel,
+    });
   } catch (e) {
     console.error('[improve/score]', e.message);
     res.status(500).json({ error: e.message });
@@ -142,8 +266,8 @@ router.post('/generate', async (req, res) => {
 Current score: ${score}/100
 Weakest criterion: ${weakest || 'unknown'}
 Specific feedback: ${feedback || 'none'}
-${context.query ? `Original query: "${context.query}"` : ''}
-${context.agentName ? `Agent name: "${context.agentName}"` : ''}
+${context.query      ? `Original query: "${context.query}"` : ''}
+${context.agentName  ? `Agent name: "${context.agentName}"` : ''}
 
 ${ledgerStr}
 
@@ -151,18 +275,23 @@ Current content to improve:
 ${artifact}`;
 
   try {
-    const client = await getClient(req.locationId);
+    const { provider, apiKey } = await detectProvider(req.locationId);
+    const models = PROVIDER_MODELS[provider];
 
-    const msg = await client.messages.create({
-      model:      'claude-sonnet-4-6', // Sonnet: better quality for generation
-      max_tokens: 2048,
-      system:     IMPROVER_SYSTEM,
-      messages:   [{ role: 'user', content: userContent }],
+    const raw    = await callAI({
+      provider, apiKey, model: models.generator, maxTokens: 2048,
+      system: IMPROVER_SYSTEM,
+      user:   userContent,
     });
 
-    const raw    = msg.content[0].text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    const result = JSON.parse(raw);
-    res.json({ success: true, ...result });
+    const text   = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    const result = JSON.parse(text);
+    res.json({
+      success: true,
+      ...result,
+      provider,
+      generatorLabel: models.generatorLabel,
+    });
   } catch (e) {
     console.error('[improve/generate]', e.message);
     res.status(500).json({ error: e.message });

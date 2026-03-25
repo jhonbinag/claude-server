@@ -43,11 +43,12 @@ function useCountUp(target, duration = 550) {
 }
 
 // ── AI role chip ──────────────────────────────────────────────────────────────
-function RoleChip({ name, model, active, task }) {
-  const isHaiku  = model === 'haiku';
-  const color    = isHaiku ? '#60a5fa' : '#a78bfa';
-  const bg       = isHaiku ? 'rgba(96,165,250,0.1)' : 'rgba(167,139,250,0.1)';
-  const border   = isHaiku ? 'rgba(96,165,250,0.25)' : 'rgba(167,139,250,0.25)';
+// role: 'scorer' (blue) | 'generator' (purple)
+function RoleChip({ name, role, displayName, active, task }) {
+  const isScorer = role === 'scorer';
+  const color    = isScorer ? '#60a5fa' : '#a78bfa';
+  const bg       = isScorer ? 'rgba(96,165,250,0.1)' : 'rgba(167,139,250,0.1)';
+  const border   = isScorer ? 'rgba(96,165,250,0.25)' : 'rgba(167,139,250,0.25)';
 
   return (
     <div style={{
@@ -71,7 +72,7 @@ function RoleChip({ name, model, active, task }) {
           {name}
         </div>
         <div style={{ fontSize: 9, color: active ? 'var(--text-secondary)' : 'var(--text-muted)', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {active ? task : (model === 'haiku' ? 'claude-haiku-4-5' : 'claude-sonnet-4-6')}
+          {active ? task : displayName}
         </div>
       </div>
     </div>
@@ -144,7 +145,7 @@ function ScoreDisplay({ scoreData, label }) {
 }
 
 // ── Ledger row ────────────────────────────────────────────────────────────────
-function LedgerRow({ entry, index }) {
+function LedgerRow({ entry, index, scorerLabel = 'Haiku', generatorLabel = 'Sonnet' }) {
   const kept  = entry.decision === 'kept';
   const crash = entry.decision === 'crash';
   const delta = entry.newScore - entry.oldScore;
@@ -162,15 +163,15 @@ function LedgerRow({ entry, index }) {
           {entry.description}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {/* Sonnet badge */}
+          {/* Generator badge */}
           <span style={{ fontSize: 8.5, color: '#a78bfa', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)', borderRadius: 4, padding: '1px 5px' }}>
-            Sonnet
+            {generatorLabel}
           </span>
           {/* Arrow */}
           <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>→</span>
-          {/* Haiku badge */}
+          {/* Scorer badge */}
           <span style={{ fontSize: 8.5, color: '#60a5fa', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 4, padding: '1px 5px' }}>
-            Haiku
+            {scorerLabel}
           </span>
           {/* Score delta */}
           {!crash && (
@@ -198,8 +199,9 @@ function LedgerRow({ entry, index }) {
 export default function SelfImprovementPanel({ type, artifact, context = {}, onApply, label }) {
   const { locationId } = useApp();
   const [phase,        setPhase]        = useState('idle');
-  const [activeRole,   setActiveRole]   = useState(null);   // 'haiku' | 'sonnet' | null
+  const [activeRole,   setActiveRole]   = useState(null);   // 'scorer' | 'generator' | null
   const [roleTask,     setRoleTask]     = useState('');
+  const [providerInfo, setProviderInfo] = useState({ scorerLabel: 'Haiku', generatorLabel: 'Sonnet', provider: 'anthropic' });
   const [scoreData,    setScoreData]    = useState(null);
   const [ledger,       setLedger]       = useState([]);
   const [bestArtifact, setBestArtifact] = useState('');
@@ -233,11 +235,15 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
 
     try {
       // ── Baseline score ──────────────────────────────────────────────────
-      setActiveRole('haiku'); setRoleTask('Scoring baseline…');
+      setActiveRole('scorer'); setRoleTask('Scoring baseline…');
       const baseline = await apiFetch('/improve/score', { type, artifact, context });
       setScoreData(baseline);
       setBestArtifact(artifact);
       setBestScore(baseline.score);
+      // Pick up provider/model labels from first response
+      if (baseline.scorerLabel) {
+        setProviderInfo({ scorerLabel: baseline.scorerLabel, generatorLabel: baseline.generatorLabel || 'Sonnet', provider: baseline.provider || 'anthropic' });
+      }
 
       let current     = artifact;
       let currentData = baseline;
@@ -246,8 +252,8 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
       for (let i = 0; i < iterations; i++) {
         if (abortRef.current) break;
 
-        // Sonnet generates improvement
-        setActiveRole('sonnet'); setRoleTask(`Iter ${i + 1}/${iterations} — writing improvement…`);
+        // Generator writes improvement
+        setActiveRole('generator'); setRoleTask(`Iter ${i + 1}/${iterations} — writing improvement…`);
         let genResult;
         try {
           genResult = await apiFetch('/improve/generate', {
@@ -263,8 +269,8 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
 
         if (abortRef.current) break;
 
-        // Haiku scores the improvement
-        setActiveRole('haiku'); setRoleTask(`Iter ${i + 1}/${iterations} — scoring result…`);
+        // Scorer evaluates the improvement
+        setActiveRole('scorer'); setRoleTask(`Iter ${i + 1}/${iterations} — scoring result…`);
         let newData;
         try {
           newData = await apiFetch('/improve/score', { type, artifact: genResult.improved, context });
@@ -291,7 +297,9 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
       setActiveRole(null); setRoleTask('');
       setPhase('done');
     } catch (e) {
-      setError(e.message);
+      // Show a clean error message — strip any raw HTTP 400 JSON dump
+      const msg = e.message?.length > 200 ? e.message.slice(0, 200) + '…' : e.message;
+      setError(msg);
       setActiveRole(null); setRoleTask('');
       setPhase('error');
     }
@@ -377,14 +385,16 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
             <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
               <RoleChip
                 name="Scorer"
-                model="haiku"
-                active={activeRole === 'haiku'}
+                role="scorer"
+                displayName={providerInfo.scorerLabel}
+                active={activeRole === 'scorer'}
                 task={roleTask}
               />
               <RoleChip
                 name="Generator"
-                model="sonnet"
-                active={activeRole === 'sonnet'}
+                role="generator"
+                displayName={providerInfo.generatorLabel}
+                active={activeRole === 'generator'}
                 task={roleTask}
               />
             </div>
@@ -396,14 +406,14 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 6, background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.18)', flex: 1 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#60a5fa', flexShrink: 0 }} />
                 <div>
-                  <div style={{ fontSize: 8.5, fontWeight: 700, color: '#60a5fa', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Haiku · Scorer</div>
+                  <div style={{ fontSize: 8.5, fontWeight: 700, color: '#60a5fa', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{providerInfo.scorerLabel} · Scorer</div>
                   <div style={{ fontSize: 8, color: 'var(--text-muted)' }}>Fixed rubric — judges every version</div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 6, background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.18)', flex: 1 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#a78bfa', flexShrink: 0 }} />
                 <div>
-                  <div style={{ fontSize: 8.5, fontWeight: 700, color: '#a78bfa', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Sonnet · Generator</div>
+                  <div style={{ fontSize: 8.5, fontWeight: 700, color: '#a78bfa', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{providerInfo.generatorLabel} · Generator</div>
                   <div style={{ fontSize: 8, color: 'var(--text-muted)' }}>Reads ledger — writes improvements</div>
                 </div>
               </div>
@@ -436,7 +446,7 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
                   {discardedCount > 0 && <span style={{ color: '#f87171' }}>✗ {discardedCount} discarded</span>}
                 </span>
               </div>
-              {ledger.map((entry, i) => <LedgerRow key={i} entry={entry} index={i} />)}
+              {ledger.map((entry, i) => <LedgerRow key={i} entry={entry} index={i} scorerLabel={providerInfo.scorerLabel} generatorLabel={providerInfo.generatorLabel} />)}
             </div>
           )}
 
