@@ -236,6 +236,15 @@ export default function Admin() {
   const [brainSettingsForm,  setBrainSettingsForm]   = useState({ name: '', description: '', autoSync: false });
   const [brainSettingsSaving,setBrainSettingsSaving] = useState(false);
   const [brainSyncing,       setBrainSyncing]        = useState(false);
+  const [adminBrainView,     setAdminBrainView]      = useState('brains'); // 'brains'|'pipeline'|'search'|'mcp'
+  const [brainSearchId,      setBrainSearchId]       = useState('');
+  const [brainSearchQuery,   setBrainSearchQuery]    = useState('');
+  const [brainSearching,     setBrainSearching]      = useState(false);
+  const [brainAnswer,        setBrainAnswer]         = useState('');
+  const [brainSources,       setBrainSources]        = useState(null);
+  const [brainSearchErr,     setBrainSearchErr]      = useState('');
+  const [brainMcpTab,        setBrainMcpTab]         = useState('claude');
+  const [brainMcpCopied,     setBrainMcpCopied]      = useState(false);
 
   // All available integration keys (must match backend externalTools.js + planTierStore)
   const ALL_INTEGRATIONS = [
@@ -1740,20 +1749,21 @@ export default function Admin() {
         {/* ── Brain Tab ────────────────────────────────────────────────── */}
         {tab === 'brain' && (
           <div>
-            {/* Header row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {selectedBrain && (
-                  <button
-                    onClick={() => { setSelectedBrain(null); setBrainStatus(null); setBrainVideos([]); }}
-                    style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}
-                  >← Back</button>
-                )}
-                <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>
-                  {selectedBrain ? selectedBrain.name : `Shared Brains ${brainLoading ? '…' : `(${sharedBrains.length})`}`}
-                </h3>
+            {/* View switcher + action row */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[
+                  { id: 'brains',   label: '🧠 Brains' },
+                  { id: 'pipeline', label: '⟳ Pipeline' },
+                  { id: 'search',   label: '🔍 Search' },
+                  { id: 'mcp',      label: '⚡ MCP' },
+                ].map(v => (
+                  <button key={v.id} onClick={() => { setAdminBrainView(v.id); setSelectedBrain(null); setBrainStatus(null); setBrainVideos([]); }} style={TAB_STYLE(adminBrainView === v.id)}>
+                    {v.label}
+                  </button>
+                ))}
               </div>
-              {!selectedBrain && (
+              {adminBrainView === 'brains' && !selectedBrain && (
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={loadSharedBrains} style={{ background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Reload</button>
                   <button
@@ -1762,9 +1772,18 @@ export default function Admin() {
                   >+ New Brain</button>
                 </div>
               )}
+              {adminBrainView === 'brains' && selectedBrain && (
+                <button
+                  onClick={() => { setSelectedBrain(null); setBrainStatus(null); setBrainVideos([]); }}
+                  style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}
+                >← Back to Brains</button>
+              )}
             </div>
 
-            {/* ── Brain List ── */}
+            {/* ── Brains view ── */}
+            {adminBrainView === 'brains' && (
+            <div>
+            {/* Brain List */}
             {!selectedBrain && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
                 {sharedBrains.length === 0 && !brainLoading && (
@@ -2075,6 +2094,328 @@ export default function Admin() {
                 </div>
               </div>
             )}
+            </div>
+            )}
+
+            {/* ── Pipeline view ── */}
+            {adminBrainView === 'pipeline' && (() => {
+              const PIPE_COLS = [
+                { id: 'needs_sync',  label: 'Needs Sync',  subtitle: 'Waiting for first sync',     icon: '⊙', color: '#6b7280', bgColor: '#1a1f2a' },
+                { id: 'syncing',     label: 'Syncing',     subtitle: 'Pulling from YouTube',        icon: '✦', color: '#2563eb',  bgColor: '#0d1a2e' },
+                { id: 'processing',  label: 'Processing',  subtitle: 'Transcribing & embedding',   icon: '⚙', color: '#f59e0b',  bgColor: '#2d1f00' },
+                { id: 'ready',       label: 'Ready',       subtitle: 'Up to date & queryable',     icon: '✓', color: '#10b981',  bgColor: '#062010' },
+              ];
+              function catBrain(b) {
+                if (b.pipelineStage) return b.pipelineStage;
+                if (!(b.docCount > 0) && !(b.channels?.length > 0)) return 'needs_sync';
+                if (!(b.docCount > 0)) return 'syncing';
+                return 'ready';
+              }
+              const cat = {};
+              for (const col of PIPE_COLS) cat[col.id] = sharedBrains.filter(b => catBrain(b) === col.id);
+              return (
+                <div>
+                  <div style={{ marginBottom: 24 }}>
+                    <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>Pipeline</h2>
+                    <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>{sharedBrains.length} brain{sharedBrains.length !== 1 ? 's' : ''} across all locations</p>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+                    {PIPE_COLS.map(col => {
+                      const items = cat[col.id] || [];
+                      return (
+                        <div key={col.id}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 16, color: col.color }}>{col.icon}</span>
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>{col.label}</div>
+                                <div style={{ fontSize: 11, color: '#6b7280' }}>{col.subtitle}</div>
+                              </div>
+                            </div>
+                            <span style={{ background: col.bgColor, color: col.color, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>{items.length}</span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {items.length === 0 && (
+                              <div style={{ background: '#1a1a1a', border: '1px dashed #2a2a2a', borderRadius: 10, padding: '20px 14px', textAlign: 'center', fontSize: 12, color: '#374151' }}>No brains</div>
+                            )}
+                            {items.map(b => (
+                              <div
+                                key={`${b._locationId}-${b.brainId}`}
+                                onClick={() => { setAdminBrainView('brains'); loadBrainDetail(b); }}
+                                style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, padding: '12px 14px', cursor: 'pointer', transition: 'border-color .15s' }}
+                                onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed'; }}
+                                onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; }}
+                              >
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#e5e7eb', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</div>
+                                <div style={{ marginBottom: 6 }}>
+                                  {b.isShared
+                                    ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', fontWeight: 600 }}>Shared</span>
+                                    : <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', fontWeight: 600, fontFamily: 'monospace' }}>{b._locationId?.slice(0, 12)}…</span>
+                                  }
+                                </div>
+                                <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#6b7280' }}>
+                                  <span>▶ {b.docCount || 0} videos</span>
+                                  <span>🧩 {b.chunkCount || 0} chunks</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Search view ── */}
+            {adminBrainView === 'search' && (
+              <div>
+                <div style={{ marginBottom: 20 }}>
+                  <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>Ask Brain</h2>
+                  <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>Search across any brain using the admin key.</p>
+                </div>
+                {/* Controls */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                  <select
+                    value={brainSearchId}
+                    onChange={e => { setBrainSearchId(e.target.value); setBrainAnswer(''); setBrainSources(null); setBrainSearchErr(''); }}
+                    style={{ padding: '9px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', fontSize: 13, width: 220, flexShrink: 0 }}
+                  >
+                    <option value="">— Select a brain —</option>
+                    {sharedBrains.map(b => (
+                      <option key={`${b._locationId}-${b.brainId}`} value={JSON.stringify({ brainId: b.brainId, locQ: (!b.isShared && b._locationId) ? `?loc=${encodeURIComponent(b._locationId)}` : '' })}>
+                        {b.name}{b.isShared ? '' : ` (${b._locationId?.slice(0,10)}…)`}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={brainSearchQuery}
+                    onChange={e => setBrainSearchQuery(e.target.value)}
+                    onKeyDown={async e => {
+                      if (e.key !== 'Enter' || brainSearching || !brainSearchQuery.trim() || !brainSearchId) return;
+                      const { brainId, locQ } = JSON.parse(brainSearchId);
+                      setBrainSearching(true); setBrainAnswer(''); setBrainSources(null); setBrainSearchErr('');
+                      try {
+                        const res = await fetch(`/brain/${brainId}/ask${locQ}`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+                          body: JSON.stringify({ query: brainSearchQuery.trim(), k: 20 }),
+                        });
+                        if (!res.ok) { const j = await res.json().catch(() => ({})); setBrainSearchErr(j.error || `Error ${res.status}`); setBrainSearching(false); return; }
+                        const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+                        while (true) {
+                          const { done, value } = await reader.read(); if (done) break;
+                          buf += dec.decode(value, { stream: true });
+                          const lines = buf.split('\n'); buf = lines.pop();
+                          for (const line of lines) {
+                            if (!line.startsWith('data: ')) continue;
+                            try {
+                              const evt = JSON.parse(line.slice(6));
+                              if (evt.type === 'sources') setBrainSources(evt.sources);
+                              if (evt.type === 'text') setBrainAnswer(prev => prev + evt.text);
+                              if (evt.type === 'error') setBrainSearchErr(evt.error);
+                              if (evt.type === 'done') setBrainSearching(false);
+                            } catch {}
+                          }
+                        }
+                      } catch (err) { setBrainSearchErr(err.message); }
+                      setBrainSearching(false);
+                    }}
+                    placeholder="Ask anything… (press Enter)"
+                    style={{ flex: 1, minWidth: 200, padding: '9px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', fontSize: 13 }}
+                  />
+                  <button
+                    disabled={brainSearching || !brainSearchQuery.trim() || !brainSearchId}
+                    onClick={async () => {
+                      if (brainSearching || !brainSearchQuery.trim() || !brainSearchId) return;
+                      const { brainId, locQ } = JSON.parse(brainSearchId);
+                      setBrainSearching(true); setBrainAnswer(''); setBrainSources(null); setBrainSearchErr('');
+                      try {
+                        const res = await fetch(`/brain/${brainId}/ask${locQ}`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+                          body: JSON.stringify({ query: brainSearchQuery.trim(), k: 20 }),
+                        });
+                        if (!res.ok) { const j = await res.json().catch(() => ({})); setBrainSearchErr(j.error || `Error ${res.status}`); setBrainSearching(false); return; }
+                        const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+                        while (true) {
+                          const { done, value } = await reader.read(); if (done) break;
+                          buf += dec.decode(value, { stream: true });
+                          const lines = buf.split('\n'); buf = lines.pop();
+                          for (const line of lines) {
+                            if (!line.startsWith('data: ')) continue;
+                            try {
+                              const evt = JSON.parse(line.slice(6));
+                              if (evt.type === 'sources') setBrainSources(evt.sources);
+                              if (evt.type === 'text') setBrainAnswer(prev => prev + evt.text);
+                              if (evt.type === 'error') setBrainSearchErr(evt.error);
+                              if (evt.type === 'done') setBrainSearching(false);
+                            } catch {}
+                          }
+                        }
+                      } catch (err) { setBrainSearchErr(err.message); }
+                      setBrainSearching(false);
+                    }}
+                    style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 20px', fontSize: 14, fontWeight: 600, cursor: (brainSearching || !brainSearchQuery.trim() || !brainSearchId) ? 'not-allowed' : 'pointer', opacity: (brainSearching || !brainSearchQuery.trim() || !brainSearchId) ? 0.5 : 1, flexShrink: 0 }}
+                  >{brainSearching ? '…' : 'Search'}</button>
+                </div>
+                {brainSearching && !brainAnswer && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 0', color: '#6b7280', fontSize: 13 }}>
+                    <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', fontSize: 16 }}>⟳</span>
+                    Analyzing transcripts…
+                  </div>
+                )}
+                {brainAnswer && (
+                  <div style={{ background: '#0a1628', border: '1px solid rgba(37,99,235,0.3)', borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#2563eb', marginBottom: 10 }}>Best Answer</div>
+                    <div style={{ fontSize: 14, color: '#e2e8f0', lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {brainAnswer}
+                      {brainSearching && <span style={{ display: 'inline-block', width: 2, height: '1em', background: '#2563eb', marginLeft: 2, animation: 'pulse 1s ease-in-out infinite', verticalAlign: 'text-bottom' }} />}
+                    </div>
+                  </div>
+                )}
+                {brainSearchErr && (
+                  <div style={{ background: '#1c0a00', border: '1px solid #dc262644', borderRadius: 10, padding: '14px 16px', color: '#f87171', fontSize: 13 }}>{brainSearchErr}</div>
+                )}
+                {brainSources?.length > 0 && !brainSearching && (() => {
+                  const ANS_COLORS = ['#f59e0b', '#94a3b8', '#cd7c4a', '#6b7280', '#6b7280'];
+                  const ANS_LABELS = ['#1 Best', '#2', '#3', '#4', '#5'];
+                  const maxScore = Math.max(...brainSources.map(s => s.score || 0)) || 1;
+                  const top5 = [...brainSources].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+                  return (
+                    <div style={{ marginTop: 16 }}>
+                      <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top 5 Sources</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {top5.map((s, i) => {
+                          const pct = Math.round(((s.score || 0) / maxScore) * 100);
+                          const color = ANS_COLORS[i];
+                          return (
+                            <div key={i} style={{ background: i === 0 ? 'rgba(245,158,11,0.05)' : '#1a1a1a', border: `1px solid ${i === 0 ? '#f59e0b55' : '#2a2a2a'}`, borderRadius: 10, padding: '14px 16px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                                <span style={{ fontSize: 10, fontWeight: 800, color, background: color + '18', border: `1px solid ${color}44`, borderRadius: 6, padding: '2px 8px' }}>{ANS_LABELS[i]}</span>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.sourceLabel || `Source ${i + 1}`}</span>
+                                <span style={{ fontSize: 13, fontWeight: 800, color }}>{pct}%</span>
+                              </div>
+                              <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.07)', marginBottom: 10, overflow: 'hidden' }}>
+                                <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2, background: color }} />
+                              </div>
+                              {s.excerpt && <p style={{ margin: 0, fontSize: 13, color: '#cbd5e1', lineHeight: 1.75 }}>{s.excerpt}{s.excerpt.length >= 300 ? '…' : ''}</p>}
+                              {s.url && <a href={s.url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 8, fontSize: 11, color: '#6b7280', textDecoration: 'none' }}>↗ Watch on YouTube</a>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* ── MCP view ── */}
+            {adminBrainView === 'mcp' && (() => {
+              const MCP_TOOLS_ADMIN = [
+                { name: 'search_knowledge', desc: 'Semantic search within a specific brain.', inputs: 'query (string), brain (string), top_k? (number)' },
+                { name: 'chat_with_brain',  desc: 'Full RAG pipeline — retrieves context then generates a grounded response.', inputs: 'message (string), brain (string), conversation_history? (Message[])' },
+                { name: 'get_video',        desc: 'Get full transcript and metadata for a specific YouTube video.', inputs: 'video_id (string)' },
+                { name: 'list_brains',      desc: 'Returns all brains with health metrics and channel info.', inputs: 'none' },
+                { name: 'add_brain',        desc: 'Create a new brain from a YouTube channel URL.', inputs: 'name (string), slug (string), channel_url (string), channel_name (string)' },
+                { name: 'add_channel',      desc: 'Add a supplementary channel to an existing brain.', inputs: 'brain_slug (string), channel_url (string), channel_name (string)' },
+              ];
+              const baseUrl = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '';
+              const sseUrl = `${baseUrl}/sse`;
+              const clientConfigs = {
+                claude:   { label: 'Claude Code', config: JSON.stringify({ mcpServers: { 'hl-pro-tools': { command: 'curl', args: ['-N', sseUrl] } } }, null, 2) },
+                cursor:   { label: 'Cursor',      config: JSON.stringify({ mcp: { servers: { 'hl-pro-tools': { url: sseUrl, transport: 'sse' } } } }, null, 2) },
+                windsurf: { label: 'Windsurf',    config: JSON.stringify({ mcpServers: { 'hl-pro-tools': { serverUrl: sseUrl, transport: 'sse' } } }, null, 2) },
+                generic:  { label: 'Generic',     config: JSON.stringify({ server: { url: sseUrl, transport: 'sse', protocol: 'mcp' } }, null, 2) },
+              };
+              const activeConfig = clientConfigs[brainMcpTab]?.config || '';
+              const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280', borderBottom: '1px solid #2a2a2a' };
+              const tdStyle = { padding: '12px 14px', fontSize: 13, color: '#e5e7eb', borderBottom: '1px solid #2a2a2a88', verticalAlign: 'top' };
+              return (
+                <div>
+                  <div style={{ marginBottom: 24 }}>
+                    <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>MCP</h2>
+                    <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>Model Context Protocol server configuration</p>
+                  </div>
+                  {/* How it works */}
+                  <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: 24, marginBottom: 20 }}>
+                    <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>How it works</h3>
+                    <p style={{ margin: '0 0 12px', fontSize: 14, color: '#9ca3af', lineHeight: 1.7 }}>
+                      This server exposes a Model Context Protocol (MCP) endpoint over Server-Sent Events (SSE). Connect any MCP-compatible AI client to gain access to your brain knowledge bases.
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <code style={{ background: '#0a0f1a', border: '1px solid #2a2a2a', borderRadius: 6, padding: '6px 12px', fontSize: 13, color: '#93c5fd' }}>{sseUrl}</code>
+                      <span style={{ fontSize: 13, color: '#6b7280' }}>&nbsp;·&nbsp; {MCP_TOOLS_ADMIN.length} tools available</span>
+                    </div>
+                  </div>
+                  {/* Client Configuration */}
+                  <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: 24, marginBottom: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>Client Configuration</h3>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(activeConfig).then(() => { setBrainMcpCopied(true); setTimeout(() => setBrainMcpCopied(false), 2000); }); }}
+                        style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}
+                      >{brainMcpCopied ? '✓ Copied!' : 'Copy config'}</button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid #2a2a2a' }}>
+                      {Object.entries(clientConfigs).map(([key, val]) => (
+                        <button key={key} onClick={() => setBrainMcpTab(key)} style={{
+                          background: 'none', border: 'none', borderBottom: brainMcpTab === key ? '2px solid #7c3aed' : '2px solid transparent',
+                          color: brainMcpTab === key ? '#f1f5f9' : '#6b7280', padding: '8px 16px', fontSize: 13, fontWeight: brainMcpTab === key ? 600 : 400, cursor: 'pointer', marginBottom: -1,
+                        }}>{val.label}</button>
+                      ))}
+                    </div>
+                    <pre style={{ background: '#0a0f1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '14px 16px', fontSize: 12, color: '#93c5fd', overflowX: 'auto', margin: 0, lineHeight: 1.7 }}>{activeConfig}</pre>
+                  </div>
+                  {/* Active Brains */}
+                  <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: 24, marginBottom: 20 }}>
+                    <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>Active Brains ({sharedBrains.length})</h3>
+                    {sharedBrains.length === 0 ? (
+                      <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>No brains configured.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                        {sharedBrains.map(b => (
+                          <div key={`${b._locationId}-${b.brainId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, padding: '8px 14px' }}>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: '#e5e7eb' }}>{b.name}</span>
+                            <code style={{ fontSize: 11, color: '#6b7280', background: '#0a0f1a', padding: '2px 6px', borderRadius: 4 }}>{b.slug}</code>
+                            {b.isShared
+                              ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', fontWeight: 600 }}>shared</span>
+                              : <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', fontWeight: 600, fontFamily: 'monospace' }}>{b._locationId?.slice(0,10)}…</span>
+                            }
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Available Tools */}
+                  <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, overflow: 'hidden' }}>
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid #2a2a2a' }}>
+                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>Available Tools</h3>
+                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          <th style={thStyle}>Tool</th>
+                          <th style={thStyle}>Description</th>
+                          <th style={thStyle}>Inputs</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {MCP_TOOLS_ADMIN.map(tool => (
+                          <tr key={tool.name}>
+                            <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}><span style={{ color: '#60a5fa', fontFamily: 'monospace', fontSize: 13 }}>{tool.name}</span></td>
+                            <td style={{ ...tdStyle, color: '#9ca3af' }}>{tool.desc}</td>
+                            <td style={{ ...tdStyle, color: '#6b7280', fontFamily: 'monospace', fontSize: 12 }}>{tool.inputs}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
