@@ -163,13 +163,14 @@ function EventBadge({ event }) {
 export default function Admin() {
   const isMobile = useIsMobile();
 
-  const [adminKey,   setAdminKey]   = useState(() => localStorage.getItem('gtm_admin_key') || '');
-  const [keyInput,   setKeyInput]   = useState('');
+  const [adminKey,     setAdminKey]     = useState(() => localStorage.getItem('gtm_admin_key') || '');
+  const [keyInput,     setKeyInput]     = useState('');
   // Seed authed from localStorage so the dashboard shows immediately on refresh
   // without waiting for the background verification call to return.
-  const [authed,     setAuthed]     = useState(() => !!localStorage.getItem('gtm_admin_key'));
-  const [authError,  setAuthError]  = useState('');
-  const [tab,        setTab]        = useState('overview');
+  const [authed,       setAuthed]       = useState(() => !!localStorage.getItem('gtm_admin_key'));
+  const [authError,    setAuthError]    = useState('');
+  const [tab,          setTab]          = useState('overview');
+  const [sidebarOpen,  setSidebarOpen]  = useState(false);
 
   const [stats,      setStats]      = useState(null);
   const [locations,  setLocations]  = useState([]);
@@ -412,7 +413,7 @@ export default function Admin() {
 
   useEffect(() => {
     if (!authed) return;
-    if (tab === 'overview')     loadStats();
+    if (tab === 'overview')     { loadStats(); loadBilling(); }
     if (tab === 'locations')    loadLocations();
     if (tab === 'logs')         loadLogs();
     if (tab === 'app-settings') loadAppSettings();
@@ -546,72 +547,149 @@ export default function Admin() {
 
   // ── Dashboard ─────────────────────────────────────────────────────────────
 
+  // TAB_STYLE used for sub-tabs within each section (billing, brain, plan-tiers, etc.)
   const TAB_STYLE = (active) => ({
-    padding: '8px 18px', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: 500,
-    background: active ? '#7c3aed' : 'transparent',
-    color: active ? '#fff' : '#9ca3af',
-    border: 'none',
+    padding: '7px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500,
+    background: active ? 'rgba(124,58,237,0.25)' : 'transparent',
+    color: active ? '#a78bfa' : '#6b7280',
+    border: active ? '1px solid rgba(124,58,237,0.4)' : '1px solid transparent',
+    transition: 'all .15s',
+  });
+
+  const SIDEBAR_NAV = [
+    { key: 'overview',     label: 'Dashboard',    icon: '⊞' },
+    { key: 'locations',    label: 'Locations',    icon: '📍' },
+    { key: 'billing',      label: 'Billing',      icon: '💳' },
+    { key: 'plan-tiers',   label: 'Plan Tiers',   icon: '🏅' },
+    { key: 'users-roles',  label: 'Users & Roles',icon: '👥' },
+    { key: 'brain',        label: 'Brain',        icon: '🧠' },
+    { key: 'logs',         label: 'Activity Logs',icon: '📋' },
+    { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
+  ];
+
+  const PAGE_TITLE = {
+    overview: 'Dashboard', locations: 'Locations', billing: 'Billing',
+    'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles',
+    brain: 'Brain', logs: 'Activity Logs', 'app-settings': 'App Settings',
+  };
+
+  const navItemStyle = (active) => ({
+    display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+    padding: '9px 12px', borderRadius: 8, marginBottom: 1,
+    background: active ? 'rgba(124,58,237,0.18)' : 'transparent',
+    border: active ? '1px solid rgba(124,58,237,0.35)' : '1px solid transparent',
+    color: active ? '#a78bfa' : '#6b7280',
+    cursor: 'pointer', fontSize: 13, fontWeight: active ? 600 : 400,
+    textAlign: 'left', transition: 'all .15s',
   });
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0f0f0f', color: '#e5e7eb', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#09090f', color: '#e5e7eb', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
 
-      {/* Header */}
-      <div style={{ background: '#1a1a1a', borderBottom: '1px solid #2a2a2a', padding: isMobile ? '12px 16px' : '14px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 18 }}>🛡️</span>
-          <span style={{ fontWeight: 700, fontSize: isMobile ? 15 : 18, color: '#fff' }}>HL Pro Tools — Admin</span>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button onClick={() => { loadStats(); loadLocations(); }} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}>↻</button>
-          <button onClick={logout} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#f87171', padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}>Sign Out</button>
-        </div>
-      </div>
+      {/* ── Sidebar ── */}
+      {(!isMobile || sidebarOpen) && (
+        <>
+          {isMobile && (
+            <div onClick={() => setSidebarOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 99, backdropFilter: 'blur(2px)' }} />
+          )}
+          <aside style={{
+            width: 228, flexShrink: 0, background: '#0e0e16',
+            borderRight: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex', flexDirection: 'column',
+            position: 'fixed', top: 0, left: 0, height: '100vh', zIndex: 100,
+          }}>
+            {/* Brand */}
+            <div style={{ padding: '18px 16px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>🛡️</div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: '#f1f5f9', letterSpacing: '-0.01em' }}>HL Pro Tools</div>
+                  <div style={{ fontSize: 11, color: '#374151', marginTop: 1 }}>Admin Console</div>
+                </div>
+              </div>
+            </div>
 
-      {/* Action flash message */}
-      {actionMsg && (
-        <div style={{ background: actionMsg.startsWith('✓') ? '#14532d' : '#450a0a', color: '#fff', padding: '10px 28px', fontSize: 14 }}>
-          {actionMsg}
-        </div>
+            {/* Nav */}
+            <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto', scrollbarWidth: 'none' }}>
+              {SIDEBAR_NAV.map(({ key, label, icon }) => (
+                <button
+                  key={key}
+                  onClick={() => { setTab(key); if (isMobile) setSidebarOpen(false); }}
+                  style={navItemStyle(tab === key)}
+                  onMouseEnter={e => { if (tab !== key) { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#9ca3af'; } }}
+                  onMouseLeave={e => { if (tab !== key) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#6b7280'; } }}
+                >
+                  <span style={{ fontSize: 14, width: 18, textAlign: 'center', flexShrink: 0 }}>{icon}</span>
+                  {label}
+                </button>
+              ))}
+            </nav>
+
+            {/* Bottom */}
+            <div style={{ padding: '8px 8px 14px', borderTop: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+              <button
+                onClick={() => { loadStats(); loadBilling(); if (tab !== 'overview') { if (tab === 'locations') loadLocations(); if (tab === 'logs') loadLogs(); } }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 12px', borderRadius: 8, background: 'transparent', border: '1px solid transparent', color: '#374151', cursor: 'pointer', fontSize: 13, textAlign: 'left', transition: 'color .15s' }}
+                onMouseEnter={e => { e.currentTarget.style.color = '#9ca3af'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = '#374151'; }}
+              >
+                <span style={{ fontSize: 14, width: 18, textAlign: 'center' }}>↻</span> Refresh
+              </button>
+              <button
+                onClick={logout}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 12px', borderRadius: 8, background: 'transparent', border: '1px solid transparent', color: '#374151', cursor: 'pointer', fontSize: 13, textAlign: 'left', transition: 'color .15s' }}
+                onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = '#374151'; }}
+              >
+                <span style={{ fontSize: 14, width: 18, textAlign: 'center' }}>↩</span> Sign Out
+              </button>
+            </div>
+          </aside>
+        </>
       )}
 
-      <div style={{ padding: isMobile ? '16px 12px' : '24px 28px' }}>
+      {/* ── Main area ── */}
+      <div style={{ flex: 1, marginLeft: isMobile ? 0 : 228, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
 
-        {/* Stats cards */}
-        {stats && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10, marginBottom: 20 }}>
-            {[
-              { label: 'Total Locations', value: stats.total,       color: '#fff' },
-              { label: 'Active',          value: stats.active,      color: '#4ade80' },
-              { label: 'Idle (3+ days)',  value: stats.idle,        color: '#facc15' },
-              { label: 'Expired (7+ d)', value: stats.expired,      color: '#f87171' },
-              { label: 'Uninstalled',    value: stats.uninstalled,   color: '#6b7280' },
-            ].map((c) => (
-              <div key={c.label} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, padding: '16px 20px' }}>
-                <div style={{ fontSize: 28, fontWeight: 700, color: c.color }}>{c.value ?? '—'}</div>
-                <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{c.label}</div>
+        {/* Top header */}
+        <div style={{
+          background: '#0e0e16', borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: '0 24px', height: 58,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          position: 'sticky', top: 0, zIndex: 50, flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {isMobile && (
+              <button onClick={() => setSidebarOpen(true)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 20, padding: 4, lineHeight: 1 }}>☰</button>
+            )}
+            <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#f1f5f9' }}>{PAGE_TITLE[tab] || tab}</h1>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {stats && !isMobile && (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 20, background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.18)' }}>
+                  {stats.active} active
+                </span>
+                <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 20, background: 'rgba(255,255,255,0.04)', color: '#6b7280', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  {stats.total} locations
+                </span>
               </div>
-            ))}
+            )}
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+              A
+            </div>
+          </div>
+        </div>
+
+        {/* Flash */}
+        {actionMsg && (
+          <div style={{ background: actionMsg.startsWith('✓') ? '#14532d' : '#450a0a', color: '#fff', padding: '10px 24px', fontSize: 13, flexShrink: 0 }}>
+            {actionMsg}
           </div>
         )}
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 20, flexWrap: 'wrap' }}>
-          {[
-            { key: 'overview',     label: 'Overview' },
-            { key: 'locations',    label: 'Locations' },
-            { key: 'logs',         label: 'Logs' },
-            { key: 'billing',      label: '💳 Billing' },
-            { key: 'plan-tiers',   label: '🏅 Plan Tiers' },
-            { key: 'users-roles',  label: '👥 Users & Roles' },
-            { key: 'app-settings', label: '⚙️ App Settings' },
-            { key: 'brain',        label: '🧠 Brain' },
-          ].map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)} style={TAB_STYLE(tab === t.key)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* Page content */}
+        <div style={{ padding: isMobile ? '16px' : '28px', flex: 1, overflowX: 'hidden' }}>
 
         {/* ── App Settings Tab ─────────────────────────────────────────── */}
         {tab === 'app-settings' && (
@@ -724,11 +802,85 @@ export default function Admin() {
           </div>
         )}
 
-        {/* ── Overview Tab ─────────────────────────────────────────────── */}
+        {/* ── Overview / Dashboard Tab ─────────────────────────────────── */}
         {tab === 'overview' && (
           <div>
-            <h3 style={{ color: '#fff', margin: '0 0 16px', fontSize: 16 }}>Recent Activity</h3>
-            <LogTable logs={logs} />
+
+            {/* ── Location stats ── */}
+            <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Locations</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12, marginBottom: 32 }}>
+              {[
+                { label: 'Total',          value: stats?.total,       color: '#f1f5f9', bg: 'rgba(255,255,255,0.04)',   border: 'rgba(255,255,255,0.08)' },
+                { label: 'Active',         value: stats?.active,      color: '#4ade80', bg: 'rgba(74,222,128,0.07)',   border: 'rgba(74,222,128,0.18)' },
+                { label: 'Idle (3+ days)', value: stats?.idle,        color: '#facc15', bg: 'rgba(250,204,21,0.07)',  border: 'rgba(250,204,21,0.18)' },
+                { label: 'Expired (7+ d)', value: stats?.expired,     color: '#f87171', bg: 'rgba(248,113,113,0.07)', border: 'rgba(248,113,113,0.18)' },
+                { label: 'Uninstalled',    value: stats?.uninstalled, color: '#4b5563', bg: 'rgba(255,255,255,0.02)', border: 'rgba(255,255,255,0.06)' },
+              ].map(c => (
+                <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 14, padding: '20px 22px' }}>
+                  <div style={{ fontSize: 34, fontWeight: 800, color: c.color, letterSpacing: '-0.03em', lineHeight: 1 }}>
+                    {stats ? (c.value ?? 0) : '—'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#4b5563', marginTop: 8, fontWeight: 500 }}>{c.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Revenue / Billing stats ── */}
+            <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Revenue</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12, marginBottom: 32 }}>
+              {[
+                { label: 'Monthly Revenue', value: billingSummary ? `$${billingSummary.revenue}` : '—', color: '#34d399', bg: 'rgba(52,211,153,0.07)',  border: 'rgba(52,211,153,0.2)' },
+                { label: 'Active Plans',    value: billingSummary?.active   ?? '—',                     color: '#4ade80', bg: 'rgba(74,222,128,0.07)',  border: 'rgba(74,222,128,0.18)' },
+                { label: 'Trial',           value: billingSummary?.trial    ?? '—',                     color: '#60a5fa', bg: 'rgba(96,165,250,0.07)',  border: 'rgba(96,165,250,0.18)' },
+                { label: 'Past Due',        value: billingSummary?.pastDue  ?? '—',                     color: '#f87171', bg: 'rgba(248,113,113,0.07)', border: 'rgba(248,113,113,0.18)' },
+                { label: 'Cancelled',       value: billingSummary?.cancelled ?? '—',                    color: '#4b5563', bg: 'rgba(255,255,255,0.02)', border: 'rgba(255,255,255,0.06)' },
+              ].map(c => (
+                <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 14, padding: '20px 22px' }}>
+                  <div style={{ fontSize: 34, fontWeight: 800, color: c.color, letterSpacing: '-0.03em', lineHeight: 1 }}>
+                    {c.value}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#4b5563', marginTop: 8, fontWeight: 500 }}>{c.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Quick links ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10, marginBottom: 32 }}>
+              {[
+                { key: 'locations',   label: 'Manage Locations',  icon: '📍', desc: `${stats?.total ?? 0} registered` },
+                { key: 'billing',     label: 'Billing',           icon: '💳', desc: `$${billingSummary?.revenue ?? 0} MRR` },
+                { key: 'brain',       label: 'Shared Brains',     icon: '🧠', desc: 'Knowledge bases' },
+                { key: 'users-roles', label: 'Users & Roles',     icon: '👥', desc: 'Permissions' },
+                { key: 'plan-tiers',  label: 'Plan Tiers',        icon: '🏅', desc: 'Feature gating' },
+                { key: 'logs',        label: 'Activity Logs',     icon: '📋', desc: 'Recent events' },
+              ].map(item => (
+                <button
+                  key={item.key}
+                  onClick={() => setTab(item.key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+                    borderRadius: 12, padding: '14px 16px', cursor: 'pointer', transition: 'all .15s',
+                    color: 'inherit',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.1)'; e.currentTarget.style.borderColor = 'rgba(124,58,237,0.3)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; }}
+                >
+                  <span style={{ fontSize: 20 }}>{item.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#e5e7eb' }}>{item.label}</div>
+                    <div style={{ fontSize: 11, color: '#4b5563', marginTop: 2 }}>{item.desc}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* ── Recent activity ── */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Recent Activity</p>
+              <button onClick={() => setTab('logs')} style={{ fontSize: 12, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500 }}>View all →</button>
+            </div>
+            <LogTable logs={logs.slice(0, 12)} />
           </div>
         )}
 
@@ -1913,9 +2065,11 @@ export default function Admin() {
           </div>
         )}
 
+        </div>
       </div>
+      {/* ── end main area ── */}
 
-      {/* Admin Edit Modals */}
+      {/* Admin Edit Modals — rendered inside outer flex wrapper so they overlay everything */}
       {adminModal?.type === 'edit-workflow' && (
         <EditWorkflowModal
           modal={adminModal}
