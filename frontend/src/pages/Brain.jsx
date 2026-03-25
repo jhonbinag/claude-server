@@ -137,8 +137,6 @@ function CreateBrainModal({ onClose, onCreate }) {
   const [name,              setName]              = useState('');
   const [slug,              setSlug]              = useState('');
   const [description,       setDescription]       = useState('');
-  const [docsUrl,           setDocsUrl]           = useState('');
-  const [changelogUrl,      setChangelogUrl]      = useState('');
   const [channelName,       setChannelName]       = useState('');
   const [channelUrl,        setChannelUrl]        = useState('');
   const [secondaryChannels, setSecondaryChannels] = useState([]);
@@ -170,8 +168,6 @@ function CreateBrainModal({ onClose, onCreate }) {
         name:        name.trim(),
         slug:        slug.trim() || slugify(name),
         description: description.trim(),
-        docsUrl:     docsUrl.trim() || undefined,
-        changelogUrl: changelogUrl.trim() || undefined,
         primaryChannel: channelName.trim() ? { name: channelName.trim(), url: channelUrl.trim() } : undefined,
         secondaryChannels: secondaryChannels.filter(c => c.name.trim()),
         syncNow,
@@ -224,12 +220,6 @@ function CreateBrainModal({ onClose, onCreate }) {
 
         <label style={labelStyle}>Description</label>
         <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="What is this brain about?" rows={3} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
-
-        <label style={labelStyle}>Official Docs URL</label>
-        <input value={docsUrl} onChange={e => setDocsUrl(e.target.value)} placeholder="https://docs.example.com" style={inputStyle} />
-
-        <label style={labelStyle}>Changelog URL</label>
-        <input value={changelogUrl} onChange={e => setChangelogUrl(e.target.value)} placeholder="https://example.com/changelog" style={inputStyle} />
 
         <div style={{ borderBottom: `1px solid ${C.border}`, margin: '4px 0 16px' }} />
         <div style={sectionLabel}>Primary Channel</div>
@@ -356,8 +346,8 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   // Edit brain settings
   const [editName,          setEditName]          = useState(brain.name);
   const [editDesc,          setEditDesc]          = useState(brain.description || '');
-  const [editDocsUrl,       setEditDocsUrl]       = useState(brain.docsUrl || '');
-  const [editChangelogUrl,  setEditChangelogUrl]  = useState(brain.changelogUrl || '');
+  const [autoDocs,          setAutoDocs]          = useState(brain.autoDocs || '');
+  const [generatingDocs,    setGeneratingDocs]    = useState(false);
   const [saving,            setSaving]            = useState(false);
 
   // Videos catalogue (from channel sync)
@@ -406,13 +396,34 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     setTimeout(() => setFlash(null), 4000);
   };
 
+  async function autoLog(title, text = '') {
+    try {
+      await apiFetch(`/brain/${brain.brainId}/changelog`, locationId, {
+        method: 'POST',
+        body: { title, text, noteType: 'auto' },
+      });
+    } catch {}
+  }
+
+  async function generateDocs() {
+    setGeneratingDocs(true);
+    try {
+      const r = await apiFetch(`/brain/${brain.brainId}/generate-docs`, locationId, { method: 'POST' });
+      if (r.success) {
+        setAutoDocs(r.docs);
+        showFlash(true, 'Documentation generated.');
+        onRefresh();
+      } else showFlash(false, r.error || 'Failed to generate docs.');
+    } catch { showFlash(false, 'Request failed.'); }
+    setGeneratingDocs(false);
+  }
+
   useEffect(() => {
     setDocs(brain.docs || []);
     setChannels(brain.channels || []);
     setEditName(brain.name);
     setEditDesc(brain.description || '');
-    setEditDocsUrl(brain.docsUrl || '');
-    setEditChangelogUrl(brain.changelogUrl || '');
+    setAutoDocs(brain.autoDocs || '');
   }, [brain.brainId]);
 
   async function reloadBrain() {
@@ -660,6 +671,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     setChannels(prev => [...prev, ch]);
     setShowAddChannel(false);
     showFlash(true, `Channel "${ch.channelName}" added.`);
+    autoLog(`Channel added: ${ch.channelName}`);
     onRefresh();
   }
 
@@ -672,7 +684,6 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     { id: 'progress',  label: 'Progress' },
     { id: 'channels',  label: `Channels (${channels.length})` },
     { id: 'videos',    label: `Videos (${videoCount})` },
-    { id: 'changelog', label: '📋 Changelog' },
     { id: 'settings',  label: 'Settings' },
   ];
 
@@ -697,8 +708,6 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.textPri }}>{brain.name}</h2>
               <code style={{ fontSize: 12, color: C.textMuted, background: C.codeBg, padding: '2px 8px', borderRadius: 4, border: `1px solid ${C.border}` }}>{brain.slug}</code>
-              {brain.docsUrl && <a href={brain.docsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: C.textSec, textDecoration: 'none' }}>Docs</a>}
-              {brain.changelogUrl && <a href={brain.changelogUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: C.textSec, textDecoration: 'none' }}>Changelog</a>}
             </div>
             {brain.description && <p style={{ margin: '8px 0 0', color: C.textMuted, fontSize: 13 }}>{brain.description}</p>}
           </div>
@@ -1315,32 +1324,6 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
               <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
             </div>
 
-            {/* Docs + Changelog — read-only link display */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div>
-                <label style={labelStyle}>Official Docs URL</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, background: '#0a0f1a', border: `1px solid ${C.border}`, minHeight: 38 }}>
-                  {brain.docsUrl
-                    ? <a href={brain.docsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: C.blue, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                        📄 {brain.docsUrl}
-                      </a>
-                    : <span style={{ fontSize: 13, color: C.textMuted }}>Not set</span>
-                  }
-                </div>
-              </div>
-              <div>
-                <label style={labelStyle}>Changelog URL</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, background: '#0a0f1a', border: `1px solid ${C.border}`, minHeight: 38 }}>
-                  {brain.changelogUrl
-                    ? <a href={brain.changelogUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: C.blue, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                        📋 {brain.changelogUrl}
-                      </a>
-                    : <span style={{ fontSize: 13, color: C.textMuted }}>Not set</span>
-                  }
-                </div>
-              </div>
-            </div>
-
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
               <button onClick={async () => {
                 setSaving(true);
@@ -1349,7 +1332,11 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
                     method: 'PATCH',
                     body: { name: editName, description: editDesc },
                   });
-                  if (r.success) { showFlash(true, 'Brain settings saved.'); onRefresh(); }
+                  if (r.success) {
+                    showFlash(true, 'Brain settings saved.');
+                    autoLog('Settings updated', `Name: ${editName}${editDesc ? ' · Description updated' : ''}`);
+                    onRefresh();
+                  }
                   else showFlash(false, r.error || 'Save failed.');
                 } catch { showFlash(false, 'Request failed.'); }
                 setSaving(false);
@@ -1373,55 +1360,78 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
             </button>
           </div>
 
-          {/* Sync Changelog */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+          {/* Brain Documentation — AI-generated */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div>
-                <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  📋 Sync Changelog
-                </h3>
+                <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>📄 Brain Documentation</h3>
                 <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>
-                  History of all sync runs — videos ingested, errors, and total knowledge base size after each run.
+                  AI-generated documentation based on this brain's channels, content, and change history.
                 </p>
               </div>
               <button
-                onClick={async () => {
-                  if (!editDocsUrl && !editChangelogUrl) { showFlash(false, 'Set a Docs URL or Changelog URL in settings first.'); return; }
-                  showFlash(true, 'Docs sync queued — this will run in the background.');
-                }}
-                style={{ ...btnPrimary, flexShrink: 0, marginLeft: 16, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
+                onClick={generateDocs}
+                disabled={generatingDocs}
+                style={{ ...btnPrimary, flexShrink: 0, marginLeft: 16, fontSize: 13, opacity: generatingDocs ? 0.5 : 1 }}
               >
-                ↻ Sync Docs
+                {generatingDocs ? '⟳ Generating…' : autoDocs ? '↺ Regenerate' : '✦ Generate Docs'}
               </button>
             </div>
+            {autoDocs ? (
+              <div style={{ background: '#0a0f1a', border: `1px solid ${C.border}`, borderRadius: 8, padding: '14px 16px' }}>
+                <pre style={{ margin: 0, fontSize: 13, color: C.textSec, lineHeight: 1.7, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                  {autoDocs}
+                </pre>
+                {brain.autoDocsGeneratedAt && (
+                  <p style={{ margin: '10px 0 0', fontSize: 11, color: C.textMuted }}>
+                    Generated {timeAgo(brain.autoDocsGeneratedAt)}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>
+                No documentation yet — click "Generate Docs" to have AI write documentation about this brain.
+              </p>
+            )}
+          </div>
+
+          {/* Change History — auto-populated on every brain update */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>📋 Change History</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: C.textMuted }}>
+              Every update to this brain — syncs, settings changes, channels, and documentation — logged automatically.
+            </p>
             {(() => {
-              const log = brain.syncLog || [];
-              if (log.length === 0) {
-                return <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>No sync runs yet.</p>;
+              const syncEntries  = (brain.syncLog || []).map(e => ({ ...e, _kind: 'sync' }));
+              const noteEntries  = (brain.notes   || []).map(e => ({ ...e, _kind: 'note' }));
+              const allEntries   = [...syncEntries, ...noteEntries].sort((a, b) => new Date(b.ts) - new Date(a.ts));
+              if (allEntries.length === 0) {
+                return <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>No history yet. Changes will appear here automatically.</p>;
               }
+              const TYPE_COLOR = { auto: '#9ca3af', docs: '#60a5fa', sync: '#10b981', note: '#a78bfa', fix: '#4ade80', update: '#a78bfa', issue: '#fbbf24' };
               return (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr>
-                        {['When', 'Channel', 'Ingested', 'Errors', 'Total Docs', 'Total Chunks'].map(h => (
-                          <th key={h} style={{ padding: '6px 10px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.textMuted, borderBottom: `1px solid ${C.border}` }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {log.map((entry, i) => (
-                        <tr key={i}>
-                          <td style={{ padding: '8px 10px', color: C.textMuted, borderBottom: `1px solid ${C.border}44`, whiteSpace: 'nowrap' }}>{timeAgo(entry.ts)}</td>
-                          <td style={{ padding: '8px 10px', color: C.textSec, borderBottom: `1px solid ${C.border}44` }}>{entry.channel || 'All channels'}</td>
-                          <td style={{ padding: '8px 10px', color: C.green, fontWeight: 600, borderBottom: `1px solid ${C.border}44` }}>+{entry.ingested}</td>
-                          <td style={{ padding: '8px 10px', color: entry.errors > 0 ? C.amber : C.textMuted, borderBottom: `1px solid ${C.border}44` }}>{entry.errors}</td>
-                          <td style={{ padding: '8px 10px', color: C.textPri, borderBottom: `1px solid ${C.border}44` }}>{entry.docCount ?? '—'}</td>
-                          <td style={{ padding: '8px 10px', color: C.textPri, borderBottom: `1px solid ${C.border}44` }}>{entry.chunkCount ?? '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {allEntries.map((entry, i) => {
+                    if (entry._kind === 'sync') {
+                      return (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}44` }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: C.green, minWidth: 60, textTransform: 'uppercase', letterSpacing: '0.05em' }}>⟳ Sync</span>
+                          <span style={{ fontSize: 13, color: C.textSec, flex: 1 }}>
+                            +{entry.ingested} videos ingested{entry.errors > 0 ? ` · ${entry.errors} errors` : ''}{entry.channel ? ` · ${entry.channel}` : ''}
+                          </span>
+                          <span style={{ fontSize: 11, color: C.textMuted, flexShrink: 0 }}>{timeAgo(entry.ts)}</span>
+                        </div>
+                      );
+                    }
+                    const color = TYPE_COLOR[entry.type] || '#9ca3af';
+                    return (
+                      <div key={entry.id || i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}44` }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color, minWidth: 60, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{entry.type || 'note'}</span>
+                        <span style={{ fontSize: 13, color: C.textSec, flex: 1 }}>{entry.title}</span>
+                        <span style={{ fontSize: 11, color: C.textMuted, flexShrink: 0 }}>{timeAgo(entry.ts)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })()}
@@ -1727,20 +1737,16 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
 
                 {/* Footer links */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
-                  {b.docsUrl
-                    ? <a href={b.docsUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                        style={{ fontSize: 12, fontWeight: 600, color: C.blue, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, background: `${C.blue}18`, border: `1px solid ${C.blue}33` }}>
-                        📄 Docs ↗
-                      </a>
-                    : <span style={{ fontSize: 12, color: C.border, padding: '3px 8px' }}>No Docs</span>
-                  }
-                  {b.changelogUrl
-                    ? <a href={b.changelogUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                        style={{ fontSize: 12, fontWeight: 600, color: '#a78bfa', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.25)' }}>
-                        📋 Changelog ↗
-                      </a>
-                    : <span style={{ fontSize: 12, color: C.border, padding: '3px 8px' }}>No Changelog</span>
-                  }
+                  {b.autoDocs && (
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.blue, padding: '3px 8px', borderRadius: 6, background: `${C.blue}18`, border: `1px solid ${C.blue}33` }}>
+                      📄 Docs
+                    </span>
+                  )}
+                  {((b.notes || []).length > 0 || (b.syncLog || []).length > 0) && (
+                    <span style={{ fontSize: 12, color: C.textMuted }}>
+                      {((b.notes || []).length + (b.syncLog || []).length)} changes
+                    </span>
+                  )}
                   <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
                     {b.autoSync && (
                       <span title="Auto-sync enabled" style={{ fontSize: 11, color: C.blue, fontWeight: 600 }}>⟳ auto</span>

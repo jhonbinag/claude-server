@@ -595,4 +595,119 @@ router.delete('/:brainId/channels/:channelId', async (req, res) => {
   }
 });
 
+// ── Auto-generate brain documentation ────────────────────────────────────────
+
+router.post('/:brainId/generate-docs', async (req, res) => {
+  try {
+    const b         = await brain.getBrain(req.locationId, req.params.brainId);
+    const providers = await getProviderList(req.locationId);
+    if (!providers.length) {
+      return res.status(400).json({ success: false, error: 'No AI provider configured.' });
+    }
+
+    const channels  = (b.channels || []).map(c => c.channelName).filter(Boolean).join(', ') || 'None';
+    const syncCount = (b.syncLog || []).length;
+    const notes     = (b.notes   || []).map(n => `- [${n.ts?.slice(0,10)}] ${n.title}`).join('\n') || 'None';
+
+    const SYSTEM = 'You are a technical documentation writer. Write clear, concise markdown documentation. No preamble, no commentary — just the markdown document.';
+    const USER   = `Write documentation for a YouTube knowledge base called "${b.name}".
+
+Brain details:
+- Description: ${b.description || 'Not provided'}
+- YouTube channels: ${channels}
+- Videos indexed: ${b.docCount || 0}
+- Knowledge chunks: ${(b.chunkCount || 0).toLocaleString()}
+- Sync runs: ${syncCount}
+- Change log entries:\n${notes}
+
+Write a markdown document with these sections:
+## Overview
+(What this brain is, what topics it covers based on the channel names and description)
+
+## Channels
+(List and describe each channel)
+
+## Coverage & Status
+(Current state: videos indexed, knowledge chunks, sync status)
+
+## How to Query
+(3-4 example questions a user could ask this brain)
+
+## Change History Summary
+(Brief summary of recent changes based on the log entries)
+
+Keep it concise (250-400 words).`;
+
+    let docs = '';
+    let lastErr = null;
+
+    for (const { provider, key, model } of providers) {
+      try {
+        if (provider === 'anthropic') {
+          const Anthropic = require('@anthropic-ai/sdk');
+          const client = new Anthropic.default({ apiKey: key });
+          const msg = await client.messages.create({
+            model, max_tokens: 1024,
+            system: SYSTEM,
+            messages: [{ role: 'user', content: USER }],
+          });
+          docs = msg.content[0]?.text || '';
+        } else if (provider === 'google') {
+          const gRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: 'user', parts: [{ text: USER }] }] }) }
+          );
+          const gData = await gRes.json();
+          if (!gRes.ok) throw new Error(`Gemini ${gRes.status}`);
+          docs = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        } else {
+          const hostname = provider === 'openrouter' ? 'openrouter.ai' : provider === 'groq' ? 'api.groq.com' : 'api.openai.com';
+          const apiPath  = provider === 'openrouter' ? '/api/v1/chat/completions' : '/openai/v1/chat/completions';
+          const oRes = await fetch(`https://${hostname}${apiPath}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+            body: JSON.stringify({ model, max_tokens: 1024, messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: USER }] }),
+          });
+          const oData = await oRes.json();
+          if (!oRes.ok) throw new Error(`${provider} ${oRes.status}`);
+          docs = oData.choices?.[0]?.message?.content || '';
+        }
+        if (docs) break;
+      } catch (e) {
+        lastErr = e;
+        const m = e.message?.toLowerCase() || '';
+        if (m.includes('credit') || m.includes('billing') || m.includes('quota') || m.includes('balance')) continue;
+        throw e;
+      }
+    }
+
+    if (!docs) throw new Error(lastErr?.message || 'All providers failed');
+
+    // Store in brain metadata
+    await brain.updateBrainMeta(req.locationId, req.params.brainId, {
+      autoDocs: docs,
+      autoDocsGeneratedAt: new Date().toISOString(),
+    });
+
+    // Auto-add changelog entry
+    const bCurrent = await brain.getBrain(req.locationId, req.params.brainId);
+    const entry = {
+      id:    `note_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      ts:    new Date().toISOString(),
+      type:  'docs',
+      title: 'Documentation regenerated',
+      text:  '',
+    };
+    await brain.updateBrainMeta(req.locationId, req.params.brainId, {
+      notes: [...(bCurrent.notes || []), entry],
+    });
+
+    res.json({ success: true, docs, generatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('[brain/generate-docs]', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
