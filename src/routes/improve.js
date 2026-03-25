@@ -116,16 +116,58 @@ KEY RULES (from the autoresearch principle — simpler is better):
 Respond with ONLY valid JSON (no markdown, no extra text):
 {"improved":"<full improved content>","description":"<one sentence: what changed and why>"}`;
 
-// ── Detect which AI provider to use for this location ────────────────────────
+// ── Build ordered list of provider candidates for this location ──────────────
 // Priority: per-location Anthropic key → server ANTHROPIC_API_KEY → OpenAI → Groq → Gemini
-async function detectProvider(locationId) {
-  const configs = await toolRegistry.loadToolConfigs(locationId);
-  if (configs.anthropic?.apiKey)  return { provider: 'anthropic', apiKey: configs.anthropic.apiKey };
-  if (config.anthropic?.apiKey)   return { provider: 'anthropic', apiKey: config.anthropic.apiKey };
-  if (process.env.OPENAI_API_KEY) return { provider: 'openai',    apiKey: process.env.OPENAI_API_KEY };
-  if (process.env.GROQ_API_KEY)   return { provider: 'groq',      apiKey: process.env.GROQ_API_KEY };
-  if (process.env.GOOGLE_API_KEY) return { provider: 'gemini',    apiKey: process.env.GOOGLE_API_KEY };
-  throw new Error('No AI provider configured. Add an API key in Settings → Integrations → Claude AI.');
+// Returns an array so callers can fall through on billing/quota failures.
+async function getProviderCandidates(locationId) {
+  const configs    = await toolRegistry.loadToolConfigs(locationId);
+  const candidates = [];
+  if (configs.anthropic?.apiKey)  candidates.push({ provider: 'anthropic', apiKey: configs.anthropic.apiKey });
+  if (config.anthropic?.apiKey)   candidates.push({ provider: 'anthropic', apiKey: config.anthropic.apiKey });
+  if (process.env.OPENAI_API_KEY) candidates.push({ provider: 'openai',    apiKey: process.env.OPENAI_API_KEY });
+  if (process.env.GROQ_API_KEY)   candidates.push({ provider: 'groq',      apiKey: process.env.GROQ_API_KEY });
+  if (process.env.GOOGLE_API_KEY) candidates.push({ provider: 'gemini',    apiKey: process.env.GOOGLE_API_KEY });
+
+  // Deduplicate same provider+key pairs
+  const seen = new Set();
+  const unique = candidates.filter(c => {
+    const k = `${c.provider}:${c.apiKey}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+
+  if (!unique.length) throw new Error('No AI provider configured. Add an API key in Settings → Integrations → Claude AI.');
+  return unique;
+}
+
+// Returns true for errors that mean "this provider has no quota/credits" →
+// safe to silently skip and try the next provider.
+function isBillingError(msg = '') {
+  const m = msg.toLowerCase();
+  return m.includes('credit') || m.includes('billing') || m.includes('quota') ||
+         m.includes('insufficient') || m.includes('balance') || m.includes('rate limit') ||
+         m.includes('exceeded') || m.includes('limit exceeded');
+}
+
+// Try each candidate in order; skip on billing errors, throw on other errors.
+async function callWithFallback(candidates, { modelKey, system, user, maxTokens }) {
+  let lastError;
+  for (const { provider, apiKey } of candidates) {
+    const models = PROVIDER_MODELS[provider];
+    try {
+      const text = await callAI({ provider, apiKey, model: models[modelKey], system, user, maxTokens });
+      return { text, provider, models };
+    } catch (e) {
+      if (isBillingError(e.message)) {
+        console.warn(`[improve] ${provider} billing error — trying next provider. (${e.message.slice(0, 80)})`);
+        lastError = e;
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error(`All configured providers failed. Last error: ${lastError?.message || 'unknown'}`);
 }
 
 // ── Simple single-turn text completion (no tool calls) ───────────────────────
@@ -217,8 +259,7 @@ router.post('/score', async (req, res) => {
   if (!artifact?.trim()) return res.status(400).json({ error: 'artifact is required' });
 
   try {
-    const { provider, apiKey } = await detectProvider(req.locationId);
-    const models = PROVIDER_MODELS[provider];
+    const candidates = await getProviderCandidates(req.locationId);
 
     const userContent = [
       SCORERS[type],
@@ -226,14 +267,15 @@ router.post('/score', async (req, res) => {
       `\nContent to score:\n${artifact}`,
     ].join('');
 
-    const raw  = await callAI({
-      provider, apiKey, model: models.scorer, maxTokens: 400,
+    const { text: raw, provider, models } = await callWithFallback(candidates, {
+      modelKey:  'scorer',
+      maxTokens: 400,
       system: 'You are an expert evaluator. Respond with ONLY valid JSON. No markdown. No preamble.',
       user:   userContent,
     });
 
-    const text = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    const data = JSON.parse(text);
+    const clean = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    const data  = JSON.parse(clean);
     res.json({
       success: true,
       ...data,
@@ -275,17 +317,17 @@ Current content to improve:
 ${artifact}`;
 
   try {
-    const { provider, apiKey } = await detectProvider(req.locationId);
-    const models = PROVIDER_MODELS[provider];
+    const candidates = await getProviderCandidates(req.locationId);
 
-    const raw    = await callAI({
-      provider, apiKey, model: models.generator, maxTokens: 2048,
+    const { text: raw, provider, models } = await callWithFallback(candidates, {
+      modelKey:  'generator',
+      maxTokens: 2048,
       system: IMPROVER_SYSTEM,
       user:   userContent,
     });
 
-    const text   = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    const result = JSON.parse(text);
+    const clean  = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    const result = JSON.parse(clean);
     res.json({
       success: true,
       ...result,
