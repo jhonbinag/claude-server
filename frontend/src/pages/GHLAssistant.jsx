@@ -274,16 +274,22 @@ export default function GHLAssistant() {
     setBrainLoading(false);
   }, [trainBrainId, apiKey]);
 
-  const run = useCallback(async (taskText) => {
+  const run = useCallback(async (taskText, opts = {}) => {
     if (!taskText.trim() || isRunning) return;
-    // Append user message then stream AI reply into messages
-    setMessages(prev => [
-      ...prev,
-      { type: 'user', text: taskText.trim() },
-    ]);
-    const fullTask = activePersona
-      ? `[System Context — ${activePersona.title}]:\n${activePersona.content}\n\n---\n\n${taskText.trim()}`
-      : taskText.trim();
+    setMessages(prev => [...prev, { type: 'user', text: taskText.trim() }]);
+
+    let fullTask;
+    if (opts.conversational) {
+      // Conversation mode: Claude answers from persona knowledge, no tool calls
+      fullTask = activePersona
+        ? `[System Context — ${activePersona.title}]:\n${activePersona.content}\n\n---\n\nIMPORTANT: Answer the following question conversationally based on the context above. Do not call any tools.\n\n${taskText.trim()}`
+        : `IMPORTANT: Answer the following question conversationally. Do not call any tools.\n\n${taskText.trim()}`;
+    } else {
+      fullTask = activePersona
+        ? `[System Context — ${activePersona.title}]:\n${activePersona.content}\n\n---\n\n${taskText.trim()}`
+        : taskText.trim();
+    }
+
     await stream('/claude/task', { task: fullTask }, (evtType, data) => {
       setMessages(prev => applyEvent(prev, evtType, data));
     }, apiKey);
@@ -529,9 +535,12 @@ export default function GHLAssistant() {
   }
 
   const handleSubmit = () => {
-    const resolved = resolveSlashTask(task);
+    const raw = task.trim();
+    if (!raw) return;
+    const isCommand = raw.startsWith('/');
+    const resolved = isCommand ? resolveSlashTask(raw) : raw;
     if (!resolved.trim()) return;
-    run(resolved);
+    run(resolved, { conversational: !isCommand });
     setTask('');
   };
 
