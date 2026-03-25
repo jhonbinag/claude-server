@@ -684,26 +684,36 @@ Keep it concise (250-400 words).`;
 
     if (!docs) throw new Error(lastErr?.message || 'All providers failed');
 
-    // Store in brain metadata
-    await brain.updateBrainMeta(req.locationId, req.params.brainId, {
-      autoDocs: docs,
-      autoDocsGeneratedAt: new Date().toISOString(),
-    });
+    // Append to docsHistory (one-time migration of legacy autoDocs string if needed)
+    const existing = b.docsHistory || [];
+    const migrated = existing.length === 0 && b.autoDocs
+      ? [{ id: 'docs_0_migrate', ts: b.autoDocsGeneratedAt || b.updatedAt || new Date().toISOString(), version: 1, content: b.autoDocs }]
+      : existing;
 
-    // Auto-add changelog entry
-    const bCurrent = await brain.getBrain(req.locationId, req.params.brainId);
-    const entry = {
-      id:    `note_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      ts:    new Date().toISOString(),
+    const docEntry = {
+      id:      `docs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      ts:      new Date().toISOString(),
+      version: migrated.length + 1,
+      content: docs,
+    };
+    const docsHistory = [...migrated, docEntry];
+
+    const noteEntry = {
+      id:    `note_${Date.now() + 1}_${Math.random().toString(36).slice(2, 8)}`,
+      ts:    docEntry.ts,
       type:  'docs',
-      title: 'Documentation regenerated',
+      title: `Documentation generated (v${docEntry.version})`,
       text:  '',
     };
+
     await brain.updateBrainMeta(req.locationId, req.params.brainId, {
-      notes: [...(bCurrent.notes || []), entry],
+      docsHistory,
+      autoDocs: docs,
+      autoDocsGeneratedAt: docEntry.ts,
+      notes: [...(b.notes || []), noteEntry],
     });
 
-    res.json({ success: true, docs, generatedAt: new Date().toISOString() });
+    res.json({ success: true, docs, docsHistory, generatedAt: docEntry.ts, version: docEntry.version });
   } catch (err) {
     console.error('[brain/generate-docs]', err.message);
     res.status(500).json({ success: false, error: err.message });

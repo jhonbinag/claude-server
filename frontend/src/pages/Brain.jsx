@@ -330,9 +330,171 @@ function AddChannelModal({ brainId, locationId, onClose, onAdded }) {
   );
 }
 
+// ── Docs Modal ────────────────────────────────────────────────────────────────
+
+function DocsModal({ brain, onClose, onGenerate, generatingDocs }) {
+  const history = brain.docsHistory || [];
+  const sorted  = [...history].reverse(); // newest first
+  const [expanded, setExpanded] = useState(() => new Set(sorted.length ? [sorted[0].id] : []));
+
+  function toggle(id) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, width: '100%', maxWidth: 760, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.textPri }}>📄 Brain Documentation</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: C.textMuted }}>
+              {history.length} version{history.length !== 1 ? 's' : ''} · AI-generated · newest first
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button onClick={onGenerate} disabled={generatingDocs}
+              style={{ ...btnPrimary, fontSize: 13, opacity: generatingDocs ? 0.5 : 1 }}>
+              {generatingDocs ? '⟳ Generating…' : history.length ? '↺ Generate New Version' : '✦ Generate Docs'}
+            </button>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+          </div>
+        </div>
+
+        <div style={{ overflowY: 'auto', padding: 24, flex: 1 }}>
+          {sorted.length === 0 ? (
+            <p style={{ color: C.textMuted, fontSize: 14 }}>
+              No documentation yet. Click "Generate Docs" to have AI write documentation for this brain.
+            </p>
+          ) : sorted.map((entry, i) => (
+            <div key={entry.id} style={{ marginBottom: 12, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <button onClick={() => toggle(entry.id)} style={{
+                width: '100%', background: expanded.has(entry.id) ? '#0d1623' : C.card,
+                border: 'none', padding: '14px 18px', cursor: 'pointer',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 5,
+                    background: i === 0 ? `${C.blue}22` : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${i === 0 ? C.blue + '40' : C.border}`,
+                    color: i === 0 ? C.blue : C.textMuted,
+                  }}>
+                    {i === 0 ? 'Latest · ' : ''}v{entry.version}
+                  </span>
+                  <span style={{ fontSize: 13, color: C.textMuted }}>
+                    {new Date(entry.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {' at '}
+                    {new Date(entry.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <span style={{ color: C.textMuted, fontSize: 13 }}>{expanded.has(entry.id) ? '▲' : '▼'}</span>
+              </button>
+              {expanded.has(entry.id) && (
+                <div style={{ padding: '16px 18px', borderTop: `1px solid ${C.border}`, background: C.bg }}>
+                  <pre style={{ margin: 0, fontSize: 13, color: C.textSec, lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                    {entry.content}
+                  </pre>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Change Log Modal ──────────────────────────────────────────────────────────
+
+function ChangeLogModal({ brain, onClose }) {
+  const syncEntries = (brain.syncLog || []).map(e => ({ ...e, _kind: 'sync' }));
+  const noteEntries = (brain.notes   || []).map(e => ({ ...e, _kind: 'note' }));
+  const all = [...syncEntries, ...noteEntries].sort((a, b) => new Date(b.ts) - new Date(a.ts));
+
+  // Group by calendar date
+  const groups = [];
+  let curDate = null, curItems = [];
+  for (const e of all) {
+    const dk = new Date(e.ts).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    if (dk !== curDate) {
+      if (curItems.length) groups.push({ date: curDate, entries: curItems });
+      curDate = dk; curItems = [e];
+    } else { curItems.push(e); }
+  }
+  if (curItems.length) groups.push({ date: curDate, entries: curItems });
+
+  const TYPE_COLOR = { auto: '#9ca3af', docs: '#60a5fa', sync: '#10b981', note: '#a78bfa', fix: '#4ade80', update: '#a78bfa', issue: '#fbbf24' };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, width: '100%', maxWidth: 680, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.textPri }}>📋 Change Log</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: C.textMuted }}>
+              {all.length} entr{all.length !== 1 ? 'ies' : 'y'} · auto-logged · grouped by date
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+        </div>
+
+        <div style={{ overflowY: 'auto', padding: 24, flex: 1 }}>
+          {all.length === 0 ? (
+            <p style={{ color: C.textMuted, fontSize: 14 }}>
+              No changes recorded yet. Changes will appear here automatically as you update this brain.
+            </p>
+          ) : groups.map(group => (
+            <div key={group.date} style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.textMuted, marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${C.border}44` }}>
+                {group.date}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {group.entries.map((entry, i) => {
+                  if (entry._kind === 'sync') {
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}44` }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: C.green, minWidth: 72, textTransform: 'uppercase', letterSpacing: '0.05em' }}>⟳ Sync</span>
+                        <span style={{ fontSize: 13, color: C.textSec, flex: 1 }}>
+                          +{entry.ingested || 0} videos{entry.errors > 0 ? ` · ${entry.errors} errors` : ''}{entry.channel ? ` · ${entry.channel}` : ''}
+                        </span>
+                        <span style={{ fontSize: 11, color: C.textMuted, flexShrink: 0 }}>
+                          {new Date(entry.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    );
+                  }
+                  const color = TYPE_COLOR[entry.type] || '#9ca3af';
+                  return (
+                    <div key={entry.id || i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}44` }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color, minWidth: 72, textTransform: 'uppercase', letterSpacing: '0.05em', paddingTop: 1 }}>{entry.type || 'note'}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, color: C.textSec }}>{entry.title}</div>
+                        {entry.text && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 3, lineHeight: 1.5 }}>{entry.text}</div>}
+                      </div>
+                      <span style={{ fontSize: 11, color: C.textMuted, flexShrink: 0, paddingTop: 1 }}>
+                        {new Date(entry.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Brain Detail view ─────────────────────────────────────────────────────────
 
-function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
+function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialModal, onModalOpened }) {
   const [tab,               setTab]               = useState('channels');
   const [docs,              setDocs]              = useState(brain.docs || []);
   const [channels,          setChannels]          = useState(brain.channels || []);
@@ -346,9 +508,17 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
   // Edit brain settings
   const [editName,          setEditName]          = useState(brain.name);
   const [editDesc,          setEditDesc]          = useState(brain.description || '');
-  const [autoDocs,          setAutoDocs]          = useState(brain.autoDocs || '');
   const [generatingDocs,    setGeneratingDocs]    = useState(false);
   const [saving,            setSaving]            = useState(false);
+
+  // Modals
+  const [showDocsModal,      setShowDocsModal]      = useState(false);
+  const [showChangeLogModal, setShowChangeLogModal] = useState(false);
+
+  useEffect(() => {
+    if (initialModal === 'docs')      { setShowDocsModal(true);      onModalOpened?.(); }
+    else if (initialModal === 'changelog') { setShowChangeLogModal(true); onModalOpened?.(); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Videos catalogue (from channel sync)
   const [videos,            setVideos]            = useState([]);
@@ -410,8 +580,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     try {
       const r = await apiFetch(`/brain/${brain.brainId}/generate-docs`, locationId, { method: 'POST' });
       if (r.success) {
-        setAutoDocs(r.docs);
-        showFlash(true, 'Documentation generated.');
+        showFlash(true, `Documentation v${r.version || ''} generated.`);
         onRefresh();
       } else showFlash(false, r.error || 'Failed to generate docs.');
     } catch { showFlash(false, 'Request failed.'); }
@@ -423,7 +592,6 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
     setChannels(brain.channels || []);
     setEditName(brain.name);
     setEditDesc(brain.description || '');
-    setAutoDocs(brain.autoDocs || '');
   }, [brain.brainId]);
 
   async function reloadBrain() {
@@ -695,6 +863,12 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
       {showAddChannel && (
         <AddChannelModal brainId={brain.brainId} locationId={locationId} onClose={() => setShowAddChannel(false)} onAdded={handleChannelAdded} />
       )}
+      {showDocsModal && (
+        <DocsModal brain={brain} onClose={() => setShowDocsModal(false)} onGenerate={generateDocs} generatingDocs={generatingDocs} />
+      )}
+      {showChangeLogModal && (
+        <ChangeLogModal brain={brain} onClose={() => setShowChangeLogModal(false)} />
+      )}
 
       {/* Back link */}
       <button onClick={onBack} style={{ background: 'none', border: 'none', color: C.textSec, fontSize: 13, cursor: 'pointer', textAlign: 'left', padding: 0, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -710,6 +884,26 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
               <code style={{ fontSize: 12, color: C.textMuted, background: C.codeBg, padding: '2px 8px', borderRadius: 4, border: `1px solid ${C.border}` }}>{brain.slug}</code>
             </div>
             {brain.description && <p style={{ margin: '8px 0 0', color: C.textMuted, fontSize: 13 }}>{brain.description}</p>}
+            {/* Docs + Change Log quick-access badges */}
+            {(() => {
+              const docsHistory  = brain.docsHistory || [];
+              const changeCount  = (brain.syncLog || []).length + (brain.notes || []).length;
+              if (!docsHistory.length && !changeCount) return null;
+              return (
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  {docsHistory.length > 0 && (
+                    <button onClick={() => setShowDocsModal(true)} style={{ fontSize: 12, fontWeight: 600, color: C.blue, padding: '3px 10px', borderRadius: 6, background: `${C.blue}18`, border: `1px solid ${C.blue}33`, cursor: 'pointer' }}>
+                      📄 Docs · v{docsHistory[docsHistory.length - 1]?.version}
+                    </button>
+                  )}
+                  {changeCount > 0 && (
+                    <button onClick={() => setShowChangeLogModal(true)} style={{ fontSize: 12, fontWeight: 600, color: C.textSec, padding: '3px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.border}`, cursor: 'pointer' }}>
+                      📋 {changeCount} change{changeCount !== 1 ? 's' : ''}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
@@ -1361,81 +1555,60 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
           </div>
 
           {/* Brain Documentation — AI-generated */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-              <div>
-                <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>📄 Brain Documentation</h3>
-                <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>
-                  AI-generated documentation based on this brain's channels, content, and change history.
-                </p>
+          {(() => {
+            const docsHistory = brain.docsHistory || [];
+            const latestDoc   = docsHistory[docsHistory.length - 1];
+            return (
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>📄 Brain Documentation</h3>
+                    <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>
+                      {docsHistory.length > 0
+                        ? `${docsHistory.length} version${docsHistory.length !== 1 ? 's' : ''} · last generated ${timeAgo(latestDoc.ts)}`
+                        : 'AI-generated documentation — not generated yet'}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                    {docsHistory.length > 0 && (
+                      <button onClick={() => setShowDocsModal(true)} style={{ ...btnSecondary, fontSize: 13 }}>
+                        View Docs →
+                      </button>
+                    )}
+                    <button onClick={generateDocs} disabled={generatingDocs}
+                      style={{ ...btnPrimary, fontSize: 13, opacity: generatingDocs ? 0.5 : 1 }}>
+                      {generatingDocs ? '⟳ Generating…' : docsHistory.length ? '↺ Regenerate' : '✦ Generate Docs'}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <button
-                onClick={generateDocs}
-                disabled={generatingDocs}
-                style={{ ...btnPrimary, flexShrink: 0, marginLeft: 16, fontSize: 13, opacity: generatingDocs ? 0.5 : 1 }}
-              >
-                {generatingDocs ? '⟳ Generating…' : autoDocs ? '↺ Regenerate' : '✦ Generate Docs'}
-              </button>
-            </div>
-            {autoDocs ? (
-              <div style={{ background: '#0a0f1a', border: `1px solid ${C.border}`, borderRadius: 8, padding: '14px 16px' }}>
-                <pre style={{ margin: 0, fontSize: 13, color: C.textSec, lineHeight: 1.7, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-                  {autoDocs}
-                </pre>
-                {brain.autoDocsGeneratedAt && (
-                  <p style={{ margin: '10px 0 0', fontSize: 11, color: C.textMuted }}>
-                    Generated {timeAgo(brain.autoDocsGeneratedAt)}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>
-                No documentation yet — click "Generate Docs" to have AI write documentation about this brain.
-              </p>
-            )}
-          </div>
+            );
+          })()}
 
           {/* Change History — auto-populated on every brain update */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>📋 Change History</h3>
-            <p style={{ margin: '0 0 16px', fontSize: 13, color: C.textMuted }}>
-              Every update to this brain — syncs, settings changes, channels, and documentation — logged automatically.
-            </p>
-            {(() => {
-              const syncEntries  = (brain.syncLog || []).map(e => ({ ...e, _kind: 'sync' }));
-              const noteEntries  = (brain.notes   || []).map(e => ({ ...e, _kind: 'note' }));
-              const allEntries   = [...syncEntries, ...noteEntries].sort((a, b) => new Date(b.ts) - new Date(a.ts));
-              if (allEntries.length === 0) {
-                return <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>No history yet. Changes will appear here automatically.</p>;
-              }
-              const TYPE_COLOR = { auto: '#9ca3af', docs: '#60a5fa', sync: '#10b981', note: '#a78bfa', fix: '#4ade80', update: '#a78bfa', issue: '#fbbf24' };
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {allEntries.map((entry, i) => {
-                    if (entry._kind === 'sync') {
-                      return (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}44` }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: C.green, minWidth: 60, textTransform: 'uppercase', letterSpacing: '0.05em' }}>⟳ Sync</span>
-                          <span style={{ fontSize: 13, color: C.textSec, flex: 1 }}>
-                            +{entry.ingested} videos ingested{entry.errors > 0 ? ` · ${entry.errors} errors` : ''}{entry.channel ? ` · ${entry.channel}` : ''}
-                          </span>
-                          <span style={{ fontSize: 11, color: C.textMuted, flexShrink: 0 }}>{timeAgo(entry.ts)}</span>
-                        </div>
-                      );
-                    }
-                    const color = TYPE_COLOR[entry.type] || '#9ca3af';
-                    return (
-                      <div key={entry.id || i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}44` }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color, minWidth: 60, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{entry.type || 'note'}</span>
-                        <span style={{ fontSize: 13, color: C.textSec, flex: 1 }}>{entry.title}</span>
-                        <span style={{ fontSize: 11, color: C.textMuted, flexShrink: 0 }}>{timeAgo(entry.ts)}</span>
-                      </div>
-                    );
-                  })}
+          {(() => {
+            const changeCount = (brain.syncLog || []).length + (brain.notes || []).length;
+            const lastEntry   = [...(brain.syncLog || []), ...(brain.notes || [])].sort((a, b) => new Date(b.ts) - new Date(a.ts))[0];
+            return (
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>📋 Change History</h3>
+                    <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>
+                      {changeCount > 0
+                        ? `${changeCount} entr${changeCount !== 1 ? 'ies' : 'y'} · last change ${timeAgo(lastEntry?.ts)}`
+                        : 'Auto-logged — no changes recorded yet'}
+                    </p>
+                  </div>
+                  {changeCount > 0 && (
+                    <button onClick={() => setShowChangeLogModal(true)} style={{ ...btnSecondary, fontSize: 13, flexShrink: 0 }}>
+                      View Change Log →
+                    </button>
+                  )}
                 </div>
-              );
-            })()}
-          </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1615,7 +1788,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh }) {
 
 // ── Dashboard view ────────────────────────────────────────────────────────────
 
-function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId, onSyncBrain }) {
+function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId, onSyncBrain, onOpenModal }) {
   const [syncingId, setSyncingId] = useState(null);
   const totalVideos   = brains.reduce((a, b) => a + (b.videoCount || 0), 0);
   const totalIndexed   = brains.reduce((a, b) => a + (b.docCount || 0), 0);
@@ -1737,15 +1910,15 @@ function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId,
 
                 {/* Footer links */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
-                  {b.autoDocs && (
-                    <span style={{ fontSize: 12, fontWeight: 600, color: C.blue, padding: '3px 8px', borderRadius: 6, background: `${C.blue}18`, border: `1px solid ${C.blue}33` }}>
-                      📄 Docs
-                    </span>
+                  {(b.docsHistory?.length > 0 || b.autoDocs) && (
+                    <button onClick={e => { e.stopPropagation(); onOpenModal ? onOpenModal(b.brainId, 'docs') : onSelectBrain(b.brainId); }} style={{ fontSize: 12, fontWeight: 600, color: C.blue, padding: '3px 8px', borderRadius: 6, background: `${C.blue}18`, border: `1px solid ${C.blue}33`, cursor: 'pointer' }}>
+                      📄 Docs{b.docsHistory?.length ? ` · v${b.docsHistory.length}` : ''}
+                    </button>
                   )}
                   {((b.notes || []).length > 0 || (b.syncLog || []).length > 0) && (
-                    <span style={{ fontSize: 12, color: C.textMuted }}>
+                    <button onClick={e => { e.stopPropagation(); onOpenModal ? onOpenModal(b.brainId, 'changelog') : onSelectBrain(b.brainId); }} style={{ fontSize: 12, color: C.textMuted, padding: '3px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`, cursor: 'pointer' }}>
                       {((b.notes || []).length + (b.syncLog || []).length)} changes
-                    </span>
+                    </button>
                   )}
                   <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
                     {b.autoSync && (
@@ -2299,6 +2472,7 @@ export default function Brain() {
   // Brain detail state
   const [selectedBrain, setSelectedBrain] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(!!selectedId);
+  const [pendingModal,  setPendingModal]  = useState(null);
 
   const loadBrains = useCallback(async (silent = false) => {
     if (!locationId) return;
@@ -2342,6 +2516,11 @@ export default function Brain() {
 
   function handleSelectBrain(brainId) {
     setSearchParams({ tab: 'detail', brain: brainId });
+  }
+
+  function handleOpenBrainModal(brainId, modal) {
+    setPendingModal(modal);
+    handleSelectBrain(brainId);
   }
 
   async function handleCreate(opts) {
@@ -2411,7 +2590,7 @@ export default function Brain() {
         )}
 
         {activeTab === 'dashboard' && (
-          <DashboardView brains={brains} loading={loadingBrains} onAddBrain={() => setShowCreate(true)} onSelectBrain={handleSelectBrain} locationId={locationId} onSyncBrain={() => loadBrains(true)} />
+          <DashboardView brains={brains} loading={loadingBrains} onAddBrain={() => setShowCreate(true)} onSelectBrain={handleSelectBrain} locationId={locationId} onSyncBrain={() => loadBrains(true)} onOpenModal={handleOpenBrainModal} />
         )}
 
         {activeTab === 'pipeline' && (
@@ -2436,6 +2615,8 @@ export default function Brain() {
                 onBack={handleBack}
                 onDeleted={handleDeleted}
                 onRefresh={loadBrains}
+                initialModal={pendingModal}
+                onModalOpened={() => setPendingModal(null)}
               />
             )}
             {!loadingDetail && !selectedBrain && (
