@@ -4,8 +4,9 @@ import { useApp }          from '../context/AppContext';
 import { useStreamFetch }  from '../hooks/useStreamFetch';
 import AuthGate      from '../components/AuthGate';
 import Header        from '../components/Header';
-import StreamOutput  from '../components/StreamOutput';
-import Spinner       from '../components/Spinner';
+import StreamOutput         from '../components/StreamOutput';
+import Spinner              from '../components/Spinner';
+import SelfImprovementPanel from '../components/SelfImprovementPanel';
 
 // ── Voice input hook (Web Speech API) ────────────────────────────────────────
 function useVoice(onTranscript) {
@@ -159,6 +160,10 @@ export default function GHLAssistant() {
   const [trainLoading,  setTrainLoading]  = useState(false);
   const [trainGenerated,setTrainGenerated]= useState('');     // finalized persona text
   const [trainSaveTitle,setTrainSaveTitle]= useState('');
+  // ── Brain-to-persona ──────────────────────────────────────────────────────
+  const [brains,        setBrains]        = useState([]);
+  const [trainBrainId,  setTrainBrainId]  = useState('');
+  const [brainLoading,  setBrainLoading]  = useState(false);
   const { isRunning, stream, stop } = useStreamFetch();
   const [slashOpen,   setSlashOpen]   = useState(false);
   const [slashFilter, setSlashFilter] = useState('');
@@ -230,9 +235,52 @@ export default function GHLAssistant() {
   useEffect(() => { if (apiKey) loadLibrary(); }, [apiKey, loadLibrary]);
   useEffect(() => { if (showLibrary) loadLibrary(); }, [showLibrary, loadLibrary]);
 
+  // ── Load available brains (for training brain-picker) ─────────────────────
+  const loadBrains = useCallback(async () => {
+    if (!apiKey) return;
+    try {
+      const res  = await fetch('/brain/list', { headers: { 'x-location-id': apiKey } });
+      const data = await res.json();
+      if (data.success) setBrains(data.data || []);
+    } catch { /* non-fatal */ }
+  }, [apiKey]);
+
+  useEffect(() => { if (showLibrary) loadBrains(); }, [showLibrary, loadBrains]);
+
+  // ── Apply an existing brain as persona (skips training Q&A) ───────────────
+  const applyBrainAsPersona = useCallback(async () => {
+    if (!trainBrainId) return;
+    setBrainLoading(true);
+    try {
+      const res  = await fetch(`/brain/${trainBrainId}`, { headers: { 'x-location-id': apiKey } });
+      const data = await res.json();
+      if (data.success) {
+        const b = data.data;
+        const docs = (b.documents || [])
+          .slice(0, 8)
+          .map(d => `- ${d.title || d.name || 'Document'}${d.summary ? ': ' + d.summary.slice(0, 200) : ''}`)
+          .join('\n');
+        const persona = [
+          `You are a knowledgeable expert assistant powered by the "${b.name}" brain.`,
+          b.description ? `Context: ${b.description}` : '',
+          docs ? `\nKey knowledge areas:\n${docs}` : '',
+          '\nWhen answering, draw from this knowledge base. Be accurate, helpful, and concise.',
+        ].filter(Boolean).join('\n');
+        setTrainGenerated(persona);
+        setTrainSaveTitle(b.name);
+        setTrainBrainId('');
+      }
+    } catch { /* non-fatal */ }
+    setBrainLoading(false);
+  }, [trainBrainId, apiKey]);
+
   const run = useCallback(async (taskText) => {
     if (!taskText.trim() || isRunning) return;
-    setMessages([]);
+    // Append user message then stream AI reply into messages
+    setMessages(prev => [
+      ...prev,
+      { type: 'user', text: taskText.trim() },
+    ]);
     const fullTask = activePersona
       ? `[System Context — ${activePersona.title}]:\n${activePersona.content}\n\n---\n\n${taskText.trim()}`
       : taskText.trim();
@@ -480,7 +528,12 @@ export default function GHLAssistant() {
     return found ? found.task(args) : trimmed;
   }
 
-  const handleSubmit = () => { run(resolveSlashTask(task)); };
+  const handleSubmit = () => {
+    const resolved = resolveSlashTask(task);
+    if (!resolved.trim()) return;
+    run(resolved);
+    setTask('');
+  };
 
   function handleTaskChange(e) {
     const val = e.target.value;
@@ -696,6 +749,22 @@ export default function GHLAssistant() {
             voice={{ listening, supported: voiceSupported, toggle: toggleVoice, elapsed, liveText }}
           />
 
+          {/* Auto-improve panel — appears after AI replies */}
+          {!isRunning && messages.some(m => m.type === 'text') && (
+            <SelfImprovementPanel
+              type="brain_answer"
+              artifact={messages.filter(m => m.type === 'text').map(m => m.text).join('\n\n').trim().slice(0, 4000)}
+              context={{ task }}
+              label="AI Response"
+              autoStart={true}
+              continuous={true}
+              onApply={(improved) => setMessages(prev => {
+                const nonText = prev.filter(m => m.type !== 'text');
+                return [...nonText, { type: 'text', text: improved }];
+              })}
+            />
+          )}
+
           {/* ── Prompt Library trigger + active persona bar ── */}
           <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0"
             style={{ borderTop: '1px solid rgba(99,102,241,0.2)', background: 'rgba(99,102,241,0.06)' }}>
@@ -807,6 +876,25 @@ export default function GHLAssistant() {
                       <button onClick={exitTraining}
                         className="text-xs text-gray-500 hover:text-gray-300">✕ Exit</button>
                     </div>
+
+                    {/* Brain picker — use existing brain as persona without training */}
+                    {brains.length > 0 && !trainGenerated && (
+                      <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0"
+                        style={{ borderBottom: '1px solid rgba(168,85,247,0.15)', background: 'rgba(168,85,247,0.04)' }}>
+                        <span className="text-xs text-purple-300 whitespace-nowrap">🧠 Use brain:</span>
+                        <select value={trainBrainId} onChange={e => setTrainBrainId(e.target.value)}
+                          className="field flex-1 text-xs py-1">
+                          <option value="">Select brain…</option>
+                          {brains.map(b => <option key={b.brainId} value={b.brainId}>{b.name}</option>)}
+                        </select>
+                        {trainBrainId && (
+                          <button onClick={applyBrainAsPersona} disabled={brainLoading}
+                            className="btn-primary text-xs px-3 py-1.5 whitespace-nowrap flex-shrink-0">
+                            {brainLoading ? '…' : '→ Apply'}
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {trainGenerated ? (
                       /* Generated persona — review + save */

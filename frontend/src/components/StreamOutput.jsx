@@ -174,6 +174,22 @@ export default function StreamOutput({ messages = [], isRunning = false, placeho
 
 function Block({ msg }) {
   switch (msg.type) {
+    case 'user':
+      return (
+        <div className="fade-up flex justify-end">
+          <div style={{
+            maxWidth: '82%', background: 'rgba(99,102,241,0.18)',
+            border: '1px solid rgba(99,102,241,0.3)',
+            borderRadius: '14px 14px 4px 14px',
+            padding: '.5rem .75rem',
+            fontSize: '.8125rem', color: '#c7d2fe', lineHeight: '1.55',
+            wordBreak: 'break-word', whiteSpace: 'pre-wrap',
+          }}>
+            {msg.text}
+          </div>
+        </div>
+      );
+
     case 'text':
       return (
         <div className="fade-up" style={{ borderLeft: '2px solid #6366f1', paddingLeft: '.75rem' }}>
