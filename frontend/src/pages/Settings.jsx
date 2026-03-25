@@ -22,6 +22,7 @@ import Header       from '../components/Header';
 import Spinner      from '../components/Spinner';
 import { INTEGRATIONS } from '../lib/integrations';
 import { api }      from '../lib/api';
+import Billing      from './Billing';
 
 // ── OAuth popup helper ────────────────────────────────────────────────────────
 // Opens a platform OAuth popup and resolves with the postMessage payload.
@@ -58,6 +59,7 @@ export default function Settings() {
   const [tokenStatus, setTokenStatus] = useState(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [tierInfo,     setTierInfo]     = useState(null); // { tier, tierConfig, data (per key) }
+  const [settingsTab,  setSettingsTab]  = useState('integrations');
 
   // Anthropic key state
   const [anthropicKey,     setAnthropicKey]     = useState('');
@@ -271,10 +273,131 @@ export default function Settings() {
 
   const needsReconnect = tokenStatus?.tokenStatus === 'idle' || tokenStatus?.tokenStatus === 'expired';
 
+  const SETTINGS_TABS = [
+    { key: 'integrations', label: '🔗 Integrations' },
+    { key: 'profile',      label: '👤 Profile'      },
+    { key: 'billing',      label: '💳 Billing'      },
+  ];
+
   return (
     <div className="flex flex-col min-h-screen" style={{ background: '#0f0f13' }}>
-      <Header icon="⚙️" title="Integration Hub" subtitle="Connect APIs · Sync Tools · Power Claude" />
+      <Header icon="⚙️" title="Settings" subtitle="Integrations · Profile · Billing" />
 
+      {/* ── Tab bar ── */}
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        padding: '0 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.07)',
+        flexShrink: 0,
+        background: '#0f0f13',
+      }}>
+        {SETTINGS_TABS.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setSettingsTab(key)}
+            style={{
+              padding: '11px 18px',
+              fontSize: 13, fontWeight: 500,
+              border: 'none',
+              borderBottom: `2px solid ${settingsTab === key ? '#6366f1' : 'transparent'}`,
+              cursor: 'pointer',
+              transition: 'color .15s, border-color .15s',
+              background: 'transparent',
+              color: settingsTab === key ? '#a5b4fc' : '#6b7280',
+              marginBottom: -1,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Billing tab ── */}
+      {settingsTab === 'billing' && (
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          <Billing />
+        </div>
+      )}
+
+      {/* ── Profile tab ── */}
+      {settingsTab === 'profile' && (
+        <main className="flex-1 overflow-y-auto p-4 md:p-6" style={{ maxWidth: '60rem', margin: '0 auto', width: '100%' }}>
+          <div className="space-y-6">
+
+            {/* Location card */}
+            <div className="glass rounded-2xl p-6" style={{ border: '1px solid rgba(99,102,241,0.2)' }}>
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-2xl">👤</span>
+                <div>
+                  <h2 className="font-bold text-white">Profile</h2>
+                  <p className="text-xs text-gray-500">Your location and connection details</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="text-sm text-gray-400">Location ID</span>
+                  <span className="text-sm font-mono text-gray-300">{locationId || '—'}</span>
+                </div>
+                {tierInfo && (
+                  <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span className="text-sm text-gray-400">Plan</span>
+                    <span className="text-sm text-white capitalize font-medium">{tierInfo.tier || 'bronze'}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="text-sm text-gray-400">AI Provider</span>
+                  <span className="text-sm text-white">
+                    {aiProvider === 'google' ? 'Gemini 2.5 Flash'
+                      : aiProvider === 'openai' ? 'GPT-4o-mini'
+                      : aiProvider === 'groq'   ? 'Groq Llama 3.3 70B'
+                      : 'Claude Opus 4.6'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-3">
+                  <span className="text-sm text-gray-400">AI Status</span>
+                  <span className={`text-sm font-medium ${claudeReady ? 'text-green-400' : 'text-yellow-400'}`}>
+                    {claudeReady ? '✓ Active' : '⚠ Key required'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* GHL Sidebar URL */}
+            <div className="glass rounded-2xl p-6" style={{ border: '1px solid rgba(99,102,241,0.2)' }}>
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-lg">🔗</span>
+                    <h2 className="font-bold text-white">GHL Sidebar Link</h2>
+                  </div>
+                  <p className="text-sm text-gray-400">
+                    Add this URL as a Custom Link in GHL → Settings → Custom Links to embed this hub in the sidebar.
+                  </p>
+                </div>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/ui`); showToast('Sidebar URL copied!', true); }}
+                  className="btn-primary px-4 py-2 gap-2 whitespace-nowrap flex-shrink-0"
+                >
+                  📋 Copy URL
+                </button>
+              </div>
+              <div
+                className="rounded-xl px-4 py-3 text-sm break-all"
+                style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', color: '#a5b4fc' }}
+              >
+                {`${window.location.origin}/ui`}
+              </div>
+              <p className="text-xs text-gray-500 mt-3">
+                In GHL: <strong className="text-gray-400">Settings → Custom Links → Add Link</strong> → paste URL above → set display as iFrame.
+              </p>
+            </div>
+
+          </div>
+        </main>
+      )}
+
+      {/* ── Integrations tab ── */}
+      {settingsTab === 'integrations' && (
       <main className="flex-1 overflow-y-auto p-4 md:p-6" style={{ maxWidth: '72rem', margin: '0 auto', width: '100%' }}>
 
         {/* ── Token status banner (shows when idle/expired) ─────────────── */}

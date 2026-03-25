@@ -800,20 +800,6 @@ async function fetchYoutubeTranscript(videoId, locationId) {
     return { ...parsed, lengthSecs, viewCount, publishDate };
   }
 
-  // Helper: get video metadata from youtubei.js (works even when captions don't)
-  let ytMeta = null;
-  try {
-    const Innertube = await getInnertube();
-    const yt = await Innertube.create({ retrieve_player: true });
-    const info = await yt.getInfo(videoId);
-    ytMeta = {
-      title:       info.basic_info?.title || null,
-      lengthSecs:  parseInt(info.basic_info?.duration || 0, 10),
-      viewCount:   parseInt(info.basic_info?.view_count || 0, 10),
-      publishDate: info.primary_info?.published?.text || null,
-    };
-  } catch (e) { console.warn(tag, 'metadata fetch failed:', e.message); }
-
   // ── Approach 1: Supadata API (third-party transcript service — most reliable) ──
   const SUPADATA_KEY = process.env.SUPADATA_API_KEY;
   if (SUPADATA_KEY) {
@@ -829,30 +815,16 @@ async function fetchYoutubeTranscript(videoId, locationId) {
       const data = await res.json();
       const content = data.content;
       if (typeof content === 'string' && content.length > 20) {
-        // text=true returns plain text
         console.log(tag, 'Supadata: got plain text transcript, length:', content.length);
-        return {
-          transcript: content,
-          title: ytMeta?.title || null,
-          lengthSecs: ytMeta?.lengthSecs || 0,
-          viewCount: ytMeta?.viewCount || 0,
-          publishDate: ytMeta?.publishDate || null,
-        };
+        return { transcript: content, title: data.title || null, lengthSecs: 0, viewCount: 0, publishDate: null };
       }
       if (Array.isArray(content) && content.length > 0) {
-        // content is array of {text, offset, duration}
         const lines = content.map(s => (s.text || '').trim()).filter(Boolean);
         if (lines.length > 0) {
           const paragraphs = [];
           for (let i = 0; i < lines.length; i += 10) paragraphs.push(lines.slice(i, i + 10).join(' '));
           console.log(tag, 'Supadata: got transcript:', lines.length, 'segments');
-          return {
-            transcript: paragraphs.join('\n\n'),
-            title: ytMeta?.title || null,
-            lengthSecs: ytMeta?.lengthSecs || 0,
-            viewCount: ytMeta?.viewCount || 0,
-            publishDate: ytMeta?.publishDate || null,
-          };
+          return { transcript: paragraphs.join('\n\n'), title: data.title || null, lengthSecs: 0, viewCount: 0, publishDate: null };
         }
       }
       console.warn(tag, 'Supadata: empty transcript response');
