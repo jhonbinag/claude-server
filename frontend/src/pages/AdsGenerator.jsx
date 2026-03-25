@@ -483,11 +483,14 @@ export default function AdsGenerator() {
               </div>
             )}
 
-            {/* Self-improvement panel — appears after generation completes */}
+            {/* Self-improvement panel — auto-starts 3s after generation */}
             {ads.length > 0 && !isRunning && (
               <SelfImprovementPanel
                 type="ad_copy"
                 artifact={[ads[0]?.hook, ads[0]?.body, ads[0]?.cta].filter(Boolean).join('\n\n')}
+                context={{ keywords, tone, format, offer, targetAudience }}
+                autoStart={true}
+                continuous={true}
                 onApply={(improved) => {
                   const lines = improved.split('\n\n');
                   setAds(prev => prev.map((ad, i) => i === 0 ? { ...ad, hook: lines[0] || ad.hook, body: lines[1] || ad.body, cta: lines[2] || ad.cta } : ad));

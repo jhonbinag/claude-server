@@ -3,8 +3,9 @@ import { useApp }         from '../context/AppContext';
 import { useStreamFetch } from '../hooks/useStreamFetch';
 import AuthGate     from '../components/AuthGate';
 import Header       from '../components/Header';
-import StreamOutput from '../components/StreamOutput';
-import Spinner      from '../components/Spinner';
+import StreamOutput        from '../components/StreamOutput';
+import Spinner             from '../components/Spinner';
+import SelfImprovementPanel from '../components/SelfImprovementPanel';
 
 // ─── Static data ──────────────────────────────────────────────────────────────
 
@@ -729,6 +730,27 @@ export default function CampaignBuilder() {
               <button onClick={stop} className="btn-ghost px-4 py-2 text-sm">Stop</button>
             </div>
           )}
+          {/* Auto-improve campaign copy after streaming completes */}
+          {!isRunning && messages.length > 0 && (() => {
+            const text = messages.filter(m => m.type === 'text').map(m => m.text).join('').trim();
+            if (!text) return null;
+            return (
+              <div className="p-4 flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <SelfImprovementPanel
+                  type={emailSeq.enabled ? 'manychat_message' : 'funnel_page'}
+                  artifact={text.slice(0, 4000)}
+                  context={{ campaignName, offer, audience, tone, contentType }}
+                  label="Campaign Copy"
+                  autoStart={true}
+                  continuous={true}
+                  onApply={(improved) => setMessages(prev => {
+                    const nonText = prev.filter(m => m.type !== 'text');
+                    return [...nonText, { type: 'text', text: improved }];
+                  })}
+                />
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

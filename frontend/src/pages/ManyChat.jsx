@@ -433,7 +433,7 @@ export default function ManyChat() {
                   ))}
                 </div>
 
-                {/* Self-improvement panel */}
+                {/* Self-improvement panel — auto-starts 3s after generation */}
                 <SelfImprovementPanel
                   type="manychat_message"
                   artifact={(sequence.sequence || []).map((s, i) =>
@@ -441,6 +441,8 @@ export default function ManyChat() {
                   ).join('\n\n---\n\n')}
                   context={{ topic: sequence.topic }}
                   label="Message Sequence"
+                  autoStart={true}
+                  continuous={true}
                   onApply={(improved) => {
                     // Parse improved back into sequence steps
                     const steps = improved.split(/\n---\n/).map((block, i) => {

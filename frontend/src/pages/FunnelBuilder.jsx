@@ -90,6 +90,7 @@ export default function FunnelBuilder() {
   const [emailGenerating, setEmailGenerating] = useState(false);
   const [emailResult,   setEmailResult]   = useState(null);
   const [emailLog,      setEmailLog]      = useState([]);
+  const [figmaSpec,     setFigmaSpec]     = useState('');
 
   // Website builder state
   const [websites,        setWebsites]        = useState([]);
@@ -387,6 +388,8 @@ export default function FunnelBuilder() {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: d.warning ? 'warn' : 'done', sectionsCount: d.sectionsCount, pageType: d.pageType, warning: d.warning } : p));
             } else if (eventLine === 'page_error') {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
+            } else if (eventLine === 'figma_spec') {
+              if (d.spec) setFigmaSpec(d.spec);
             } else if (eventLine === 'complete') {
               toast(setToastState, `Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
               if (d.previewUrl) window.open(d.previewUrl, '_blank');
@@ -936,6 +939,22 @@ export default function FunnelBuilder() {
                       </div>
                     )}
                   </div>
+                )}
+                {/* Auto-improve email copy */}
+                {emailResult?.content && (emailResult.content.headline || emailResult.content.body) && (
+                  <SelfImprovementPanel
+                    type="funnel_page"
+                    artifact={[
+                      emailResult.content.subject  && `Subject: ${emailResult.content.subject}`,
+                      emailResult.content.headline && `Headline: ${emailResult.content.headline}`,
+                      emailResult.content.body,
+                    ].filter(Boolean).join('\n\n')}
+                    context={{ niche: emailNiche, offer: emailOffer, audience: emailAudience }}
+                    label="Email Copy"
+                    autoStart={true}
+                    continuous={true}
+                    onApply={(improved) => setEmailResult(r => ({ ...r, content: { ...r.content, body: improved } }))}
+                  />
                 )}
               </section>
             </div>
@@ -1789,7 +1808,27 @@ export default function FunnelBuilder() {
             </section>
           )}
 
-          {/* ── Result ──────────────────────────────────────────────────── */}
+          {/* ── Auto-improve funnel copy after generation ────────────── */}
+          {!generating && !analyzing && funnelPages.some(p => p.status === 'done') && (niche || offer) && (
+            <section className="glass rounded-xl p-5 mb-5">
+              <SelfImprovementPanel
+                type="funnel_page"
+                artifact={[
+                  niche  && `Business / Niche: ${niche}`,
+                  offer  && `Offer: ${offer}`,
+                  audience && `Audience: ${audience}`,
+                  ...funnelPages.filter(p => p.status === 'done').map(p => `Page: ${p.name}${p.pageType ? ` (${p.pageType})` : ''}`),
+                  figmaSpec && `\nDesign spec:\n${figmaSpec.slice(0, 1200)}`,
+                ].filter(Boolean).join('\n')}
+                context={{ niche, offer, audience: audience || undefined, figmaSpec: figmaSpec || undefined }}
+                label="Funnel Copy"
+                autoStart={true}
+                continuous={true}
+              />
+            </section>
+          )}
+
+          {/* ── Result (legacy — kept for type safety) ──────────────────── */}
           {result && (
             <section className="glass rounded-xl p-5 mb-5">
               <h2 className="text-sm font-semibold text-white mb-3">
@@ -1851,15 +1890,6 @@ export default function FunnelBuilder() {
             </section>
           )}
 
-          {/* Self-improvement panel — appears after page is generated */}
-          {result && (
-            <SelfImprovementPanel
-              type="funnel_page"
-              artifact={JSON.stringify(result.pageJson || result.ghlResponse || {}, null, 2)}
-              context={{ niche, offer }}
-              label="Funnel Page Copy"
-            />
-          )}
 
           {/* ── How it works ────────────────────────────────────────────── */}
           <section className="glass rounded-xl p-5">

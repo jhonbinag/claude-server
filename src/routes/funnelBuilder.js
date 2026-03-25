@@ -1625,6 +1625,7 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
   let isMultiFrame    = false;  // true when we have N frames → N pages
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  let figmaSpecSent = false; // send figma_spec event only once (first frame)
 
   /**
    * Load a single Figma frame: export PNG + extract spec + upload images.
@@ -1650,6 +1651,8 @@ router.post('/generate-from-design', upload.single('image'), async (req, res) =>
     figmaContent  = content;
     if (content.spec) {
       send('log', { msg: `${logPrefix}Spec: ${content.texts.length} texts, ${content.colors.length} colors, ${content.imageNodes.length} images`, level: 'success' });
+      // Send full spec to frontend for auto-improve context (only first frame)
+      if (!figmaSpecSent) { figmaSpecSent = true; send('figma_spec', { spec: content.spec, colors: content.colors }); }
     } else {
       send('log', { msg: `${logPrefix}Spec unavailable — using image-only mode`, level: 'warn' });
     }
