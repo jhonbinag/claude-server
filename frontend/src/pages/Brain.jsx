@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import Header from '../components/Header';
+import SelfImprovementPanel from '../components/SelfImprovementPanel';
 
 // ── API helper ────────────────────────────────────────────────────────────────
 
@@ -1817,6 +1818,16 @@ function SearchView({ brains, locationId }) {
             {asking && <span style={{ display: 'inline-block', width: 2, height: '1em', background: C.blue, marginLeft: 2, animation: 'pulse 1s ease-in-out infinite', verticalAlign: 'text-bottom' }} />}
           </div>
         </div>
+      )}
+
+      {/* Self-improvement panel — appears after answer streams in */}
+      {answer && !asking && (
+        <SelfImprovementPanel
+          type="brain_answer"
+          artifact={answer}
+          context={{ query }}
+          onApply={(improved) => setAnswer(improved)}
+        />
       )}
 
       {/* No context */}

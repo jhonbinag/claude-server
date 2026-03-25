@@ -11,11 +11,12 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useApp }  from '../context/AppContext';
-import AuthGate    from '../components/AuthGate';
-import Header      from '../components/Header';
-import Spinner     from '../components/Spinner';
-import { api }     from '../lib/api';
+import { useApp }              from '../context/AppContext';
+import AuthGate                from '../components/AuthGate';
+import Header                  from '../components/Header';
+import Spinner                 from '../components/Spinner';
+import { api }                 from '../lib/api';
+import SelfImprovementPanel    from '../components/SelfImprovementPanel';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1848,6 +1849,16 @@ export default function FunnelBuilder() {
                 </pre>
               </div>
             </section>
+          )}
+
+          {/* Self-improvement panel — appears after page is generated */}
+          {result && (
+            <SelfImprovementPanel
+              type="funnel_page"
+              artifact={JSON.stringify(result.pageJson || result.ghlResponse || {}, null, 2)}
+              context={{ niche, offer }}
+              label="Funnel Page Copy"
+            />
           )}
 
           {/* ── How it works ────────────────────────────────────────────── */}

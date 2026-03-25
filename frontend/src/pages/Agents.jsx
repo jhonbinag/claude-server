@@ -7,10 +7,11 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useApp }   from '../context/AppContext';
-import AuthGate     from '../components/AuthGate';
-import Header       from '../components/Header';
-import Spinner      from '../components/Spinner';
+import { useApp }              from '../context/AppContext';
+import AuthGate                from '../components/AuthGate';
+import Header                  from '../components/Header';
+import Spinner                 from '../components/Spinner';
+import SelfImprovementPanel    from '../components/SelfImprovementPanel';
 
 // ── Pre-built templates ───────────────────────────────────────────────────────
 
@@ -613,6 +614,16 @@ export default function Agents() {
                 placeholder="Step-by-step instructions this agent follows when given a task. Be specific — include GHL-specific actions, copy rules, output format..."
                 className="field text-xs w-full resize-none" rows={8} />
             </div>
+
+            {/* Self-improvement panel for instructions */}
+            {form.instructions.trim().length > 50 && (
+              <SelfImprovementPanel
+                type="agent_prompt"
+                artifact={form.instructions}
+                context={{ agentName: form.name }}
+                onApply={(improved) => setForm(f => ({ ...f, instructions: improved }))}
+              />
+            )}
 
             {/* Actions */}
             <div className="flex justify-end gap-3 pt-1">

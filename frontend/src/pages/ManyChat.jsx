@@ -13,8 +13,9 @@
  */
 
 import { useState, useEffect } from 'react';
-import Header from '../components/Header';
-import { api }  from '../lib/api';
+import Header                  from '../components/Header';
+import { api }                 from '../lib/api';
+import SelfImprovementPanel    from '../components/SelfImprovementPanel';
 
 const CHANNEL_OPTS = [
   { value: 'messenger',  label: '💬 Messenger' },
@@ -431,6 +432,31 @@ export default function ManyChat() {
                     />
                   ))}
                 </div>
+
+                {/* Self-improvement panel */}
+                <SelfImprovementPanel
+                  type="manychat_message"
+                  artifact={(sequence.sequence || []).map((s, i) =>
+                    `Step ${i + 1} (Day ${s.day} — ${s.channel})\n${s.message}${s.cta ? '\nCTA: ' + s.cta : ''}`
+                  ).join('\n\n---\n\n')}
+                  context={{ topic: sequence.topic }}
+                  label="Message Sequence"
+                  onApply={(improved) => {
+                    // Parse improved back into sequence steps
+                    const steps = improved.split(/\n---\n/).map((block, i) => {
+                      const lines = block.trim().split('\n');
+                      const header = lines[0] || '';
+                      const dayMatch = header.match(/Day (\d+)/);
+                      const chanMatch = header.match(/— (.+)\)/);
+                      const ctaIdx = lines.findIndex(l => l.startsWith('CTA:'));
+                      const msg = lines.slice(1, ctaIdx > 0 ? ctaIdx : undefined).join('\n').trim();
+                      const cta = ctaIdx > 0 ? lines[ctaIdx].replace('CTA:', '').trim() : '';
+                      const orig = sequence.sequence[i] || {};
+                      return { ...orig, day: dayMatch ? parseInt(dayMatch[1]) : orig.day, channel: chanMatch ? chanMatch[1] : orig.channel, message: msg || orig.message, cta: cta || orig.cta };
+                    });
+                    setSequence(prev => ({ ...prev, sequence: steps }));
+                  }}
+                />
               </div>
             )}
           </div>

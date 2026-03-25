@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { useApp }         from '../context/AppContext';
-import { useStreamFetch } from '../hooks/useStreamFetch';
-import AuthGate  from '../components/AuthGate';
-import Header    from '../components/Header';
-import Spinner   from '../components/Spinner';
+import { useApp }                 from '../context/AppContext';
+import { useStreamFetch }         from '../hooks/useStreamFetch';
+import AuthGate                   from '../components/AuthGate';
+import Header                     from '../components/Header';
+import Spinner                    from '../components/Spinner';
+import SelfImprovementPanel       from '../components/SelfImprovementPanel';
 
 const FORMATS = [
   { value: 'feed',  label: '🖼️ Feed',  desc: '1200×628' },
@@ -480,6 +481,18 @@ export default function AdsGenerator() {
                     style={{ background: 'rgba(255,255,255,0.03)', animationDelay: `${i * 0.08}s` }} />
                 ))}
               </div>
+            )}
+
+            {/* Self-improvement panel — appears after generation completes */}
+            {ads.length > 0 && !isRunning && (
+              <SelfImprovementPanel
+                type="ad_copy"
+                artifact={[ads[0]?.hook, ads[0]?.body, ads[0]?.cta].filter(Boolean).join('\n\n')}
+                onApply={(improved) => {
+                  const lines = improved.split('\n\n');
+                  setAds(prev => prev.map((ad, i) => i === 0 ? { ...ad, hook: lines[0] || ad.hook, body: lines[1] || ad.body, cta: lines[2] || ad.cta } : ad));
+                }}
+              />
             )}
           </div>
         </div>
