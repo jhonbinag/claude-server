@@ -1,104 +1,210 @@
 /**
- * SelfImprovementPanel.jsx
+ * SelfImprovementPanel.jsx — autoresearch exploit-or-revert loop UI
  *
- * Implements the autoresearch exploit-or-revert loop in the UI:
- *   Score current artifact → Generate improvement → Score it
- *   → Keep if better, discard if not → Repeat N times
- *
- * Props:
- *   type       — 'ad_copy' | 'agent_prompt' | 'brain_answer' | 'funnel_page' | 'manychat_message'
- *   artifact   — string: the content to improve
- *   context    — object: extra context (e.g. { query } for brain_answer)
- *   onApply    — optional function(improved: string): called when user clicks Apply
- *   label      — optional display label (default inferred from type)
+ * Two separate AI roles are shown explicitly:
+ *   Haiku  → Fixed scorer  (fast, cheap, tamper-proof rubric)
+ *   Sonnet → Generator     (quality improvement, reads the ledger)
  */
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 
 const TYPE_LABELS = {
-  ad_copy:           'Ad Copy',
-  agent_prompt:      'Agent Instructions',
-  brain_answer:      'Answer',
-  funnel_page:       'Funnel Page Copy',
-  manychat_message:  'Message Sequence',
+  ad_copy:          'Ad Copy',
+  agent_prompt:     'Agent Instructions',
+  brain_answer:     'Answer',
+  funnel_page:      'Funnel Page Copy',
+  manychat_message: 'Message Sequence',
 };
 
-function ScoreBar({ score }) {
-  const color = score >= 80 ? '#4ade80' : score >= 60 ? '#facc15' : '#f87171';
-  const glow  = score >= 80 ? '#4ade8055' : score >= 60 ? '#facc1555' : '#f8717155';
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 99, overflow: 'hidden' }}>
-        <div style={{
-          width: `${score}%`, height: '100%', borderRadius: 99,
-          background: color, boxShadow: `0 0 6px ${glow}`,
-          transition: 'width .4s ease',
-        }} />
-      </div>
-      <span style={{ fontSize: 13, fontWeight: 700, color, minWidth: 38, textAlign: 'right' }}>{score}/100</span>
-    </div>
-  );
+// ── Animated number hook ──────────────────────────────────────────────────────
+function useCountUp(target, duration = 550) {
+  const [val, setVal] = useState(0);
+  const prev = useRef(0);
+
+  useEffect(() => {
+    if (target === null || target === undefined) return;
+    const from = prev.current;
+    prev.current = target;
+    if (from === target) return;
+
+    let start = null;
+    function tick(ts) {
+      if (!start) start = ts;
+      const t = Math.min((ts - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      setVal(Math.round(from + (target - from) * eased));
+      if (t < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }, [target, duration]);
+
+  return val;
 }
 
-function BreakdownRow({ label, val }) {
-  const color = val >= 16 ? '#4ade80' : val >= 12 ? '#facc15' : '#f87171';
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
-      <span style={{ color: 'var(--text-muted)', width: 110, flexShrink: 0, textTransform: 'capitalize' }}>{label}</span>
-      <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 99, overflow: 'hidden' }}>
-        <div style={{ width: `${(val / 20) * 100}%`, height: '100%', background: color, borderRadius: 99 }} />
-      </div>
-      <span style={{ color, fontSize: 10, minWidth: 28, textAlign: 'right', fontWeight: 600 }}>{val}/20</span>
-    </div>
-  );
-}
+// ── AI role chip ──────────────────────────────────────────────────────────────
+function RoleChip({ name, model, active, task }) {
+  const isHaiku  = model === 'haiku';
+  const color    = isHaiku ? '#60a5fa' : '#a78bfa';
+  const bg       = isHaiku ? 'rgba(96,165,250,0.1)' : 'rgba(167,139,250,0.1)';
+  const border   = isHaiku ? 'rgba(96,165,250,0.25)' : 'rgba(167,139,250,0.25)';
 
-function LedgerRow({ entry }) {
-  const kept = entry.decision === 'kept';
-  const delta = entry.newScore - entry.oldScore;
   return (
     <div style={{
-      display: 'flex', alignItems: 'flex-start', gap: 10,
-      padding: '8px 10px', borderRadius: 8,
-      background: kept ? 'rgba(74,222,128,0.05)' : 'rgba(248,113,113,0.05)',
-      border: `1px solid ${kept ? 'rgba(74,222,128,0.15)' : 'rgba(248,113,113,0.12)'}`,
-      marginBottom: 4,
+      display: 'flex', alignItems: 'center', gap: 6,
+      padding: '5px 9px', borderRadius: 7,
+      background: active ? bg : 'rgba(255,255,255,0.03)',
+      border: `1px solid ${active ? border : 'rgba(255,255,255,0.07)'}`,
+      opacity: active ? 1 : 0.4,
+      transition: 'all .25s ease',
+      flex: 1,
     }}>
-      <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{kept ? '✓' : '✗'}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4, marginBottom: 3 }}>
-          {entry.description}
+      {/* Pulsing dot */}
+      <span style={{
+        width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+        background: active ? color : 'rgba(255,255,255,0.2)',
+        boxShadow: active ? `0 0 6px ${color}` : 'none',
+        animation: active ? 'pulse 1.4s ease-in-out infinite' : 'none',
+      }} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: active ? color : 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', lineHeight: 1.2 }}>
+          {name}
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>#{entry.iteration}</span>
-          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{entry.oldScore} → {entry.newScore}</span>
-          <span style={{
-            fontSize: 10, fontWeight: 700,
-            color: delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : '#9ca3af',
-          }}>
-            {delta > 0 ? `+${delta}` : delta}
-          </span>
-          <span style={{
-            marginLeft: 'auto', fontSize: 9, fontWeight: 700,
-            color: kept ? '#4ade80' : '#f87171',
-            textTransform: 'uppercase', letterSpacing: '0.05em',
-          }}>{entry.decision}</span>
+        <div style={{ fontSize: 9, color: active ? 'var(--text-secondary)' : 'var(--text-muted)', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {active ? task : (model === 'haiku' ? 'claude-haiku-4-5' : 'claude-sonnet-4-6')}
         </div>
       </div>
     </div>
   );
 }
 
+// ── Score display with animated bar ──────────────────────────────────────────
+function ScoreDisplay({ scoreData, label }) {
+  const animated = useCountUp(scoreData?.score ?? 0);
+  const score    = scoreData?.score ?? 0;
+  const color    = score >= 80 ? '#4ade80' : score >= 60 ? '#facc15' : '#f87171';
+  const glow     = score >= 80 ? '#4ade8055' : score >= 60 ? '#facc1555' : '#f8717155';
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      {/* Score header row */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 7 }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          {label}
+        </span>
+        <span style={{
+          marginLeft: 'auto', fontSize: 18, fontWeight: 800, color,
+          fontVariantNumeric: 'tabular-nums',
+          textShadow: `0 0 12px ${glow}`,
+          transition: 'color .3s',
+        }}>
+          {animated}
+          <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-muted)', marginLeft: 2 }}>/100</span>
+        </span>
+      </div>
+
+      {/* Main bar */}
+      <div style={{ height: 5, background: 'rgba(255,255,255,0.07)', borderRadius: 99, overflow: 'hidden', marginBottom: 9 }}>
+        <div style={{
+          width: `${score}%`, height: '100%', borderRadius: 99,
+          background: `linear-gradient(90deg, ${color}99, ${color})`,
+          boxShadow: `0 0 8px ${glow}`,
+          transition: 'width .55s cubic-bezier(.4,0,.2,1)',
+        }} />
+      </div>
+
+      {/* Per-criterion breakdown */}
+      {scoreData?.breakdown && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {Object.entries(scoreData.breakdown).map(([k, v]) => {
+            const c = v >= 16 ? '#4ade80' : v >= 12 ? '#facc15' : '#f87171';
+            const pct = (v / 20) * 100;
+            return (
+              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span style={{ fontSize: 9, color: 'var(--text-muted)', width: 90, flexShrink: 0, textTransform: 'capitalize' }}>{k}</span>
+                <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', background: c, borderRadius: 99, transition: 'width .5s cubic-bezier(.4,0,.2,1)' }} />
+                </div>
+                <span style={{ fontSize: 9, color: c, minWidth: 24, textAlign: 'right', fontWeight: 700 }}>{v}/20</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Feedback note */}
+      {scoreData?.feedback && (
+        <div style={{ marginTop: 8, padding: '6px 9px', borderRadius: 7, background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.18)', fontSize: 9.5, color: '#fde68a', lineHeight: 1.5 }}>
+          <strong style={{ color: '#fbbf24' }}>{scoreData.weakest}</strong>
+          {' '}· {scoreData.feedback}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Ledger row ────────────────────────────────────────────────────────────────
+function LedgerRow({ entry, index }) {
+  const kept  = entry.decision === 'kept';
+  const crash = entry.decision === 'crash';
+  const delta = entry.newScore - entry.oldScore;
+  const bg     = kept ? 'rgba(74,222,128,0.04)' : crash ? 'rgba(251,191,36,0.04)' : 'rgba(248,113,113,0.04)';
+  const border = kept ? 'rgba(74,222,128,0.14)' : crash ? 'rgba(251,191,36,0.2)' : 'rgba(248,113,113,0.11)';
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 9px', borderRadius: 7, background: bg, border: `1px solid ${border}`, marginBottom: 3 }}>
+      {/* Index */}
+      <span style={{ fontSize: 9, color: 'var(--text-muted)', minWidth: 14, marginTop: 1, flexShrink: 0 }}>#{entry.iteration}</span>
+
+      {/* Description + models */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 9.5, color: 'var(--text-secondary)', lineHeight: 1.4, marginBottom: 3 }}>
+          {entry.description}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {/* Sonnet badge */}
+          <span style={{ fontSize: 8.5, color: '#a78bfa', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)', borderRadius: 4, padding: '1px 5px' }}>
+            Sonnet
+          </span>
+          {/* Arrow */}
+          <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>→</span>
+          {/* Haiku badge */}
+          <span style={{ fontSize: 8.5, color: '#60a5fa', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 4, padding: '1px 5px' }}>
+            Haiku
+          </span>
+          {/* Score delta */}
+          {!crash && (
+            <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2 }}>
+              {entry.oldScore} → {entry.newScore}
+              <span style={{ marginLeft: 4, fontWeight: 700, color: delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : '#9ca3af' }}>
+                {delta > 0 ? `+${delta}` : delta === 0 ? '±0' : delta}
+              </span>
+            </span>
+          )}
+          {/* Decision badge */}
+          <span style={{
+            marginLeft: 'auto', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+            color: kept ? '#4ade80' : crash ? '#fbbf24' : '#f87171',
+          }}>
+            {kept ? '✓ kept' : crash ? '⚠ crash' : '✗ discarded'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function SelfImprovementPanel({ type, artifact, context = {}, onApply, label }) {
   const { locationId } = useApp();
-  const [phase,        setPhase]        = useState('idle');   // idle | running | done | error
-  const [scoreData,    setScoreData]    = useState(null);     // current score + breakdown
+  const [phase,        setPhase]        = useState('idle');
+  const [activeRole,   setActiveRole]   = useState(null);   // 'haiku' | 'sonnet' | null
+  const [roleTask,     setRoleTask]     = useState('');
+  const [scoreData,    setScoreData]    = useState(null);
   const [ledger,       setLedger]       = useState([]);
   const [bestArtifact, setBestArtifact] = useState('');
   const [bestScore,    setBestScore]    = useState(null);
   const [iterations,   setIterations]   = useState(3);
-  const [statusMsg,    setStatusMsg]    = useState('');
   const [error,        setError]        = useState('');
   const [expanded,     setExpanded]     = useState(false);
   const abortRef = useRef(false);
@@ -107,9 +213,9 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
 
   async function apiFetch(path, body) {
     const res = await fetch(path, {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
-      body:    JSON.stringify(body),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
@@ -126,8 +232,8 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
     const localLedger = [];
 
     try {
-      // ── Step 0: score baseline ──────────────────────────────────────────
-      setStatusMsg('Scoring current version…');
+      // ── Baseline score ──────────────────────────────────────────────────
+      setActiveRole('haiku'); setRoleTask('Scoring baseline…');
       const baseline = await apiFetch('/improve/score', { type, artifact, context });
       setScoreData(baseline);
       setBestArtifact(artifact);
@@ -136,11 +242,12 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
       let current     = artifact;
       let currentData = baseline;
 
-      // ── Exploit-or-revert loop (autoresearch pattern) ───────────────────
+      // ── Exploit-or-revert loop ──────────────────────────────────────────
       for (let i = 0; i < iterations; i++) {
         if (abortRef.current) break;
 
-        setStatusMsg(`Iteration ${i + 1}/${iterations} — generating improvement…`);
+        // Sonnet generates improvement
+        setActiveRole('sonnet'); setRoleTask(`Iter ${i + 1}/${iterations} — writing improvement…`);
         let genResult;
         try {
           genResult = await apiFetch('/improve/generate', {
@@ -148,19 +255,20 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
             score: currentData.score, weakest: currentData.weakest,
             feedback: currentData.feedback, ledger: localLedger,
           });
-        } catch (genErr) {
-          localLedger.push({ iteration: i + 1, description: `Generation failed: ${genErr.message}`, oldScore: currentData.score, newScore: 0, decision: 'crash' });
+        } catch (e) {
+          localLedger.push({ iteration: i + 1, description: `Generation failed: ${e.message}`, oldScore: currentData.score, newScore: 0, decision: 'crash' });
           setLedger([...localLedger]);
           continue;
         }
 
         if (abortRef.current) break;
 
-        setStatusMsg(`Iteration ${i + 1}/${iterations} — scoring improvement…`);
+        // Haiku scores the improvement
+        setActiveRole('haiku'); setRoleTask(`Iter ${i + 1}/${iterations} — scoring result…`);
         let newData;
         try {
           newData = await apiFetch('/improve/score', { type, artifact: genResult.improved, context });
-        } catch (scoreErr) {
+        } catch (e) {
           localLedger.push({ iteration: i + 1, description: genResult.description || '—', oldScore: currentData.score, newScore: 0, decision: 'crash' });
           setLedger([...localLedger]);
           continue;
@@ -168,15 +276,7 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
 
         // Exploit or revert
         const decision = newData.score > currentData.score ? 'kept' : 'discarded';
-        const entry = {
-          iteration:   i + 1,
-          description: genResult.description || '—',
-          oldScore:    currentData.score,
-          newScore:    newData.score,
-          decision,
-          improved:    genResult.improved,
-        };
-        localLedger.push(entry);
+        localLedger.push({ iteration: i + 1, description: genResult.description || '—', oldScore: currentData.score, newScore: newData.score, decision, improved: genResult.improved });
         setLedger([...localLedger]);
 
         if (decision === 'kept') {
@@ -186,205 +286,184 @@ export default function SelfImprovementPanel({ type, artifact, context = {}, onA
           setBestArtifact(current);
           setBestScore(newData.score);
         }
-        // else: discard — revert to current (no state change needed)
       }
 
-      setStatusMsg('');
+      setActiveRole(null); setRoleTask('');
       setPhase('done');
     } catch (e) {
       setError(e.message);
+      setActiveRole(null); setRoleTask('');
       setPhase('error');
-      setStatusMsg('');
     }
   }
 
   function handleStop() {
     abortRef.current = true;
+    setActiveRole(null); setRoleTask('');
     setPhase('done');
-    setStatusMsg('');
+  }
+
+  function handleRerun() {
+    setPhase('idle'); setLedger([]); setScoreData(null);
+    setBestScore(null); setBestArtifact(''); setExpanded(true);
+    setTimeout(runLoop, 0);
   }
 
   if (!artifact?.trim()) return null;
 
-  const panelBg    = 'rgba(99,102,241,0.06)';
-  const panelBorder = 'rgba(99,102,241,0.18)';
+  const keptCount      = ledger.filter(e => e.decision === 'kept').length;
+  const discardedCount = ledger.filter(e => e.decision === 'discarded').length;
 
   return (
-    <div style={{
-      marginTop: 16,
-      borderRadius: 12,
-      border: `1px solid ${panelBorder}`,
-      background: panelBg,
-      overflow: 'hidden',
-    }}>
+    <div style={{ marginTop: 14, borderRadius: 10, border: '1px solid rgba(99,102,241,0.18)', background: 'rgba(99,102,241,0.04)', overflow: 'hidden' }}>
+
       {/* ── Header ── */}
       <div
         onClick={() => setExpanded(e => !e)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '10px 14px', cursor: 'pointer',
-          borderBottom: expanded ? `1px solid ${panelBorder}` : 'none',
-        }}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', borderBottom: expanded ? '1px solid rgba(99,102,241,0.15)' : 'none' }}
       >
-        <span style={{ fontSize: 14 }}>🔬</span>
-        <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+        <span style={{ fontSize: 12 }}>🔬</span>
+        <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>
           Auto-Improve {displayLabel}
           {bestScore !== null && (
-            <span style={{
-              marginLeft: 8, fontSize: 10, fontWeight: 600, padding: '2px 7px',
-              borderRadius: 99, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
-            }}>
+            <span style={{ marginLeft: 7, fontSize: 9.5, fontWeight: 600, padding: '2px 6px', borderRadius: 99, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>
               Best: {bestScore}/100
             </span>
           )}
         </span>
+
         {phase === 'idle' && (
-          <button
-            onClick={e => { e.stopPropagation(); setExpanded(true); runLoop(); }}
-            style={{
-              fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 6,
-              background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.35)',
-              color: '#a5b4fc', cursor: 'pointer',
-            }}
-          >
+          <button onClick={e => { e.stopPropagation(); setExpanded(true); runLoop(); }}
+            style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 5, background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.35)', color: '#a5b4fc', cursor: 'pointer' }}>
             ▶ Run
           </button>
         )}
         {phase === 'running' && (
-          <button
-            onClick={e => { e.stopPropagation(); handleStop(); }}
-            style={{
-              fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 6,
-              background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)',
-              color: '#fca5a5', cursor: 'pointer',
-            }}
-          >
+          <button onClick={e => { e.stopPropagation(); handleStop(); }}
+            style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 5, background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', cursor: 'pointer' }}>
             ■ Stop
           </button>
         )}
-        {phase === 'done' && (
-          <button
-            onClick={e => { e.stopPropagation(); setPhase('idle'); setLedger([]); setScoreData(null); setBestScore(null); setBestArtifact(''); setExpanded(true); runLoop(); }}
-            style={{
-              fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 6,
-              background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)',
-              color: '#4ade80', cursor: 'pointer',
-            }}
-          >
+        {(phase === 'done' || phase === 'error') && (
+          <button onClick={e => { e.stopPropagation(); handleRerun(); }}
+            style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 5, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)', color: '#4ade80', cursor: 'pointer' }}>
             ↺ Re-run
           </button>
         )}
-        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>
+        <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{expanded ? '▲' : '▼'}</span>
       </div>
 
       {expanded && (
-        <div style={{ padding: '14px 14px' }}>
-          {/* ── Iterations selector (idle only) ── */}
+        <div style={{ padding: '12px 12px 12px' }}>
+
+          {/* ── Iterations picker (idle only) ── */}
           {phase === 'idle' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Iterations:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+              <span style={{ fontSize: 9.5, color: 'var(--text-muted)' }}>Iterations:</span>
               {[1, 2, 3, 4, 5].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setIterations(n)}
-                  style={{
-                    width: 28, height: 28, borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    background: iterations === n ? 'rgba(99,102,241,0.25)' : 'transparent',
-                    border: `1px solid ${iterations === n ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                    color: iterations === n ? '#a5b4fc' : 'var(--text-muted)',
-                  }}
-                >
-                  {n}
-                </button>
+                <button key={n} onClick={() => setIterations(n)} style={{
+                  width: 24, height: 24, borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                  background: iterations === n ? 'rgba(99,102,241,0.25)' : 'transparent',
+                  border: `1px solid ${iterations === n ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                  color: iterations === n ? '#a5b4fc' : 'var(--text-muted)',
+                }}>{n}</button>
               ))}
-              <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 4 }}>
-                ≈ {iterations * 2} AI calls · ~{iterations * 10}s
-              </span>
+              <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2 }}>≈ {iterations * 2} calls · ~{iterations * 10}s</span>
             </div>
           )}
 
-          {/* ── Running status ── */}
-          {phase === 'running' && statusMsg && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 11, color: '#a5b4fc' }}>
-              <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
-              {statusMsg}
+          {/* ── Two AI role chips ── */}
+          {phase === 'running' && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+              <RoleChip
+                name="Scorer"
+                model="haiku"
+                active={activeRole === 'haiku'}
+                task={roleTask}
+              />
+              <RoleChip
+                name="Generator"
+                model="sonnet"
+                active={activeRole === 'sonnet'}
+                task={roleTask}
+              />
+            </div>
+          )}
+
+          {/* ── Role legend (after loop, or idle) ── */}
+          {(phase === 'idle' || phase === 'done') && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 6, background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.18)', flex: 1 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#60a5fa', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 8.5, fontWeight: 700, color: '#60a5fa', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Haiku · Scorer</div>
+                  <div style={{ fontSize: 8, color: 'var(--text-muted)' }}>Fixed rubric — judges every version</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 6, background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.18)', flex: 1 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#a78bfa', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 8.5, fontWeight: 700, color: '#a78bfa', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Sonnet · Generator</div>
+                  <div style={{ fontSize: 8, color: 'var(--text-muted)' }}>Reads ledger — writes improvements</div>
+                </div>
+              </div>
             </div>
           )}
 
           {/* ── Error ── */}
           {phase === 'error' && error && (
-            <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', fontSize: 11, color: '#fca5a5' }}>
+            <div style={{ marginBottom: 10, padding: '6px 10px', borderRadius: 7, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.22)', fontSize: 10, color: '#fca5a5' }}>
               ⚠️ {error}
             </div>
           )}
 
-          {/* ── Current score ── */}
+          {/* ── Score + breakdown ── */}
           {scoreData && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  {phase === 'done' ? 'Final Score' : 'Current Score'}
-                </span>
-              </div>
-              <ScoreBar score={scoreData.score} />
-              {scoreData.breakdown && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 10 }}>
-                  {Object.entries(scoreData.breakdown).map(([k, v]) => (
-                    <BreakdownRow key={k} label={k} val={v} />
-                  ))}
-                </div>
-              )}
-              {scoreData.feedback && (
-                <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)', fontSize: 11, color: '#fde68a', lineHeight: 1.5 }}>
-                  💡 <strong>{scoreData.weakest}</strong>: {scoreData.feedback}
-                </div>
-              )}
-            </div>
+            <ScoreDisplay
+              scoreData={scoreData}
+              label={phase === 'done' ? 'Final Score' : 'Current Score'}
+            />
           )}
 
           {/* ── Iteration ledger ── */}
           {ledger.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                Iteration History
-                <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-muted)', fontWeight: 400 }}>
-                  ({ledger.filter(e => e.decision === 'kept').length} kept · {ledger.filter(e => e.decision === 'discarded').length} discarded)
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                Iteration Log
+                <span style={{ fontSize: 9, fontWeight: 400 }}>
+                  {keptCount > 0 && <span style={{ color: '#4ade80' }}>✓ {keptCount} kept</span>}
+                  {keptCount > 0 && discardedCount > 0 && <span style={{ color: 'var(--text-muted)' }}> · </span>}
+                  {discardedCount > 0 && <span style={{ color: '#f87171' }}>✗ {discardedCount} discarded</span>}
                 </span>
               </div>
-              {ledger.map((entry, i) => <LedgerRow key={i} entry={entry} />)}
+              {ledger.map((entry, i) => <LedgerRow key={i} entry={entry} index={i} />)}
             </div>
           )}
 
-          {/* ── Apply / Copy best ── */}
+          {/* ── Apply / Copy ── */}
           {phase === 'done' && bestArtifact && bestArtifact !== artifact && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <div style={{ display: 'flex', gap: 6 }}>
               {onApply && (
-                <button
-                  onClick={() => onApply(bestArtifact)}
-                  style={{
-                    flex: 1, padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-                    background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)',
-                    color: '#4ade80', cursor: 'pointer',
-                  }}
-                >
-                  ✓ Apply Best Version ({bestScore}/100)
+                <button onClick={() => onApply(bestArtifact)} style={{
+                  flex: 1, padding: '6px 12px', borderRadius: 7, fontSize: 10, fontWeight: 700,
+                  background: 'rgba(74,222,128,0.13)', border: '1px solid rgba(74,222,128,0.28)',
+                  color: '#4ade80', cursor: 'pointer',
+                }}>
+                  ✓ Apply Best ({bestScore}/100)
                 </button>
               )}
-              <button
-                onClick={() => navigator.clipboard.writeText(bestArtifact)}
-                style={{
-                  padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                  color: 'var(--text-secondary)', cursor: 'pointer',
-                }}
-              >
+              <button onClick={() => navigator.clipboard.writeText(bestArtifact)} style={{
+                padding: '6px 12px', borderRadius: 7, fontSize: 10, fontWeight: 600,
+                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                color: 'var(--text-secondary)', cursor: 'pointer',
+              }}>
                 Copy
               </button>
             </div>
           )}
           {phase === 'done' && bestArtifact === artifact && ledger.length > 0 && (
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', padding: '8px 0' }}>
-              Original was already optimal — no improvements found.
+            <div style={{ fontSize: 9.5, color: 'var(--text-muted)', textAlign: 'center', padding: '6px 0' }}>
+              Already optimal — no improvements found.
             </div>
           )}
         </div>
