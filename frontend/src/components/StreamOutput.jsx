@@ -204,39 +204,10 @@ function Block({ msg }) {
       );
 
     case 'tool_call':
-      return (
-        <div className="fade-up" style={{ borderLeft: '2px solid #f59e0b', paddingLeft: '.75rem' }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: '.25rem',
-            background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)',
-            color: '#fbbf24', borderRadius: '.5rem', padding: '.15rem .6rem',
-            fontSize: '.75rem', fontWeight: 500,
-          }}>
-            🔧 {msg.name}
-          </span>
-          <div className="text-xs text-gray-600 mt-1 font-mono truncate">
-            {JSON.stringify(msg.input).slice(0, 130)}
-            {JSON.stringify(msg.input).length > 130 ? '…' : ''}
-          </div>
-        </div>
-      );
+      return null;
 
     case 'tool_result':
-      return (
-        <div className="fade-up" style={{ borderLeft: '2px solid rgba(255,255,255,0.08)', paddingLeft: '.75rem' }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: '.25rem',
-            background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)',
-            color: '#4ade80', borderRadius: '.5rem', padding: '.15rem .6rem', fontSize: '.75rem',
-          }}>
-            ✓ {msg.name}
-          </span>
-          <div className="text-xs text-gray-600 mt-1 font-mono truncate">
-            {JSON.stringify(msg.result).slice(0, 160)}
-            {JSON.stringify(msg.result).length > 160 ? '…' : ''}
-          </div>
-        </div>
-      );
+      return null;
 
     case 'done':
       return null;
