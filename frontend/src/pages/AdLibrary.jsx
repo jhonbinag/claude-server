@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../lib/api';
-import Header from '../components/Header';
+import { api }                 from '../lib/api';
+import Header                  from '../components/Header';
+import SelfImprovementPanel    from '../components/SelfImprovementPanel';
 
 /* ── Constants ────────────────────────────────────────────────────────────── */
 const COUNTRIES = [
@@ -340,9 +341,11 @@ export default function AdLibrary() {
   const [urlInput,   setUrlInput]   = useState('');
   const [urlAnalyzing, setUrlAnalyzing] = useState(false);
   const [urlAnalysis,  setUrlAnalysis]  = useState('');
-  const analysisRef = useRef(null);
-  const pasteRef    = useRef(null);
-  const urlRef      = useRef(null);
+  const [myAdCopy,   setMyAdCopy]   = useState('');
+  const analysisRef  = useRef(null);
+  const pasteRef     = useRef(null);
+  const urlRef       = useRef(null);
+  const myAdRef      = useRef(null);
 
   async function handlePasteAnalyze() {
     if (!pasteText.trim()) return;
@@ -603,6 +606,16 @@ export default function AdLibrary() {
                   <div style={{ fontSize: 13, lineHeight: 1.75, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>{pasteAnalysis}</div>
                 </div>
               )}
+
+              {/* Auto-improve the pasted ad — runs the exploit-or-revert loop */}
+              {pasteText.trim().length > 20 && (
+                <SelfImprovementPanel
+                  type="ad_copy"
+                  artifact={pasteText}
+                  label="This Ad Copy"
+                  onApply={(improved) => setPasteText(improved)}
+                />
+              )}
             </div>
           </div>
         )}
@@ -770,6 +783,40 @@ export default function AdLibrary() {
                   ? <p style={{ color: '#6b7280', fontSize: 13 }}>Analyzing {analyzeCount} ads…</p>
                   : <div style={{ fontSize: 14, lineHeight: 1.75, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>{analysis}</div>
                 }
+              </div>
+            )}
+
+            {/* Improve Your Ad — appears after competitor analysis runs */}
+            {analysis && !analyzing && (
+              <div ref={myAdRef} style={{ marginTop: '1.5rem', background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 12, padding: '1.25rem' }}>
+                <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 700, color: '#34d399' }}>
+                  🔬 Now Improve Your Own Ad
+                </p>
+                <p style={{ margin: '0 0 0.875rem', fontSize: 12, color: '#6b7280', lineHeight: 1.6 }}>
+                  Paste your current ad copy below. The AI will score it against the same criteria used to evaluate the competitors above, then run an improvement loop to optimize it.
+                </p>
+                <textarea
+                  value={myAdCopy}
+                  onChange={e => setMyAdCopy(e.target.value)}
+                  placeholder="Paste your ad copy here — hook, body, CTA…"
+                  rows={5}
+                  style={{
+                    width: '100%', background: 'rgba(0,0,0,0.3)',
+                    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+                    padding: '10px 12px', color: '#e2e8f0', fontSize: 13, lineHeight: 1.6,
+                    outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit',
+                    marginBottom: myAdCopy.trim().length > 20 ? 0 : 0,
+                  }}
+                />
+                {myAdCopy.trim().length > 20 && (
+                  <SelfImprovementPanel
+                    type="ad_copy"
+                    artifact={myAdCopy}
+                    context={{ competitorInsights: analysis.slice(0, 800) }}
+                    label="Your Ad Copy"
+                    onApply={(improved) => setMyAdCopy(improved)}
+                  />
+                )}
               </div>
             )}
           </>
