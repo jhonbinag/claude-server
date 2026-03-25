@@ -170,6 +170,8 @@ export default function GHLAssistant() {
   const [showHistory,   setShowHistory]   = useState(false);
   const convIdRef    = useRef(null);
   const prevRunning  = useRef(false);
+  const messagesRef  = useRef([]);
+  const apiKeyRef    = useRef(apiKey);
   const { isRunning, stream, stop } = useStreamFetch();
   const [slashOpen,   setSlashOpen]   = useState(false);
   const [slashFilter, setSlashFilter] = useState('');
@@ -265,18 +267,24 @@ export default function GHLAssistant() {
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
 
+  // Keep refs in sync so auto-save always reads current values (avoids stale closures)
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { apiKeyRef.current   = apiKey;   }, [apiKey]);
+
   // Auto-save conversation whenever streaming finishes
   useEffect(() => {
     const wasRunning = prevRunning.current;
     prevRunning.current = isRunning;
     if (!wasRunning || isRunning) return; // only fires on true→false transition
-    const cid = convIdRef.current;
-    if (!cid || messages.length === 0) return;
-    const title = (messages.find(m => m.type === 'user')?.text || 'Conversation').slice(0, 60);
+    const cid  = convIdRef.current;
+    const msgs = messagesRef.current;
+    const key  = apiKeyRef.current;
+    if (!cid || !key || msgs.length === 0) return;
+    const title = (msgs.find(m => m.type === 'user')?.text || 'Conversation').slice(0, 60);
     fetch('/conversations', {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-location-id': apiKey },
-      body:    JSON.stringify({ id: cid, title, messages }),
+      headers: { 'Content-Type': 'application/json', 'x-location-id': key },
+      body:    JSON.stringify({ id: cid, title, messages: msgs }),
     }).then(() => loadConversations()).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning]);
@@ -339,6 +347,12 @@ export default function GHLAssistant() {
 
   const run = useCallback(async (taskText, opts = {}) => {
     if (!taskText.trim() || isRunning) return;
+    // Ensure a conversation ID exists (chips/voice bypass handleSubmit)
+    if (!convIdRef.current) {
+      const newId = `conv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      convIdRef.current = newId;
+      setConvId(newId);
+    }
     setMessages(prev => [...prev, { type: 'user', text: taskText.trim() }]);
 
     let fullTask;
@@ -600,12 +614,6 @@ export default function GHLAssistant() {
   const handleSubmit = () => {
     const raw = task.trim();
     if (!raw) return;
-    // Start a new conversation if none is active
-    if (!convIdRef.current) {
-      const newId = `conv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      convIdRef.current = newId;
-      setConvId(newId);
-    }
     const isCommand = raw.startsWith('/');
     const resolved = isCommand ? resolveSlashTask(raw) : raw;
     if (!resolved.trim()) return;
