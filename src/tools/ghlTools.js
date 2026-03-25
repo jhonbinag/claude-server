@@ -21,7 +21,7 @@ const TOOL_DEFINITIONS = [
 
   {
     name: 'search_contacts',
-    description: 'Search for contacts in GHL by name, email, or phone. Returns a list of matching contacts with their IDs, tags, and custom fields.',
+    description: 'Search for contacts in GHL by name, email, or phone. Returns normalized contact objects where "name" is the exact display name shown in the GHL CRM UI (sourced from contactName), "contactId" is used for subsequent operations, plus firstName, lastName, email, phone, company, tags.',
     input_schema: {
       type: 'object',
       properties: {
@@ -40,7 +40,7 @@ const TOOL_DEFINITIONS = [
 
   {
     name: 'get_contact',
-    description: 'Get full details of a single contact by their GHL contact ID, including all custom fields, tags, and source.',
+    description: 'Get full details of a single GHL contact by contactId. Returns a normalized object: "name" is the exact display name shown in the GHL CRM UI (contactName field), "contactId" for updates, plus firstName, lastName, email, phone, company, tags, source, address, dnd, dateAdded. Always use "name" as the contact\'s name — do NOT combine firstName + lastName.',
     input_schema: {
       type: 'object',
       properties: {
@@ -791,15 +791,41 @@ async function executeGhlTool(toolName, input, locationId, companyId) {
 
     // ── Contacts ──────────────────────────────────────────────────────────────
 
-    case 'search_contacts':
-      return call('GET', '/contacts/', null, {
-        locationId,
-        query: input.query,
-        limit: input.limit || 20,
-      });
+    case 'search_contacts': {
+      const res  = await call('GET', '/contacts/', null, { locationId, query: input.query, limit: input.limit || 20 });
+      const raw  = res?.contacts || res?.data || [];
+      const contacts = raw.map(c => ({
+        contactId:  c.id,
+        name:       c.contactName || `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || '',
+        firstName:  c.firstName   || '',
+        lastName:   c.lastName    || '',
+        email:      c.email       || '',
+        phone:      c.phone       || '',
+        company:    c.companyName || '',
+        tags:       c.tags        || [],
+        source:     c.source      || '',
+      }));
+      return { contacts, total: res?.meta?.total ?? contacts.length };
+    }
 
-    case 'get_contact':
-      return call('GET', `/contacts/${input.contactId}`);
+    case 'get_contact': {
+      const res = await call('GET', `/contacts/${input.contactId}`);
+      const c   = res?.contact || res;
+      return {
+        contactId:  c.id,
+        name:       c.contactName || `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || '',
+        firstName:  c.firstName   || '',
+        lastName:   c.lastName    || '',
+        email:      c.email       || '',
+        phone:      c.phone       || '',
+        company:    c.companyName || '',
+        tags:       c.tags        || [],
+        source:     c.source      || '',
+        address:    [c.address1, c.city, c.state, c.postalCode, c.country].filter(Boolean).join(', ') || '',
+        dnd:        c.dnd         ?? false,
+        dateAdded:  c.dateAdded   || '',
+      };
+    }
 
     case 'create_contact': {
       // Dedup check: search by email first, then phone, before creating
