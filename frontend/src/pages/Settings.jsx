@@ -61,10 +61,10 @@ export default function Settings() {
   const [settingsTab,  setSettingsTab]  = useState('integrations');
   const [manualLocId,  setManualLocId]  = useState('');
 
-  // Anthropic key state
-  const [anthropicKey,     setAnthropicKey]     = useState('');
-  const [anthropicEditing, setAnthropicEditing] = useState(false);
-  const [anthropicSaving,  setAnthropicSaving]  = useState(false);
+  // AI key state (multi-provider)
+  const [aiKey,        setAiKey]        = useState('');
+  const [aiKeySaving,  setAiKeySaving]  = useState(false);
+  const [aiKeyEditing, setAiKeyEditing] = useState(false);
 
   // ── Load token status (hooks must be before any conditional returns) ───────
 
@@ -238,20 +238,37 @@ export default function Settings() {
     setReconnecting(false);
   };
 
-  // ── Anthropic API key ─────────────────────────────────────────────────────
+  // ── AI API key (multi-provider) ───────────────────────────────────────────
 
-  const saveAnthropicKey = async () => {
-    if (!anthropicKey.trim().startsWith('sk-ant-')) {
-      showToast('Key must start with sk-ant-', false);
+  const PROVIDER_LABELS = {
+    anthropic: 'Claude (Anthropic)',
+    openai:    'OpenAI (GPT-4o)',
+    groq:      'Groq',
+    google:    'Google Gemini',
+  };
+
+  function detectAiProvider(key) {
+    if (key.startsWith('sk-ant-')) return 'anthropic';
+    if (key.startsWith('gsk_'))    return 'groq';
+    if (key.startsWith('AIza'))    return 'google';
+    if (key.startsWith('sk-'))     return 'openai';
+    return null;
+  }
+
+  const saveAiKey = async () => {
+    const key = aiKey.trim();
+    const provider = detectAiProvider(key);
+    if (!provider) {
+      showToast('Unrecognized key prefix. Use sk-ant- (Anthropic), sk- (OpenAI), gsk_ (Groq), or AIza (Google).', false);
       return;
     }
-    setAnthropicSaving(true);
+    setAiKeySaving(true);
     try {
-      const data = await api.post('/api/activate', { locationId, anthropicKey: anthropicKey.trim() });
+      const data = await api.post('/api/activate', { locationId, apiKey: key });
       if (data.success) {
-        showToast('Anthropic API key saved. Claude is now active!', true);
-        setAnthropicKey('');
-        setAnthropicEditing(false);
+        showToast(`${PROVIDER_LABELS[provider]} key saved and active!`, true);
+        setAiKey('');
+        setAiKeyEditing(false);
         await refreshStatus();
       } else {
         showToast(data.error || 'Failed to save key.', false);
@@ -259,7 +276,7 @@ export default function Settings() {
     } catch {
       showToast('Failed to save key.', false);
     }
-    setAnthropicSaving(false);
+    setAiKeySaving(false);
   };
 
   // ── Copy sidebar URL ──────────────────────────────────────────────────────
@@ -583,86 +600,82 @@ export default function Settings() {
         {/* ── Built-in services ──────────────────────────────────────────── */}
         <div className="space-y-3 mb-8">
 
-          {/* Claude API Key card */}
+          {/* AI API Key card — multi-provider */}
           <div className={`card p-5${claudeReady ? ' connected' : ''}`} style={!claudeReady ? { borderColor: 'rgba(251,191,36,0.3)' } : {}}>
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4 min-w-0">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
-                  style={{ background: 'rgba(99,102,241,0.15)' }}>🤖</div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-white text-sm">
-                      {aiProvider === 'google' ? 'Gemini 2.5 Flash' : aiProvider === 'openai' ? 'GPT-4o-mini' : aiProvider === 'groq' ? 'Groq — Llama 3.3 70B' : 'Claude Opus 4.6'}
-                    </span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${claudeReady ? 'badge-on' : 'badge-off'}`}>
-                      {claudeReady ? 'Active' : 'Key required'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {claudeReady
-                      ? aiProvider === 'groq'   ? 'Groq Llama 3.3 70B is active (free tier, fastest).'
-                        : aiProvider === 'google' ? 'Google Gemini 2.5 Flash is active (free tier).'
-                        : aiProvider === 'openai' ? 'OpenAI GPT-4o-mini is active.'
-                        : 'Anthropic Claude is active.'
-                      : 'Enter an API key to activate AI features (Anthropic, OpenAI, Groq, or Google Gemini).'}
-                  </p>
-                </div>
-              </div>
-              <div className="text-right text-xs flex-shrink-0">
-                {claudeReady
-                  ? <div className="text-green-400 font-medium">✓ Ready</div>
-                  : !anthropicEditing && (
-                    <button onClick={() => setAnthropicEditing(true)} className="btn-primary px-4 py-1.5 text-xs">
-                      Add Key →
-                    </button>
-                  )}
-              </div>
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-xl">🔑</span>
+              <span className="font-semibold text-white text-sm">Your AI API Key</span>
+              {claudeReady && aiProvider && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                  style={{ background: aiProvider === 'openai' ? 'rgba(16,185,129,0.15)' : aiProvider === 'groq' ? 'rgba(249,115,22,0.15)' : aiProvider === 'google' ? 'rgba(59,130,246,0.15)' : 'rgba(99,102,241,0.15)', color: aiProvider === 'openai' ? '#34d399' : aiProvider === 'groq' ? '#fb923c' : aiProvider === 'google' ? '#60a5fa' : '#a5b4fc', border: `1px solid ${aiProvider === 'openai' ? 'rgba(16,185,129,0.3)' : aiProvider === 'groq' ? 'rgba(249,115,22,0.3)' : aiProvider === 'google' ? 'rgba(59,130,246,0.3)' : 'rgba(99,102,241,0.3)'}` }}>
+                  {PROVIDER_LABELS[aiProvider] || aiProvider}
+                </span>
+              )}
             </div>
 
-            {/* Key input — shown when editing or not yet set */}
-            {(anthropicEditing || !claudeReady) && (
-              <div className="mt-4 fade-up">
-                <label className="block text-xs text-gray-400 mb-1.5 font-medium">Anthropic API Key</label>
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={anthropicKey}
-                    onChange={e => setAnthropicKey(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && saveAnthropicKey()}
-                    placeholder="sk-ant-..."
-                    className="field flex-1"
-                    autoFocus
-                    autoComplete="new-password"
-                  />
-                  <button
-                    onClick={saveAnthropicKey}
-                    disabled={anthropicSaving || !anthropicKey.trim()}
-                    className="btn-primary px-4 py-2 text-xs"
-                  >
-                    {anthropicSaving ? 'Saving…' : 'Save'}
-                  </button>
-                  {claudeReady && (
-                    <button
-                      onClick={() => { setAnthropicEditing(false); setAnthropicKey(''); }}
-                      className="px-3 py-2 rounded-xl text-xs text-gray-400"
-                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
-                    >✕</button>
-                  )}
-                </div>
-                <p className="text-xs text-gray-600 mt-1.5">
-                  Get your key at <span className="text-indigo-400">console.anthropic.com</span> → API Keys
-                </p>
+            {/* Provider pills grid */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {[
+                { id: 'anthropic', label: 'Claude (Anthropic)', dot: '#818cf8' },
+                { id: 'openai',    label: 'OpenAI (GPT-4o)',    dot: '#34d399' },
+                { id: 'groq',      label: 'Groq',               dot: '#fb923c' },
+                { id: 'google',    label: 'Google Gemini',       dot: '#60a5fa' },
+              ].map(p => {
+                const preview = tierInfo?.byKey?.[p.id]?.configPreview?.apiKey || null;
+                const isActive = aiProvider === p.id;
+                return (
+                  <div key={p.id} className="flex items-center justify-between rounded-lg px-3 py-2"
+                    style={{ background: isActive ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.03)', border: `1px solid ${isActive ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)'}` }}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.dot }} />
+                      <span className="text-xs font-medium text-white truncate">{p.label}</span>
+                    </div>
+                    {preview && <span className="text-xs font-mono text-gray-500 ml-2 flex-shrink-0">{preview}</span>}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Description */}
+            <p className="text-xs text-gray-500 mb-3">
+              Enter your API key — auto-detected by prefix. Saved securely to your account (Redis + Firebase encrypted).
+            </p>
+
+            {/* Input */}
+            {(aiKeyEditing || !claudeReady) && (
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={aiKey}
+                  onChange={e => setAiKey(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && saveAiKey()}
+                  placeholder="sk-ant- / sk- / gsk_ / AIza..."
+                  className="field flex-1"
+                  autoFocus={aiKeyEditing}
+                  autoComplete="new-password"
+                />
+                <button
+                  onClick={() => { setAiKey(''); setAiKeyEditing(false); }}
+                  className="px-3 py-2 rounded-xl text-xs text-gray-400"
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                >Clear</button>
               </div>
             )}
-
-            {/* Update key button when already set */}
-            {claudeReady && !anthropicEditing && (
-              <div className="mt-3">
-                <button
-                  onClick={() => setAnthropicEditing(true)}
-                  className="text-xs text-gray-500 hover:text-gray-300"
-                >✏️ Update API key</button>
-              </div>
+            {(aiKeyEditing || !claudeReady) && (
+              <button
+                onClick={saveAiKey}
+                disabled={aiKeySaving || !aiKey.trim()}
+                className="btn-primary w-full mt-2 py-2 text-sm"
+                style={{ opacity: aiKey.trim() ? 1 : 0.5 }}
+              >
+                {aiKeySaving ? 'Saving…' : 'Save Key'}
+              </button>
+            )}
+            {claudeReady && !aiKeyEditing && (
+              <button onClick={() => setAiKeyEditing(true)} className="text-xs text-gray-500 hover:text-gray-300">
+                ✏️ Update API key
+              </button>
             )}
           </div>
 

@@ -254,13 +254,13 @@ export function AppProvider({ children }) {
   }, [allowedFeatures]);
 
   // ── Activate with Anthropic key ───────────────────────────────────────────
-  const activate = async (anthropicKey) => {
+  const activate = async (apiKey) => {
     if (!locationId) return false;
     try {
       const res = await fetch('/api/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationId, anthropicKey }),
+        body: JSON.stringify({ locationId, apiKey }),
       });
       const data = await res.json();
       if (!data.success) return false;

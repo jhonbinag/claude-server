@@ -286,41 +286,57 @@ router.get('/status', async (req, res) => {
     const configs = await registry.loadToolConfigs(req.locationId);
     const tools   = await registry.getTools(req.locationId);
 
-    const aiService = require('../services/aiService');
-    const provider  = aiService.getProvider();
+    // Check per-location AI provider (any of the four supported providers)
+    const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google'];
+    const perLocProvider = AI_PROVIDERS.find(p => configs[p]?.apiKey);
 
-    let hasKey = !!(configs.anthropic?.apiKey || config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY);
+    // Build masked previews for each configured provider
+    const providerPreviews = {};
+    for (const p of AI_PROVIDERS) {
+      const k = configs[p]?.apiKey;
+      if (k) providerPreviews[p] = k.substring(0, 8) + '...';
+    }
 
-    // Also ready if any other AI provider is configured
-    if (!hasKey) hasKey = !!provider;
+    let hasKey = !!perLocProvider;
+    let providerName = perLocProvider || null;
 
-    // If no key found yet and Firebase is enabled, do a direct DB check
+    // Fallback: Firebase direct check (in case Redis cache missed the key)
     if (!hasKey && config.isFirebaseEnabled && firebaseSvc.isEnabled()) {
       try {
         const direct = await firebaseSvc.getToolConfig(req.locationId);
-        if (direct.anthropic?.apiKey) {
+        const directProvider = AI_PROVIDERS.find(p => direct[p]?.apiKey);
+        if (directProvider) {
           hasKey = true;
+          providerName = directProvider;
           const toolTokenService = require('../services/toolTokenService');
-          const merged = { ...configs, anthropic: direct.anthropic };
+          const merged = { ...configs, [directProvider]: direct[directProvider] };
           await toolTokenService.setCachedToolConfig(req.locationId, merged).catch(() => {});
         }
       } catch { /* non-fatal */ }
     }
 
-    const modelName = provider
-      ? provider.name === 'anthropic' ? 'claude-opus-4-6'
-        : provider.name === 'openai'  ? 'gpt-4o-mini'
-        : provider.name === 'groq'    ? (process.env.GROQ_MODEL || 'llama-3.1-8b-instant')
-        : 'gemini-2.5-flash'
-      : 'not configured';
+    // Final fallback: env-var configured provider (platform-level)
+    if (!hasKey) {
+      const aiService = require('../services/aiService');
+      const envProvider = aiService.getProvider();
+      if (envProvider) { hasKey = true; providerName = envProvider.name; }
+    }
+
+    const MODEL_NAMES = {
+      anthropic: 'claude-opus-4-6',
+      openai:    'gpt-4o-mini',
+      groq:      process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+      google:    process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    };
 
     res.json({
-      success:      true,
-      locationId:   req.locationId,
-      claudeReady:  hasKey,
-      provider:     provider?.name || null,
-      model:        modelName,
-      enabledTools: tools.map((t) => t.name),
+      success:          true,
+      locationId:       req.locationId,
+      claudeReady:      hasKey,
+      provider:         providerName,
+      model:            MODEL_NAMES[providerName] || 'not configured',
+      providerPreviews,
+      enabledTools:     tools.map((t) => t.name),
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

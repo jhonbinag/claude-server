@@ -48,21 +48,34 @@ const associations   = require('./api/associations');
 const lcEmail        = require('./api/lcEmail');
 const customMenus    = require('./api/customMenus');
 
-// ─── Public: Activate a location with Anthropic API key ──────────────────────
+// ─── Public: Activate a location with any AI provider API key ────────────────
 // No auth required — this IS the first-time setup step.
+// Key prefix auto-detects the provider:
+//   sk-ant- → anthropic, sk- → openai, gsk_ → groq, AIza → google
+
+function detectAiProvider(key) {
+  if (key.startsWith('sk-ant-')) return 'anthropic';
+  if (key.startsWith('gsk_'))    return 'groq';
+  if (key.startsWith('AIza'))    return 'google';
+  if (key.startsWith('sk-'))     return 'openai';
+  return null;
+}
+
 router.post('/activate', async (req, res) => {
-  const { locationId, anthropicKey } = req.body;
-  if (!locationId || !anthropicKey) {
-    return res.status(400).json({ success: false, error: 'locationId and anthropicKey are required.' });
+  const { locationId, apiKey: rawKey, anthropicKey } = req.body;
+  const key = (rawKey || anthropicKey || '').trim();
+  if (!locationId || !key) {
+    return res.status(400).json({ success: false, error: 'locationId and apiKey are required.' });
   }
-  if (!anthropicKey.startsWith('sk-ant-')) {
-    return res.status(400).json({ success: false, error: 'Invalid Anthropic API key format. Must start with sk-ant-' });
+  const provider = detectAiProvider(key);
+  if (!provider) {
+    return res.status(400).json({ success: false, error: 'Unrecognized key prefix. Use sk-ant- (Anthropic), sk- (OpenAI), gsk_ (Groq), or AIza (Google Gemini).' });
   }
   try {
     const registry = require('../tools/toolRegistry');
-    await registry.saveToolConfig(locationId, 'anthropic', { apiKey: anthropicKey });
-    console.log(`[Activate] Location activated: ${locationId}`);
-    res.json({ success: true, locationId });
+    await registry.saveToolConfig(locationId, provider, { apiKey: key });
+    console.log(`[Activate] Location ${locationId} activated with provider: ${provider}`);
+    res.json({ success: true, locationId, provider });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
