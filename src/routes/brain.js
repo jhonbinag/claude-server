@@ -50,8 +50,15 @@ async function getLocId(req, brainId) {
   if (locationId === SHARED_LOC) return SHARED_LOC;
   try {
     const ownBrains = await brain.listBrains(locationId);
-    return ownBrains.some(b => b.brainId === brainId) ? locationId : SHARED_LOC;
-  } catch { return locationId; }
+    if (ownBrains.some(b => b.brainId === brainId)) return locationId;
+  } catch {}
+  // Check shared registry — promoted location brains
+  try {
+    const reg = await brain.getSharedRegistry();
+    const entry = reg.find(r => r.brainId === brainId);
+    if (entry) return entry.locationId;
+  } catch {}
+  return SHARED_LOC;
 }
 
 // ── List all brains ────────────────────────────────────────────────────────────
@@ -72,10 +79,22 @@ router.get('/list', async (req, res) => {
       }));
       return res.json({ success: true, data: results.flat() });
     }
-    // User context: only shared brains (admin-managed), tagged isShared
+    // User context: __shared__ brains + registry-promoted location brains
     const sharedBrains = await brain.listBrains(SHARED_LOC);
     const shared = sharedBrains.map(b => ({ ...b, isShared: true }));
-    res.json({ success: true, data: shared });
+
+    const reg = await brain.getSharedRegistry().catch(() => []);
+    const regBrains = (await Promise.all(
+      reg.map(async ({ brainId, locationId }) => {
+        try {
+          const locBrains = await brain.listBrains(locationId);
+          const b = locBrains.find(x => x.brainId === brainId);
+          return b ? { ...b, _locationId: locationId, isShared: true } : null;
+        } catch { return null; }
+      })
+    )).filter(Boolean);
+
+    res.json({ success: true, data: [...shared, ...regBrains] });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -140,16 +159,26 @@ router.delete('/:brainId', async (req, res) => {
 // ── Update brain metadata ─────────────────────────────────────────────────────
 
 router.patch('/:brainId', async (req, res) => {
-  const { name, description, docsUrl, changelogUrl, autoSync, pipelineStage } = req.body;
+  const { name, description, docsUrl, changelogUrl, autoSync, pipelineStage, isShared } = req.body;
   try {
-    const result = await brain.updateBrainMeta(req.locationId, req.params.brainId, {
+    const locId = await getLocId(req, req.params.brainId);
+    const result = await brain.updateBrainMeta(locId, req.params.brainId, {
       ...(name          !== undefined && { name:          name.trim() }),
       ...(description   !== undefined && { description:   description.trim() }),
       ...(docsUrl       !== undefined && { docsUrl:       docsUrl.trim() }),
       ...(changelogUrl  !== undefined && { changelogUrl:  changelogUrl.trim() }),
       ...(autoSync      !== undefined && { autoSync:      !!autoSync }),
       ...(pipelineStage !== undefined && { pipelineStage }),
+      ...(isShared      !== undefined && { isShared:      !!isShared }),
     });
+    // Maintain shared registry for location-specific brains
+    if (isShared !== undefined && locId !== SHARED_LOC) {
+      if (isShared) {
+        await brain.addToSharedRegistry(req.params.brainId, locId);
+      } else {
+        await brain.removeFromSharedRegistry(req.params.brainId);
+      }
+    }
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

@@ -165,6 +165,7 @@ const syncQueueKey      = (loc, brainId)       => `hltools:brain:${loc}:${brainI
 const videosKey         = (loc, brainId)       => `hltools:brain:${loc}:${brainId}:videos`;
 const discoverKey       = (loc, brainId, chId) => `hltools:brain:${loc}:${brainId}:disc:${chId}`;
 const BRAIN_LOCS_KEY    = 'hltools:brain-locations'; // Redis set of all locationIds with brains
+const SHARED_REG_KEY    = 'hltools:shared-brain-registry'; // [{brainId, locationId}] — location brains shared to all users
 
 // ── Text chunking ─────────────────────────────────────────────────────────────
 
@@ -1760,4 +1761,15 @@ module.exports = {
   queueVideoForTranscript,
   // Auto-sync
   listBrainLocations: () => rSMembers(BRAIN_LOCS_KEY),
+  // Shared brain registry (location brains promoted to all-user visibility)
+  getSharedRegistry:       async () => (await rGet(SHARED_REG_KEY)) || [],
+  addToSharedRegistry:     async (brainId, locationId) => {
+    const reg = (await rGet(SHARED_REG_KEY)) || [];
+    const filtered = reg.filter(r => r.brainId !== brainId);
+    await rSet(SHARED_REG_KEY, [...filtered, { brainId, locationId }]);
+  },
+  removeFromSharedRegistry: async (brainId) => {
+    const reg = (await rGet(SHARED_REG_KEY)) || [];
+    await rSet(SHARED_REG_KEY, reg.filter(r => r.brainId !== brainId));
+  },
 };
