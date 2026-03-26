@@ -76,6 +76,7 @@ export function AppProvider({ children }) {
   });
   const [enabledTools,       setEnabledTools]       = useState([]);
   const [aiProvider,         setAiProvider]         = useState(null); // 'anthropic' | 'openai' | 'google' | null
+  const [providerPreviews,   setProviderPreviews]   = useState({});   // { anthropic: 'sk-ant-...', openai: 'sk-...' }
   const [integrations,       setIntegrations]       = useState([]);
   const [integrationsLoaded, setIntegrationsLoaded] = useState(false);
 
@@ -119,6 +120,7 @@ export function AppProvider({ children }) {
         // If ready===false (e.g. transient cache miss), keep whatever state was
         // initialised from localStorage — avoids flickering to "Key required".
         if (data.provider) setAiProvider(data.provider);
+        if (data.providerPreviews) setProviderPreviews(data.providerPreviews);
         if (ready) {
           setClaudeReady(true);
           setEnabledTools(data.enabledTools || []);
@@ -303,6 +305,7 @@ export function AppProvider({ children }) {
       isAuthLoading,
       claudeReady,
       aiProvider,
+      providerPreviews,
       enabledTools,
       integrations,
       integrationsLoaded,

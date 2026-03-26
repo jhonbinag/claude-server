@@ -48,7 +48,7 @@ function openOAuthPopup(platform, locationId) {
 }
 
 export default function Settings() {
-  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, aiProvider, locationId, refreshStatus, integrations, ghlMessages } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, aiProvider, providerPreviews, locationId, refreshStatus, integrations, ghlMessages } = useApp();
 
   const [toast,       setToast]       = useState(null);
   const [testResults, setTestResults] = useState({});
@@ -387,18 +387,11 @@ export default function Settings() {
                   </div>
                 )}
                 <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  <span className="text-sm text-gray-400">AI Provider</span>
-                  <span className="text-sm text-white">
-                    {aiProvider === 'google' ? 'Gemini 2.5 Flash'
-                      : aiProvider === 'openai' ? 'GPT-4o-mini'
-                      : aiProvider === 'groq'   ? 'Groq Llama 3.3 70B'
-                      : 'Claude Opus 4.6'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                   <span className="text-sm text-gray-400">AI Status</span>
                   <span className={`text-sm font-medium ${claudeReady ? 'text-green-400' : 'text-yellow-400'}`}>
-                    {claudeReady ? '✓ Active' : '⚠ Key required'}
+                    {claudeReady
+                      ? `✓ Active · ${aiProvider === 'openai' ? 'OpenAI (GPT-4o)' : aiProvider === 'groq' ? 'Groq' : aiProvider === 'google' ? 'Google Gemini' : 'Claude (Anthropic)'}`
+                      : '⚠ Key required — set in Integrations tab'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-3">
@@ -622,7 +615,7 @@ export default function Settings() {
                 { id: 'groq',      label: 'Groq',               dot: '#fb923c' },
                 { id: 'google',    label: 'Google Gemini',       dot: '#60a5fa' },
               ].map(p => {
-                const preview = tierInfo?.byKey?.[p.id]?.configPreview?.apiKey || null;
+                const preview = providerPreviews?.[p.id] || null;
                 const isActive = aiProvider === p.id;
                 return (
                   <div key={p.id} className="flex items-center justify-between rounded-lg px-3 py-2"
