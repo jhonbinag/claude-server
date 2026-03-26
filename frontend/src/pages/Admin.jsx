@@ -3177,10 +3177,29 @@ export default function Admin() {
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                                 <span style={{ fontSize: 16, fontWeight: 700, color: BD.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</span>
-                                {b.isShared
-                                  ? <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.35)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shared</span>
-                                  : <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', fontFamily: 'monospace' }}>{b._locationId?.slice(0, 12)}…</span>
-                                }
+                                {/* Sharing toggle */}
+                                <button
+                                  onClick={async e => {
+                                    e.stopPropagation();
+                                    const next = !b.isShared;
+                                    setSharedBrains(prev => prev.map(x => x.brainId === b.brainId ? { ...x, isShared: next } : x));
+                                    const locQ = b.isShared ? '' : `?loc=${encodeURIComponent(b._locationId)}`;
+                                    await adminFetch(`/brain/${b.brainId}${locQ}`, { method: 'PATCH', adminKey, body: { isShared: next } });
+                                    loadSharedBrains();
+                                  }}
+                                  title={b.isShared ? 'Click to unshare' : 'Click to share with all locations'}
+                                  style={{
+                                    flexShrink: 0, cursor: 'pointer',
+                                    fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
+                                    background: b.isShared ? 'rgba(99,102,241,0.2)' : 'rgba(107,114,128,0.15)',
+                                    color: b.isShared ? '#a5b4fc' : BD.textMuted,
+                                    border: `1px solid ${b.isShared ? 'rgba(99,102,241,0.35)' : BD.border}`,
+                                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                                    transition: 'all .15s',
+                                  }}
+                                >
+                                  {b.isShared ? '⊕ Shared' : '○ Private'}
+                                </button>
                               </div>
                               {b.pipelineStage === 'syncing' || b.pipelineStage === 'processing' ? (
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: BD.blue, flexShrink: 0, marginLeft: 10 }}>

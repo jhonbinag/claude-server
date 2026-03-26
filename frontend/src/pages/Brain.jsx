@@ -52,16 +52,6 @@ function publishedAgo(dateStr) {
   return `${Math.floor(d / 365)} year${Math.floor(d / 365) > 1 ? 's' : ''} ago`;
 }
 
-function extractVideoId(url) {
-  if (!url) return null;
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-  return m ? m[1] : null;
-}
-
-function slugify(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
-}
-
 function timeAgo(ts) {
   if (!ts) return 'Never';
   const diff = Date.now() - new Date(ts).getTime();
@@ -99,11 +89,6 @@ const C = {
 };
 
 // ── Shared component styles ───────────────────────────────────────────────────
-
-const labelStyle = {
-  display: 'block', color: C.textSec, fontSize: 12, fontWeight: 600,
-  textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6,
-};
 
 const inputStyle = {
   width: '100%', boxSizing: 'border-box', background: '#0a0f1a',
@@ -296,18 +281,13 @@ function ChangeLogModal({ brain, onClose }) {
 
 // ── Brain Detail view ─────────────────────────────────────────────────────────
 
-function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialModal, onModalOpened }) {
+function BrainDetail({ brain, locationId, onBack, onRefresh, initialModal, onModalOpened }) {
   const [tab,               setTab]               = useState('videos');
   const [docs,              setDocs]              = useState(brain.docs || []);
   const [channels,          setChannels]          = useState(brain.channels || []);
-  const [loadingDocs,       setLoadingDocs]       = useState(false);
   const [flash,             setFlash]             = useState(null);
 
-  // Edit brain settings
-  const [editName,          setEditName]          = useState(brain.name);
-  const [editDesc,          setEditDesc]          = useState(brain.description || '');
   const [generatingDocs,    setGeneratingDocs]    = useState(false);
-  const [saving,            setSaving]            = useState(false);
 
   // Modals
   const [showDocsModal,      setShowDocsModal]      = useState(false);
@@ -321,57 +301,14 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
   // Videos catalogue (from channel sync)
   const [videos,            setVideos]            = useState([]);
   const [loadingVideos,     setLoadingVideos]     = useState(false);
-  const [generatingIds,     setGeneratingIds]     = useState(new Set());
-  const [batchProcessing,  setBatchProcessing]  = useState(false);
-  const [batchProgress,    setBatchProgress]    = useState(null);
-  const [batchCooldown,    setBatchCooldown]    = useState(0);
-  const batchActiveRef = useRef(false);
-
   // Pagination
   const [videoPage,        setVideoPage]        = useState(1);
   const [videoPageSize,    setVideoPageSize]    = useState(10);
-
-  // YouTube add (in Add Content section within Videos tab)
-  const [ytUrl,             setYtUrl]             = useState('');
-  const [ytTitle,           setYtTitle]           = useState('');
-  const [ytPrimary,         setYtPrimary]         = useState(false);
-  const [ingesting,         setIngesting]         = useState(false);
-
-  // Channel / playlist discovery
-  const [channelInfo,       setChannelInfo]       = useState(null);
-  const [channelLoading,    setChannelLoading]    = useState(false);
-  const [selectedPlaylists, setSelectedPlaylists] = useState({});
-  const [playlistPrimary,   setPlaylistPrimary]   = useState(false);
-  const [ingestingPlaylist, setIngestingPlaylist] = useState(false);
-  const [playlistProgress,  setPlaylistProgress]  = useState(null);
-
-  // Text doc add
-  const [docText,           setDocText]           = useState('');
-  const [docLabel,          setDocLabel]          = useState('');
-  const [docUrl,            setDocUrl]            = useState('');
-  const [docPrimary,        setDocPrimary]        = useState(false);
-  const [addingDoc,         setAddingDoc]         = useState(false);
-
-  // Changelog notes
-  const [noteTitle,         setNoteTitle]         = useState('');
-  const [noteText,          setNoteText]          = useState('');
-  const [noteType,          setNoteType]          = useState('note');
-  const [noteAdding,        setNoteAdding]        = useState(false);
-  const [showNoteForm,      setShowNoteForm]      = useState(false);
 
   const showFlash = (ok, text) => {
     setFlash({ ok, text });
     setTimeout(() => setFlash(null), 4000);
   };
-
-  async function autoLog(title, text = '') {
-    try {
-      await apiFetch(`/brain/${brain.brainId}/changelog`, locationId, {
-        method: 'POST',
-        body: { title, text, noteType: 'auto' },
-      });
-    } catch {}
-  }
 
   async function generateDocs() {
     setGeneratingDocs(true);
@@ -388,21 +325,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
   useEffect(() => {
     setDocs(brain.docs || []);
     setChannels(brain.channels || []);
-    setEditName(brain.name);
-    setEditDesc(brain.description || '');
   }, [brain.brainId]);
-
-  async function reloadBrain() {
-    setLoadingDocs(true);
-    try {
-      const r = await apiFetch(`/brain/${brain.brainId}`, locationId);
-      if (r.success) {
-        setDocs(r.data.docs || []);
-        setChannels(r.data.channels || []);
-      }
-    } catch {}
-    setLoadingDocs(false);
-  }
 
   async function reloadVideos() {
     setLoadingVideos(true);
@@ -413,192 +336,12 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
     setLoadingVideos(false);
   }
 
-  // Load videos catalogue when Channels, Videos or Progress tab is opened
+  // Load videos catalogue when Channels or Videos tab is opened
   useEffect(() => {
-    if (tab === 'videos' || tab === 'channels' || tab === 'progress') reloadVideos();
+    if (tab === 'videos' || tab === 'channels') reloadVideos();
   }, [tab, brain.brainId]);
 
-  // Auto-refresh videos while batch processing is active
-  useEffect(() => {
-    if (!batchProcessing) return;
-    const timer = setInterval(reloadVideos, 8000);
-    return () => clearInterval(timer);
-  }, [batchProcessing, brain.brainId]);
-
-  // Cleanup batch processing on unmount
-  useEffect(() => () => { batchActiveRef.current = false; }, []);
-
-  // NOTE: auto-resume removed — user must manually click "Process All Pending"
-  // to avoid unwanted processing on page load
-
-  // Batch processing loop — drives server-side /sync-batch from the frontend
-  async function startBatchLoop() {
-    if (batchActiveRef.current) return;
-    batchActiveRef.current = true;
-    setBatchProcessing(true);
-    let totalDone = 0, totalErrors = 0, batchCount = 0;
-    setBatchProgress({ done: 0, remaining: 0, total: 0, errors: 0 });
-
-    // Persist processing state so page reload resumes instead of showing "Process Pending"
-    apiFetch(`/brain/${brain.brainId}`, locationId, { method: 'PATCH', body: { pipelineStage: 'processing' } });
-
-    const COOLDOWN_MS = 120_000; // 2 minutes between batches
-
-    while (batchActiveRef.current) {
-      try {
-        const r = await apiFetch(`/brain/${brain.brainId}/sync-batch`, locationId, {
-          method: 'POST', body: { batchSize: 2 },
-        });
-        if (!r.success) { showFlash(false, r.error || 'Batch processing failed.'); break; }
-        totalDone += r.ingested || 0;
-        totalErrors += r.errors || 0;
-        batchCount++;
-        setBatchProgress({
-          done: totalDone,
-          remaining: r.remaining || 0,
-          total: totalDone + totalErrors + (r.remaining || 0),
-          errors: totalErrors,
-        });
-        await reloadVideos();
-        if (r.done) {
-          apiFetch(`/brain/${brain.brainId}`, locationId, { method: 'PATCH', body: { pipelineStage: 'ready' } });
-          showFlash(true, `Processing complete — ${totalDone} video${totalDone !== 1 ? 's' : ''} indexed${totalErrors > 0 ? `, ${totalErrors} error${totalErrors !== 1 ? 's' : ''}` : ''}.`);
-          break;
-        }
-        // 2-minute cooldown between batches to avoid YouTube rate limiting
-        if (batchActiveRef.current) {
-          const endTime = Date.now() + COOLDOWN_MS;
-          while (Date.now() < endTime && batchActiveRef.current) {
-            setBatchCooldown(Math.ceil((endTime - Date.now()) / 1000));
-            await new Promise(res => setTimeout(res, 1000));
-          }
-          setBatchCooldown(0);
-        }
-      } catch (e) { showFlash(false, `Processing error: ${e.message}`); break; }
-    }
-
-    batchActiveRef.current = false;
-    setBatchProcessing(false);
-    setBatchProgress(null);
-    setBatchCooldown(0);
-    onRefresh();
-    await reloadBrain();
-    await reloadVideos();
-  }
-
-  async function generateTranscript(videoId) {
-    setGeneratingIds(prev => new Set([...prev, videoId]));
-    // Optimistically mark as processing
-    setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus: 'processing' } : v));
-    try {
-      const r = await apiFetch(`/brain/${brain.brainId}/videos/${videoId}/transcript`, locationId, { method: 'POST' });
-      if (r.success) {
-        showFlash(true, `Transcript generated — ${r.chunks} chunks stored.`);
-        await reloadVideos();
-        onRefresh();
-      } else {
-        showFlash(false, r.error || 'Failed to generate transcript.');
-        setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus: 'error', transcriptError: r.error } : v));
-      }
-    } catch (e) {
-      showFlash(false, e.message || 'Failed.');
-      setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus: 'error' } : v));
-    }
-    setGeneratingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
-  }
-
-  async function ingestYoutube() {
-    if (!ytUrl.trim()) return;
-    setIngesting(true);
-    setFlash(null);
-    setChannelInfo(null);
-    setSelectedPlaylists({});
-    try {
-      const data = await apiFetch(`/brain/${brain.brainId}/youtube`, locationId, {
-        method: 'POST',
-        body:   { url: ytUrl.trim(), title: ytTitle.trim() || undefined, isPrimary: ytPrimary },
-      });
-      if (data.success) {
-        showFlash(true, `"${data.title}" ingested — ${data.chunks} chunks stored.`);
-        setYtTitle('');
-        setYtPrimary(false);
-        await reloadBrain();
-        onRefresh();
-        discoverChannel(ytUrl.trim());
-      } else {
-        showFlash(false, data.error || 'Failed to ingest video.');
-        setYtUrl('');
-      }
-    } catch { showFlash(false, 'Request failed.'); setYtUrl(''); }
-    setIngesting(false);
-  }
-
-  async function discoverChannel(url) {
-    setChannelLoading(true);
-    try {
-      const data = await apiFetch(`/brain/channel-info?videoUrl=${encodeURIComponent(url)}`, locationId);
-      if (data.success && data.data.playlists.length) setChannelInfo(data.data);
-    } catch {}
-    setChannelLoading(false);
-  }
-
-  async function ingestPlaylists() {
-    const ids = Object.entries(selectedPlaylists).filter(([, v]) => v).map(([k]) => k);
-    if (!ids.length) return;
-    setIngestingPlaylist(true);
-    setPlaylistProgress({ done: 0, total: ids.length, current: '' });
-    for (let i = 0; i < ids.length; i++) {
-      const pl = channelInfo.playlists.find(p => p.id === ids[i]);
-      setPlaylistProgress({ done: i, total: ids.length, current: pl?.title || ids[i] });
-      try {
-        await apiFetch(`/brain/${brain.brainId}/playlist`, locationId, {
-          method: 'POST',
-          body:   { playlistId: ids[i], isPrimary: playlistPrimary },
-        });
-      } catch {}
-    }
-    setPlaylistProgress({ done: ids.length, total: ids.length, current: '' });
-    await reloadBrain();
-    onRefresh();
-    showFlash(true, `Ingested ${ids.length} playlist(s) successfully.`);
-    setIngestingPlaylist(false);
-    setSelectedPlaylists({});
-    setChannelInfo(null);
-    setYtUrl('');
-  }
-
-  async function addTextDoc() {
-    if (!docText.trim()) return;
-    setAddingDoc(true);
-    setFlash(null);
-    try {
-      const data = await apiFetch(`/brain/${brain.brainId}/docs`, locationId, {
-        method: 'POST',
-        body:   { text: docText.trim(), sourceLabel: docLabel.trim() || undefined, url: docUrl.trim() || undefined, isPrimary: docPrimary },
-      });
-      if (data.success) {
-        showFlash(true, `Document added — ${data.chunks} chunks stored.`);
-        setDocText(''); setDocLabel(''); setDocUrl(''); setDocPrimary(false);
-        await reloadBrain();
-        onRefresh();
-      } else {
-        showFlash(false, data.error || 'Failed to add document.');
-      }
-    } catch { showFlash(false, 'Request failed.'); }
-    setAddingDoc(false);
-  }
-
-  async function deleteDoc(docId, label) {
-    if (!confirm(`Remove "${label}" from this brain?`)) return;
-    try {
-      await apiFetch(`/brain/${brain.brainId}/docs/${docId}`, locationId, { method: 'DELETE' });
-      await reloadBrain();
-      onRefresh();
-    } catch { showFlash(false, 'Failed to delete document.'); }
-  }
-
   const ytDocs = docs.filter(d => d.url && d.url.includes('youtube.com/watch'));
-  const totalChunks = docs.reduce((a, d) => a + (d.chunkCount || 0), 0);
   const videoCount = videos.length || brain.videoCount || ytDocs.length;
 
   const isSharedBrain = !!brain.isShared;
@@ -785,8 +528,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
                 </div>
               </div>
               {videos.slice((videoPage - 1) * videoPageSize, videoPage * videoPageSize).map(video => {
-                const isGenerating = generatingIds.has(video.videoId);
-                const status = isGenerating ? 'processing' : (video.transcriptStatus || 'pending');
+                const status = video.transcriptStatus || 'pending';
                 const statusConfig = {
                   complete:   { label: 'Indexed',     bg: '#052e16', color: '#4ade80', border: '#16a34a44' },
                   processing: { label: 'Processing…', bg: '#1c1400', color: '#fbbf24', border: '#d9770044' },
@@ -856,502 +598,16 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
             </div>
           )}
 
-          {/* Add individual YouTube video */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginTop: 24 }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: C.textPri }}>Add Individual Video</h3>
-            <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>Paste a YouTube URL to immediately generate transcript and index it.</p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input value={ytUrl} onChange={e => setYtUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." style={{ ...inputStyle, flex: 1, marginBottom: 0 }} />
-              <button onClick={ingestYoutube} disabled={ingesting || !ytUrl.trim()} style={{ ...btnPrimary, whiteSpace: 'nowrap', opacity: (ingesting || !ytUrl.trim()) ? 0.5 : 1, cursor: (ingesting || !ytUrl.trim()) ? 'not-allowed' : 'pointer' }}>
-                {ingesting ? 'Processing…' : '+ Add'}
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
-      {/* ── Settings tab ── */}
-      {/* ── Changelog tab ── */}
-      {tab === 'changelog' && (() => {
-        // Merge syncLog (auto) + notes (manual), newest first
-        const syncEntries = (brain.syncLog || []).map(e => ({ ...e, _kind: 'sync' }));
-        const noteEntries = (brain.notes   || []).map(e => ({ ...e, _kind: 'note' }));
-        const allEntries  = [...syncEntries, ...noteEntries].sort((a, b) => new Date(b.ts) - new Date(a.ts));
-
-        async function addNote() {
-          if (!noteTitle.trim()) return;
-          setNoteAdding(true);
-          try {
-            const r = await apiFetch(`/brain/${brain.brainId}/changelog`, locationId, {
-              method: 'POST',
-              body:   { title: noteTitle, text: noteText, noteType },
-            });
-            if (r.success) {
-              showFlash(true, 'Note added.');
-              setNoteTitle(''); setNoteText(''); setNoteType('note'); setShowNoteForm(false);
-              onRefresh();
-            } else showFlash(false, r.error || 'Failed to add note.');
-          } catch { showFlash(false, 'Request failed.'); }
-          setNoteAdding(false);
-        }
-
-        async function deleteNote(entryId) {
-          if (!confirm('Delete this note?')) return;
-          try {
-            const r = await apiFetch(`/brain/${brain.brainId}/changelog/${entryId}`, locationId, { method: 'DELETE' });
-            if (r.success) { showFlash(true, 'Note deleted.'); onRefresh(); }
-            else showFlash(false, r.error || 'Delete failed.');
-          } catch { showFlash(false, 'Request failed.'); }
-        }
-
-        const NOTE_TYPES = [
-          { value: 'note',   label: '📝 Note',    color: '#60a5fa' },
-          { value: 'fix',    label: '🔧 Fix',     color: '#4ade80' },
-          { value: 'update', label: '⬆ Update',  color: '#a78bfa' },
-          { value: 'issue',  label: '⚠ Issue',   color: '#fbbf24' },
-        ];
-
-        return (
-          <div>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.textPri }}>📋 {brain.name} — Changelog</h3>
-                <p style={{ margin: '4px 0 0', fontSize: 13, color: C.textMuted }}>
-                  All sync runs and manual notes for this brain, newest first.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowNoteForm(f => !f)}
-                style={{ ...btnPrimary, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, flexShrink: 0 }}
-              >
-                {showNoteForm ? '✕ Cancel' : '+ Add Note'}
-              </button>
-            </div>
-
-            {/* Add note form */}
-            {showNoteForm && (
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
-                <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 700, color: C.textPri }}>New Changelog Entry</h4>
-
-                {/* Type picker */}
-                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                  {NOTE_TYPES.map(t => (
-                    <button key={t.value} onClick={() => setNoteType(t.value)} style={{
-                      padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                      background: noteType === t.value ? `${t.color}22` : 'transparent',
-                      border: `1px solid ${noteType === t.value ? t.color : C.border}`,
-                      color: noteType === t.value ? t.color : C.textMuted,
-                      transition: 'all .15s',
-                    }}>{t.label}</button>
-                  ))}
-                </div>
-
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: C.textMuted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Title <span style={{ color: C.red }}>*</span>
-                </label>
-                <input
-                  value={noteTitle}
-                  onChange={e => setNoteTitle(e.target.value)}
-                  placeholder="e.g. Added new channel, Fixed transcript errors…"
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, background: '#0a0f1a', border: `1px solid ${C.border}`, color: C.textPri, fontSize: 13, marginBottom: 12, boxSizing: 'border-box' }}
-                />
-
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: C.textMuted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Details (optional)
-                </label>
-                <textarea
-                  value={noteText}
-                  onChange={e => setNoteText(e.target.value)}
-                  placeholder="Describe what changed, why, or any relevant context…"
-                  rows={4}
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, background: '#0a0f1a', border: `1px solid ${C.border}`, color: C.textPri, fontSize: 13, resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box' }}
-                />
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-                  <button
-                    onClick={addNote}
-                    disabled={!noteTitle.trim() || noteAdding}
-                    style={{ ...btnPrimary, opacity: (!noteTitle.trim() || noteAdding) ? 0.5 : 1 }}
-                  >
-                    {noteAdding ? 'Saving…' : '💾 Save Entry'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Entry feed */}
-            {allEntries.length === 0 ? (
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 32, textAlign: 'center' }}>
-                <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
-                <p style={{ margin: 0, fontSize: 14, color: C.textMuted }}>No entries yet. Run a sync or add a note to start the changelog.</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {allEntries.map((entry, i) => {
-                  if (entry._kind === 'sync') {
-                    const hasErrors = (entry.errors || 0) > 0;
-                    return (
-                      <div key={i} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 5, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)', color: C.green, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            ⟳ Auto Sync
-                          </span>
-                          {entry.channel && (
-                            <span style={{ fontSize: 12, color: C.textSec }}>{entry.channel}</span>
-                          )}
-                          <span style={{ marginLeft: 'auto', fontSize: 12, color: C.textMuted }}>{timeAgo(entry.ts)}</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                          <div>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: C.green, lineHeight: 1 }}>+{entry.ingested || 0}</div>
-                            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>Videos ingested</div>
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: hasErrors ? C.amber : C.textMuted, lineHeight: 1 }}>{entry.errors || 0}</div>
-                            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>Errors</div>
-                          </div>
-                          {entry.docCount != null && (
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 700, color: C.textPri, lineHeight: 1 }}>{entry.docCount}</div>
-                              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>Total docs</div>
-                            </div>
-                          )}
-                          {entry.chunkCount != null && (
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 700, color: C.textPri, lineHeight: 1 }}>{entry.chunkCount?.toLocaleString()}</div>
-                              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>Total chunks</div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  // Manual note entry
-                  const t = NOTE_TYPES.find(x => x.value === entry.type) || NOTE_TYPES[0];
-                  return (
-                    <div key={entry.id || i} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: entry.text ? 10 : 0 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 5, background: `${t.color}18`, border: `1px solid ${t.color}40`, color: t.color, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          {t.label}
-                        </span>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: C.textPri, flex: 1 }}>{entry.title}</span>
-                        <span style={{ fontSize: 12, color: C.textMuted, flexShrink: 0 }}>{timeAgo(entry.ts)}</span>
-                        <button
-                          onClick={() => deleteNote(entry.id)}
-                          style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
-                          title="Delete note"
-                        >✕</button>
-                      </div>
-                      {entry.text && (
-                        <p style={{ margin: 0, fontSize: 13, color: C.textSec, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{entry.text}</p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {tab === 'settings' && (
-        <div>
-          {/* Brain Settings card */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Brain Settings</h3>
-            <p style={{ margin: '0 0 20px', fontSize: 13, color: C.textMuted }}>Edit name, description, and reference links.</p>
-
-            {/* Name + Slug side by side */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 4 }}>
-              <div>
-                <label style={labelStyle}>Name <span style={{ color: C.red }}>*</span></label>
-                <input value={editName} onChange={e => setEditName(e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
-              </div>
-              <div>
-                <label style={labelStyle}>Slug</label>
-                <input value={brain.slug} readOnly style={{ ...inputStyle, marginBottom: 0, opacity: 0.5, cursor: 'not-allowed' }} />
-                <p style={{ margin: '4px 0 0', fontSize: 11, color: C.textMuted }}>Cannot be changed</p>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 14 }}>
-              <label style={labelStyle}>Description</label>
-              <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
-              <button onClick={async () => {
-                setSaving(true);
-                try {
-                  const r = await apiFetch(`/brain/${brain.brainId}`, locationId, {
-                    method: 'PATCH',
-                    body: { name: editName, description: editDesc },
-                  });
-                  if (r.success) {
-                    showFlash(true, 'Brain settings saved.');
-                    autoLog('Settings updated', `Name: ${editName}${editDesc ? ' · Description updated' : ''}`);
-                    onRefresh();
-                  }
-                  else showFlash(false, r.error || 'Save failed.');
-                } catch { showFlash(false, 'Request failed.'); }
-                setSaving(false);
-              }} style={{ ...btnPrimary, opacity: saving ? 0.5 : 1 }}>
-                💾 {saving ? 'Saving…' : 'Save changes'}
-              </button>
-            </div>
-          </div>
-
-          {/* Danger Zone */}
-          <div style={{ background: '#1a0808', border: `1px solid ${C.red}33`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
-            <h3 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 700, color: C.red, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>⚠</span> Danger Zone
-            </h3>
-            <p style={{ margin: '0 0 16px', fontSize: 13, color: C.textMuted }}>
-              Permanently delete this brain and all its channels, videos, chunks, and documentation. This action cannot be undone.
-            </p>
-            <button onClick={() => { if (confirm(`Delete brain "${brain.name}"? This cannot be undone.`)) onDeleted(brain.brainId); }}
-              style={{ background: 'none', border: `1px solid ${C.red}`, borderRadius: 8, color: C.red, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-              🗑 Delete Brain
-            </button>
-          </div>
-
-          {/* Brain Documentation — AI-generated */}
-          {(() => {
-            const docsHistory = brain.docsHistory || [];
-            const latestDoc   = docsHistory[docsHistory.length - 1];
-            return (
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-                  <div>
-                    <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>📄 Brain Documentation</h3>
-                    <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>
-                      {docsHistory.length > 0
-                        ? `${docsHistory.length} version${docsHistory.length !== 1 ? 's' : ''} · last generated ${timeAgo(latestDoc.ts)}`
-                        : 'AI-generated documentation — not generated yet'}
-                    </p>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                    {docsHistory.length > 0 && (
-                      <button onClick={() => setShowDocsModal(true)} style={{ ...btnSecondary, fontSize: 13 }}>
-                        View Docs →
-                      </button>
-                    )}
-                    <button onClick={generateDocs} disabled={generatingDocs}
-                      style={{ ...btnPrimary, fontSize: 13, opacity: generatingDocs ? 0.5 : 1 }}>
-                      {generatingDocs ? '⟳ Generating…' : docsHistory.length ? '↺ Regenerate' : '✦ Generate Docs'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Change History — auto-populated on every brain update */}
-          {(() => {
-            const changeCount = (brain.syncLog || []).length + (brain.notes || []).length;
-            const lastEntry   = [...(brain.syncLog || []), ...(brain.notes || [])].sort((a, b) => new Date(b.ts) - new Date(a.ts))[0];
-            return (
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-                  <div>
-                    <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>📋 Change History</h3>
-                    <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>
-                      {changeCount > 0
-                        ? `${changeCount} entr${changeCount !== 1 ? 'ies' : 'y'} · last change ${timeAgo(lastEntry?.ts)}`
-                        : 'Auto-logged — no changes recorded yet'}
-                    </p>
-                  </div>
-                  {changeCount > 0 && (
-                    <button onClick={() => setShowChangeLogModal(true)} style={{ ...btnSecondary, fontSize: 13, flexShrink: 0 }}>
-                      View Change Log →
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
-
-      {/* ── Progress tab ── */}
-      {tab === 'progress' && (() => {
-        const complete = videos.filter(v => v.transcriptStatus === 'complete').length;
-        const pending  = videos.filter(v => v.transcriptStatus === 'pending' || v.transcriptStatus === 'queued').length;
-        const errored  = videos.filter(v => v.transcriptStatus === 'error').length;
-        const total    = videos.length || brain.videoCount || 0;
-        const pct      = total > 0 ? Math.round(complete / total * 100) : 0;
-
-        const STAGES = [
-          {
-            label: 'Sync',
-            icon: '⟳',
-            done: (brain.channels || []).length > 0 && (brain.lastSynced || complete > 0 || total > 0),
-            desc: `${(brain.channels || []).length} channel${(brain.channels || []).length !== 1 ? 's' : ''} connected`,
-          },
-          {
-            label: 'Transcribe',
-            icon: '▶',
-            done: complete > 0,
-            desc: `${complete} / ${total} videos`,
-          },
-          {
-            label: 'Embed',
-            icon: '⚡',
-            done: (brain.chunkCount || 0) > 0,
-            desc: `${(brain.chunkCount || 0).toLocaleString()} chunks`,
-          },
-          {
-            label: 'Ready',
-            icon: '✓',
-            done: brain.pipelineStage === 'ready',
-            desc: brain.pipelineStage === 'ready' ? 'Searchable' : (brain.pipelineStage || 'Not ready'),
-          },
-        ];
-
-        return (
-          <div>
-            {/* Pipeline stages */}
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
-              <h3 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Pipeline Stages</h3>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                {STAGES.map((s, i) => (
-                  <div key={s.label} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
-                    <div style={{ flex: 1, textAlign: 'center' }}>
-                      <div style={{
-                        width: 48, height: 48, borderRadius: '50%', margin: '0 auto 10px',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: s.done ? C.green : C.border,
-                        color: s.done ? '#fff' : C.textMuted,
-                        fontSize: 18, fontWeight: 700,
-                        border: `3px solid ${s.done ? C.green : C.border}`,
-                      }}>
-                        {s.done ? '✓' : s.icon}
-                      </div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: s.done ? C.textPri : C.textMuted }}>{s.label}</div>
-                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{s.desc}</div>
-                    </div>
-                    {i < STAGES.length - 1 && (
-                      <div style={{ width: 40, height: 2, background: STAGES[i + 1].done ? C.green : C.border, flexShrink: 0, marginBottom: 28 }} />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Transcript progress */}
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Transcript Progress</h3>
-              <div style={{ display: 'flex', gap: 28, marginBottom: 16 }}>
-                {[
-                  { label: 'Indexed',  val: complete, color: C.green },
-                  { label: 'Pending',  val: pending,  color: C.textMuted },
-                  { label: 'Errors',   val: errored,  color: errored > 0 ? C.red : C.textMuted },
-                  { label: 'Total',    val: total,    color: C.textSec },
-                ].map(s => (
-                  <div key={s.label}>
-                    <div style={{ fontSize: 26, fontWeight: 700, color: s.color, lineHeight: 1 }}>{s.val}</div>
-                    <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ height: 8, background: '#1e2a3a', borderRadius: 4, overflow: 'hidden', marginBottom: 6 }}>
-                <div style={{ height: '100%', borderRadius: 4, background: `linear-gradient(90deg, ${C.green}, #34d399)`, width: `${pct}%`, transition: 'width 0.5s ease' }} />
-              </div>
-              <div style={{ fontSize: 12, color: C.textMuted }}>{pct}% indexed</div>
-              {pending > 0 && (
-                <button
-                  onClick={startBatchLoop}
-                  disabled={batchProcessing}
-                  style={{ ...btnPrimary, marginTop: 16, fontSize: 13, opacity: batchProcessing ? 0.5 : 1 }}
-                >
-                  {batchProcessing ? '⟳ Processing…' : `▶ Process ${pending} Pending`}
-                </button>
-              )}
-              {batchProcessing && batchProgress && (
-                <div style={{ marginTop: 12, fontSize: 12, color: C.blue }}>
-                  {batchProgress.done} indexed · {batchProgress.remaining} remaining
-                  {batchCooldown > 0 && ` · next batch in ${Math.floor(batchCooldown / 60)}:${String(batchCooldown % 60).padStart(2, '0')}`}
-                </div>
-              )}
-            </div>
-
-            {/* Sync history */}
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
-              <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Sync History</h3>
-              <p style={{ margin: '0 0 16px', fontSize: 13, color: C.textMuted }}>History of all sync runs for this brain.</p>
-              {(brain.syncLog || []).length === 0 ? (
-                <p style={{ margin: 0, fontSize: 13, color: C.textMuted }}>No sync runs yet.</p>
-              ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr>
-                        {['When', 'Channel', 'Ingested', 'Errors', 'Total Docs', 'Chunks'].map(h => (
-                          <th key={h} style={thStyle}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(brain.syncLog || []).map((entry, i) => (
-                        <tr key={i}>
-                          <td style={{ ...tdStyle, color: C.textMuted, whiteSpace: 'nowrap' }}>{timeAgo(entry.ts)}</td>
-                          <td style={tdStyle}>{entry.channel || 'All channels'}</td>
-                          <td style={{ ...tdStyle, color: C.green, fontWeight: 600 }}>+{entry.ingested}</td>
-                          <td style={{ ...tdStyle, color: entry.errors > 0 ? C.amber : C.textMuted }}>{entry.errors}</td>
-                          <td style={tdStyle}>{entry.docCount ?? '—'}</td>
-                          <td style={tdStyle}>{entry.chunkCount ?? '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {/* Recent videos */}
-            {videos.length > 0 && (
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
-                <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.textPri }}>Recent Videos</h3>
-                <p style={{ margin: '0 0 16px', fontSize: 13, color: C.textMuted }}>Last 10 discovered videos.</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {[...videos]
-                    .sort((a, b) => new Date(b.addedAt || 0) - new Date(a.addedAt || 0))
-                    .slice(0, 10)
-                    .map(video => {
-                      const st = video.transcriptStatus || 'pending';
-                      const stColor = { complete: C.green, error: C.red, processing: C.amber, queued: C.blue }[st] || C.textMuted;
-                      const stLabel = { complete: 'Indexed', error: 'Error', processing: 'Processing', queued: 'Queued', pending: 'Pending' }[st] || st;
-                      return (
-                        <div key={video.videoId} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <a href={`https://www.youtube.com/watch?v=${video.videoId}`} target="_blank" rel="noreferrer" style={{ flexShrink: 0 }}>
-                            <img src={ytThumb(video.videoId)} alt="" style={{ width: 64, height: 36, objectFit: 'cover', borderRadius: 5, display: 'block' }} />
-                          </a>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, color: C.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{video.title || video.videoId}</div>
-                            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-                              {video.channelName || ''}{video.publishDate ? ` · ${publishedAgo(video.publishDate)}` : ''}
-                              {video.lengthSecs ? ` · ${fmtDuration(video.lengthSecs)}` : ''}
-                            </div>
-                          </div>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: stColor, flexShrink: 0 }}>{stLabel}</span>
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })()}
     </div>
   );
 }
 
 // ── Dashboard view ────────────────────────────────────────────────────────────
 
-function DashboardView({ brains, loading, onAddBrain, onSelectBrain, locationId, onSyncBrain, onOpenModal }) {
+function DashboardView({ brains, loading, onSelectBrain, locationId, onSyncBrain, onOpenModal }) {
   const [syncingId, setSyncingId] = useState(null);
   const totalVideos   = brains.reduce((a, b) => a + (b.videoCount || 0), 0);
   const totalIndexed   = brains.reduce((a, b) => a + (b.docCount || 0), 0);
