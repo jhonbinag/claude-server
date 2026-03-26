@@ -90,6 +90,1351 @@ async function adminFetch(path, { method = 'GET', adminKey, body } = {}) {
   return res.json();
 }
 
+// ── Brain Detail helper constants ─────────────────────────────────────────────
+
+const BD = {
+  bg:'#070b14', card:'#0f1623', border:'#1e2a3a',
+  blue:'#2563eb', blueDark:'#1d4ed8', green:'#10b981', amber:'#f59e0b', red:'#ef4444',
+  textPri:'#f9fafb', textSec:'#9ca3af', textMuted:'#6b7280', codeBg:'#0a0f1a',
+};
+const bdLabel = { display:'block', color:BD.textSec, fontSize:12, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:6 };
+const bdInput = { width:'100%', boxSizing:'border-box', background:'#0a0f1a', border:`1px solid ${BD.border}`, borderRadius:8, color:BD.textPri, padding:'9px 12px', fontSize:14, marginBottom:14, outline:'none' };
+const bdBtnP = { background:BD.blue, border:'none', borderRadius:8, color:'#fff', padding:'9px 18px', fontSize:14, fontWeight:600, cursor:'pointer' };
+const bdBtnS = { background:'none', border:`1px solid ${BD.border}`, borderRadius:6, color:BD.textSec, padding:'7px 14px', fontSize:13, cursor:'pointer' };
+const bdTh = { padding:'10px 14px', textAlign:'left', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:BD.textMuted, borderBottom:`1px solid ${BD.border}` };
+const bdTd = { padding:'12px 14px', fontSize:13, color:BD.textPri, borderBottom:`1px solid ${BD.border}88`, verticalAlign:'middle' };
+
+function bdYtThumb(vId) { return `https://img.youtube.com/vi/${vId}/mqdefault.jpg`; }
+function bdFmtDuration(s) {
+  if (!s) return '—';
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+function bdFmtViews(n) {
+  if (!n) return '—';
+  if (n >= 1e6) return (n/1e6).toFixed(1)+'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1).replace('.0','')+'K';
+  return n.toLocaleString();
+}
+function bdTimeAgo(ts) {
+  if (!ts) return 'Never';
+  const diff = Date.now() - new Date(ts).getTime();
+  const m = Math.floor(diff/60000);
+  if (m < 1) return 'Just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m/60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h/24)}d ago`;
+}
+function bdPublishedAgo(d) {
+  if (!d) return '—';
+  const days = Math.floor((Date.now()-new Date(d).getTime())/86400000);
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.floor(days/7)}w ago`;
+  if (days < 365) return `${Math.floor(days/30)}mo ago`;
+  return `${Math.floor(days/365)}y ago`;
+}
+
+// ── Admin Source Accordion (mirrors Brain.jsx SourceAccordion) ────────────────
+
+function AdminSourceAccordion({ s, rank, pct, rankColor, rankLabel }) {
+  const [open, setOpen] = useState(rank === 0);
+  return (
+    <div style={{ border: `1px solid ${rank === 0 ? rankColor + '55' : 'rgba(255,255,255,0.07)'}`, borderRadius: 10, overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ width: '100%', background: rank === 0 ? 'rgba(245,158,11,0.05)' : 'rgba(255,255,255,0.02)', border: 'none', cursor: 'pointer', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}
+      >
+        <span style={{ fontSize: 10, fontWeight: 800, color: rankColor, background: rankColor + '18', border: `1px solid ${rankColor}44`, borderRadius: 6, padding: '2px 7px', flexShrink: 0, minWidth: 42, textAlign: 'center' }}>
+          {rankLabel}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {s.sourceLabel || `Source ${rank + 1}`}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+              <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2, background: rankColor, transition: 'width 0.4s ease' }} />
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: rankColor, flexShrink: 0 }}>{pct}%</span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {s.url && (
+            <a href={s.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+              style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>↗</a>
+          )}
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+        </div>
+      </button>
+      {open && s.excerpt && (
+        <div style={{ padding: '10px 14px 12px', borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
+            {s.excerpt}{s.excerpt.length >= 300 ? '…' : ''}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Admin Search View (mirrors Brain.jsx SearchView) ──────────────────────────
+
+function AdminSearchView({ brains, adminKey }) {
+  const [selectedBrainVal, setSelectedBrainVal] = useState(() => {
+    if (brains.length === 0) return '';
+    const b = brains[0];
+    const locQ = b.isShared ? '' : (b._locationId ? `?loc=${encodeURIComponent(b._locationId)}` : '');
+    return JSON.stringify({ brainId: b.brainId, locQ });
+  });
+  const [query,        setQuery]        = useState('');
+  const [asking,       setAsking]       = useState(false);
+  const [answer,       setAnswer]       = useState('');
+  const [sources,      setSources]      = useState(null);
+  const [searchMethod, setSearchMethod] = useState('');
+  const [noContext,    setNoContext]     = useState(false);
+  const [error,        setError]        = useState('');
+
+  useEffect(() => {
+    if (!selectedBrainVal && brains.length > 0) {
+      const b = brains[0];
+      const locQ = b.isShared ? '' : (b._locationId ? `?loc=${encodeURIComponent(b._locationId)}` : '');
+      setSelectedBrainVal(JSON.stringify({ brainId: b.brainId, locQ }));
+    }
+  }, [brains]);
+
+  async function runAsk() {
+    if (!query.trim() || !selectedBrainVal || asking) return;
+    const { brainId, locQ } = JSON.parse(selectedBrainVal);
+    setAsking(true); setAnswer(''); setSources(null); setSearchMethod(''); setNoContext(false); setError('');
+    try {
+      const res = await fetch(`/brain/${brainId}/ask${locQ}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify({ query: query.trim(), k: 20 }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j.error || `Server error ${res.status}`);
+        setAsking(false);
+        return;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'sources')    { setSources(evt.sources); setSearchMethod(evt.searchMethod || 'keyword'); }
+            if (evt.type === 'text')       { setAnswer(prev => prev + evt.text); }
+            if (evt.type === 'no_context') { setNoContext(true); }
+            if (evt.type === 'error')      { setError(evt.error); }
+            if (evt.type === 'done')       { setAsking(false); }
+          } catch {}
+        }
+      }
+    } catch (e) { setError(e.message); }
+    setAsking(false);
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: BD.textPri }}>Ask Brain</h2>
+        <p style={{ margin: 0, fontSize: 14, color: BD.textMuted }}>Ask any question — brain will analyze and answer from the transcripts.</p>
+      </div>
+
+      {/* Controls row */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+        <select
+          value={selectedBrainVal}
+          onChange={e => { setSelectedBrainVal(e.target.value); setAnswer(''); setSources(null); setNoContext(false); setError(''); }}
+          style={{ ...bdInput, marginBottom: 0, width: 220, flexShrink: 0 }}
+        >
+          {brains.map(b => {
+            const locQ = b.isShared ? '' : (b._locationId ? `?loc=${encodeURIComponent(b._locationId)}` : '');
+            return <option key={`${b._locationId}-${b.brainId}`} value={JSON.stringify({ brainId: b.brainId, locQ })}>{b.name}{!b.isShared && b._locationId ? ` (${b._locationId.slice(0,10)}…)` : ''}</option>;
+          })}
+        </select>
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && runAsk()}
+          placeholder="Ask anything about this brain…"
+          style={{ ...bdInput, marginBottom: 0, flex: 1 }}
+        />
+        <button
+          onClick={runAsk}
+          disabled={asking || !query.trim() || !selectedBrainVal}
+          style={{ ...bdBtnP, flexShrink: 0, opacity: (asking || !query.trim() || !selectedBrainVal) ? 0.5 : 1, minWidth: 90 }}
+        >
+          {asking ? '…' : 'Search'}
+        </button>
+      </div>
+
+      {/* Thinking indicator */}
+      {asking && !answer && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 0', color: BD.textMuted, fontSize: 13 }}>
+          <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', fontSize: 16 }}>⟳</span>
+          Analyzing transcripts…
+        </div>
+      )}
+
+      {/* Best Answer */}
+      {(answer || (asking && answer)) && (
+        <div style={{ background: '#0a1628', border: `1px solid ${BD.blue}33`, borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: BD.blue }}>Best Answer</span>
+            {searchMethod && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+                padding: '2px 7px', borderRadius: 99,
+                background: searchMethod === 'vector' ? 'rgba(99,102,241,0.15)' : 'rgba(245,158,11,0.12)',
+                color:      searchMethod === 'vector' ? '#a5b4fc'               : '#fbbf24',
+                border:     `1px solid ${searchMethod === 'vector' ? 'rgba(99,102,241,0.3)' : 'rgba(245,158,11,0.25)'}`,
+              }}>
+                {searchMethod === 'vector' ? '⚡ Vector DB' : '🔤 Keyword'}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 14, color: '#e2e8f0', lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {answer}
+            {asking && <span style={{ display: 'inline-block', width: 2, height: '1em', background: BD.blue, marginLeft: 2, animation: 'pulse 1s ease-in-out infinite', verticalAlign: 'text-bottom' }} />}
+          </div>
+        </div>
+      )}
+
+      {/* No context */}
+      {noContext && (
+        <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 10, padding: '16px 18px', color: BD.textMuted, fontSize: 13 }}>
+          No indexed transcripts matched your query. Try syncing more videos or rephrasing your question.
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div style={{ background: '#1c0a00', border: `1px solid #dc262644`, borderRadius: 10, padding: '14px 16px', color: '#f87171', fontSize: 13 }}>{error}</div>
+      )}
+
+      {/* Top 5 Answers — ranked excerpt cards */}
+      {sources?.length > 0 && !asking && (() => {
+        const ANS_COLORS = ['#f59e0b', '#94a3b8', '#cd7c4a', '#6b7280', '#6b7280'];
+        const ANS_LABELS = ['#1 Best Match', '#2', '#3', '#4', '#5'];
+        const maxScore   = Math.max(...sources.map(s => s.score || 0)) || 1;
+        const top5ans    = [...sources].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+        return (
+          <div style={{ marginBottom: 24 }}>
+            <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: BD.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Top 5 Answers by Accuracy
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {top5ans.map((s, i) => {
+                const pct   = Math.round(((s.score || 0) / maxScore) * 100);
+                const color = ANS_COLORS[i];
+                return (
+                  <div key={i} style={{ background: i === 0 ? 'rgba(245,158,11,0.05)' : BD.card, border: `1px solid ${i === 0 ? '#f59e0b55' : BD.border}`, borderRadius: 10, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color, background: color + '18', border: `1px solid ${color}44`, borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>
+                        {ANS_LABELS[i]}
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.sourceLabel || `Source ${i + 1}`}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color, flexShrink: 0 }}>{pct}%</span>
+                    </div>
+                    <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.07)', marginBottom: 12, overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2, background: color }} />
+                    </div>
+                    {s.excerpt && (
+                      <p style={{ margin: 0, fontSize: 13, color: '#cbd5e1', lineHeight: 1.75 }}>
+                        {s.excerpt}{s.excerpt.length >= 300 ? '…' : ''}
+                      </p>
+                    )}
+                    {s.url && (
+                      <a href={s.url} target="_blank" rel="noreferrer"
+                        style={{ display: 'inline-block', marginTop: 8, fontSize: 11, color: BD.textMuted, textDecoration: 'none' }}>
+                        ↗ Watch on YouTube
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Top 10 Sources — accordion */}
+      {sources?.length > 0 && !asking && (() => {
+        const RANK_COLORS = ['#f59e0b','#94a3b8','#cd7c4a','#6b7280','#6b7280','#6b7280','#6b7280','#6b7280','#6b7280','#6b7280'];
+        const RANK_LABELS = ['#1','#2','#3','#4','#5','#6','#7','#8','#9','#10'];
+        const maxScore = Math.max(...sources.map(s => s.score || 0)) || 1;
+        const top10    = [...sources].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 10);
+        return (
+          <div>
+            <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: BD.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Top {top10.length} Sources
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {top10.map((s, i) => {
+                const pct = Math.round(((s.score || 0) / maxScore) * 100);
+                return <AdminSourceAccordion key={i} s={s} rank={i} pct={pct} rankColor={RANK_COLORS[i]} rankLabel={RANK_LABELS[i]} />;
+              })}
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+// ── Admin Brain Modals ────────────────────────────────────────────────────────
+
+function AdminAddChannelModal({ brainId, adminKey, brainLocQ, onClose, onAdded }) {
+  const [channelName, setChannelName] = useState('');
+  const [channelUrl,  setChannelUrl]  = useState('');
+  const [isPrimary,   setIsPrimary]   = useState(false);
+  const [saving,      setSaving]      = useState(false);
+  const [error,       setError]       = useState('');
+
+  async function handleAdd() {
+    if (!channelName.trim()) { setError('Channel name is required.'); return; }
+    if (!channelUrl.trim())  { setError('Channel URL is required.'); return; }
+    setSaving(true); setError('');
+    try {
+      const r = await adminFetch(`/brain/${brainId}/channels${brainLocQ}`, {
+        method: 'POST', adminKey, body: { channelName: channelName.trim(), channelUrl: channelUrl.trim(), isPrimary },
+      });
+      if (!r.success) throw new Error(r.error || 'Failed.');
+      onAdded(r.data);
+    } catch(e) { setError(e.message); }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:16, padding:28, width:'100%', maxWidth:440 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
+          <div>
+            <h2 style={{ margin:0, fontSize:18, fontWeight:700, color:BD.textPri }}>Add a channel</h2>
+            <p style={{ margin:'4px 0 0', fontSize:13, color:BD.textMuted }}>Add another YouTube channel to this brain.</p>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:BD.textMuted, fontSize:20, cursor:'pointer', marginLeft:12 }}>✕</button>
+        </div>
+        <div style={{ borderBottom:`1px solid ${BD.border}`, margin:'16px 0' }} />
+        {error && <div style={{ marginBottom:14, padding:'10px 14px', borderRadius:8, background:'#1c0a00', border:`1px solid ${BD.red}44`, color:'#f87171', fontSize:13 }}>{error}</div>}
+        <label style={bdLabel}>Channel name <span style={{ color:BD.red }}>*</span></label>
+        <input value={channelName} onChange={e => setChannelName(e.target.value)} placeholder="e.g. Andrej Karpathy" style={bdInput} autoFocus />
+        <label style={bdLabel}>Channel URL <span style={{ color:BD.red }}>*</span></label>
+        <input value={channelUrl} onChange={e => setChannelUrl(e.target.value)} placeholder="https://youtube.com/@handle" style={{ ...bdInput, marginBottom:4 }} />
+        <p style={{ margin:'0 0 14px', fontSize:12, color:BD.textMuted }}>Accepts @handle, channel URL, or UC ID.</p>
+        <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', userSelect:'none', marginBottom:24 }}>
+          <input type="checkbox" checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)} style={{ width:16, height:16, accentColor:BD.blue }} />
+          <span style={{ fontSize:13, color:'#d1d5db' }}>Set as primary channel</span>
+        </label>
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+          <button onClick={onClose} style={bdBtnS}>Cancel</button>
+          <button onClick={handleAdd} disabled={saving} style={{ ...bdBtnP, opacity:saving?0.5:1 }}>{saving?'Adding…':'Add channel'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminDocsModal({ brain, adminKey, brainLocQ, onClose, onRefresh }) {
+  const [generatingDocs, setGeneratingDocs] = useState(false);
+  const history = brain.docsHistory || [];
+  const sorted  = [...history].reverse();
+  const [expanded, setExpanded] = useState(() => new Set(sorted.length ? [sorted[0].id] : []));
+
+  function toggle(id) {
+    setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  async function generateDocs() {
+    setGeneratingDocs(true);
+    try {
+      const r = await adminFetch(`/brain/${brain.brainId}/generate-docs${brainLocQ}`, { method:'POST', adminKey });
+      if (r.success) onRefresh();
+    } catch {}
+    setGeneratingDocs(false);
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:1100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:16, width:'100%', maxWidth:760, maxHeight:'90vh', display:'flex', flexDirection:'column' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'20px 24px', borderBottom:`1px solid ${BD.border}`, flexShrink:0 }}>
+          <div>
+            <h2 style={{ margin:0, fontSize:18, fontWeight:700, color:BD.textPri }}>📄 Brain Documentation</h2>
+            <p style={{ margin:'4px 0 0', fontSize:13, color:BD.textMuted }}>{history.length} version{history.length!==1?'s':''} · AI-generated · newest first</p>
+          </div>
+          <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+            <button onClick={generateDocs} disabled={generatingDocs} style={{ ...bdBtnP, fontSize:13, opacity:generatingDocs?0.5:1 }}>
+              {generatingDocs?'⟳ Generating…':history.length?'↺ Generate New Version':'✦ Generate Docs'}
+            </button>
+            <button onClick={onClose} style={{ background:'none', border:'none', color:BD.textMuted, fontSize:22, cursor:'pointer', lineHeight:1 }}>✕</button>
+          </div>
+        </div>
+        <div style={{ overflowY:'auto', padding:24, flex:1 }}>
+          {sorted.length === 0 ? (
+            <p style={{ color:BD.textMuted, fontSize:14 }}>No documentation yet. Click "Generate Docs" to have AI write documentation for this brain.</p>
+          ) : sorted.map((entry, i) => (
+            <div key={entry.id} style={{ marginBottom:12, border:`1px solid ${BD.border}`, borderRadius:12, overflow:'hidden' }}>
+              <button onClick={() => toggle(entry.id)} style={{ width:'100%', background:expanded.has(entry.id)?'#0d1623':BD.card, border:'none', padding:'14px 18px', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <span style={{ fontSize:11, fontWeight:700, padding:'2px 9px', borderRadius:5, background:i===0?`${BD.blue}22`:'rgba(255,255,255,0.05)', border:`1px solid ${i===0?BD.blue+'40':BD.border}`, color:i===0?BD.blue:BD.textMuted }}>
+                    {i===0?'Latest · ':''}v{entry.version}
+                  </span>
+                  <span style={{ fontSize:13, color:BD.textMuted }}>{new Date(entry.ts).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}{' at '}{new Date(entry.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span>
+                </div>
+                <span style={{ color:BD.textMuted, fontSize:13 }}>{expanded.has(entry.id)?'▲':'▼'}</span>
+              </button>
+              {expanded.has(entry.id) && (
+                <div style={{ padding:'16px 18px', borderTop:`1px solid ${BD.border}`, background:BD.bg }}>
+                  <pre style={{ margin:0, fontSize:13, color:BD.textSec, lineHeight:1.75, whiteSpace:'pre-wrap', fontFamily:'inherit' }}>{entry.content}</pre>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminChangeLogModal({ brain, onClose }) {
+  const syncEntries = (brain.syncLog || []).map(e => ({ ...e, _kind:'sync' }));
+  const noteEntries = (brain.notes   || []).map(e => ({ ...e, _kind:'note' }));
+  const all = [...syncEntries, ...noteEntries].sort((a,b) => new Date(b.ts)-new Date(a.ts));
+  const TYPE_COLOR = { auto:'#9ca3af', docs:'#60a5fa', sync:'#10b981', note:'#a78bfa', fix:'#4ade80', update:'#a78bfa', issue:'#fbbf24' };
+  const groups = [];
+  let curDate = null, curItems = [];
+  for (const e of all) {
+    const dk = new Date(e.ts).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' });
+    if (dk !== curDate) { if (curItems.length) groups.push({ date:curDate, entries:curItems }); curDate=dk; curItems=[e]; }
+    else curItems.push(e);
+  }
+  if (curItems.length) groups.push({ date:curDate, entries:curItems });
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:1100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:16, width:'100%', maxWidth:680, maxHeight:'90vh', display:'flex', flexDirection:'column' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'20px 24px', borderBottom:`1px solid ${BD.border}`, flexShrink:0 }}>
+          <div>
+            <h2 style={{ margin:0, fontSize:18, fontWeight:700, color:BD.textPri }}>📋 Change Log</h2>
+            <p style={{ margin:'4px 0 0', fontSize:13, color:BD.textMuted }}>{all.length} entr{all.length!==1?'ies':'y'} · auto-logged · grouped by date</p>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:BD.textMuted, fontSize:22, cursor:'pointer', lineHeight:1 }}>✕</button>
+        </div>
+        <div style={{ overflowY:'auto', padding:24, flex:1 }}>
+          {all.length === 0 ? (
+            <p style={{ color:BD.textMuted, fontSize:14 }}>No changes recorded yet.</p>
+          ) : groups.map(group => (
+            <div key={group.date} style={{ marginBottom:24 }}>
+              <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:BD.textMuted, marginBottom:10, paddingBottom:8, borderBottom:`1px solid ${BD.border}44` }}>{group.date}</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                {group.entries.map((entry, i) => {
+                  if (entry._kind === 'sync') {
+                    return (
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.02)', border:`1px solid ${BD.border}44` }}>
+                        <span style={{ fontSize:11, fontWeight:700, color:BD.green, minWidth:72, textTransform:'uppercase', letterSpacing:'0.05em' }}>⟳ Sync</span>
+                        <span style={{ fontSize:13, color:BD.textSec, flex:1 }}>+{entry.ingested||0} videos{entry.errors>0?` · ${entry.errors} errors`:''}{entry.channel?` · ${entry.channel}`:''}</span>
+                        <span style={{ fontSize:11, color:BD.textMuted }}>{new Date(entry.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span>
+                      </div>
+                    );
+                  }
+                  const color = TYPE_COLOR[entry.type] || '#9ca3af';
+                  return (
+                    <div key={entry.id||i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.02)', border:`1px solid ${BD.border}44` }}>
+                      <span style={{ fontSize:11, fontWeight:700, color, minWidth:72, textTransform:'uppercase', letterSpacing:'0.05em', paddingTop:1 }}>{entry.type||'note'}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, color:BD.textSec }}>{entry.title}</div>
+                        {entry.text && <div style={{ fontSize:12, color:BD.textMuted, marginTop:3, lineHeight:1.5 }}>{entry.text}</div>}
+                      </div>
+                      <span style={{ fontSize:11, color:BD.textMuted, flexShrink:0, paddingTop:1 }}>{new Date(entry.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── AdminBrainDetail ──────────────────────────────────────────────────────────
+
+function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, onRefresh, onFlash, onDeleted, onBrainUpdated }) {
+  const [brain,             setBrain]             = useState(initialBrain);
+  const [tab,               setTab]               = useState('progress');
+  const [channels,          setChannels]          = useState(initialBrain.channels || []);
+  const [flash,             setFlashLocal]        = useState(null);
+  const [syncing,           setSyncing]           = useState(false);
+  const [autoSync,          setAutoSync]          = useState(!!initialBrain.autoSync);
+  const [syncingChannelId,  setSyncingChannelId]  = useState(null);
+  const [editName,          setEditName]          = useState(initialBrain.name || '');
+  const [editDesc,          setEditDesc]          = useState(initialBrain.description || '');
+  const [generatingDocs,    setGeneratingDocs]    = useState(false);
+  const [saving,            setSaving]            = useState(false);
+  const [showAddChannel,    setShowAddChannel]    = useState(false);
+  const [showDocsModal,     setShowDocsModal]     = useState(false);
+  const [showChangeLogModal,setShowChangeLogModal]= useState(false);
+  const [videos,            setVideos]            = useState([]);
+  const [loadingVideos,     setLoadingVideos]     = useState(false);
+  const [generatingIds,     setGeneratingIds]     = useState(new Set());
+  const [batchProcessing,   setBatchProcessing]   = useState(false);
+  const [batchProgress,     setBatchProgress]     = useState(null);
+  const [batchCooldown,     setBatchCooldown]     = useState(0);
+  const batchActiveRef = useRef(false);
+  const [videoPage,         setVideoPage]         = useState(1);
+  const [videoPageSize,     setVideoPageSize]     = useState(10);
+  const [ytUrl,             setYtUrl]             = useState('');
+  const [ingesting,         setIngesting]         = useState(false);
+  const [noteTitle,         setNoteTitle]         = useState('');
+  const [noteText,          setNoteText]          = useState('');
+  const [noteType,          setNoteType]          = useState('note');
+  const [noteAdding,        setNoteAdding]        = useState(false);
+  const [showNoteForm,      setShowNoteForm]      = useState(false);
+
+  const showFlash = (ok, text) => { setFlashLocal({ ok, text }); setTimeout(() => setFlashLocal(null), 4000); };
+
+  useEffect(() => {
+    setBrain(initialBrain);
+    setChannels(initialBrain.channels || []);
+    setEditName(initialBrain.name || '');
+    setEditDesc(initialBrain.description || '');
+    setAutoSync(!!initialBrain.autoSync);
+  }, [initialBrain.brainId]); // eslint-disable-line
+
+  async function reloadBrain() {
+    try {
+      const r = await adminFetch(`/brain/${brain.brainId}${brainLocQ}`, { adminKey });
+      if (r.success) {
+        const updated = r.data;
+        setBrain(prev => ({ ...prev, ...updated }));
+        setChannels(updated.channels || []);
+        onBrainUpdated?.(updated);
+      }
+    } catch {}
+  }
+
+  async function reloadVideos() {
+    setLoadingVideos(true);
+    try {
+      const r = await adminFetch(`/brain/${brain.brainId}/videos${brainLocQ}`, { adminKey });
+      if (r.success) setVideos(r.data || []);
+    } catch {}
+    setLoadingVideos(false);
+  }
+
+  useEffect(() => {
+    if (tab === 'videos' || tab === 'channels' || tab === 'progress') reloadVideos();
+    if (tab === 'settings') reloadBrain();
+  }, [tab, brain.brainId]); // eslint-disable-line
+
+  useEffect(() => {
+    if (!batchProcessing) return;
+    const timer = setInterval(reloadVideos, 8000);
+    return () => clearInterval(timer);
+  }, [batchProcessing, brain.brainId]); // eslint-disable-line
+
+  useEffect(() => () => { batchActiveRef.current = false; }, []);
+
+  async function startBatchLoop() {
+    if (batchActiveRef.current) return;
+    batchActiveRef.current = true;
+    setBatchProcessing(true);
+    let totalDone = 0, totalErrors = 0;
+    setBatchProgress({ done:0, remaining:0, total:0, errors:0 });
+    adminFetch(`/brain/${brain.brainId}${brainLocQ}`, { method:'PATCH', adminKey, body:{ pipelineStage:'processing' } });
+    const COOLDOWN_MS = 120_000;
+    while (batchActiveRef.current) {
+      try {
+        const r = await adminFetch(`/brain/${brain.brainId}/sync-batch${brainLocQ}`, { method:'POST', adminKey, body:{ batchSize:2 } });
+        if (!r.success) { showFlash(false, r.error || 'Batch processing failed.'); break; }
+        totalDone += r.ingested || 0;
+        totalErrors += r.errors || 0;
+        setBatchProgress({ done:totalDone, remaining:r.remaining||0, total:totalDone+totalErrors+(r.remaining||0), errors:totalErrors });
+        await reloadVideos();
+        if (r.done) {
+          adminFetch(`/brain/${brain.brainId}${brainLocQ}`, { method:'PATCH', adminKey, body:{ pipelineStage:'ready' } });
+          showFlash(true, `Processing complete — ${totalDone} video${totalDone!==1?'s':''} indexed${totalErrors>0?`, ${totalErrors} errors`:''}. `);
+          break;
+        }
+        if (batchActiveRef.current) {
+          const endTime = Date.now() + COOLDOWN_MS;
+          while (Date.now() < endTime && batchActiveRef.current) {
+            setBatchCooldown(Math.ceil((endTime-Date.now())/1000));
+            await new Promise(res => setTimeout(res, 1000));
+          }
+          setBatchCooldown(0);
+        }
+      } catch(e) { showFlash(false, `Processing error: ${e.message}`); break; }
+    }
+    batchActiveRef.current = false;
+    setBatchProcessing(false);
+    setBatchProgress(null);
+    setBatchCooldown(0);
+    onRefresh?.();
+    await reloadBrain();
+    await reloadVideos();
+  }
+
+  function stopBatchLoop() { batchActiveRef.current = false; }
+
+  async function generateTranscript(videoId) {
+    setGeneratingIds(prev => new Set([...prev, videoId]));
+    setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus:'processing' } : v));
+    try {
+      const r = await adminFetch(`/brain/${brain.brainId}/videos/${videoId}/transcript${brainLocQ}`, { method:'POST', adminKey });
+      if (r.success) {
+        showFlash(true, `Transcript generated — ${r.chunks} chunks stored.`);
+        await reloadVideos();
+        onRefresh?.();
+      } else {
+        showFlash(false, r.error || 'Failed to generate transcript.');
+        setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus:'error', transcriptError:r.error } : v));
+      }
+    } catch(e) {
+      showFlash(false, e.message || 'Failed.');
+      setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus:'error' } : v));
+    }
+    setGeneratingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
+  }
+
+  async function ingestYoutube() {
+    if (!ytUrl.trim()) return;
+    setIngesting(true);
+    try {
+      const r = await adminFetch(`/brain/${brain.brainId}/youtube${brainLocQ}`, { method:'POST', adminKey, body:{ url:ytUrl.trim() } });
+      if (r.success) {
+        showFlash(true, `"${r.title}" ingested — ${r.chunks} chunks stored.`);
+        setYtUrl('');
+        await reloadBrain();
+        onRefresh?.();
+      } else {
+        showFlash(false, r.error || 'Failed to ingest video.');
+      }
+    } catch { showFlash(false, 'Request failed.'); }
+    setIngesting(false);
+  }
+
+  async function generateDocs() {
+    setGeneratingDocs(true);
+    try {
+      const r = await adminFetch(`/brain/${brain.brainId}/generate-docs${brainLocQ}`, { method:'POST', adminKey });
+      if (r.success) {
+        showFlash(true, `Documentation v${r.version||''} generated.`);
+        await reloadBrain();
+        onRefresh?.();
+      } else showFlash(false, r.error || 'Failed to generate docs.');
+    } catch { showFlash(false, 'Request failed.'); }
+    setGeneratingDocs(false);
+  }
+
+  async function deleteChannel(channelId, name) {
+    if (!confirm(`Remove channel "${name}" from this brain?`)) return;
+    try {
+      const r = await adminFetch(`/brain/${brain.brainId}/channels/${channelId}${brainLocQ}`, { method:'DELETE', adminKey });
+      if (r.success) { setChannels(prev => prev.filter(c => c.channelId !== channelId)); onRefresh?.(); }
+      else showFlash(false, r.error || 'Failed to remove channel.');
+    } catch { showFlash(false, 'Failed to remove channel.'); }
+  }
+
+  async function syncChannel(channelId, name) {
+    setSyncingChannelId(channelId);
+    showFlash(true, `Discovering videos for "${name}"…`);
+    try {
+      let result;
+      do {
+        result = await adminFetch(`/brain/${brain.brainId}/channels/${channelId}/queue${brainLocQ}`, { method:'POST', adminKey });
+        if (!result.success) { showFlash(false, result.error||'Failed to sync channel.'); setSyncingChannelId(null); return; }
+        if (result.discovering) {
+          showFlash(true, `Discovering videos for "${name}"… ${result.videoCount||0} found so far`);
+          await reloadVideos();
+        }
+      } while (result.discovering);
+      const discovered = result.videoCount || result.queued || 0;
+      showFlash(true, `"${name}" — ${discovered} videos discovered. Starting transcript processing…`);
+      onRefresh?.();
+      await reloadBrain();
+      await reloadVideos();
+      setTab('videos');
+      startBatchLoop();
+    } catch(e) { showFlash(false, e.message || 'Sync failed.'); }
+    setSyncingChannelId(null);
+  }
+
+  async function syncAllChannels() {
+    setSyncing(true);
+    showFlash(true, 'Discovering videos for all channels…');
+    try {
+      let totalDiscovered = 0;
+      for (const ch of channels.filter(c => c.channelUrl)) {
+        let result;
+        do {
+          result = await adminFetch(`/brain/${brain.brainId}/channels/${ch.channelId}/queue${brainLocQ}`, { method:'POST', adminKey });
+          if (!result.success) break;
+          if (result.discovering) {
+            showFlash(true, `Discovering "${ch.channelName}"… ${result.videoCount||0} videos found`);
+            await reloadVideos();
+          }
+        } while (result.discovering);
+        if (result.success) totalDiscovered += result.videoCount || result.queued || 0;
+      }
+      showFlash(true, `${totalDiscovered} videos discovered. Starting transcript processing…`);
+      onRefresh?.();
+      await reloadBrain();
+      await reloadVideos();
+      setTab('videos');
+      startBatchLoop();
+    } catch { showFlash(false, 'Sync failed.'); }
+    setSyncing(false);
+  }
+
+  async function addNote() {
+    if (!noteTitle.trim()) return;
+    setNoteAdding(true);
+    try {
+      const r = await adminFetch(`/brain/${brain.brainId}/changelog${brainLocQ}`, {
+        method:'POST', adminKey, body:{ title:noteTitle, text:noteText, noteType },
+      });
+      if (r.success) {
+        showFlash(true, 'Note added.');
+        setNoteTitle(''); setNoteText(''); setNoteType('note'); setShowNoteForm(false);
+        await reloadBrain();
+        onRefresh?.();
+      } else showFlash(false, r.error || 'Failed to add note.');
+    } catch { showFlash(false, 'Request failed.'); }
+    setNoteAdding(false);
+  }
+
+  async function deleteNote(entryId) {
+    if (!confirm('Delete this note?')) return;
+    try {
+      const r = await adminFetch(`/brain/${brain.brainId}/changelog/${entryId}${brainLocQ}`, { method:'DELETE', adminKey });
+      if (r.success) { showFlash(true, 'Note deleted.'); await reloadBrain(); onRefresh?.(); }
+      else showFlash(false, r.error || 'Delete failed.');
+    } catch { showFlash(false, 'Request failed.'); }
+  }
+
+  const complete = videos.filter(v => v.transcriptStatus === 'complete').length;
+  const pending  = videos.filter(v => v.transcriptStatus === 'pending' || v.transcriptStatus === 'queued').length;
+  const errored  = videos.filter(v => v.transcriptStatus === 'error').length;
+  const total    = videos.length || brain.videoCount || 0;
+  const pct      = total > 0 ? Math.round(complete/total*100) : 0;
+
+  const DETAIL_TABS = [
+    { id:'progress',  label:'Progress' },
+    { id:'channels',  label:`Channels (${channels.length})` },
+    { id:'videos',    label:`Videos (${total})` },
+    { id:'settings',  label:'Settings' },
+    { id:'changelog', label:'Changelog' },
+  ];
+
+  const NOTE_TYPES = [
+    { value:'note',   label:'📝 Note',   color:'#60a5fa' },
+    { value:'fix',    label:'🔧 Fix',    color:'#4ade80' },
+    { value:'update', label:'⬆ Update', color:'#a78bfa' },
+    { value:'issue',  label:'⚠ Issue',  color:'#fbbf24' },
+  ];
+
+  return (
+    <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
+      {showAddChannel && (
+        <AdminAddChannelModal
+          brainId={brain.brainId} adminKey={adminKey} brainLocQ={brainLocQ}
+          onClose={() => setShowAddChannel(false)}
+          onAdded={ch => { setChannels(prev => [...prev, ch]); setShowAddChannel(false); showFlash(true, `Channel "${ch.channelName}" added.`); onRefresh?.(); }}
+        />
+      )}
+      {showDocsModal && (
+        <AdminDocsModal brain={brain} adminKey={adminKey} brainLocQ={brainLocQ} onClose={() => setShowDocsModal(false)} onRefresh={reloadBrain} />
+      )}
+      {showChangeLogModal && (
+        <AdminChangeLogModal brain={brain} onClose={() => setShowChangeLogModal(false)} />
+      )}
+
+      {/* Back link */}
+      <button onClick={onBack} style={{ background:'none', border:'none', color:BD.textSec, fontSize:13, cursor:'pointer', textAlign:'left', padding:0, marginBottom:20, display:'flex', alignItems:'center', gap:6 }}>
+        ← All brains
+      </button>
+
+      {/* Brain header */}
+      <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:'20px 24px', marginBottom:20 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12, marginBottom:12 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+              <h2 style={{ margin:0, fontSize:20, fontWeight:700, color:BD.textPri }}>{brain.name}</h2>
+              {brain.slug && <code style={{ fontSize:12, color:BD.textMuted, background:BD.codeBg, padding:'2px 8px', borderRadius:4, border:`1px solid ${BD.border}` }}>{brain.slug}</code>}
+              {brain.isShared && <span style={{ fontSize:12, padding:'4px 10px', borderRadius:8, background:'rgba(99,102,241,0.15)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.3)', fontWeight:600 }}>Shared</span>}
+            </div>
+            {brain.description && <p style={{ margin:'8px 0 0', color:BD.textMuted, fontSize:13 }}>{brain.description}</p>}
+            {/* Docs + Changelog quick-access badges */}
+            {(() => {
+              const docsHistory = brain.docsHistory || [];
+              const changeCount = (brain.syncLog||[]).length + (brain.notes||[]).length;
+              if (!docsHistory.length && !changeCount) return null;
+              return (
+                <div style={{ display:'flex', gap:8, marginTop:10, flexWrap:'wrap' }}>
+                  {docsHistory.length > 0 && (
+                    <button onClick={() => setShowDocsModal(true)} style={{ fontSize:12, fontWeight:600, color:BD.blue, padding:'3px 10px', borderRadius:6, background:`${BD.blue}18`, border:`1px solid ${BD.blue}33`, cursor:'pointer' }}>
+                      📄 Docs · v{docsHistory[docsHistory.length-1]?.version}
+                    </button>
+                  )}
+                  {changeCount > 0 && (
+                    <button onClick={() => setShowChangeLogModal(true)} style={{ fontSize:12, fontWeight:600, color:BD.textSec, padding:'3px 10px', borderRadius:6, background:'rgba(255,255,255,0.05)', border:`1px solid ${BD.border}`, cursor:'pointer' }}>
+                      📋 {changeCount} change{changeCount!==1?'s':''}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+          {/* Action buttons */}
+          <div style={{ display:'flex', gap:8, alignItems:'center', flexShrink:0 }}>
+            <label title={autoSync?'Auto-sync ON':'Auto-sync OFF'}
+              onClick={async e => {
+                e.preventDefault();
+                const next = !autoSync;
+                setAutoSync(next);
+                try {
+                  await adminFetch(`/brain/${brain.brainId}${brainLocQ}`, { method:'PATCH', adminKey, body:{ autoSync:next } });
+                  showFlash(true, next?'Auto-sync enabled.':'Auto-sync disabled.');
+                } catch { setAutoSync(!next); }
+              }}
+              style={{ display:'flex', alignItems:'center', gap:7, cursor:'pointer', userSelect:'none' }}>
+              <span style={{ fontSize:12, color:BD.textMuted }}>Auto</span>
+              <div style={{ width:36, height:20, borderRadius:10, background:autoSync?BD.blue:BD.border, position:'relative', transition:'background .2s', flexShrink:0 }}>
+                <div style={{ position:'absolute', top:3, left:autoSync?18:3, width:14, height:14, borderRadius:'50%', background:'#fff', transition:'left .2s' }} />
+              </div>
+            </label>
+            <button title={batchProcessing?'Processing transcripts…':'Sync now'} disabled={syncing||batchProcessing} onClick={syncAllChannels}
+              style={{ ...bdBtnS, padding:'7px 10px', fontSize:16, lineHeight:1, display:'inline-flex', alignItems:'center', justifyContent:'center', opacity:(syncing||batchProcessing)?0.5:1 }}>
+              <span style={{ display:'inline-block', animation:(syncing||batchProcessing)?'spin 1s linear infinite':'none' }}>↻</span>
+            </button>
+            <button title="Re-index existing chunks into vector database"
+              onClick={async () => {
+                showFlash(true, 'Re-indexing into vector database…');
+                try {
+                  const r = await adminFetch(`/brain/${brain.brainId}/reindex${brainLocQ}`, { method:'POST', adminKey });
+                  if (r.success) showFlash(true, `✓ Vector index updated: ${r.vectors} chunks from ${r.docs} docs`);
+                  else showFlash(false, r.error||'Re-index failed.');
+                } catch(e) { showFlash(false, e.message); }
+              }}
+              style={{ ...bdBtnS, fontSize:12 }}>⚡ Reindex</button>
+            <button onClick={() => setShowAddChannel(true)} style={bdBtnP}>+ Add Channel</button>
+          </div>
+        </div>
+        {pending > 0 && (
+          <div style={{ display:'flex', alignItems:'center', gap:8, background:'#2d1f00', border:`1px solid ${BD.amber}44`, borderRadius:8, padding:'9px 14px', marginTop:8 }}>
+            <span style={{ color:BD.amber, fontSize:14 }}>⚠</span>
+            <span style={{ color:BD.amber, fontSize:13, fontWeight:500 }}>Needs Attention</span>
+            <span style={{ color:'#d97706', fontSize:13 }}>· {pending} videos pending transcription</span>
+          </div>
+        )}
+      </div>
+
+      {/* Flash */}
+      {flash && (
+        <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:8, background:flash.ok?'#052e16':'#1c0a00', border:`1px solid ${flash.ok?BD.green+'44':BD.red+'44'}`, color:flash.ok?'#4ade80':'#f87171', fontSize:13 }}>
+          {flash.ok?'✓ ':'✗ '}{flash.text}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div style={{ display:'flex', gap:0, borderBottom:`1px solid ${BD.border}`, marginBottom:20 }}>
+        {DETAIL_TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            background:'none', border:'none', borderBottom:tab===t.id?`2px solid ${BD.blue}`:'2px solid transparent',
+            color:tab===t.id?BD.textPri:BD.textMuted, padding:'10px 18px', fontSize:14, fontWeight:tab===t.id?600:400,
+            cursor:'pointer', marginBottom:-1,
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── Progress tab ── */}
+      {tab === 'progress' && (() => {
+        const STAGES = [
+          { label:'Sync',       icon:'⟳', done:(brain.channels||[]).length>0&&(brain.lastSynced||complete>0||total>0), desc:`${(brain.channels||[]).length} channel${(brain.channels||[]).length!==1?'s':''} connected` },
+          { label:'Transcribe', icon:'▶', done:complete>0, desc:`${complete} / ${total} videos` },
+          { label:'Embed',      icon:'⚡', done:(brain.chunkCount||0)>0, desc:`${(brain.chunkCount||0).toLocaleString()} chunks` },
+          { label:'Ready',      icon:'✓', done:brain.pipelineStage==='ready', desc:brain.pipelineStage==='ready'?'Searchable':(brain.pipelineStage||'Not ready') },
+        ];
+        return (
+          <div>
+            <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:24, marginBottom:20 }}>
+              <h3 style={{ margin:'0 0 20px', fontSize:15, fontWeight:700, color:BD.textPri }}>Pipeline Stages</h3>
+              <div style={{ display:'flex', alignItems:'center' }}>
+                {STAGES.map((s,i) => (
+                  <div key={s.label} style={{ display:'flex', alignItems:'center', flex:1 }}>
+                    <div style={{ flex:1, textAlign:'center' }}>
+                      <div style={{ width:48, height:48, borderRadius:'50%', margin:'0 auto 10px', display:'flex', alignItems:'center', justifyContent:'center', background:s.done?BD.green:BD.border, color:s.done?'#fff':BD.textMuted, fontSize:18, fontWeight:700, border:`3px solid ${s.done?BD.green:BD.border}` }}>
+                        {s.done?'✓':s.icon}
+                      </div>
+                      <div style={{ fontSize:13, fontWeight:700, color:s.done?BD.textPri:BD.textMuted }}>{s.label}</div>
+                      <div style={{ fontSize:11, color:BD.textMuted, marginTop:3 }}>{s.desc}</div>
+                    </div>
+                    {i<STAGES.length-1 && <div style={{ width:40, height:2, background:STAGES[i+1].done?BD.green:BD.border, flexShrink:0, marginBottom:28 }} />}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:24, marginBottom:20 }}>
+              <h3 style={{ margin:'0 0 16px', fontSize:15, fontWeight:700, color:BD.textPri }}>Transcript Progress</h3>
+              <div style={{ display:'flex', gap:28, marginBottom:16 }}>
+                {[{label:'Indexed',val:complete,color:BD.green},{label:'Pending',val:pending,color:BD.textMuted},{label:'Errors',val:errored,color:errored>0?BD.red:BD.textMuted},{label:'Total',val:total,color:BD.textSec}].map(s => (
+                  <div key={s.label}><div style={{ fontSize:26, fontWeight:700, color:s.color, lineHeight:1 }}>{s.val}</div><div style={{ fontSize:11, color:BD.textMuted, marginTop:4 }}>{s.label}</div></div>
+                ))}
+              </div>
+              <div style={{ height:8, background:'#1e2a3a', borderRadius:4, overflow:'hidden', marginBottom:6 }}>
+                <div style={{ height:'100%', borderRadius:4, background:`linear-gradient(90deg, ${BD.green}, #34d399)`, width:`${pct}%`, transition:'width 0.5s ease' }} />
+              </div>
+              <div style={{ fontSize:12, color:BD.textMuted }}>{pct}% indexed</div>
+              {pending > 0 && (
+                <button onClick={startBatchLoop} disabled={batchProcessing} style={{ ...bdBtnP, marginTop:16, fontSize:13, opacity:batchProcessing?0.5:1 }}>
+                  {batchProcessing?'⟳ Processing…':`▶ Process ${pending} Pending`}
+                </button>
+              )}
+              {batchProcessing && batchProgress && (
+                <div style={{ marginTop:12, fontSize:12, color:BD.blue }}>
+                  {batchProgress.done} indexed · {batchProgress.remaining} remaining
+                  {batchCooldown>0&&` · next batch in ${Math.floor(batchCooldown/60)}:${String(batchCooldown%60).padStart(2,'0')}`}
+                </div>
+              )}
+            </div>
+            <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:24, marginBottom:20 }}>
+              <h3 style={{ margin:'0 0 4px', fontSize:15, fontWeight:700, color:BD.textPri }}>Sync History</h3>
+              <p style={{ margin:'0 0 16px', fontSize:13, color:BD.textMuted }}>History of all sync runs for this brain.</p>
+              {(brain.syncLog||[]).length===0 ? (
+                <p style={{ margin:0, fontSize:13, color:BD.textMuted }}>No sync runs yet.</p>
+              ) : (
+                <div style={{ overflowX:'auto' }}>
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                    <thead><tr>{['When','Channel','Ingested','Errors','Total Docs','Chunks'].map(h=><th key={h} style={bdTh}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {(brain.syncLog||[]).map((entry,i) => (
+                        <tr key={i}>
+                          <td style={{ ...bdTd, color:BD.textMuted, whiteSpace:'nowrap' }}>{bdTimeAgo(entry.ts)}</td>
+                          <td style={bdTd}>{entry.channel||'All channels'}</td>
+                          <td style={{ ...bdTd, color:BD.green, fontWeight:600 }}>+{entry.ingested}</td>
+                          <td style={{ ...bdTd, color:entry.errors>0?BD.amber:BD.textMuted }}>{entry.errors}</td>
+                          <td style={bdTd}>{entry.docCount??'—'}</td>
+                          <td style={bdTd}>{entry.chunkCount??'—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            {videos.length > 0 && (
+              <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:24 }}>
+                <h3 style={{ margin:'0 0 4px', fontSize:15, fontWeight:700, color:BD.textPri }}>Recent Videos</h3>
+                <p style={{ margin:'0 0 16px', fontSize:13, color:BD.textMuted }}>Last 10 discovered videos.</p>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  {[...videos].sort((a,b)=>new Date(b.addedAt||0)-new Date(a.addedAt||0)).slice(0,10).map(video => {
+                    const st = video.transcriptStatus||'pending';
+                    const stColor = {complete:BD.green,error:BD.red,processing:BD.amber,queued:BD.blue}[st]||BD.textMuted;
+                    const stLabel = {complete:'Indexed',error:'Error',processing:'Processing',queued:'Queued',pending:'Pending'}[st]||st;
+                    return (
+                      <div key={video.videoId} style={{ display:'flex', alignItems:'center', gap:12 }}>
+                        <a href={`https://www.youtube.com/watch?v=${video.videoId}`} target="_blank" rel="noreferrer" style={{ flexShrink:0 }}>
+                          <img src={bdYtThumb(video.videoId)} alt="" style={{ width:64, height:36, objectFit:'cover', borderRadius:5, display:'block' }} />
+                        </a>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, color:BD.textPri, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{video.title||video.videoId}</div>
+                          <div style={{ fontSize:11, color:BD.textMuted, marginTop:2 }}>
+                            {video.channelName||''}{video.publishDate?` · ${bdPublishedAgo(video.publishDate)}`:''}
+                            {video.lengthSecs?` · ${bdFmtDuration(video.lengthSecs)}`:''}
+                          </div>
+                        </div>
+                        <span style={{ fontSize:11, fontWeight:600, color:stColor, flexShrink:0 }}>{stLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Channels tab ── */}
+      {tab === 'channels' && (
+        <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, overflow:'hidden' }}>
+          {channels.length === 0 ? (
+            <div style={{ padding:'40px 20px', textAlign:'center' }}>
+              <p style={{ color:BD.textMuted, fontSize:14, margin:0 }}>No channels yet. Add one to start syncing.</p>
+            </div>
+          ) : (
+            <table style={{ width:'100%', borderCollapse:'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={bdTh}>Name</th><th style={bdTh}>Handle / ID</th><th style={bdTh}>Type</th>
+                  <th style={bdTh}>Videos</th><th style={bdTh}>Last synced</th><th style={{ ...bdTh, width:80 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {channels.map(ch => (
+                  <tr key={ch.channelId||ch.channelName}>
+                    <td style={bdTd}>{ch.channelName}</td>
+                    <td style={{ ...bdTd, color:BD.textSec, fontFamily:'monospace', fontSize:12 }}>{ch.handle||ch.channelUrl||'—'}</td>
+                    <td style={bdTd}>
+                      {(ch.isPrimary||ch.type==='primary')
+                        ? <span style={{ background:`${BD.blueDark}33`, color:'#93c5fd', fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:4, textTransform:'uppercase', letterSpacing:'0.05em' }}>primary</span>
+                        : <span style={{ color:BD.textMuted, fontSize:12 }}>secondary</span>}
+                    </td>
+                    <td style={{ ...bdTd, color:BD.textSec }}>{videos.length>0?videos.filter(v=>v.channelId===ch.channelId).length:(ch.videoCount||0)}</td>
+                    <td style={{ ...bdTd, color:BD.textMuted, fontSize:12 }}>{ch.lastSynced?bdTimeAgo(ch.lastSynced):'Never'}</td>
+                    <td style={{ ...bdTd, whiteSpace:'nowrap' }}>
+                      <button title={batchProcessing?'Processing…':'Sync this channel'} disabled={syncingChannelId===ch.channelId||batchProcessing}
+                        onClick={() => syncChannel(ch.channelId, ch.channelName)}
+                        style={{ background:'none', border:'none', color:(syncingChannelId===ch.channelId||batchProcessing)?BD.blue:BD.textMuted, cursor:(syncingChannelId===ch.channelId||batchProcessing)?'default':'pointer', fontSize:14, padding:'2px 6px' }}>
+                        <span style={{ display:'inline-block', animation:syncingChannelId===ch.channelId?'spin 1s linear infinite':'none' }}>↻</span>
+                      </button>
+                      <button onClick={() => deleteChannel(ch.channelId, ch.channelName)} style={{ background:'none', border:'none', color:BD.red, cursor:'pointer', fontSize:14, padding:'2px 6px' }}>✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ── Videos tab ── */}
+      {tab === 'videos' && (
+        <div>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+            <div>
+              <span style={{ fontSize:15, fontWeight:700, color:BD.textPri }}>{videos.length} video{videos.length!==1?'s':''}</span>
+              {videos.length>0 && (
+                <span style={{ fontSize:12, color:BD.textMuted, marginLeft:10 }}>
+                  {complete} indexed · {pending} pending
+                  {errored>0 && <span style={{ color:BD.red }}> · {errored} errors</span>}
+                </span>
+              )}
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              {batchProcessing
+                ? <button onClick={stopBatchLoop} style={{ ...bdBtnS, fontSize:12, padding:'6px 14px', color:BD.amber, borderColor:`${BD.amber}66` }}>■ Stop Processing</button>
+                : videos.some(v=>v.transcriptStatus==='pending')
+                  ? <button onClick={startBatchLoop} style={{ ...bdBtnP, fontSize:12, padding:'6px 14px' }}>▶ Process All Pending</button>
+                  : null}
+              <button onClick={reloadVideos} style={{ ...bdBtnS, fontSize:12, padding:'6px 14px' }}>↻ Refresh</button>
+            </div>
+          </div>
+          {batchProcessing && batchProgress && (
+            <div style={{ marginBottom:16, background:'#0d1a2e', border:`1px solid ${BD.blue}44`, borderRadius:10, padding:'12px 16px' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                <span style={{ fontSize:13, fontWeight:600, color:'#93c5fd' }}>
+                  {batchCooldown>0?`Next batch in ${Math.floor(batchCooldown/60)}:${String(batchCooldown%60).padStart(2,'0')}`:'Processing transcripts…'}
+                  {' '}{batchProgress.done} indexed{batchProgress.errors>0?`, ${batchProgress.errors} errors`:''} — {batchProgress.remaining} remaining
+                </span>
+                <span style={{ fontSize:12, color:BD.textMuted }}>{batchProgress.total>0?Math.round(((batchProgress.done+batchProgress.errors)/batchProgress.total)*100):0}%</span>
+              </div>
+              <div style={{ height:6, background:'#1e2a3a', borderRadius:3, overflow:'hidden' }}>
+                <div style={{ height:'100%', borderRadius:3, background:`linear-gradient(90deg, ${BD.blue}, #60a5fa)`, width:batchProgress.total>0?`${((batchProgress.done+batchProgress.errors)/batchProgress.total)*100}%`:'0%', transition:'width 0.5s ease' }} />
+              </div>
+            </div>
+          )}
+          {!loadingVideos && videos.length===0 && (
+            <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:'48px 24px', textAlign:'center' }}>
+              <div style={{ fontSize:32, marginBottom:12 }}>▶</div>
+              <p style={{ color:BD.textPri, fontSize:15, fontWeight:600, margin:'0 0 8px' }}>No videos discovered yet</p>
+              <p style={{ color:BD.textMuted, fontSize:13, margin:'0 0 20px' }}>Go to the Channels tab and click ↻ next to a channel to sync its video list.</p>
+              <button onClick={() => setTab('channels')} style={{ ...bdBtnP, fontSize:13 }}>Go to Channels</button>
+            </div>
+          )}
+          {loadingVideos && <div style={{ padding:'40px 24px', textAlign:'center', color:BD.textMuted, fontSize:13 }}>Loading videos…</div>}
+          {!loadingVideos && videos.length>0 && (
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                <div style={{ fontSize:12, color:BD.textMuted }}>Showing {Math.min((videoPage-1)*videoPageSize+1,videos.length)}–{Math.min(videoPage*videoPageSize,videos.length)} of {videos.length}</div>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <span style={{ fontSize:11, color:BD.textMuted }}>Per page:</span>
+                  {[5,10,25,50].map(n => (
+                    <button key={n} onClick={() => { setVideoPageSize(n); setVideoPage(1); }} style={{ background:videoPageSize===n?BD.blue:'transparent', color:videoPageSize===n?'#fff':BD.textMuted, border:`1px solid ${videoPageSize===n?BD.blue:BD.border}`, borderRadius:5, padding:'2px 8px', fontSize:11, cursor:'pointer', fontWeight:videoPageSize===n?700:400 }}>{n}</button>
+                  ))}
+                </div>
+              </div>
+              {videos.slice((videoPage-1)*videoPageSize, videoPage*videoPageSize).map(video => {
+                const isGenerating = generatingIds.has(video.videoId);
+                const status = isGenerating?'processing':(video.transcriptStatus||'pending');
+                const statusConfig = {
+                  complete:   {label:'Indexed',     bg:'#052e16',  color:'#4ade80',   border:'#16a34a44'},
+                  processing: {label:'Processing…', bg:'#1c1400',  color:'#fbbf24',   border:'#d9770044'},
+                  error:      {label:'Error',        bg:'#1c0a00',  color:'#f87171',   border:'#dc262644'},
+                  pending:    {label:'Pending',      bg:BD.bg,      color:BD.textMuted, border:BD.border},
+                }[status]||{label:status,bg:BD.bg,color:BD.textMuted,border:BD.border};
+                return (
+                  <div key={video.videoId} style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:10, padding:'12px 14px', display:'flex', alignItems:'center', gap:12 }}>
+                    <a href={`https://www.youtube.com/watch?v=${video.videoId}`} target="_blank" rel="noreferrer" style={{ flexShrink:0 }}>
+                      <div style={{ position:'relative', width:80, height:45 }}>
+                        <img src={bdYtThumb(video.videoId)} alt="" style={{ width:80, height:45, objectFit:'cover', borderRadius:6, display:'block' }} />
+                        <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.35)', borderRadius:6 }}>
+                          <span style={{ fontSize:14, color:'#fff' }}>▶</span>
+                        </div>
+                      </div>
+                    </a>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:BD.textPri, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{video.title||video.videoId}</div>
+                      <div style={{ fontSize:11, color:BD.textMuted, marginTop:3, display:'flex', alignItems:'center', gap:8 }}>
+                        {video.channelName&&<span>{video.channelName}</span>}
+                        {video.publishDate&&<><span>·</span><span>{bdPublishedAgo(video.publishDate)}</span></>}
+                        {video.lengthSecs&&<><span>·</span><span style={{ fontFamily:'monospace' }}>{bdFmtDuration(video.lengthSecs)}</span></>}
+                        {video.viewCount>0&&<><span>·</span><span>{bdFmtViews(video.viewCount)} views</span></>}
+                      </div>
+                    </div>
+                    <span style={{ fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:10, background:statusConfig.bg, color:statusConfig.color, border:`1px solid ${statusConfig.border}`, whiteSpace:'nowrap', flexShrink:0, ...(status==='processing'?{animation:'pulse 1.5s ease-in-out infinite'}:{}) }}>
+                      {statusConfig.label}
+                    </span>
+                    {(status==='pending'||status==='error') && (
+                      <button onClick={() => generateTranscript(video.videoId)} disabled={isGenerating}
+                        title={status==='error'?`Retry (${video.transcriptError||'unknown error'})`:'Generate transcript and index this video'}
+                        style={{ background:status==='error'?'#1c0a00':'#0d1e3a', border:`1px solid ${status==='error'?'#dc262666':BD.blue+'66'}`, borderRadius:7, color:status==='error'?'#f87171':'#60a5fa', fontSize:12, fontWeight:600, padding:'5px 12px', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0, display:'flex', alignItems:'center', gap:5 }}>
+                        <span>{status==='error'?'↺':'▶'}</span>
+                        <span>{status==='error'?'Retry':'Generate Transcript'}</span>
+                      </button>
+                    )}
+                    {status==='complete' && video.docId && (
+                      <>
+                        <button
+                          onClick={async () => {
+                            const res = await fetch(`/brain/${brain.brainId}/videos/${video.videoId}/transcript${brainLocQ}`, { headers:{'x-admin-key':adminKey} });
+                            if (!res.ok) return alert('Transcript not available.');
+                            const blob = await res.blob();
+                            const a = document.createElement('a');
+                            a.href = URL.createObjectURL(blob);
+                            a.download = `${(video.title||video.videoId).replace(/[^a-z0-9]+/gi,'-')}.txt`;
+                            a.click(); URL.revokeObjectURL(a.href);
+                          }}
+                          title="Download transcript as .txt"
+                          style={{ background:'none', border:'none', color:BD.textMuted, cursor:'pointer', fontSize:15, padding:'4px 6px', flexShrink:0 }}>⬇</button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`Remove transcript for "${video.title||video.videoId}" from this brain?`)) return;
+                            await adminFetch(`/brain/${brain.brainId}/docs/${video.docId}${brainLocQ}`, { method:'DELETE', adminKey });
+                            await reloadVideos(); await reloadBrain(); onRefresh?.();
+                          }}
+                          title="Remove transcript from brain"
+                          style={{ background:'none', border:'none', color:BD.textMuted, cursor:'pointer', fontSize:14, padding:'4px 6px', flexShrink:0 }}>✕</button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {videos.length>videoPageSize && (
+                <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:6, marginTop:8, paddingTop:12, borderTop:`1px solid ${BD.border}` }}>
+                  <button onClick={() => setVideoPage(1)} disabled={videoPage===1} style={{ background:'none', border:`1px solid ${BD.border}`, borderRadius:5, color:videoPage===1?BD.border:BD.textSec, padding:'4px 8px', fontSize:12, cursor:videoPage===1?'default':'pointer' }}>«</button>
+                  <button onClick={() => setVideoPage(p=>Math.max(1,p-1))} disabled={videoPage===1} style={{ background:'none', border:`1px solid ${BD.border}`, borderRadius:5, color:videoPage===1?BD.border:BD.textSec, padding:'4px 10px', fontSize:12, cursor:videoPage===1?'default':'pointer' }}>‹</button>
+                  <span style={{ fontSize:12, color:BD.textPri, fontWeight:600, padding:'0 8px' }}>Page {videoPage} of {Math.ceil(videos.length/videoPageSize)}</span>
+                  <button onClick={() => setVideoPage(p=>Math.min(Math.ceil(videos.length/videoPageSize),p+1))} disabled={videoPage>=Math.ceil(videos.length/videoPageSize)} style={{ background:'none', border:`1px solid ${BD.border}`, borderRadius:5, color:videoPage>=Math.ceil(videos.length/videoPageSize)?BD.border:BD.textSec, padding:'4px 10px', fontSize:12, cursor:videoPage>=Math.ceil(videos.length/videoPageSize)?'default':'pointer' }}>›</button>
+                  <button onClick={() => setVideoPage(Math.ceil(videos.length/videoPageSize))} disabled={videoPage>=Math.ceil(videos.length/videoPageSize)} style={{ background:'none', border:`1px solid ${BD.border}`, borderRadius:5, color:videoPage>=Math.ceil(videos.length/videoPageSize)?BD.border:BD.textSec, padding:'4px 8px', fontSize:12, cursor:videoPage>=Math.ceil(videos.length/videoPageSize)?'default':'pointer' }}>»</button>
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:20, marginTop:24 }}>
+            <h3 style={{ margin:'0 0 4px', fontSize:14, fontWeight:700, color:BD.textPri }}>Add Individual Video</h3>
+            <p style={{ margin:'0 0 14px', fontSize:12, color:BD.textMuted }}>Paste a YouTube URL to immediately generate transcript and index it.</p>
+            <div style={{ display:'flex', gap:8 }}>
+              <input value={ytUrl} onChange={e => setYtUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." style={{ ...bdInput, flex:1, marginBottom:0 }} />
+              <button onClick={ingestYoutube} disabled={ingesting||!ytUrl.trim()} style={{ ...bdBtnP, whiteSpace:'nowrap', opacity:(ingesting||!ytUrl.trim())?0.5:1, cursor:(ingesting||!ytUrl.trim())?'not-allowed':'pointer' }}>
+                {ingesting?'Processing…':'+ Add'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Settings tab ── */}
+      {tab === 'settings' && (
+        <div>
+          <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:24, marginBottom:20 }}>
+            <h3 style={{ margin:'0 0 4px', fontSize:15, fontWeight:700, color:BD.textPri }}>Brain Settings</h3>
+            <p style={{ margin:'0 0 20px', fontSize:13, color:BD.textMuted }}>Edit name, description, and sync settings.</p>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:4 }}>
+              <div>
+                <label style={bdLabel}>Name <span style={{ color:BD.red }}>*</span></label>
+                <input value={editName} onChange={e => setEditName(e.target.value)} style={{ ...bdInput, marginBottom:0 }} />
+              </div>
+              <div>
+                <label style={bdLabel}>Slug</label>
+                <input value={brain.slug||''} readOnly style={{ ...bdInput, marginBottom:0, opacity:0.5, cursor:'not-allowed' }} />
+                <p style={{ margin:'4px 0 0', fontSize:11, color:BD.textMuted }}>Cannot be changed</p>
+              </div>
+            </div>
+            <div style={{ marginTop:14 }}>
+              <label style={bdLabel}>Description</label>
+              <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} style={{ ...bdInput, resize:'vertical', lineHeight:1.6 }} />
+            </div>
+            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:20 }}>
+              <button onClick={async () => {
+                setSaving(true);
+                try {
+                  const r = await adminFetch(`/brain/${brain.brainId}${brainLocQ}`, { method:'PATCH', adminKey, body:{ name:editName, description:editDesc } });
+                  if (r.success) {
+                    showFlash(true, 'Brain settings saved.');
+                    setBrain(prev => ({ ...prev, name:editName, description:editDesc }));
+                    onBrainUpdated?.({ brainId:brain.brainId, name:editName, description:editDesc });
+                    onRefresh?.();
+                  } else showFlash(false, r.error||'Save failed.');
+                } catch { showFlash(false, 'Request failed.'); }
+                setSaving(false);
+              }} style={{ ...bdBtnP, opacity:saving?0.5:1 }}>
+                💾 {saving?'Saving…':'Save changes'}
+              </button>
+            </div>
+          </div>
+          <div style={{ background:'#1a0808', border:`1px solid ${BD.red}33`, borderRadius:12, padding:24, marginBottom:20 }}>
+            <h3 style={{ margin:'0 0 6px', fontSize:15, fontWeight:700, color:BD.red, display:'flex', alignItems:'center', gap:8 }}>⚠ Danger Zone</h3>
+            <p style={{ margin:'0 0 16px', fontSize:13, color:BD.textMuted }}>Permanently delete this brain and all its channels, videos, chunks, and documentation. This cannot be undone.</p>
+            <button onClick={() => { if (confirm(`Delete brain "${brain.name}"? This cannot be undone.`)) onDeleted(brain.brainId); }}
+              style={{ background:'none', border:`1px solid ${BD.red}`, borderRadius:8, color:BD.red, padding:'8px 16px', fontSize:13, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+              🗑 Delete Brain
+            </button>
+          </div>
+          {(() => {
+            const docsHistory = brain.docsHistory||[];
+            const latestDoc   = docsHistory[docsHistory.length-1];
+            return (
+              <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:24, marginBottom:20 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:16 }}>
+                  <div>
+                    <h3 style={{ margin:'0 0 4px', fontSize:15, fontWeight:700, color:BD.textPri }}>📄 Brain Documentation</h3>
+                    <p style={{ margin:0, fontSize:13, color:BD.textMuted }}>
+                      {docsHistory.length>0?`${docsHistory.length} version${docsHistory.length!==1?'s':''} · last generated ${bdTimeAgo(latestDoc.ts)}`:'AI-generated documentation — not generated yet'}
+                    </p>
+                  </div>
+                  <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+                    {docsHistory.length>0 && <button onClick={() => setShowDocsModal(true)} style={{ ...bdBtnS, fontSize:13 }}>View Docs →</button>}
+                    <button onClick={generateDocs} disabled={generatingDocs} style={{ ...bdBtnP, fontSize:13, opacity:generatingDocs?0.5:1 }}>
+                      {generatingDocs?'⟳ Generating…':docsHistory.length?'↺ Regenerate':'✦ Generate Docs'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+          {(() => {
+            const changeCount = (brain.syncLog||[]).length+(brain.notes||[]).length;
+            const lastEntry = [...(brain.syncLog||[]),...(brain.notes||[])].sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
+            return (
+              <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:24 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:16 }}>
+                  <div>
+                    <h3 style={{ margin:'0 0 4px', fontSize:15, fontWeight:700, color:BD.textPri }}>📋 Change History</h3>
+                    <p style={{ margin:0, fontSize:13, color:BD.textMuted }}>
+                      {changeCount>0?`${changeCount} entr${changeCount!==1?'ies':'y'} · last change ${bdTimeAgo(lastEntry?.ts)}`:'Auto-logged — no changes recorded yet'}
+                    </p>
+                  </div>
+                  {changeCount>0 && <button onClick={() => setShowChangeLogModal(true)} style={{ ...bdBtnS, fontSize:13, flexShrink:0 }}>View Change Log →</button>}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ── Changelog tab ── */}
+      {tab === 'changelog' && (() => {
+        const syncEntries = (brain.syncLog||[]).map(e => ({ ...e, _kind:'sync' }));
+        const noteEntries = (brain.notes||[]).map(e => ({ ...e, _kind:'note' }));
+        const allEntries  = [...syncEntries,...noteEntries].sort((a,b) => new Date(b.ts)-new Date(a.ts));
+        return (
+          <div>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+              <div>
+                <h3 style={{ margin:0, fontSize:16, fontWeight:700, color:BD.textPri }}>📋 {brain.name} — Changelog</h3>
+                <p style={{ margin:'4px 0 0', fontSize:13, color:BD.textMuted }}>All sync runs and manual notes, newest first.</p>
+              </div>
+              <button onClick={() => setShowNoteForm(f => !f)} style={{ ...bdBtnP, display:'flex', alignItems:'center', gap:6, fontSize:13, flexShrink:0 }}>
+                {showNoteForm?'✕ Cancel':'+ Add Note'}
+              </button>
+            </div>
+            {showNoteForm && (
+              <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:20, marginBottom:20 }}>
+                <h4 style={{ margin:'0 0 14px', fontSize:14, fontWeight:700, color:BD.textPri }}>New Changelog Entry</h4>
+                <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+                  {NOTE_TYPES.map(t => (
+                    <button key={t.value} onClick={() => setNoteType(t.value)} style={{ padding:'5px 12px', borderRadius:7, fontSize:12, fontWeight:600, cursor:'pointer', background:noteType===t.value?`${t.color}22`:'transparent', border:`1px solid ${noteType===t.value?t.color:BD.border}`, color:noteType===t.value?t.color:BD.textMuted, transition:'all .15s' }}>{t.label}</button>
+                  ))}
+                </div>
+                <label style={{ display:'block', fontSize:12, fontWeight:600, color:BD.textMuted, marginBottom:6, textTransform:'uppercase', letterSpacing:'0.05em' }}>Title <span style={{ color:BD.red }}>*</span></label>
+                <input value={noteTitle} onChange={e => setNoteTitle(e.target.value)} placeholder="e.g. Added new channel, Fixed transcript errors…" style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'#0a0f1a', border:`1px solid ${BD.border}`, color:BD.textPri, fontSize:13, marginBottom:12, boxSizing:'border-box' }} />
+                <label style={{ display:'block', fontSize:12, fontWeight:600, color:BD.textMuted, marginBottom:6, textTransform:'uppercase', letterSpacing:'0.05em' }}>Details (optional)</label>
+                <textarea value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Describe what changed…" rows={4} style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'#0a0f1a', border:`1px solid ${BD.border}`, color:BD.textPri, fontSize:13, resize:'vertical', lineHeight:1.6, boxSizing:'border-box' }} />
+                <div style={{ display:'flex', justifyContent:'flex-end', marginTop:14 }}>
+                  <button onClick={addNote} disabled={!noteTitle.trim()||noteAdding} style={{ ...bdBtnP, opacity:(!noteTitle.trim()||noteAdding)?0.5:1 }}>
+                    {noteAdding?'Saving…':'💾 Save Entry'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {allEntries.length===0 ? (
+              <div style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:32, textAlign:'center' }}>
+                <div style={{ fontSize:32, marginBottom:10 }}>📋</div>
+                <p style={{ margin:0, fontSize:14, color:BD.textMuted }}>No entries yet. Run a sync or add a note to start the changelog.</p>
+              </div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {allEntries.map((entry, i) => {
+                  if (entry._kind === 'sync') {
+                    return (
+                      <div key={i} style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:'14px 18px' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                          <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:5, background:'rgba(16,185,129,0.12)', border:'1px solid rgba(16,185,129,0.25)', color:BD.green, textTransform:'uppercase', letterSpacing:'0.05em' }}>⟳ Auto Sync</span>
+                          {entry.channel && <span style={{ fontSize:12, color:BD.textSec }}>{entry.channel}</span>}
+                          <span style={{ marginLeft:'auto', fontSize:12, color:BD.textMuted }}>{bdTimeAgo(entry.ts)}</span>
+                        </div>
+                        <div style={{ display:'flex', gap:20, flexWrap:'wrap' }}>
+                          <div><div style={{ fontSize:18, fontWeight:700, color:BD.green, lineHeight:1 }}>+{entry.ingested||0}</div><div style={{ fontSize:11, color:BD.textMuted, marginTop:3 }}>Videos ingested</div></div>
+                          <div><div style={{ fontSize:18, fontWeight:700, color:(entry.errors||0)>0?BD.amber:BD.textMuted, lineHeight:1 }}>{entry.errors||0}</div><div style={{ fontSize:11, color:BD.textMuted, marginTop:3 }}>Errors</div></div>
+                          {entry.docCount!=null && <div><div style={{ fontSize:18, fontWeight:700, color:BD.textPri, lineHeight:1 }}>{entry.docCount}</div><div style={{ fontSize:11, color:BD.textMuted, marginTop:3 }}>Total docs</div></div>}
+                          {entry.chunkCount!=null && <div><div style={{ fontSize:18, fontWeight:700, color:BD.textPri, lineHeight:1 }}>{entry.chunkCount?.toLocaleString()}</div><div style={{ fontSize:11, color:BD.textMuted, marginTop:3 }}>Total chunks</div></div>}
+                        </div>
+                      </div>
+                    );
+                  }
+                  const t = NOTE_TYPES.find(x => x.value===entry.type)||NOTE_TYPES[0];
+                  return (
+                    <div key={entry.id||i} style={{ background:BD.card, border:`1px solid ${BD.border}`, borderRadius:12, padding:'14px 18px' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:entry.text?10:0 }}>
+                        <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:5, background:`${t.color}18`, border:`1px solid ${t.color}40`, color:t.color, textTransform:'uppercase', letterSpacing:'0.05em' }}>{t.label}</span>
+                        <span style={{ fontSize:13, fontWeight:600, color:BD.textPri, flex:1 }}>{entry.title}</span>
+                        <span style={{ fontSize:12, color:BD.textMuted, flexShrink:0 }}>{bdTimeAgo(entry.ts)}</span>
+                        <button onClick={() => deleteNote(entry.id)} style={{ background:'none', border:'none', color:BD.textMuted, cursor:'pointer', fontSize:14, padding:'0 2px', lineHeight:1 }} title="Delete note">✕</button>
+                      </div>
+                      {entry.text && <p style={{ margin:0, fontSize:13, color:BD.textSec, lineHeight:1.6, whiteSpace:'pre-wrap' }}>{entry.text}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 // ── Status badge ──────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }) {
@@ -403,24 +1748,9 @@ export default function Admin() {
     setBrainLoading(false);
   }, [adminKey]);
 
-  const loadBrainDetail = useCallback(async (b) => {
+  const loadBrainDetail = useCallback((b) => {
     setSelectedBrain(b);
-    setBrainDetailTab('progress');
-    setBrainSettingsForm({ name: b.name || '', description: b.description || '', autoSync: !!b.autoSync });
-    setBrainVideos([]);
-    setBrainStatus(null);
-    // Non-shared brains need ?loc= so backend resolves the right locationId
-    const locSuffix = (!b.isShared && b._locationId) ? `?loc=${encodeURIComponent(b._locationId)}` : '';
-    const [statusRes, detailRes] = await Promise.all([
-      adminFetch(`/brain/${b.brainId}/status${locSuffix}`, { adminKey }),
-      adminFetch(`/brain/${b.brainId}${locSuffix}`, { adminKey }),
-    ]);
-    if (statusRes.success) setBrainStatus(statusRes);
-    if (detailRes.success) {
-      setBrainVideos(detailRes.data?.videos || []);
-      setSelectedBrain(prev => prev?.brainId === b.brainId ? { ...prev, ...detailRes.data } : prev);
-    }
-  }, [adminKey]);
+  }, []);
 
   useEffect(() => {
     if (!authed) return;
@@ -1749,33 +3079,39 @@ export default function Admin() {
         {/* ── Brain Tab ────────────────────────────────────────────────── */}
         {tab === 'brain' && (
           <div>
-            {/* View switcher + action row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
-              <div style={{ display: 'flex', gap: 4 }}>
+            {/* View switcher — underline tab bar */}
+            <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 10, display: 'flex', alignItems: 'center', padding: '0 4px', marginBottom: 20, flexWrap: 'wrap', gap: 0, justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: 0 }}>
                 {[
                   { id: 'brains',   label: '🧠 Brains' },
                   { id: 'pipeline', label: '⟳ Pipeline' },
                   { id: 'search',   label: '🔍 Search' },
                   { id: 'mcp',      label: '⚡ MCP' },
                 ].map(v => (
-                  <button key={v.id} onClick={() => { setAdminBrainView(v.id); setSelectedBrain(null); setBrainStatus(null); setBrainVideos([]); }} style={TAB_STYLE(adminBrainView === v.id)}>
+                  <button key={v.id} onClick={() => { setAdminBrainView(v.id); setSelectedBrain(null); setBrainStatus(null); setBrainVideos([]); }} style={{
+                    background: 'none', border: 'none',
+                    borderBottom: adminBrainView === v.id ? `2px solid ${BD.blue}` : '2px solid transparent',
+                    color: adminBrainView === v.id ? BD.textPri : BD.textMuted,
+                    padding: '13px 18px', fontSize: 14, fontWeight: adminBrainView === v.id ? 600 : 400,
+                    cursor: 'pointer', marginBottom: -1,
+                  }}>
                     {v.label}
                   </button>
                 ))}
               </div>
               {adminBrainView === 'brains' && !selectedBrain && (
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={loadSharedBrains} style={{ background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Reload</button>
+                <div style={{ display: 'flex', gap: 8, paddingRight: 8 }}>
+                  <button onClick={loadSharedBrains} style={{ background: 'transparent', border: `1px solid ${BD.border}`, borderRadius: 8, color: BD.textSec, padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Reload</button>
                   <button
                     onClick={() => { setBrainForm({ name: '', description: '', primaryChannel: '' }); setShowCreateBrain(true); }}
-                    style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '6px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+                    style={{ background: BD.blue, border: 'none', borderRadius: 8, color: '#fff', padding: '6px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
                   >+ New Brain</button>
                 </div>
               )}
               {adminBrainView === 'brains' && selectedBrain && (
                 <button
                   onClick={() => { setSelectedBrain(null); setBrainStatus(null); setBrainVideos([]); }}
-                  style={{ background: 'none', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}
+                  style={{ background: 'none', border: `1px solid ${BD.border}`, borderRadius: 8, color: BD.textSec, padding: '6px 12px', cursor: 'pointer', fontSize: 13, marginRight: 8 }}
                 >← Back to Brains</button>
               )}
             </div>
@@ -1784,45 +3120,151 @@ export default function Admin() {
             {adminBrainView === 'brains' && (
             <div>
             {/* Brain List */}
-            {!selectedBrain && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                {sharedBrains.length === 0 && !brainLoading && (
-                  <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#4b5563', padding: 40 }}>
-                    No brains found across any location.
+            {!selectedBrain && (() => {
+              const totalVideos   = sharedBrains.reduce((a, b) => a + (b.videoCount || 0), 0);
+              const totalIndexed  = sharedBrains.reduce((a, b) => a + (b.docCount || 0), 0);
+              const totalChunks   = sharedBrains.reduce((a, b) => a + (b.chunkCount || 0), 0);
+              const totalChannels = sharedBrains.reduce((a, b) => a + (b.channels || []).length, 0);
+              const getBrainHealth = (brain) => {
+                const docs = brain.docs || [];
+                const pendingFromDocs = docs.filter(d => !d.chunkCount || d.chunkCount === 0).length;
+                const pendingCount = (brain.pendingVideos || 0) + (brain.errorVideos || 0) || pendingFromDocs;
+                const hasContent = (brain.docCount || 0) > 0 || (brain.videoCount || 0) > 0 || docs.length > 0;
+                return { healthy: pendingCount === 0 && hasContent, pendingCount, hasContent };
+              };
+              return (
+                <div>
+                  {/* Stat cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+                    {[
+                      { label: 'Brains',   value: sharedBrains.length, icon: '🧠' },
+                      { label: 'Channels', value: totalChannels,        icon: '📡' },
+                      { label: 'Videos',   value: totalVideos,          icon: '▶', sub: `${totalIndexed} indexed` },
+                      { label: 'Chunks',   value: totalChunks,          icon: '🧩' },
+                    ].map(s => (
+                      <div key={s.label} style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div style={{ fontSize: 28 }}>{s.icon}</div>
+                        <div>
+                          <div style={{ fontSize: 24, fontWeight: 700, color: BD.textPri }}>{s.value.toLocaleString()}</div>
+                          <div style={{ fontSize: 12, color: BD.textMuted }}>{s.label}{s.sub ? ` · ${s.sub}` : ''}</div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                )}
-                {sharedBrains.map(b => (
-                  <div
-                    key={`${b._locationId}-${b.brainId}`}
-                    onClick={() => loadBrainDetail(b)}
-                    style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'border-color .15s' }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = '#7c3aed'}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = '#2a2a2a'}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                      <span style={{ fontSize: 15, fontWeight: 600, color: '#e5e7eb' }}>{b.name}</span>
-                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: b.pipelineStage === 'ready' ? '#14532d' : '#3a2e0a', color: b.pipelineStage === 'ready' ? '#4ade80' : '#facc15', flexShrink: 0 }}>
-                        {b.pipelineStage || 'new'}
-                      </span>
+
+                  {brainLoading && <p style={{ color: BD.textMuted, fontSize: 13 }}>Loading brains…</p>}
+
+                  {!brainLoading && sharedBrains.length === 0 && (
+                    <div style={{ background: BD.card, border: `1px dashed ${BD.border}`, borderRadius: 16, padding: '60px 20px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 48, marginBottom: 16 }}>🧠</div>
+                      <h3 style={{ margin: '0 0 8px', color: BD.textPri, fontSize: 18 }}>No brains yet</h3>
+                      <p style={{ color: BD.textMuted, fontSize: 14, margin: 0 }}>Create a shared brain or connect a location brain to get started.</p>
                     </div>
-                    <div style={{ marginBottom: 8 }}>
-                      {b.isShared
-                        ? <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', fontWeight: 600 }}>Shared</span>
-                        : <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', fontWeight: 600, fontFamily: 'monospace' }}>{b._locationId?.slice(0, 14)}…</span>
-                      }
+                  )}
+
+                  {!brainLoading && sharedBrains.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
+                      {sharedBrains.map(b => {
+                        const { healthy, pendingCount } = getBrainHealth(b);
+                        const channelCount = (b.channels || []).length;
+                        return (
+                          <div key={`${b._locationId}-${b.brainId}`} onClick={() => loadBrainDetail(b)}
+                            style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 14, padding: 20, cursor: 'pointer', transition: 'border-color .15s' }}
+                            onMouseEnter={e => e.currentTarget.style.borderColor = BD.blue + '88'}
+                            onMouseLeave={e => e.currentTarget.style.borderColor = BD.border}
+                          >
+                            {/* Name + health badge */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                                <span style={{ fontSize: 16, fontWeight: 700, color: BD.textPri, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</span>
+                                {b.isShared
+                                  ? <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.35)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shared</span>
+                                  : <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', fontFamily: 'monospace' }}>{b._locationId?.slice(0, 12)}…</span>
+                                }
+                              </div>
+                              {b.pipelineStage === 'syncing' || b.pipelineStage === 'processing' ? (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: BD.blue, flexShrink: 0, marginLeft: 10 }}>
+                                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: BD.blue, display: 'inline-block' }} />
+                                  {b.pipelineStage === 'syncing' ? 'Syncing…' : 'Processing…'}
+                                </span>
+                              ) : (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: healthy ? BD.green : BD.amber, flexShrink: 0, marginLeft: 10 }}>
+                                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: healthy ? BD.green : BD.amber, display: 'inline-block' }} />
+                                  {healthy ? 'Healthy' : 'Needs Attention'}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Slug */}
+                            {b.slug && <code style={{ fontSize: 11, color: BD.textMuted, background: BD.codeBg, padding: '2px 7px', borderRadius: 4, border: `1px solid ${BD.border}`, display: 'inline-block', marginBottom: 14 }}>{b.slug}</code>}
+
+                            {/* Mini stats */}
+                            <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+                              {[
+                                { icon: '📡', val: channelCount,       label: 'channels' },
+                                { icon: '▶',  val: b.videoCount || 0, label: 'videos' },
+                                { icon: '✅', val: b.docCount || 0,   label: 'indexed' },
+                                { icon: '🧩', val: b.chunkCount || 0, label: 'chunks' },
+                              ].map(s => (
+                                <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                  <span style={{ fontSize: 13 }}>{s.icon}</span>
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: BD.textPri }}>{s.val.toLocaleString()}</span>
+                                  <span style={{ fontSize: 12, color: BD.textMuted }}>{s.label}</span>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div style={{ fontSize: 12, color: BD.textMuted, marginBottom: pendingCount > 0 ? 10 : 0 }}>
+                              Last synced: {b.lastSynced ? bdTimeAgo(b.lastSynced) : b.updatedAt ? bdTimeAgo(b.updatedAt) : 'Never'}
+                            </div>
+
+                            {pendingCount > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#2d1f00', border: `1px solid ${BD.amber}33`, borderRadius: 6, padding: '6px 10px', fontSize: 12, color: BD.amber }}>
+                                <span>⚠</span> {pendingCount} pending transcription
+                              </div>
+                            )}
+
+                            {/* Footer: docs + changelog badges */}
+                            {((b.docsHistory?.length > 0) || ((b.notes || []).length + (b.syncLog || []).length) > 0) && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BD.border}` }}>
+                                {b.docsHistory?.length > 0 && (
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: BD.blue, padding: '3px 8px', borderRadius: 6, background: `${BD.blue}18`, border: `1px solid ${BD.blue}33` }}>
+                                    📄 Docs · v{b.docsHistory.length}
+                                  </span>
+                                )}
+                                {((b.notes || []).length + (b.syncLog || []).length) > 0 && (
+                                  <span style={{ fontSize: 12, color: BD.textMuted, padding: '3px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: `1px solid ${BD.border}` }}>
+                                    {(b.notes || []).length + (b.syncLog || []).length} changes
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                    {b.description && <p style={{ color: '#6b7280', fontSize: 12, margin: '0 0 10px', lineHeight: 1.5 }}>{b.description}</p>}
-                    <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#4b5563' }}>
-                      <span>📺 {(b.channels || []).length} channels</span>
-                      <span>🎬 {b.videoCount ?? 0} videos</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ── Brain Detail ── */}
             {selectedBrain && (
+              <AdminBrainDetail
+                brain={selectedBrain}
+                adminKey={adminKey}
+                brainLocQ={brainLocQ}
+                onBack={() => setSelectedBrain(null)}
+                onRefresh={loadSharedBrains}
+                onFlash={flash}
+                onDeleted={() => { setSelectedBrain(null); flash('✓ Brain deleted'); loadSharedBrains(); }}
+                onBrainUpdated={(updated) => {
+                  setSelectedBrain(prev => ({ ...prev, ...updated }));
+                  setSharedBrains(prev => prev.map(b => b.brainId === updated.brainId ? { ...b, ...updated } : b));
+                }}
+              />
+            )}
+            {false && selectedBrain && (
               <div>
                 {/* Sub-tabs */}
                 <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
@@ -2100,10 +3542,10 @@ export default function Admin() {
             {/* ── Pipeline view ── */}
             {adminBrainView === 'pipeline' && (() => {
               const PIPE_COLS = [
-                { id: 'needs_sync',  label: 'Needs Sync',  subtitle: 'Waiting for first sync',     icon: '⊙', color: '#6b7280', bgColor: '#1a1f2a' },
-                { id: 'syncing',     label: 'Syncing',     subtitle: 'Pulling from YouTube',        icon: '✦', color: '#2563eb',  bgColor: '#0d1a2e' },
-                { id: 'processing',  label: 'Processing',  subtitle: 'Transcribing & embedding',   icon: '⚙', color: '#f59e0b',  bgColor: '#2d1f00' },
-                { id: 'ready',       label: 'Ready',       subtitle: 'Up to date & queryable',     icon: '✓', color: '#10b981',  bgColor: '#062010' },
+                { id: 'needs_sync',  label: 'Needs Sync',  subtitle: 'Waiting for first sync',    icon: '⊙', color: '#6b7280', bgColor: '#1a1f2a' },
+                { id: 'syncing',     label: 'Syncing',     subtitle: 'Pulling from YouTube',       icon: '✦', color: BD.blue,   bgColor: '#0d1a2e' },
+                { id: 'processing',  label: 'Processing',  subtitle: 'Transcribing & embedding',  icon: '⚙', color: BD.amber,  bgColor: '#2d1f00' },
+                { id: 'ready',       label: 'Ready',       subtitle: 'Up to date & queryable',    icon: '✓', color: BD.green,  bgColor: '#062010' },
               ];
               function catBrain(b) {
                 if (b.pipelineStage) return b.pipelineStage;
@@ -2116,47 +3558,49 @@ export default function Admin() {
               return (
                 <div>
                   <div style={{ marginBottom: 24 }}>
-                    <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>Pipeline</h2>
-                    <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>{sharedBrains.length} brain{sharedBrains.length !== 1 ? 's' : ''} across all locations</p>
+                    <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: BD.textPri }}>Pipeline</h2>
+                    <p style={{ margin: 0, fontSize: 14, color: BD.textMuted }}>{sharedBrains.length} brain{sharedBrains.length !== 1 ? 's' : ''} across the ingestion pipeline</p>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
                     {PIPE_COLS.map(col => {
                       const items = cat[col.id] || [];
                       return (
                         <div key={col.id}>
+                          {/* Column header */}
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <span style={{ fontSize: 16, color: col.color }}>{col.icon}</span>
                               <div>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>{col.label}</div>
-                                <div style={{ fontSize: 11, color: '#6b7280' }}>{col.subtitle}</div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: BD.textPri }}>{col.label}</div>
+                                <div style={{ fontSize: 11, color: BD.textMuted }}>{col.subtitle}</div>
                               </div>
                             </div>
                             <span style={{ background: col.bgColor, color: col.color, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>{items.length}</span>
                           </div>
+                          {/* Brain mini-cards */}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             {items.length === 0 && (
-                              <div style={{ background: '#1a1a1a', border: '1px dashed #2a2a2a', borderRadius: 10, padding: '20px 14px', textAlign: 'center', fontSize: 12, color: '#374151' }}>No brains</div>
+                              <div style={{ background: BD.card, border: `1px dashed ${BD.border}`, borderRadius: 10, padding: '20px 14px', textAlign: 'center', fontSize: 12, color: BD.border }}>
+                                No brains
+                              </div>
                             )}
                             {items.map(b => (
                               <div
                                 key={`${b._locationId}-${b.brainId}`}
                                 onClick={() => { setAdminBrainView('brains'); loadBrainDetail(b); }}
-                                style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, padding: '12px 14px', cursor: 'pointer', transition: 'border-color .15s' }}
-                                onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed'; }}
-                                onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; }}
+                                style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 10, padding: '12px 14px', cursor: 'pointer', transition: 'border-color .15s' }}
+                                onMouseEnter={e => { e.currentTarget.style.borderColor = BD.blue + '88'; }}
+                                onMouseLeave={e => { e.currentTarget.style.borderColor = BD.border; }}
                               >
-                                <div style={{ fontSize: 13, fontWeight: 700, color: '#e5e7eb', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</div>
-                                <div style={{ marginBottom: 6 }}>
-                                  {b.isShared
-                                    ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', fontWeight: 600 }}>Shared</span>
-                                    : <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', fontWeight: 600, fontFamily: 'monospace' }}>{b._locationId?.slice(0, 12)}…</span>
-                                  }
-                                </div>
-                                <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#6b7280' }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: BD.textPri, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</div>
+                                <code style={{ fontSize: 10, color: BD.textMuted }}>{b.slug}</code>
+                                <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: BD.textSec }}>
                                   <span>▶ {b.docCount || 0} videos</span>
                                   <span>🧩 {b.chunkCount || 0} chunks</span>
                                 </div>
+                                {b.updatedAt && (
+                                  <div style={{ marginTop: 6, fontSize: 11, color: BD.textMuted }}>{bdTimeAgo(b.updatedAt)}</div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -2170,6 +3614,11 @@ export default function Admin() {
 
             {/* ── Search view ── */}
             {adminBrainView === 'search' && (
+              <AdminSearchView brains={sharedBrains} adminKey={adminKey} />
+            )}
+
+            {/* ── DEAD CODE: old search view preserved ── */}
+            {false && adminBrainView === 'search' && (
               <div>
                 <div style={{ marginBottom: 20 }}>
                   <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>Ask Brain</h2>
@@ -2315,12 +3764,12 @@ export default function Admin() {
             {/* ── MCP view ── */}
             {adminBrainView === 'mcp' && (() => {
               const MCP_TOOLS_ADMIN = [
-                { name: 'search_knowledge', desc: 'Semantic search within a specific brain.', inputs: 'query (string), brain (string), top_k? (number)' },
-                { name: 'chat_with_brain',  desc: 'Full RAG pipeline — retrieves context then generates a grounded response.', inputs: 'message (string), brain (string), conversation_history? (Message[])' },
-                { name: 'get_video',        desc: 'Get full transcript and metadata for a specific YouTube video.', inputs: 'video_id (string)' },
-                { name: 'list_brains',      desc: 'Returns all brains with health metrics and channel info.', inputs: 'none' },
-                { name: 'add_brain',        desc: 'Create a new brain from a YouTube channel URL.', inputs: 'name (string), slug (string), channel_url (string), channel_name (string)' },
-                { name: 'add_channel',      desc: 'Add a supplementary channel to an existing brain.', inputs: 'brain_slug (string), channel_url (string), channel_name (string)' },
+                { name: 'search_knowledge', desc: 'Semantic search within a specific brain.',                                        inputs: 'query (string), brain (string), top_k? (number)' },
+                { name: 'chat_with_brain',  desc: 'Full RAG pipeline — retrieves context then generates a grounded response.',       inputs: 'message (string), brain (string), conversation_history? (Message[])' },
+                { name: 'get_video',        desc: 'Get full transcript and metadata for a specific YouTube video.',                  inputs: 'video_id (string)' },
+                { name: 'list_brains',      desc: 'Returns all brains with health metrics and channel info.',                        inputs: 'none' },
+                { name: 'add_brain',        desc: 'Create a new brain from a YouTube channel URL.',                                 inputs: 'name (string), slug (string), channel_url (string), channel_name (string)' },
+                { name: 'add_channel',      desc: 'Add a supplementary channel to an existing brain.',                              inputs: 'brain_slug (string), channel_url (string), channel_name (string)' },
               ];
               const baseUrl = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '';
               const sseUrl = `${baseUrl}/sse`;
@@ -2331,55 +3780,59 @@ export default function Admin() {
                 generic:  { label: 'Generic',     config: JSON.stringify({ server: { url: sseUrl, transport: 'sse', protocol: 'mcp' } }, null, 2) },
               };
               const activeConfig = clientConfigs[brainMcpTab]?.config || '';
-              const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280', borderBottom: '1px solid #2a2a2a' };
-              const tdStyle = { padding: '12px 14px', fontSize: 13, color: '#e5e7eb', borderBottom: '1px solid #2a2a2a88', verticalAlign: 'top' };
+              const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: BD.textMuted, borderBottom: `1px solid ${BD.border}` };
+              const tdStyle = { padding: '12px 14px', fontSize: 13, color: BD.textPri, borderBottom: `1px solid ${BD.border}88`, verticalAlign: 'top' };
               return (
                 <div>
                   <div style={{ marginBottom: 24 }}>
-                    <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>MCP</h2>
-                    <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>Model Context Protocol server configuration</p>
+                    <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: BD.textPri }}>MCP</h2>
+                    <p style={{ margin: 0, fontSize: 14, color: BD.textMuted }}>Model Context Protocol server configuration</p>
                   </div>
                   {/* How it works */}
-                  <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: 24, marginBottom: 20 }}>
-                    <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>How it works</h3>
-                    <p style={{ margin: '0 0 12px', fontSize: 14, color: '#9ca3af', lineHeight: 1.7 }}>
+                  <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+                    <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700, color: BD.textPri }}>How it works</h3>
+                    <p style={{ margin: '0 0 12px', fontSize: 14, color: BD.textSec, lineHeight: 1.7 }}>
                       This server exposes a Model Context Protocol (MCP) endpoint over Server-Sent Events (SSE). Connect any MCP-compatible AI client to gain access to your brain knowledge bases.
                     </p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <code style={{ background: '#0a0f1a', border: '1px solid #2a2a2a', borderRadius: 6, padding: '6px 12px', fontSize: 13, color: '#93c5fd' }}>{sseUrl}</code>
-                      <span style={{ fontSize: 13, color: '#6b7280' }}>&nbsp;·&nbsp; {MCP_TOOLS_ADMIN.length} tools available</span>
+                      <code style={{ background: BD.codeBg, border: `1px solid ${BD.border}`, borderRadius: 6, padding: '6px 12px', fontSize: 13, color: '#93c5fd' }}>{sseUrl}</code>
+                      <span style={{ fontSize: 13, color: BD.textMuted }}>&nbsp;·&nbsp; {MCP_TOOLS_ADMIN.length} tools available</span>
                     </div>
                   </div>
                   {/* Client Configuration */}
-                  <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: 24, marginBottom: 20 }}>
+                  <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>Client Configuration</h3>
+                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: BD.textPri }}>Client Configuration</h3>
                       <button
                         onClick={() => { navigator.clipboard.writeText(activeConfig).then(() => { setBrainMcpCopied(true); setTimeout(() => setBrainMcpCopied(false), 2000); }); }}
-                        style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}
+                        style={{ ...bdBtnS, fontSize: 12, padding: '5px 12px' }}
                       >{brainMcpCopied ? '✓ Copied!' : 'Copy config'}</button>
                     </div>
-                    <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid #2a2a2a' }}>
+                    {/* Client tabs — underline style */}
+                    <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: `1px solid ${BD.border}` }}>
                       {Object.entries(clientConfigs).map(([key, val]) => (
                         <button key={key} onClick={() => setBrainMcpTab(key)} style={{
-                          background: 'none', border: 'none', borderBottom: brainMcpTab === key ? '2px solid #7c3aed' : '2px solid transparent',
-                          color: brainMcpTab === key ? '#f1f5f9' : '#6b7280', padding: '8px 16px', fontSize: 13, fontWeight: brainMcpTab === key ? 600 : 400, cursor: 'pointer', marginBottom: -1,
+                          background: 'none', border: 'none',
+                          borderBottom: brainMcpTab === key ? `2px solid ${BD.blue}` : '2px solid transparent',
+                          color: brainMcpTab === key ? BD.textPri : BD.textMuted,
+                          padding: '8px 16px', fontSize: 13, fontWeight: brainMcpTab === key ? 600 : 400,
+                          cursor: 'pointer', marginBottom: -1,
                         }}>{val.label}</button>
                       ))}
                     </div>
-                    <pre style={{ background: '#0a0f1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '14px 16px', fontSize: 12, color: '#93c5fd', overflowX: 'auto', margin: 0, lineHeight: 1.7 }}>{activeConfig}</pre>
+                    <pre style={{ background: BD.codeBg, border: `1px solid ${BD.border}`, borderRadius: 8, padding: '14px 16px', fontSize: 12, color: '#93c5fd', overflowX: 'auto', margin: 0, lineHeight: 1.7 }}>{activeConfig}</pre>
                   </div>
                   {/* Active Brains */}
-                  <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: 24, marginBottom: 20 }}>
-                    <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>Active Brains ({sharedBrains.length})</h3>
+                  <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+                    <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700, color: BD.textPri }}>Active Brains</h3>
                     {sharedBrains.length === 0 ? (
-                      <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>No brains configured.</p>
+                      <p style={{ color: BD.textMuted, fontSize: 13, margin: 0 }}>No brains configured.</p>
                     ) : (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                         {sharedBrains.map(b => (
-                          <div key={`${b._locationId}-${b.brainId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, padding: '8px 14px' }}>
-                            <span style={{ fontSize: 14, fontWeight: 600, color: '#e5e7eb' }}>{b.name}</span>
-                            <code style={{ fontSize: 11, color: '#6b7280', background: '#0a0f1a', padding: '2px 6px', borderRadius: 4 }}>{b.slug}</code>
+                          <div key={`${b._locationId}-${b.brainId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, background: BD.bg, border: `1px solid ${BD.border}`, borderRadius: 8, padding: '8px 14px' }}>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: BD.textPri }}>{b.name}</span>
+                            <code style={{ fontSize: 11, color: BD.textMuted, background: BD.codeBg, padding: '2px 6px', borderRadius: 4 }}>{b.slug}</code>
                             {b.isShared
                               ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', fontWeight: 600 }}>shared</span>
                               : <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', fontWeight: 600, fontFamily: 'monospace' }}>{b._locationId?.slice(0,10)}…</span>
@@ -2390,9 +3843,9 @@ export default function Admin() {
                     )}
                   </div>
                   {/* Available Tools */}
-                  <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, overflow: 'hidden' }}>
-                    <div style={{ padding: '16px 20px', borderBottom: '1px solid #2a2a2a' }}>
-                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>Available Tools</h3>
+                  <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, overflow: 'hidden' }}>
+                    <div style={{ padding: '16px 20px', borderBottom: `1px solid ${BD.border}` }}>
+                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: BD.textPri }}>Available Tools</h3>
                     </div>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
@@ -2406,8 +3859,8 @@ export default function Admin() {
                         {MCP_TOOLS_ADMIN.map(tool => (
                           <tr key={tool.name}>
                             <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}><span style={{ color: '#60a5fa', fontFamily: 'monospace', fontSize: 13 }}>{tool.name}</span></td>
-                            <td style={{ ...tdStyle, color: '#9ca3af' }}>{tool.desc}</td>
-                            <td style={{ ...tdStyle, color: '#6b7280', fontFamily: 'monospace', fontSize: 12 }}>{tool.inputs}</td>
+                            <td style={{ ...tdStyle, color: BD.textSec }}>{tool.desc}</td>
+                            <td style={{ ...tdStyle, color: BD.textMuted, fontFamily: 'monospace', fontSize: 12 }}>{tool.inputs}</td>
                           </tr>
                         ))}
                       </tbody>
