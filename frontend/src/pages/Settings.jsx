@@ -59,6 +59,7 @@ export default function Settings() {
   const [reconnecting, setReconnecting] = useState(false);
   const [tierInfo,     setTierInfo]     = useState(null); // { tier, tierConfig, data (per key) }
   const [settingsTab,  setSettingsTab]  = useState('integrations');
+  const [manualLocId,  setManualLocId]  = useState('');
 
   // Anthropic key state
   const [anthropicKey,     setAnthropicKey]     = useState('');
@@ -396,23 +397,55 @@ export default function Settings() {
               <div className="flex items-center gap-3 mb-4">
                 <span className="text-2xl">🛰️</span>
                 <div>
-                  <h2 className="font-bold text-white">GHL PostMessage Debug</h2>
-                  <p className="text-xs text-gray-500">Raw messages received from GoHighLevel parent frame</p>
+                  <h2 className="font-bold text-white">GHL Location Debug</h2>
+                  <p className="text-xs text-gray-500">Fix location mismatch or inspect raw GHL messages</p>
                 </div>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-4">
+                {/* Active location */}
                 <div className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                   <span className="text-sm text-gray-400">Active Location ID</span>
                   <span className="text-sm font-mono" style={{ color: locationId ? '#4ade80' : '#f87171' }}>
                     {locationId || '(none)'}
                   </span>
                 </div>
-                <div className="pt-2">
-                  <p className="text-xs text-gray-500 mb-2">Last {ghlMessages.length} messages received:</p>
+
+                {/* Manual override */}
+                <div>
+                  <p className="text-xs text-gray-400 mb-2 font-medium">Force switch location (paste ID from GHL URL)</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={manualLocId}
+                      onChange={e => setManualLocId(e.target.value)}
+                      placeholder="e.g. eGEbX2zBnorRW8StzLEn"
+                      className="flex-1 rounded-lg px-3 py-2 text-sm font-mono"
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#e5e7eb', outline: 'none' }}
+                    />
+                    <button
+                      onClick={() => {
+                        const id = manualLocId.trim();
+                        if (!id) return;
+                        localStorage.setItem('gtm_location_id', id);
+                        window.location.reload();
+                      }}
+                      disabled={!manualLocId.trim()}
+                      className="btn-primary px-4 py-2 text-sm whitespace-nowrap"
+                      style={{ opacity: manualLocId.trim() ? 1 : 0.4 }}
+                    >
+                      Apply & Reload
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">Copy the ID from your GHL URL: /location/<strong className="text-gray-500">{'<id>'}</strong>/dashboard</p>
+                </div>
+
+                {/* Raw messages */}
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">GHL postMessages received ({ghlMessages.length}):</p>
                   {ghlMessages.length === 0 ? (
-                    <p className="text-xs text-gray-600 italic">No messages yet — GHL sends locationId when you switch sub-accounts</p>
+                    <p className="text-xs text-gray-600 italic">No messages yet — waiting for GHL to respond to REQUEST_USER_DATA</p>
                   ) : (
-                    <div className="space-y-1" style={{ maxHeight: 240, overflowY: 'auto' }}>
+                    <div className="space-y-1" style={{ maxHeight: 200, overflowY: 'auto' }}>
                       {ghlMessages.map((m, i) => (
                         <div key={i} className="rounded-lg px-3 py-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                           <p className="text-xs text-gray-500 mb-0.5">{m.ts}</p>
