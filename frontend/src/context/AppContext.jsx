@@ -134,6 +134,42 @@ export function AppProvider({ children }) {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Listen for GHL postMessage location changes ───────────────────────────
+  // GHL sends a postMessage (not a reload) when the user switches sub-accounts
+  useEffect(() => {
+    function handleGHLMessage(event) {
+      const d = event.data;
+      if (!d || typeof d !== 'object') return;
+
+      // GHL uses several formats across SDK versions
+      const newLoc = d.locationId || d.location_id || d.activeLocation;
+      const newUid = d.userId    || d.user_id;
+      const type   = (d.type || d.message || '').toLowerCase();
+
+      // Accept if it looks like a GHL location event, or any message carrying a locationId
+      const isGHLEvent =
+        type.includes('location') ||
+        type.includes('userdata') ||
+        type.includes('user_data') ||
+        type.includes('context') ||
+        newLoc; // fallback: any message with a locationId field
+
+      if (!isGHLEvent || !newLoc || newLoc === locationId) return;
+
+      localStorage.setItem('gtm_location_id', newLoc);
+      setLocationId(newLoc);
+      setIsAuthenticated(true);
+
+      if (newUid) {
+        localStorage.setItem('gtm_user_id', newUid);
+        setUserId(newUid);
+      }
+    }
+
+    window.addEventListener('message', handleGHLMessage);
+    return () => window.removeEventListener('message', handleGHLMessage);
+  }, [locationId]); // re-register when locationId changes so closure is fresh
+
   // ── Re-fetch everything whenever locationId changes ───────────────────────
   useEffect(() => {
     if (!locationId) return;
