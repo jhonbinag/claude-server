@@ -177,42 +177,6 @@ export default function FunnelBuilder() {
   const [agents,        setAgents]        = useState([]);
   const [selectedAgent, setSelectedAgent] = useState('');
 
-  // User's own AI API key — persisted to Redis + Firebase via backend
-  const [aiApiKey,     setAiApiKey]     = useState('');
-  const [aiKeySaving,  setAiKeySaving]  = useState(false);
-  const [aiKeySaved,   setAiKeySaved]   = useState(false);
-
-  const detectProvider = (key) => {
-    if (!key) return null;
-    if (key.startsWith('sk-ant-')) return { name: 'Claude (Anthropic)', header: 'x-anthropic-api-key', color: '#6d28d9', link: 'https://console.anthropic.com/account/keys' };
-    if (key.startsWith('sk-') && !key.startsWith('sk-ant-')) return { name: 'OpenAI (GPT-4o)', header: 'x-openai-api-key', color: '#065f46', link: 'https://platform.openai.com/api-keys' };
-    if (key.startsWith('gsk_')) return { name: 'Groq', header: 'x-groq-api-key', color: '#92400e', link: 'https://console.groq.com/keys' };
-    if (key.startsWith('AIza')) return { name: 'Google Gemini', header: 'x-google-api-key', color: '#1e3a5f', link: 'https://aistudio.google.com/app/apikey' };
-    return { name: 'Unknown', header: null, color: '#374151', link: null };
-  };
-  const detectedProvider = detectProvider(aiApiKey);
-  const aiKeyHeaders = (detectedProvider?.header && aiApiKey)
-    ? { [detectedProvider.header]: aiApiKey }
-    : {};
-
-  const saveAiApiKey = async (key) => {
-    setAiApiKey(key);
-    if (!key || !apiKey) return;
-    setAiKeySaving(true);
-    setAiKeySaved(false);
-    try {
-      await api.postWithKey('/funnel-builder/ai-key', { key }, apiKey);
-      setAiKeySaved(true);
-      setTimeout(() => setAiKeySaved(false), 3000);
-    } catch { /* non-fatal */ }
-    finally { setAiKeySaving(false); }
-  };
-
-  const clearAiApiKey = async () => {
-    setAiApiKey('');
-    if (!apiKey) return;
-    try { await api.deleteWithKey('/funnel-builder/ai-key', apiKey); } catch { /* non-fatal */ }
-  };
 
   // Detect the white-label GHL domain from the iframe parent referrer
   const appDomain = (() => {
@@ -346,7 +310,7 @@ export default function FunnelBuilder() {
     try {
       const resp = await fetch(`/funnel-builder/generate-from-design`, {
         method:  'POST',
-        headers: { 'x-location-id': locId, ...aiKeyHeaders },
+        headers: { 'x-location-id': locId },
         body:    formData,
       });
 
@@ -420,7 +384,7 @@ export default function FunnelBuilder() {
     try {
       const res = await fetch('/funnel-builder/generate-funnel', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId, ...aiKeyHeaders },
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
         body:    JSON.stringify({
           funnelId:    funnelId.trim(),
           funnelType:  'lead_gen',
@@ -659,7 +623,7 @@ export default function FunnelBuilder() {
     try {
       const res = await fetch('/funnel-builder/generate-funnel', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId, ...aiKeyHeaders },
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
         body:    JSON.stringify({
           funnelId:    fullFunnelId.trim(),
           funnelType:  funnelType || undefined,
@@ -963,60 +927,6 @@ export default function FunnelBuilder() {
           {/* ── FUNNEL BUILDER MODE ───────────────────────────────────────── */}
           {builderMode === 'funnel' && <>
 
-          {/* ── AI API Key ───────────────────────────────────────────────── */}
-          <section className="glass rounded-xl p-5 mb-5">
-            <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
-              <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center"
-                style={{ background: detectedProvider ? '#14532d' : '#1e3a5f' }}>🔑</span>
-              Your AI API Key
-              {detectedProvider && detectedProvider.name !== 'Unknown' && (
-                <span className="text-xs font-normal px-2 py-0.5 rounded-full text-white" style={{ background: detectedProvider.color }}>
-                  {detectedProvider.name}
-                </span>
-              )}
-              {aiApiKey && detectedProvider?.name === 'Unknown' && (
-                <span className="text-yellow-400 text-xs font-normal">⚠ unrecognized key format</span>
-              )}
-              {aiKeySaved && <span className="text-green-400 text-xs font-normal">● saved</span>}
-              {aiKeySaving && <span className="text-gray-400 text-xs font-normal">saving…</span>}
-            </h2>
-
-            {/* Supported providers list */}
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              {[
-                { name: 'Claude (Anthropic)', prefix: 'sk-ant-...', color: '#6d28d9', link: 'https://console.anthropic.com/account/keys' },
-                { name: 'OpenAI (GPT-4o)',    prefix: 'sk-...',     color: '#065f46', link: 'https://platform.openai.com/api-keys' },
-                { name: 'Groq',               prefix: 'gsk_...',    color: '#92400e', link: 'https://console.groq.com/keys' },
-                { name: 'Google Gemini',       prefix: 'AIza...',    color: '#1e3a5f', link: 'https://aistudio.google.com/app/apikey' },
-              ].map(p => (
-                <a key={p.name} href={p.link} target="_blank" rel="noreferrer"
-                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-white hover:opacity-80 transition-opacity"
-                  style={{ background: p.color + '33', border: `1px solid ${p.color}55` }}>
-                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color }} />
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-gray-400 font-mono ml-auto">{p.prefix}</span>
-                </a>
-              ))}
-            </div>
-            <p className="text-xs text-gray-400 mb-2">
-              Enter your API key — auto-detected by prefix. Saved securely to your account (Redis + Firebase encrypted).
-            </p>
-
-            <div className="flex gap-2">
-              <input
-                type="password"
-                placeholder="sk-ant-... / sk-... / gsk_... / AIza..."
-                value={aiApiKey}
-                onChange={e => saveAiApiKey(e.target.value)}
-                className="field flex-1 text-sm font-mono"
-                autoComplete="off"
-              />
-              {aiApiKey && (
-                <button type="button" onClick={clearAiApiKey}
-                  className="btn-secondary text-xs px-3">Clear</button>
-              )}
-            </div>
-          </section>
 
           {/* ── Step 1: Connect ─────────────────────────────────────────── */}
           <section className="glass rounded-xl p-5 mb-5">

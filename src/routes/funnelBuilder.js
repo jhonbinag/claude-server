@@ -87,6 +87,10 @@ async function loadStoredAiKey(locationId) {
       saveFunnelAiKey(locationId, fbKey).catch(() => {});
       return fbKey;
     }
+    // Fall back to centralized AI key saved via Settings → Integrations
+    for (const p of ['anthropic', 'openai', 'groq', 'google']) {
+      if (configs?.[p]?.apiKey) return configs[p].apiKey;
+    }
   } catch { /* fall through */ }
   return null;
 }
