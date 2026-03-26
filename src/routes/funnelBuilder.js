@@ -1875,17 +1875,43 @@ Output ONLY the JSON object. No markdown, no explanation.`;
         const figmaColorNote = figmaContent.colors.length > 0
           ? `\n\nEXACT COLORS FROM DESIGN:\n${figmaContent.colors.join(', ')}`
           : '';
-        visionText = `Reconstruct this design screenshot as a native GHL ${pageType} JSON for page "${page.name}".
+        visionText = `You are looking at a screenshot of a web page design. Your task is to reconstruct it EXACTLY as a native GHL page JSON for "${page.name}".
 
-CRITICAL requirements:
-- Match the EXACT number of sections visible in the design
-- Preserve every section's background color, padding, and layout
-- Extract ALL text verbatim
-- For every image/photo/visual → add an image element with src "https://picsum.photos/seed/${imgKwDesign}/800/450"
-- For side-by-side layouts → use two column elements (width:6 each) in the same row
-- Match button colors exactly from the design${figmaColorNote}${extraContext ? `\n\nUser notes: ${extraContext}` : ''}
+STEP 1 — SCAN THE IMAGE top to bottom. Count every distinct horizontal band/section. Each section has its own background color and clear visual boundary.
 
-Output ONLY the JSON object. No explanation.`;
+STEP 2 — For EACH section you see, extract:
+• Background color (use the exact hex — sample the dominant background color of that band)
+• Layout: is it full-width single column, or side-by-side (2-column), or 3-column grid?
+• Padding: estimate top/bottom padding in px from the visual whitespace
+• Every text element: copy VERBATIM, identify type (H1=main headline, H2=section headline, subheading, body paragraph, bullet item, button label, caption)
+• Font size in px (estimate from visual proportions — H1 ~48-64px, H2 ~32-40px, body ~16-18px)
+• Font weight (bold=700, semibold=600, regular=400)
+• Text color (exact hex)
+• Text alignment (left, center, right)
+• Every button: background color, text color, approximate padding and border-radius
+• Every image/photo placeholder: note its position and size
+• Every bullet list: extract all items verbatim
+
+STEP 3 — Map each element to a GHL type:
+• Main headline → "heading" with tag:"h1"
+• Section headline → "heading" with tag:"h2"
+• Subheading/tagline → "sub-heading"
+• Body text block → "paragraph" (plain text, NO HTML tags)
+• Bullet/feature list → "bulletList" with items:["item1","item2",...] (plain strings ONLY)
+• Call-to-action button → "button"
+• Photo/image/illustration → "image" with src:"https://picsum.photos/seed/${imgKwDesign}/800/450"
+
+CONVERSION RULES:
+1. One visual section band = one "section" element. Never merge or skip.
+2. Side-by-side layout → row with two column elements, width:6 each (or 7+5 if unequal).
+3. 3-column grid → row with three column elements, width:4 each.
+4. All text VERBATIM — do not rephrase, summarize, or invent words.
+5. All colors as exact hex codes — sample carefully from the image.
+6. Font sizes as integers in px units.
+7. Mobile styles: fontSize = 60% of desktop value, paddingTop/Bottom = 50%.
+8. Section padding: estimate from visual whitespace (typical: 80px top/bottom, 20px left/right).${figmaColorNote}${extraContext ? `\n\nAdditional instructions: ${extraContext}` : ''}
+
+Output ONLY the JSON object — no markdown, no explanation, no code fences.`;
       }
       const isTooLarge = (e) => {
         const m = e?.message || '';
