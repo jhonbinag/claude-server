@@ -353,11 +353,24 @@ export default function Settings() {
                       : 'Claude Opus 4.6'}
                   </span>
                 </div>
-                <div className="flex items-center justify-between py-3">
+                <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                   <span className="text-sm text-gray-400">AI Status</span>
                   <span className={`text-sm font-medium ${claudeReady ? 'text-green-400' : 'text-yellow-400'}`}>
                     {claudeReady ? '✓ Active' : '⚠ Key required'}
                   </span>
+                </div>
+                <div className="flex items-center justify-between py-3">
+                  <div>
+                    <p className="text-sm text-gray-400">Wrong sub-account?</p>
+                    <p className="text-xs text-gray-600 mt-0.5">Re-link to load the correct GHL location</p>
+                  </div>
+                  <a
+                    href="/oauth/install"
+                    className="btn-primary px-4 py-2 text-sm whitespace-nowrap"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    Switch Account
+                  </a>
                 </div>
               </div>
             </div>
