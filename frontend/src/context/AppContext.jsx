@@ -134,27 +134,21 @@ export function AppProvider({ children }) {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Listen for GHL postMessage location changes ───────────────────────────
-  // GHL sends a postMessage (not a reload) when the user switches sub-accounts
+  // ── GHL postMessage protocol ──────────────────────────────────────────────
+  // GHL Marketplace SDK: app sends REQUEST_USER_DATA to parent, GHL replies
+  // with the same message key carrying locationId/userId. GHL also sends this
+  // again whenever the user switches sub-accounts (no iframe reload).
   useEffect(() => {
     function handleGHLMessage(event) {
       const d = event.data;
       if (!d || typeof d !== 'object') return;
 
-      // GHL uses several formats across SDK versions
+      // GHL SDK standard response format
       const newLoc = d.locationId || d.location_id || d.activeLocation;
-      const newUid = d.userId    || d.user_id;
-      const type   = (d.type || d.message || '').toLowerCase();
+      const newUid = d.userId || d.user_id;
 
-      // Accept if it looks like a GHL location event, or any message carrying a locationId
-      const isGHLEvent =
-        type.includes('location') ||
-        type.includes('userdata') ||
-        type.includes('user_data') ||
-        type.includes('context') ||
-        newLoc; // fallback: any message with a locationId field
-
-      if (!isGHLEvent || !newLoc || newLoc === locationId) return;
+      if (!newLoc) return;
+      if (newLoc === locationId) return; // no change
 
       localStorage.setItem('gtm_location_id', newLoc);
       setLocationId(newLoc);
@@ -167,8 +161,13 @@ export function AppProvider({ children }) {
     }
 
     window.addEventListener('message', handleGHLMessage);
+
+    // Ask GHL parent for current user context — GHL responds with locationId.
+    // Also fires again on sub-account switch, so this listener catches both.
+    window.parent.postMessage({ message: 'REQUEST_USER_DATA' }, '*');
+
     return () => window.removeEventListener('message', handleGHLMessage);
-  }, [locationId]); // re-register when locationId changes so closure is fresh
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Re-fetch everything whenever locationId changes ───────────────────────
   useEffect(() => {
