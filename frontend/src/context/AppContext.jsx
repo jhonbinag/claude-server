@@ -148,16 +148,14 @@ export function AppProvider({ children }) {
       const newUid = d.userId || d.user_id;
 
       if (!newLoc) return;
-      if (newLoc === locationId) return; // no change
 
+      const currentLoc = localStorage.getItem('gtm_location_id');
+      if (newLoc === currentLoc) return; // no change
+
+      // Persist then hard-reload so all state is fresh for the new sub-account
       localStorage.setItem('gtm_location_id', newLoc);
-      setLocationId(newLoc);
-      setIsAuthenticated(true);
-
-      if (newUid) {
-        localStorage.setItem('gtm_user_id', newUid);
-        setUserId(newUid);
-      }
+      if (newUid) localStorage.setItem('gtm_user_id', newUid);
+      window.location.reload();
     }
 
     window.addEventListener('message', handleGHLMessage);
