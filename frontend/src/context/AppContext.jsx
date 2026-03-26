@@ -135,36 +135,46 @@ export function AppProvider({ children }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── GHL postMessage protocol ──────────────────────────────────────────────
-  // GHL Marketplace SDK: app sends REQUEST_USER_DATA to parent, GHL replies
-  // with the same message key carrying locationId/userId. GHL also sends this
-  // again whenever the user switches sub-accounts (no iframe reload).
   useEffect(() => {
-    function handleGHLMessage(event) {
-      const d = event.data;
-      if (!d || typeof d !== 'object') return;
-
-      // GHL SDK standard response format
-      const newLoc = d.locationId || d.location_id || d.activeLocation;
-      const newUid = d.userId || d.user_id;
-
-      if (!newLoc) return;
-
+    function applyNewLocation(newLoc, newUid) {
       const currentLoc = localStorage.getItem('gtm_location_id');
-      if (newLoc === currentLoc) return; // no change
-
-      // Persist then hard-reload so all state is fresh for the new sub-account
+      if (!newLoc || newLoc === currentLoc) return;
       localStorage.setItem('gtm_location_id', newLoc);
       if (newUid) localStorage.setItem('gtm_user_id', newUid);
       window.location.reload();
     }
 
+    function handleGHLMessage(event) {
+      const d = event.data;
+      if (!d || typeof d !== 'object') return;
+
+      // Log raw GHL messages so we can see the exact format (remove once confirmed)
+      if (d.locationId || d.location_id || d.activeLocation || d.message || d.type) {
+        console.log('[GHL msg]', JSON.stringify(d));
+      }
+
+      // Handle nested formats: { message: 'X', data: { locationId } } or flat
+      const flat   = d;
+      const nested = d.data || d.payload || d.detail || {};
+      const newLoc = flat.locationId || flat.location_id || flat.activeLocation ||
+                     nested.locationId || nested.location_id || nested.activeLocation;
+      const newUid = flat.userId || flat.user_id || nested.userId || nested.user_id;
+
+      applyNewLocation(newLoc, newUid);
+    }
+
     window.addEventListener('message', handleGHLMessage);
 
-    // Ask GHL parent for current user context — GHL responds with locationId.
-    // Also fires again on sub-account switch, so this listener catches both.
-    window.parent.postMessage({ message: 'REQUEST_USER_DATA' }, '*');
+    // Request current user data from GHL parent immediately + poll every 3s
+    // so location changes are caught within 3 seconds even if GHL doesn't push
+    const request = () => window.parent.postMessage({ message: 'REQUEST_USER_DATA' }, '*');
+    request();
+    const interval = setInterval(request, 3000);
 
-    return () => window.removeEventListener('message', handleGHLMessage);
+    return () => {
+      window.removeEventListener('message', handleGHLMessage);
+      clearInterval(interval);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Re-fetch everything whenever locationId changes ───────────────────────
