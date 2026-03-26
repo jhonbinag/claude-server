@@ -2067,7 +2067,7 @@ CONVERSION INSTRUCTIONS:
    • Any clip-path, animation, or advanced effect from the CSS-EFFECTS line in spec
    Set "figmaCSS":"" only if spec has NO effects at all.${extraContext ? `\n21. Additional instructions: ${extraContext}` : ''}
 
-Output ONLY the JSON object. No markdown, no explanation.
+Output ONLY the JSON object. No markdown, no explanation.`;
       } else {
         // Image upload mode (spec extraction failed — single pass)
         visionText = `Reconstruct this design screenshot 100% faithfully as a native GHL page JSON for "${page.name}". Analyze every section, background, color, text, layout, and element.
