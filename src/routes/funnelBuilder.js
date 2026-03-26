@@ -1857,27 +1857,38 @@ GHL NATIVE JSON SCHEMA:
     if (!figmaUrl && imageBase64) {
       try {
         send('log', { msg: `[${i + 1}/${pages.length}] Pass 1: extracting design spec from image...`, level: 'info' });
-        const specSystem = `You are an expert at visually reading web page screenshots and converting them into precise implementation specs. You have perfect vision. You can see exactly what is in the background of each section, exactly how content is arranged (side by side or stacked), and exactly where text sits within its container. You miss nothing.`;
+        const specSystem = `You are a strict design transcription machine. Your ONLY job is to read a screenshot and produce an exact, character-perfect text copy of every element you can see. You are FORBIDDEN from: changing any text, adding elements not visible, removing visible elements, changing colors, defaulting to "solid color" when a photo/texture is visible behind content, defaulting to "single column" when content is side by side, or defaulting to "center" when text clearly starts at the left edge. You are a scanner, not a designer. Scan and report exactly what you see.`;
 
-        const specPrompt = `Study this screenshot carefully. You will output two things in order:
+        const specPrompt = `Transcribe this design screenshot with zero-tolerance accuracy. Follow these steps in order:
 
-PART 1 — SECTION ANALYSIS (fill this in first, before the spec):
-For each section you see, answer these exact questions:
+══ STEP 1: COUNT SECTIONS ══
+Count every horizontal band that has its own distinct background. Write: "Total sections: N"
 
-SECTION 1:
-  background-type: [solid-color / gradient / background-image]
-  if background-image: what is visible in it? (describe the photo/texture/pattern)
-  if background-image: is there an overlay? (yes/no, color, estimated opacity)
-  layout: [single-column / 2-column / 3-column / 4-column]
-  if 2-column: what is on the LEFT side? what is on the RIGHT side?
-  if 2-column: which side is wider? (left/right/equal)
-  text-alignment: [all text left-aligned / all centered / mixed — describe which elements are which]
-  padding-estimate: top:Npx bottom:Npx
-  special-effects: [none / list any shadows, glassmorphism, gradient-text, rounded-cards, etc.]
+══ STEP 2: SECTION-BY-SECTION ANALYSIS ══
+For each section, fill in ALL of these before writing the spec:
 
-(repeat for every section)
+SECTION [N] ANALYSIS:
+  background: [Look at what fills the section BEHIND the content]
+    → Can you see a photo / illustration / texture / scene behind the text? → write "bg-image: [describe exactly what you see]" + "overlay: [color at opacity]"
+    → Does the color shift or fade from one side to another? → write "gradient: [from color] to [to color] at [angle]"
+    → Is it a single flat uniform color? → write "solid: #[hex]"
+  layout: [Look at horizontal arrangement]
+    → Is content arranged LEFT + RIGHT side by side? → write "2-column: LEFT=[describe] RIGHT=[describe] wider=[left/right/equal]"
+    → Three equal blocks side by side? → write "3-column"
+    → Four equal blocks? → write "4-column"
+    → Everything stacked vertically? → write "single-column"
+  text alignment per block:
+    → For each block of text, does it start at the LEFT edge of its space? → left
+    → Is it centered in its space? → center
+    Write: "[block description]: align=[left/center/right]"
+  padding: "top ~[N]px bottom ~[N]px" (hero=120, content=80, compact=48)
+  elements in order: [list every element you see top-to-bottom left-to-right]
+  effects: [shadows, border-radius, glassmorphism, gradient-text, overlays, etc.]
 
-PART 2 — SPEC (write this after your analysis):
+(Repeat SECTION ANALYSIS for EVERY section)
+
+══ STEP 3: SPEC ══
+Now write the full spec using your analysis. Use this format:
 
 ━━━ SECTION N: "Name" | padding:TOP/RIGHT/BOTTOM/LEFT px
   BACKGROUND: solid:#HEX
@@ -1957,11 +1968,86 @@ RULES — follow exactly:
 4. MARGIN/PADDING: Estimate the top and bottom padding of each section from the visual whitespace (hero: ~120px, content: ~80px, compact: ~48px).
 5. VERBATIM: Copy every word of every text element exactly — headline, paragraph, button, nav link, list item, footer link, badge, eyebrow. Do not paraphrase.
 6. COLORS: Sample hex values carefully. Don't default to #ffffff or #000000 unless the color is truly white or black.
-7. IMAGES: Describe what you can see in each image (e.g. "smiling woman at laptop", "abstract 3D spheres", "iPhone mockup showing app"). Include width/height estimates.
+━━━ SECTION N: "Name" | paddingTop:Npx paddingBottom:Npx
+  BACKGROUND: solid:#HEX
+    OR gradient:linear-gradient(Ndeg,#HEX1 0%,#HEX2 100%)
+    OR bg-image:"[describe exactly what photo/texture/scene is visible]" overlay:#HEX opacity:0.N
+  LAYOUT: single-column
+    OR 2-column widths:7/5
+    OR 2-column widths:5/7
+    OR 2-column widths:6/6
+    OR 3-column
+    OR 4-column
 
-Output PART 1 then PART 2 with no other text.`;
+  Elements (single-column: list directly; 2-column: list under COL1/COL2):
 
-        const specRaw = await tryVision(specSystem, specPrompt, imageBase64, imageMediaType, { maxTokens: 6000, thinking: true, thinkingBudget: 5000 });
+  [NAV] logo:"verbatim text or image desc" links:"Link1, Link2, Link3" cta:"label" ctaBg:#HEX navBg:#HEX
+  [EYEBROW] "verbatim" color:#HEX bg:#HEX size:Npx weight:N radius:Npx
+  [HEADLINE] "verbatim — every word" color:#HEX size:Npx weight:N align:left/center/right
+  [SUBHEADLINE] "verbatim — every word" color:#HEX size:Npx weight:N align:left/center/right
+  [PARAGRAPH] "verbatim — every word, no truncating" color:#HEX size:Npx align:left/center/right lineHeight:1.N
+  [BUTTON] "verbatim label" bg:#HEX color:#HEX size:Npx weight:N radius:Npx paddingV:Npx paddingH:Npx type:filled/outline/ghost
+  [IMAGE] "describe exactly what is visible in the image" approxWidth:Npx approxHeight:Npx radius:Npx shadow:yes/no
+  [VIDEO] "describe" approxWidth:Npx approxHeight:Npx radius:Npx
+  [ICON] "describe what it represents" color:#HEX size:Npx
+  [DIVIDER] color:#HEX thickness:Npx
+  [BADGE] "verbatim" bg:#HEX color:#HEX radius:Npx size:Npx
+  [RATING] stars:N/5 color:#HEX
+  [BULLETLIST] bulletColor:#HEX
+    - verbatim item (ALL items — do not stop early)
+  [NUMBERED-LIST]
+    1. verbatim item (ALL items)
+  [FORM] bg:#HEX radius:Npx padding:Npx
+    INPUT "exact placeholder" type:text/email/phone/textarea bg:#HEX border:#HEX radius:Npx
+    [BUTTON] "exact submit label" bg:#HEX color:#HEX radius:Npx
+  [CARD-GRID] cols:N gap:Npx
+    [CARD] bg:#HEX radius:Npx shadow:yes/no padding:Npx (repeat for EVERY card visible)
+      [elements inside card]
+  [TESTIMONIAL-GRID] cols:N
+    [TESTIMONIAL] bg:#HEX radius:Npx padding:Npx (repeat for EVERY testimonial)
+      quote:"verbatim — every word"
+      author:"Exact Name" title:"Exact Title, Company" avatar:yes/no rating:N/5
+  [PRICING-ROW] cols:N
+    [PRICING-CARD] name:"Exact Plan Name" price:"$XX" period:"/mo" highlighted:yes/no bg:#HEX radius:Npx (repeat for every plan)
+      [BULLETLIST] (all features verbatim)
+      [BUTTON] "exact CTA" bg:#HEX color:#HEX radius:Npx
+  [STAT-ROW]
+    stat value:"exact" label:"exact" valueColor:#HEX (repeat for every stat)
+  [LOGO-ROW] cols:N grayscale:yes/no
+    "Brand Name" | "Brand Name" | (all logos)
+  [ACCORDION]
+    "exact question text" (all questions)
+  [COUNTDOWN] label:"verbatim" bg:#HEX color:#HEX
+  [FOOTER] bg:#HEX textColor:#HEX paddingTop:Npx paddingBottom:Npx
+    logo:"verbatim or desc"
+    [FOOTER-COL] heading:"verbatim" links:"link1, link2, link3" (all columns)
+    copyright:"© exact text verbatim"
+  CSS-EFFECTS: "describe all visible shadows, border-radius, glassmorphism, gradient-text, overlays, etc."
+
+  2-column format:
+  [2-COLUMN] widths:7/5 gap:Npx verticalAlign:center/top
+    COL1:
+      [list every element in the LEFT column]
+    COL2:
+      [list every element in the RIGHT column]
+
+━━━ SECTION N+1: ...
+
+ZERO-TOLERANCE RULES:
+1. Text on LEFT + image on RIGHT (or reversed) = ALWAYS 2-column. NEVER write single-column.
+2. Photo/texture/scene visible behind content = ALWAYS bg-image. NEVER write solid.
+3. Text starting at left edge of its container = ALWAYS align:left. NEVER write center.
+4. Copy ALL text character-by-character. Zero paraphrasing. Zero summarizing.
+5. Write ALL list items, ALL cards, ALL testimonials, ALL pricing plans, ALL footer links — never truncate.
+6. Sample hex colors from the actual pixels. Never use #000000 unless truly black, never #ffffff unless truly white.
+7. Estimate padding from visible whitespace. Never skip it.
+8. Describe image contents (what you actually see in the photo), not a placeholder.
+9. Do not add elements that don't exist. Do not omit elements that do exist.
+10. If unsure about a color or size, estimate — but never omit the field.
+
+Output STEP 1 + STEP 2 + STEP 3. No extra commentary.`;
+
+        const specRaw = await tryVision(specSystem, specPrompt, imageBase64, imageMediaType, { maxTokens: 7000, thinking: true, thinkingBudget: 6000 });
         if (specRaw && specRaw.includes('━━━')) {
           const sectionCount = (specRaw.match(/━━━ SECTION/g) || []).length;
           figmaContent = { texts: [], colors: [], spec: specRaw, sectionCount, imageNodes: [], fonts: [] };
@@ -1982,17 +2068,27 @@ Output PART 1 then PART 2 with no other text.`;
         // Spec mode (Figma API or image-extracted): spec is the source of truth; image is visual reference
         const specLabel = figmaUrl ? 'FIGMA DESIGN SPEC' : 'DESIGN SPEC (extracted from screenshot)';
         const specNote  = figmaUrl
-          ? 'The FIGMA DESIGN SPEC is the authoritative source — it contains the EXACT text, colors, font sizes, font weights, font families, padding, border-radius, and layout from the actual Figma file. Follow every detail in the spec literally.'
-          : 'The DESIGN SPEC was extracted from the screenshot by a first analysis pass. Use it as the authoritative source for all text, colors, font sizes, and layout. The screenshot is provided as visual confirmation.';
-        visionText = `Convert the design spec below into a complete native GHL page JSON for "${page.name}".
+          ? 'The FIGMA DESIGN SPEC is the authoritative source. Every value in it — text, color, font size, font weight, padding, alignment, border-radius, layout — must be used EXACTLY as written. Do not change anything.'
+          : 'The DESIGN SPEC is the authoritative source extracted from the screenshot. Every value — text, color, font size, font weight, padding, alignment, border-radius, layout — must be used EXACTLY as written. Do not change anything. The screenshot confirms what was captured.';
+        visionText = `Convert the design spec below into a complete native GHL page JSON for "${page.name}". STRICT COPYING REQUIRED — follow the spec exactly, change nothing.
 
-The screenshot is provided as visual context. ${specNote}
+The screenshot is provided as visual confirmation. ${specNote}
 
 ═══════════════════════════════════════════════════
 ${specLabel} (${figmaContent.sectionCount} sections):
 ═══════════════════════════════════════════════════
 ${figmaContent.spec}
 ═══════════════════════════════════════════════════
+
+ZERO-TOLERANCE CONVERSION RULES (violating these is an error):
+• Copy every text string from the spec VERBATIM — not one word changed
+• Use every color from the spec EXACTLY — same hex, no rounding, no substitution
+• Use every alignment from the spec EXACTLY — if spec says align:left, use left
+• Use every layout from the spec EXACTLY — if spec says 2-column, create 2 columns with COL1 and COL2
+• Create EXACTLY the same count of sections, cards, testimonials, pricing plans, list items, and footer columns as the spec
+• Do NOT add elements that are not in the spec
+• Do NOT remove elements that ARE in the spec
+• Do NOT change padding, font size, font weight, or border-radius values
 
 CONVERSION INSTRUCTIONS:
 1. SECTIONS — Create exactly ${figmaContent.sectionCount} section elements, one per ━━━ SECTION in the spec. Never merge, never skip.
@@ -2067,46 +2163,37 @@ CONVERSION INSTRUCTIONS:
 
 Output ONLY the JSON object. No markdown, no explanation.`;
       } else {
-        // Image upload mode (spec extraction failed — single pass)
-        visionText = `Reconstruct this design screenshot 100% faithfully as a native GHL page JSON for "${page.name}". Analyze every section, background, color, text, layout, and element.
+        // Image upload mode (spec extraction failed — single pass, strict copy)
+        visionText = `You are a strict design scanner. Copy this screenshot EXACTLY into GHL page JSON for "${page.name}". No interpretation. No creativity. Copy what you see.
 
-SCAN top to bottom. For every distinct horizontal band:
-- Extract background: solid hex OR gradient (write as CSS linear-gradient string) OR image-with-overlay
-- Identify layout: single-column, 2-column (note widths), 3-column, 4-column
-- Extract every element in order:
-  • All headlines/subheadings/paragraphs/labels — VERBATIM text, exact hex color, font size (H1:52-64px, H2:32-40px, body:16px), weight (bold=700, semi=600, reg=400), alignment
-  • All buttons — exact label, background hex, text hex, border-radius, padding
-  • All images/videos — note position and size (use picsum placeholder)
-  • All bullet lists and numbered lists — every item verbatim
-  • All forms — every input field (type, placeholder text), submit button
-  • All cards — background, border-radius, shadow, all inner content
-  • All testimonials — full quote verbatim, author name, title, rating
-  • All pricing tables — plan name, price, period, feature list, CTA button
-  • All stat/counter blocks — value and label verbatim
-  • All navigation bars — logo text, all nav links verbatim, any CTA button
-  • All footer columns — column headings and links verbatim, copyright text
-  • All icons — describe what they represent, color
-  • All dividers, badges, tags
+SCAN top to bottom. For each section:
 
-GHL ELEMENT MAPPING:
-• H1 headline → type:"heading" tag:"h1"  |  H2 → type:"heading" tag:"h2"  |  subheading/label → type:"sub-heading"
-• Body text → type:"paragraph"  |  Bullet list → type:"bulletList" items:[...]
-• Button → type:"button"  |  Input field → type:"input"  |  Form → type:"form"
-• Image/video → type:"image" src:"https://picsum.photos/seed/${imgKwDesign}/800/450"
-• Icon → type:"icon"  |  Divider → type:"divider"
+STEP A — IDENTIFY (before building the JSON, answer these):
+  - Background: photo/texture/scene behind content? → bg-image in figmaCSS. Color fades? → gradient. Flat uniform color? → solid hex.
+  - Layout: content on LEFT + RIGHT at same level? → 2-column. 3 equal blocks? → 3-column. Stacked vertically? → single-column.
+  - Text alignment: text starts at left edge? → left. centered in its space? → center.
 
-LAYOUT RULES:
-• 2-column → row with 2 columns (widths from visual proportions e.g. width:7 + width:5, or 6+6)
-• 3-column → row with 3 columns width:4 each  |  4-column → width:3 each
-• Cards in a row → row with N column children, each with backgroundColor+borderRadius
+STEP B — BUILD JSON using these exact mappings:
+  HEADLINE → type:"heading" tag:"h1" | SUBHEADLINE → type:"heading" tag:"h2" | EYEBROW/LABEL → type:"sub-heading"
+  PARAGRAPH → type:"paragraph" | BULLETLIST → type:"bulletList" items:[all items verbatim]
+  BUTTON → type:"button" | IMAGE → type:"image" src:"https://picsum.photos/seed/${imgKwDesign}/800/450"
+  INPUT → type:"input" | FORM → type:"form" | ICON → type:"icon" | DIVIDER → type:"divider"
 
-STYLE RULES:
-• Every text element: fontSize (integer px), fontWeight, color (hex), textAlign
-• Every button: backgroundColor, color, borderRadius, paddingTop/Right/Bottom/Left
-• Every section: backgroundColor (use gradient CSS string if gradient), paddingTop/Bottom/Left/Right
-• Mobile styles: fontSize 60% of desktop, paddingTop/Bottom 50%
+LAYOUT → JSON:
+  Single-column: one row, one column width:12, elements inside
+  2-column widths:7/5: one row, col width:7 + col width:5, each with their elements
+  3-column: one row, three cols width:4 each
+  Cards in a row: one row, N col children each with backgroundColor+borderRadius styling
 
-Add "figmaCSS" string for: gradient backgrounds as CSS background-image, box-shadows on cards, custom fonts, gradient text, glassmorphism, hover effects, letter-spacing, any effect not achievable natively. Set "" if not needed.${extraContext ? `\n\nAdditional instructions: ${extraContext}` : ''}
+ZERO-TOLERANCE COPY RULES:
+1. Text on left + image on right (or reversed) = ALWAYS two separate columns. NEVER put in one column.
+2. Photo/scene visible behind content = ALWAYS add background-image CSS in figmaCSS. NEVER use backgroundColor only.
+3. Text at left edge of container = ALWAYS textAlign:"left". NEVER default to center.
+4. Copy EVERY word of EVERY text element VERBATIM — character by character.
+5. Write EVERY list item, EVERY card, EVERY testimonial, EVERY pricing plan — never truncate.
+6. Sample colors from pixels — exact hex. Not #000 or #fff unless truly black/white.
+7. Estimate paddingTop/Bottom from visible whitespace. Hero ~120px, content ~80px, tight ~48px.
+8. figmaCSS: add background-image for bg-image sections, box-shadow for cards, gradient for gradient backgrounds, custom fonts, gradient-text, any advanced effect.${extraContext ? `\n9. Additional: ${extraContext}` : ''}
 
 Output ONLY the JSON object — no markdown, no explanation, no code fences.`;
       }
