@@ -3187,6 +3187,7 @@ export default function Admin() {
                                   // Location brain — toggle sharing
                                   <button
                                     onClick={async e => {
+                                      e.preventDefault();
                                       e.stopPropagation();
                                       const next = !b.isShared;
                                       setSharedBrains(prev => prev.map(x => x.brainId === b.brainId ? { ...x, isShared: next } : x));

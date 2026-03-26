@@ -74,7 +74,7 @@ router.get('/list', async (req, res) => {
         return brains.map(b => ({
           ...b,
           _locationId: locId,
-          isShared: locId === SHARED_LOC,
+          isShared: locId === SHARED_LOC || !!b.isShared,
         }));
       }));
       return res.json({ success: true, data: results.flat() });
