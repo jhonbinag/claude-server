@@ -415,6 +415,12 @@ export default function Settings() {
                     {document.referrer || '(empty)'}
                   </span>
                 </div>
+                <div className="py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="text-sm text-gray-400 block mb-1">URL params on load</span>
+                  <span className="text-xs font-mono break-all" style={{ color: '#a5b4fc' }}>
+                    {window.__ghlInitParams || '(none — params already consumed/cleared)'}
+                  </span>
+                </div>
 
                 {/* Manual override */}
                 <div>

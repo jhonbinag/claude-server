@@ -2,6 +2,9 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 
 const AppContext = createContext(null);
 
+// Snapshot URL params immediately before React strips them — used for debug panel
+window.__ghlInitParams = window.location.search || '(empty)';
+
 // Base API call using x-location-id header
 async function apiFetch(path, locationId, opts = {}, userId = null) {
   const res = await fetch(path, {
