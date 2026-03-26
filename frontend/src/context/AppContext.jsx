@@ -16,9 +16,26 @@ async function apiFetch(path, locationId, opts = {}, userId = null) {
   return res.json();
 }
 
+function extractLocFromReferrer() {
+  try {
+    const ref = document.referrer;
+    if (!ref) return '';
+    // GHL URL pattern: /location/{locationId}/ or /location/{locationId}
+    const m = ref.match(/\/location\/([A-Za-z0-9_-]+)/);
+    return m ? m[1] : '';
+  } catch { return ''; }
+}
+
 function getInitialLocationId() {
   const params = new URLSearchParams(window.location.search);
-  return params.get('locationId') || localStorage.getItem('gtm_location_id') || '';
+  if (params.get('locationId')) return params.get('locationId');
+  // Try referrer — GHL parent URL contains /location/{id}/ when embedded as iframe
+  const refLoc = extractLocFromReferrer();
+  if (refLoc) {
+    localStorage.setItem('gtm_location_id', refLoc);
+    return refLoc;
+  }
+  return localStorage.getItem('gtm_location_id') || '';
 }
 
 function getInitialUserId() {

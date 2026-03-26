@@ -409,6 +409,12 @@ export default function Settings() {
                     {locationId || '(none)'}
                   </span>
                 </div>
+                <div className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="text-sm text-gray-400">document.referrer</span>
+                  <span className="text-xs font-mono text-gray-500 break-all text-right" style={{ maxWidth: '60%' }}>
+                    {document.referrer || '(empty)'}
+                  </span>
+                </div>
 
                 {/* Manual override */}
                 <div>
