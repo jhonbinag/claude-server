@@ -562,11 +562,15 @@ function httpsGet(hostname, path, headers = {}, retries = 3) {
         resp.on('end', async () => {
           try {
             if (resp.statusCode === 429 && retries > 0) {
-              const retryAfter = parseInt(resp.headers['retry-after'] || '10', 10);
-              const wait = (retryAfter || 10) * 1000;
+              const retryAfter = parseInt(resp.headers['retry-after'] || '5', 10);
+              // Cap at 8s so we never exceed Vercel's 60s function timeout
+              const wait = Math.min(retryAfter * 1000, 8000);
               console.warn(`[FunnelBuilder] Figma 429 — retrying in ${wait}ms (${retries} left)`);
               await new Promise(r => setTimeout(r, wait));
               return httpsGet(hostname, path, headers, retries - 1).then(resolve).catch(reject);
+            }
+            if (resp.statusCode === 429) {
+              return reject(new Error('Figma rate limit exceeded. Please wait a moment and try again.'));
             }
             if (resp.statusCode >= 400) return reject(new Error(`${hostname} ${resp.statusCode}: ${d.slice(0, 300)}`));
             resolve(JSON.parse(d));
