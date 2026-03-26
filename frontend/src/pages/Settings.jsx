@@ -48,7 +48,7 @@ function openOAuthPopup(platform, locationId) {
 }
 
 export default function Settings() {
-  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, aiProvider, locationId, refreshStatus, integrations } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, aiProvider, locationId, refreshStatus, integrations, ghlMessages } = useApp();
 
   const [toast,       setToast]       = useState(null);
   const [testResults, setTestResults] = useState({});
@@ -389,6 +389,40 @@ export default function Settings() {
               <p className="text-xs text-gray-500 mt-3">
                 In GHL: <strong className="text-gray-400">Settings → Custom Links → Add Link</strong> → paste URL above → set display as iFrame.
               </p>
+            </div>
+
+            {/* GHL Debug Panel */}
+            <div className="glass rounded-2xl p-6" style={{ border: '1px solid rgba(99,102,241,0.2)' }}>
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-2xl">🛰️</span>
+                <div>
+                  <h2 className="font-bold text-white">GHL PostMessage Debug</h2>
+                  <p className="text-xs text-gray-500">Raw messages received from GoHighLevel parent frame</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="text-sm text-gray-400">Active Location ID</span>
+                  <span className="text-sm font-mono" style={{ color: locationId ? '#4ade80' : '#f87171' }}>
+                    {locationId || '(none)'}
+                  </span>
+                </div>
+                <div className="pt-2">
+                  <p className="text-xs text-gray-500 mb-2">Last {ghlMessages.length} messages received:</p>
+                  {ghlMessages.length === 0 ? (
+                    <p className="text-xs text-gray-600 italic">No messages yet — GHL sends locationId when you switch sub-accounts</p>
+                  ) : (
+                    <div className="space-y-1" style={{ maxHeight: 240, overflowY: 'auto' }}>
+                      {ghlMessages.map((m, i) => (
+                        <div key={i} className="rounded-lg px-3 py-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                          <p className="text-xs text-gray-500 mb-0.5">{m.ts}</p>
+                          <p className="text-xs font-mono break-all" style={{ color: '#a5b4fc' }}>{m.raw}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
           </div>

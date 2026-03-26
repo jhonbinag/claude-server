@@ -44,6 +44,7 @@ export function AppProvider({ children }) {
   };
 
   const [locationId,         setLocationId]         = useState(getInitialLocationId);
+  const [ghlMessages,        setGhlMessages]        = useState([]);
   // Auth is immediate: if we have a locationId, user is in. No API gatekeeping.
   const [isAuthenticated,    setIsAuthenticated]    = useState(() => !!getInitialLocationId());
   const [isAuthLoading,      setIsAuthLoading]      = useState(false);
@@ -148,8 +149,9 @@ export function AppProvider({ children }) {
       const d = event.data;
       if (!d || typeof d !== 'object') return;
 
-      // Log every message so we can identify the exact GHL format
-      console.log('[GHL msg]', JSON.stringify(d));
+      // Store every message so Settings debug panel can display it
+      const entry = { ts: new Date().toISOString(), raw: JSON.stringify(d) };
+      setGhlMessages(prev => [entry, ...prev].slice(0, 20));
 
       // Cover all known GHL SDK message formats
       const sub    = d.data || d.payload || d.detail || d.location || {};
@@ -253,6 +255,7 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider value={{
       locationId,
+      ghlMessages,
       apiKey: locationId,
       isAuthenticated,
       isAuthLoading,
