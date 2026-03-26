@@ -1857,141 +1857,111 @@ GHL NATIVE JSON SCHEMA:
     if (!figmaUrl && imageBase64) {
       try {
         send('log', { msg: `[${i + 1}/${pages.length}] Pass 1: extracting design spec from image...`, level: 'info' });
-        const specSystem = `You are a senior front-end engineer who specializes in visually reverse-engineering web page designs. You will be given a screenshot of a web page or section. Your job is to figure out EXACTLY how the page was built — the structure, backgrounds, layout, text, and styling — as if you were going to code it from scratch.
+        const specSystem = `You are an expert at visually reading web page screenshots and converting them into precise implementation specs. You have perfect vision. You can see exactly what is in the background of each section, exactly how content is arranged (side by side or stacked), and exactly where text sits within its container. You miss nothing.`;
 
-You cannot inspect the DOM or CSS. You must deduce everything purely from visual evidence. Be meticulous.`;
+        const specPrompt = `Study this screenshot carefully. You will output two things in order:
 
-        const specPrompt = `Look at this design screenshot carefully. Before writing anything, do this step-by-step visual scan:
+PART 1 — SECTION ANALYSIS (fill this in first, before the spec):
+For each section you see, answer these exact questions:
 
-STEP 1 — BACKGROUND DETECTION (do this for every section):
-Ask yourself: "Is this section background a flat solid color, a gradient, or does it have a real photo/texture/image behind the content?"
-Visual clues for BACKGROUND IMAGE:
-  ✓ You can see a photo, illustration, texture, or pattern BEHIND the text
-  ✓ The background has depth, detail, or complexity — not a flat color
-  ✓ Text appears to float over a scene (e.g. text over a city skyline, person, forest, abstract art)
-  ✓ There is often a semi-transparent dark/light overlay to make text readable
-  ✓ The background looks like it would be a <div style="background-image: url(...)">
-Visual clues for GRADIENT:
-  ✓ The background smoothly transitions between 2+ colors
-  ✓ One corner is lighter/darker than the other
-  ✓ You can see a color shift across the section
-Visual clues for SOLID COLOR:
-  ✓ The background is one flat, uniform color with no variation
+SECTION 1:
+  background-type: [solid-color / gradient / background-image]
+  if background-image: what is visible in it? (describe the photo/texture/pattern)
+  if background-image: is there an overlay? (yes/no, color, estimated opacity)
+  layout: [single-column / 2-column / 3-column / 4-column]
+  if 2-column: what is on the LEFT side? what is on the RIGHT side?
+  if 2-column: which side is wider? (left/right/equal)
+  text-alignment: [all text left-aligned / all centered / mixed — describe which elements are which]
+  padding-estimate: top:Npx bottom:Npx
+  special-effects: [none / list any shadows, glassmorphism, gradient-text, rounded-cards, etc.]
 
-STEP 2 — LAYOUT DETECTION (do this for every section):
-Ask yourself: "Is the content in this section arranged in columns side by side, or stacked vertically?"
-Visual clues for 2-COLUMN LAYOUT (very common — look carefully):
-  ✓ Content is split LEFT and RIGHT with a visible gap or space between the two halves
-  ✓ Text block on LEFT side + image on RIGHT side (or vice versa)
-  ✓ Two distinct content areas that sit at the same vertical level
-  ✓ If you draw a vertical line down the middle, there is content on both sides
-  ✓ Common patterns: [headline+paragraph+button] on left, [phone/laptop mockup or photo] on right
-  → Write this as [2-COLUMN] widths:7/5 (or 6/6 if equal) — and list elements in COL1 and COL2 separately
-Visual clues for 3 or 4 COLUMN LAYOUT:
-  ✓ Three or four equally-sized blocks of content arranged horizontally (feature cards, stat numbers, testimonials)
-  ✓ Each block has similar structure (icon+title+text, or number+label, etc.)
-Visual clues for SINGLE COLUMN (centered):
-  ✓ All content is stacked vertically, centered horizontally
-  ✓ No side-by-side content
+(repeat for every section)
 
-STEP 3 — TEXT ALIGNMENT DETECTION:
-For EVERY text element, look at where the text starts relative to the section:
-  ✓ Text starts at the LEFT edge of its column → align:left
-  ✓ Text is centered in its column or the full width → align:center
-  ✓ Text starts near the right edge → align:right
-  NOTE: In a 2-column layout, left-column text is almost always align:left even if the overall design looks centered
+PART 2 — SPEC (write this after your analysis):
 
-STEP 4 — TEXT CONTENT:
-Read and copy every word of text VERBATIM. Every headline, subheading, paragraph, button label, nav link, list item, footer link — copy exactly, character by character.
-
-STEP 5 — IDENTIFY EVERY ELEMENT in each section, in top-to-bottom, left-to-right order.
-
-Now write the spec in this format (plain text only):
-
-━━━ SECTION N: "Section Name" | padding:TOP/RIGHT/BOTTOM/LEFT px
+━━━ SECTION N: "Name" | padding:TOP/RIGHT/BOTTOM/LEFT px
   BACKGROUND: solid:#HEX
-              OR gradient:linear-gradient(Ndeg,#HEX1 0%,#HEX2 100%)
-              OR bg-image:"describe what photo/texture is visible" overlay:#HEX opacity:0.N
+    OR gradient:linear-gradient(Ndeg,#HEX1 0%,#HEX2 100%)
+    OR bg-image:"describe the photo or texture you can see" overlay:#HEX opacity:0.N
   LAYOUT: single-column-centered
-          OR 2-column widths:7/5 (content left, image right)
-          OR 2-column widths:5/7 (image left, content right)
-          OR 2-column widths:6/6
-          OR 3-column widths:4/4/4
-          OR 4-column
-  SPACING: paddingTop:Npx paddingBottom:Npx
+    OR [2-COLUMN] widths:7/5
+    OR [2-COLUMN] widths:5/7
+    OR [2-COLUMN] widths:6/6
+    OR [3-COLUMN] widths:4/4/4
+    OR [4-COLUMN]
 
-  [NAV] logo:"text or image description" | links:"Link1, Link2, Link3" | cta-btn:"label" bg:#HEX | bg:#HEX height:Npx sticky:yes/no
-  [EYEBROW] "small label/tag above headline" | color:#HEX size:Npx bg:#HEX radius:Npx
-  [HEADLINE] "verbatim headline text" | color:#HEX size:Npx weight:N align:left/center/right
-  [SUBHEADLINE] "verbatim subheadline" | color:#HEX size:Npx weight:N align:left/center/right
-  [PARAGRAPH] "verbatim paragraph — every word" | color:#HEX size:Npx align:left/center/right lineHeight:1.6
-  [BUTTON] "verbatim label" | bg:#HEX color:#HEX size:Npx weight:N radius:Npx paddingV:Npx paddingH:Npx type:primary/outline/ghost
-  [IMAGE] "describe what image shows" | width:Npx height:Npx radius:Npx shadow:yes/no side:left/right/center
-  [VIDEO] "describe thumbnail or embed type" | width:Npx height:Npx radius:Npx
-  [ICON] "describe icon (e.g. checkmark, arrow-right, star, envelope)" | color:#HEX size:Npx
+  For single-column, list elements directly:
+  [NAV] logo:"text or image" links:"Link1, Link2, Link3" cta:"label" bg:#HEX
+  [EYEBROW] "verbatim" color:#HEX size:Npx bg:#HEX radius:Npx
+  [HEADLINE] "verbatim" color:#HEX size:Npx weight:N align:left/center/right
+  [SUBHEADLINE] "verbatim" color:#HEX size:Npx weight:N align:left/center/right
+  [PARAGRAPH] "verbatim — every word" color:#HEX size:Npx align:left/center/right
+  [BUTTON] "verbatim" bg:#HEX color:#HEX radius:Npx paddingV:Npx paddingH:Npx
+  [IMAGE] "describe what the image shows" width:Npx height:Npx radius:Npx shadow:yes/no
+  [VIDEO] "description" width:Npx height:Npx
+  [ICON] "what it represents" color:#HEX size:Npx
   [DIVIDER] color:#HEX thickness:Npx
-  [BADGE] "verbatim badge text" | bg:#HEX color:#HEX radius:Npx
+  [BADGE] "verbatim" bg:#HEX color:#HEX radius:Npx
   [RATING] stars:N/5 color:#HEX
-  [BULLETLIST] iconColor:#HEX iconType:check/arrow/dot
-    - verbatim item 1
-    - verbatim item 2
-  [FORM] bg:#HEX radius:Npx padding:Npx
-    INPUT "placeholder text" type:email/text/phone/textarea | bg:#HEX border:#HEX radius:Npx
-    [BUTTON] "submit label" | bg:#HEX ...
-  [CARD] bg:#HEX radius:Npx shadow:yes/no padding:Npx border:#HEX
-    [card content — use element tags above]
-  [CARD-GRID] cols:N
-    [CARD] ... (repeat for each card)
-  [TESTIMONIAL] bg:#HEX radius:Npx padding:Npx
-    quote:"verbatim full quote"
-    author:"Name" title:"Job, Company" avatar:yes/no rating:N
+  [BULLETLIST] iconColor:#HEX
+    - verbatim item
+    - verbatim item
+  [NUMBERED-LIST]
+    1. verbatim item
+  [FORM] bg:#HEX radius:Npx
+    INPUT "placeholder" type:email/text/phone/textarea bg:#HEX border:#HEX radius:Npx
+    [BUTTON] "submit label" bg:#HEX color:#HEX radius:Npx
+  [CARD-GRID] cols:N gap:Npx
+    [CARD] bg:#HEX radius:Npx shadow:yes/no padding:Npx
+      [ICON] "icon description" color:#HEX
+      [HEADLINE] "verbatim" ...
+      [PARAGRAPH] "verbatim" ...
   [TESTIMONIAL-GRID] cols:N
-    [TESTIMONIAL] ... (repeat)
-  [PRICING-CARD] name:"Plan" price:"$99" period:"/mo" highlighted:yes/no bg:#HEX radius:Npx
-    - verbatim feature 1
-    - verbatim feature 2
-    [BUTTON] "label" | ...
+    [TESTIMONIAL] bg:#HEX radius:Npx
+      quote:"verbatim full quote"
+      author:"Name" title:"Job, Company" rating:N/5
   [PRICING-ROW] cols:N
-    [PRICING-CARD] ... (repeat)
+    [PRICING-CARD] name:"Plan" price:"$99" period:"/mo" highlighted:yes/no bg:#HEX radius:Npx
+      - verbatim feature
+      [BUTTON] "label" ...
   [STAT-ROW]
-    value:"99%" label:"stat label" valueColor:#HEX valueSize:Npx
-    value:"500+" label:"stat label" ...
-  [LOGO-ROW] cols:N grayscale:yes/no opacity:0.N
-    logo:"company name" | logo:"company name" ...
+    stat: value:"99%" label:"verbatim" valueColor:#HEX
+    stat: value:"500+" label:"verbatim" ...
+  [LOGO-ROW] cols:N grayscale:yes/no
+    "Brand Name" | "Brand Name" | ...
   [ACCORDION]
-    "Question 1 verbatim"
-    "Question 2 verbatim"
-  [COUNTDOWN] label:"verbatim" bg:#HEX color:#HEX
+    "Question verbatim"
+    "Question verbatim"
   [FOOTER] bg:#HEX textColor:#HEX
     logo:"description"
     [FOOTER-COL] heading:"verbatim" links:"link1, link2, link3"
-    [FOOTER-COL] heading:"verbatim" links:"link1, link2, link3"
-    copyright:"© verbatim copyright"
-  CSS-EFFECTS: list any special effects (e.g. "cards have box-shadow: 0 4px 20px rgba(0,0,0,0.1)", "headline has gradient text clip", "section has dark overlay on bg-image", "glassmorphism on card", "button has border-radius:50px pill shape")
+    copyright:"© verbatim text"
+  CSS-EFFECTS: describe any shadows, rounded corners, glassmorphism, gradient text, overlays, or hover effects visible
 
-  For 2-column layout, list elements under COL1 and COL2:
+  For 2-column layout use [2-COLUMN] then list COL1 and COL2:
   [2-COLUMN] widths:7/5
-    COL1 align:center-vertical
-      [element 1 — e.g. EYEBROW]
-      [element 2 — e.g. HEADLINE]
-      [element 3 — e.g. PARAGRAPH]
-      [element 4 — e.g. BUTTON]
-    COL2 align:center-vertical
-      [IMAGE "description" ...]
+    COL1:
+      [EYEBROW] "verbatim" ...
+      [HEADLINE] "verbatim" color:#HEX size:Npx weight:N align:left
+      [PARAGRAPH] "verbatim" ...
+      [BUTTON] "verbatim" ...
+    COL2:
+      [IMAGE] "describe what the image shows" width:Npx height:Npx radius:Npx
 
 ━━━ SECTION N+1: ...
 
-IMPORTANT REMINDERS:
-- If you see text on one side and an image on the other side → it's a 2-COLUMN layout, always
-- If you see a photo or scene BEHIND the text → it's a bg-image background, not a solid color
-- If text is pushed to the left side of its container → align:left (even inside a 2-column section)
-- Copy ALL text VERBATIM — never paraphrase, summarize, or skip any words
-- Every button label, every nav link, every footer link, every list item — all verbatim
-- Estimate hex colors precisely by sampling — do not guess generic colors like #ffffff or #000000
+RULES — follow exactly:
+1. BACKGROUND: If there is any photo, scene, texture, or illustration visible BEHIND the content → bg-image. If the background transitions between colors → gradient. Only use solid if it is truly one flat color with no variation.
+2. COLUMNS: If content is arranged LEFT and RIGHT side by side (both at the same vertical level) → it is a 2-column layout. Always identify which side has text and which has image, and which is wider. Never describe a 2-column as single-column.
+3. TEXT ALIGNMENT: Look at where the left edge of the text starts. If text starts at the left edge of its container → align:left. If text is centered within its container → align:center. Always state alignment per element, not per section.
+4. MARGIN/PADDING: Estimate the top and bottom padding of each section from the visual whitespace (hero: ~120px, content: ~80px, compact: ~48px).
+5. VERBATIM: Copy every word of every text element exactly — headline, paragraph, button, nav link, list item, footer link, badge, eyebrow. Do not paraphrase.
+6. COLORS: Sample hex values carefully. Don't default to #ffffff or #000000 unless the color is truly white or black.
+7. IMAGES: Describe what you can see in each image (e.g. "smiling woman at laptop", "abstract 3D spheres", "iPhone mockup showing app"). Include width/height estimates.
 
-Output ONLY the spec. No preamble, no explanation, no JSON, no markdown.`;
+Output PART 1 then PART 2 with no other text.`;
 
-        const specRaw = await tryVision(specSystem, specPrompt, imageBase64, imageMediaType, { maxTokens: 5000 });
+        const specRaw = await tryVision(specSystem, specPrompt, imageBase64, imageMediaType, { maxTokens: 6000, thinking: true, thinkingBudget: 5000 });
         if (specRaw && specRaw.includes('━━━')) {
           const sectionCount = (specRaw.match(/━━━ SECTION/g) || []).length;
           figmaContent = { texts: [], colors: [], spec: specRaw, sectionCount, imageNodes: [], fonts: [] };

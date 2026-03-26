@@ -346,7 +346,8 @@ async function generateWithKey(apiKey, system, userText, opts = {}) {
 async function generateWithVisionWithKey(apiKey, system, userText, imageBase64, mimeType, opts = {}) {
   const Anthropic = require('@anthropic-ai/sdk');
   const client    = new Anthropic({ apiKey });
-  const resp      = await client.messages.create({
+
+  const reqParams = {
     model:      opts.model || 'claude-sonnet-4-6',
     max_tokens: opts.maxTokens || 8192,
     system,
@@ -357,8 +358,18 @@ async function generateWithVisionWithKey(apiKey, system, userText, imageBase64, 
         { type: 'text',  text: userText },
       ],
     }],
-  });
-  return resp.content[0]?.text || '';
+  };
+
+  // Enable extended thinking for deep visual analysis when requested
+  if (opts.thinking) {
+    reqParams.thinking = { type: 'enabled', budget_tokens: opts.thinkingBudget || 8000 };
+    reqParams.betas    = ['interleaved-thinking-2025-05-14'];
+  }
+
+  const resp = await client.messages.create(reqParams);
+  // With thinking enabled, resp.content has mixed thinking/text blocks — return first text block
+  const textBlock = resp.content.find(b => b.type === 'text');
+  return textBlock?.text || resp.content[0]?.text || '';
 }
 
 // ── Per-location AI generation ─────────────────────────────────────────────────
