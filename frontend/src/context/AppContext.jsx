@@ -148,17 +148,19 @@ export function AppProvider({ children }) {
       const d = event.data;
       if (!d || typeof d !== 'object') return;
 
-      // Log raw GHL messages so we can see the exact format (remove once confirmed)
-      if (d.locationId || d.location_id || d.activeLocation || d.message || d.type) {
-        console.log('[GHL msg]', JSON.stringify(d));
-      }
+      // Log every message so we can identify the exact GHL format
+      console.log('[GHL msg]', JSON.stringify(d));
 
-      // Handle nested formats: { message: 'X', data: { locationId } } or flat
-      const flat   = d;
-      const nested = d.data || d.payload || d.detail || {};
-      const newLoc = flat.locationId || flat.location_id || flat.activeLocation ||
-                     nested.locationId || nested.location_id || nested.activeLocation;
-      const newUid = flat.userId || flat.user_id || nested.userId || nested.user_id;
+      // Cover all known GHL SDK message formats
+      const sub    = d.data || d.payload || d.detail || d.location || {};
+      const newLoc =
+        d.locationId      || d.location_id   || d.activeLocation  ||
+        sub.locationId    || sub.location_id  || sub.activeLocation ||
+        sub.id            || // { location: { id: 'xxx' } }
+        d.location?.id;     // { location: { id: 'xxx' } }
+      const newUid =
+        d.userId   || d.user_id   ||
+        sub.userId || sub.user_id;
 
       applyNewLocation(newLoc, newUid);
     }
