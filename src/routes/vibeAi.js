@@ -12,10 +12,62 @@
 const express    = require('express');
 const https      = require('https');
 const router     = express.Router();
-const authenticate = require('../middleware/authenticate');
-const ghlClient  = require('../services/ghlClient');
+const authenticate  = require('../middleware/authenticate');
+const ghlClient     = require('../services/ghlClient');
+const { getFirebaseToken, connectFirebase } = require('../services/ghlFirebaseService');
 
 const VIBE_HOST = 'leadgen-vibe-ai-builder.leadconnectorhq.com';
+
+// ── Firebase token helper (same pattern as FunnelBuilder) ─────────────────────
+// Vibe AI endpoint is a Firebase/GCloud service — needs Firebase ID token, not OAuth token.
+// Try cached Firebase token first; if missing, auto-connect via stored OAuth token.
+
+const BACKEND_HOST  = 'backend.leadconnectorhq.com';
+const SERVICES_HOST = 'services.leadconnectorhq.com';
+
+function httpsGet(hostname, path, headers) {
+  return new Promise((resolve, reject) => {
+    const req = https.request({ hostname, path, method: 'GET', headers }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        const body = Buffer.concat(chunks).toString();
+        try { resolve({ status: res.statusCode, data: JSON.parse(body) }); }
+        catch { resolve({ status: res.statusCode, data: body }); }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function probeCustomToken(accessToken, locationId) {
+  const candidates = [
+    { hostname: BACKEND_HOST,  path: `/user/firebase-custom-token?locationId=${encodeURIComponent(locationId)}` },
+    { hostname: BACKEND_HOST,  path: `/user/customToken?locationId=${encodeURIComponent(locationId)}` },
+    { hostname: SERVICES_HOST, path: `/oauth/firebase-token?locationId=${encodeURIComponent(locationId)}` },
+  ];
+  for (const { hostname, path } of candidates) {
+    try {
+      const r = await httpsGet(hostname, path, { Authorization: `Bearer ${accessToken}`, Version: '2021-07-28' });
+      const token = r.data?.token || r.data?.customToken || r.data?.firebaseToken;
+      if (token) return token;
+    } catch {}
+  }
+  throw new Error('Could not obtain a Firebase custom token via GHL OAuth. Please connect via the Funnel Builder page first.');
+}
+
+async function getVibeToken(locationId) {
+  try {
+    return await getFirebaseToken(locationId);
+  } catch {
+    // Not connected yet — try auto-connect using stored OAuth token
+    const accessToken = await ghlClient.getValidAccessToken(locationId);
+    const customToken = await probeCustomToken(accessToken, locationId);
+    const record      = await connectFirebase(locationId, customToken);
+    return record.idToken;
+  }
+}
 
 // ── Logger ─────────────────────────────────────────────────────────────────────
 
@@ -100,7 +152,7 @@ router.post('/generate', async (req, res) => {
   const t0 = Date.now();
 
   try {
-    const token = await ghlClient.getValidAccessToken(locId);
+    const token = await getVibeToken(locId);
     log('info', locId, 'generate:token_ok');
 
     send('log', { msg: 'Connecting to GHL AI Studio...', level: 'info' });
@@ -186,7 +238,7 @@ router.get('/projects', async (req, res) => {
   const locId = req.locationId;
   log('info', locId, 'list_projects');
   try {
-    const token    = await ghlClient.getValidAccessToken(locId);
+    const token    = await getVibeToken(locId);
     const projects = await vibeRequest(
       'GET',
       `/vibe-ai/projects?alt_id=${locId}&alt_type=location`,
@@ -208,7 +260,7 @@ router.get('/projects/:id', async (req, res) => {
   const projectId = req.params.id;
   log('info', locId, 'get_project', { projectId });
   try {
-    const token   = await ghlClient.getValidAccessToken(locId);
+    const token   = await getVibeToken(locId);
     const project = await vibeRequest('GET', `/vibe-ai/projects/${projectId}`, token);
     const state   = (project?.status || project?.data?.status || 'unknown').toLowerCase();
     log('info', locId, 'get_project:ok', { projectId, state });
