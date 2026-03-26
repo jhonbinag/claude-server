@@ -450,7 +450,7 @@ Return this exact JSON structure:
   }
 }`;
 
-  const raw = await aiService.generate(system, user, { maxTokens: 2000 });
+  const raw = await aiService.generateForLocation(brief.locationId, system, user, { maxTokens: 2000 });
   return parseJsonSafe(raw);
 }
 
@@ -485,7 +485,7 @@ router.post('/generate', async (req, res) => {
   try {
     send('step', { step: 1, total: 3, label: 'Writing email copy with AI…' });
 
-    const content = await generateEmailContent({ campaignName, subject, emailType, niche, offer, audience, tone, ctaText, ctaUrl, brandName });
+    const content = await generateEmailContent({ campaignName, subject, emailType, niche, offer, audience, tone, ctaText, ctaUrl, brandName, locationId: req.locationId });
     send('content', content);
     send('step', { step: 2, total: 3, label: 'Building native GHL email template…' });
 

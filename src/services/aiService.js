@@ -361,4 +361,23 @@ async function generateWithVisionWithKey(apiKey, system, userText, imageBase64, 
   return resp.content[0]?.text || '';
 }
 
-module.exports = { getProvider, generate, generateWithVision, generateWithKey, generateWithVisionWithKey };
+// ── Per-location AI generation ─────────────────────────────────────────────────
+// Loads the key saved via Settings → Integrations for the given locationId.
+// Falls back to the platform-level env-var provider if no per-location key found.
+
+async function generateForLocation(locationId, systemPrompt, userPrompt, opts = {}) {
+  if (locationId) {
+    try {
+      const registry = require('../tools/toolRegistry');
+      const configs  = await registry.loadToolConfigs(locationId);
+      for (const p of ['anthropic', 'openai', 'groq', 'google']) {
+        if (configs?.[p]?.apiKey) {
+          return generateWithKey(configs[p].apiKey, systemPrompt, userPrompt, opts);
+        }
+      }
+    } catch { /* fall through to env-var provider */ }
+  }
+  return generate(systemPrompt, userPrompt, opts);
+}
+
+module.exports = { getProvider, generate, generateWithVision, generateWithKey, generateWithVisionWithKey, generateForLocation };

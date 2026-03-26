@@ -75,19 +75,22 @@ function detectProviderName(key = '') {
 
 // Redis → Firebase fallback for the stored AI key
 async function loadStoredAiKey(locationId) {
+  // 1. Check funnel-specific Redis key (fastest)
   try {
     const redisKey = await getFunnelAiKey(locationId);
     if (redisKey) return redisKey;
   } catch { /* fall through */ }
   try {
-    const configs = await getToolConfig(locationId);
+    // 2. Load all tool configs via toolRegistry (Redis → Firebase chain)
+    const registry = require('../tools/toolRegistry');
+    const configs = await registry.loadToolConfigs(locationId);
+    // Legacy funnel-specific key
     const fbKey = configs?.funnelBuilderAiKey?.key;
     if (fbKey) {
-      // Warm Redis cache
       saveFunnelAiKey(locationId, fbKey).catch(() => {});
       return fbKey;
     }
-    // Fall back to centralized AI key saved via Settings → Integrations
+    // 3. Centralized AI key saved via Settings → Integrations
     for (const p of ['anthropic', 'openai', 'groq', 'google']) {
       if (configs?.[p]?.apiKey) return configs[p].apiKey;
     }

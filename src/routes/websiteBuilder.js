@@ -236,7 +236,7 @@ async function generatePageSections(brief) {
   const { pageName, pageType, websiteName, niche, offer, audience, brand, colorScheme, extraNotes } = brief;
   const basePlan = PAGE_SECTION_PLANS[pageType] || PAGE_SECTION_PLANS.custom;
   const plan     = [NAV_SECTION, ...basePlan, FOOTER_SECTION];
-  const provider = await aiService.getProvider();
+  const provider = { name: brief.locationId ? 'per-location' : (aiService.getProvider()?.name || 'unknown') };
 
   const sectionList = plan.map((s, i) =>
     `Section ${i + 1} — "${s.name}" [align: ${s.align}, bg: ${s.bg}${s.layout ? `, layout: ${s.layout}` : ''}]\n  Copy brief: ${s.role}\n  Elements: ${s.elements.join(', ')}`
@@ -359,7 +359,7 @@ COLOR RULES:
 - Never use "#primary" — always a real hex code
 - Extract brand colors from the color scheme hint if hex codes are provided (e.g. "#1a1a2e background, #f59e0b accent" is valid input — use those exact hex values)`;
 
-  const raw    = await aiService.generate(system, user, { maxTokens: 8192 });
+  const raw    = await aiService.generateForLocation(brief.locationId, system, user, { maxTokens: 8192 });
   const parsed = parseJsonSafe(raw);
   parsed._provider = provider;
   return parsed;
@@ -409,7 +409,7 @@ router.post('/generate', async (req, res) => {
 
     // ── Step 1: Generate native section content with AI ────────────────────
     send('step', { step: 1, total: 2, label: 'Generating page copy with AI…' });
-    const content = await generatePageSections({ pageName: resolvedPageName, pageType, websiteName, niche, offer, audience, brand, colorScheme, extraNotes });
+    const content = await generatePageSections({ pageName: resolvedPageName, pageType, websiteName, niche, offer, audience, brand, colorScheme, extraNotes, locationId: req.locationId });
     send('content', content);
 
     // ── Step 2: Save native sections via Firebase Storage ──────────────────
