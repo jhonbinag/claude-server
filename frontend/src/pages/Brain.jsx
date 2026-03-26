@@ -131,69 +131,6 @@ const NAV_TABS = [
 
 // ── Add Channel Modal ─────────────────────────────────────────────────────────
 
-function AddChannelModal({ brainId, locationId, onClose, onAdded }) {
-  const [channelName, setChannelName] = useState('');
-  const [channelUrl,  setChannelUrl]  = useState('');
-  const [isPrimary,   setIsPrimary]   = useState(false);
-  const [saving,      setSaving]      = useState(false);
-  const [error,       setError]       = useState('');
-
-  async function handleAdd() {
-    if (!channelName.trim()) { setError('Channel name is required.'); return; }
-    if (!channelUrl.trim())  { setError('Channel URL is required.'); return; }
-    setSaving(true);
-    setError('');
-    try {
-      const r = await apiFetch(`/brain/${brainId}/channels`, locationId, {
-        method: 'POST',
-        body:   { channelName: channelName.trim(), channelUrl: channelUrl.trim(), isPrimary },
-      });
-      if (!r.success) throw new Error(r.error || 'Failed.');
-      onAdded(r.data);
-    } catch (e) {
-      setError(e.message);
-    }
-    setSaving(false);
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 28, width: '100%', maxWidth: 440 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.textPri }}>Add a channel</h2>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: C.textMuted }}>Add another YouTube channel to this brain.</p>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 20, cursor: 'pointer', marginLeft: 12 }}>✕</button>
-        </div>
-
-        <div style={{ borderBottom: `1px solid ${C.border}`, margin: '16px 0' }} />
-
-        {error && <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: '#1c0a00', border: `1px solid ${C.red}44`, color: '#f87171', fontSize: 13 }}>{error}</div>}
-
-        <label style={labelStyle}>Channel name <span style={{ color: C.red }}>*</span></label>
-        <input value={channelName} onChange={e => setChannelName(e.target.value)} placeholder="e.g. Andrej Karpathy" style={inputStyle} autoFocus />
-
-        <label style={labelStyle}>Channel URL <span style={{ color: C.red }}>*</span></label>
-        <input value={channelUrl} onChange={e => setChannelUrl(e.target.value)} placeholder="https://youtube.com/@handle" style={{ ...inputStyle, marginBottom: 4 }} />
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>Accepts @handle, channel URL, or UC ID.</p>
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginBottom: 24 }}>
-          <input type="checkbox" checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.blue }} />
-          <span style={{ fontSize: 13, color: '#d1d5db' }}>Set as primary channel</span>
-        </label>
-
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={btnSecondary}>Cancel</button>
-          <button onClick={handleAdd} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.5 : 1 }}>
-            {saving ? 'Adding…' : 'Add channel'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Docs Modal ────────────────────────────────────────────────────────────────
 
@@ -364,11 +301,7 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
   const [docs,              setDocs]              = useState(brain.docs || []);
   const [channels,          setChannels]          = useState(brain.channels || []);
   const [loadingDocs,       setLoadingDocs]       = useState(false);
-  const [showAddChannel,    setShowAddChannel]    = useState(false);
   const [flash,             setFlash]             = useState(null);
-  const [syncing,           setSyncing]           = useState(false);
-  const [autoSync,          setAutoSync]          = useState(brain.autoSync === true);
-  const [syncingChannelId,  setSyncingChannelId]  = useState(null);
 
   // Edit brain settings
   const [editName,          setEditName]          = useState(brain.name);
@@ -553,10 +486,6 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
     await reloadVideos();
   }
 
-  function stopBatchLoop() {
-    batchActiveRef.current = false;
-  }
-
   async function generateTranscript(videoId) {
     setGeneratingIds(prev => new Set([...prev, videoId]));
     // Optimistically mark as processing
@@ -668,61 +597,16 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
     } catch { showFlash(false, 'Failed to delete document.'); }
   }
 
-  async function deleteChannel(channelId, name) {
-    if (!confirm(`Remove channel "${name}" from this brain?`)) return;
-    try {
-      const r = await apiFetch(`/brain/${brain.brainId}/channels/${channelId}`, locationId, { method: 'DELETE' });
-      if (r.success) {
-        setChannels(prev => prev.filter(c => c.channelId !== channelId));
-        onRefresh();
-      } else {
-        showFlash(false, r.error || 'Failed to remove channel.');
-      }
-    } catch { showFlash(false, 'Failed to remove channel.'); }
-  }
-
-  async function syncChannel(channelId, name) {
-    setSyncingChannelId(channelId);
-    showFlash(true, `Discovering videos for "${name}"…`);
-    try {
-      // Incremental discovery — call /queue repeatedly until discovering: false
-      let result;
-      do {
-        result = await apiFetch(`/brain/${brain.brainId}/channels/${channelId}/queue`, locationId, { method: 'POST' });
-        if (!result.success) { showFlash(false, result.error || 'Failed to sync channel.'); setSyncingChannelId(null); return; }
-        if (result.discovering) {
-          showFlash(true, `Discovering videos for "${name}"… ${result.videoCount || 0} found so far`);
-          await reloadVideos();
-        }
-      } while (result.discovering);
-
-      const discovered = result.videoCount || result.queued || 0;
-      showFlash(true, `"${name}" — ${discovered} videos discovered. Starting transcript processing…`);
-      onRefresh();
-      await reloadBrain();
-      await reloadVideos();
-      setTab('videos');
-      startBatchLoop();
-    } catch (e) { showFlash(false, e.message || 'Sync failed.'); }
-    setSyncingChannelId(null);
-  }
-
-  function handleChannelAdded(ch) {
-    setChannels(prev => [...prev, ch]);
-    setShowAddChannel(false);
-    showFlash(true, `Channel "${ch.channelName}" added.`);
-    autoLog(`Channel added: ${ch.channelName}`);
-    onRefresh();
-  }
-
   const ytDocs = docs.filter(d => d.url && d.url.includes('youtube.com/watch'));
-  const { pendingCount } = getBrainHealth({ ...brain, docs });
   const totalChunks = docs.reduce((a, d) => a + (d.chunkCount || 0), 0);
   const videoCount = videos.length || brain.videoCount || ytDocs.length;
 
-  // Users only see Videos tab — all management tabs are admin-only
+  const isSharedBrain = !!brain.isShared;
+
+  // Users see Channels (read-only) + Videos (read-only) — no management tabs
   const detailTabs = [
-    { id: 'videos', label: `Videos (${videoCount})` },
+    { id: 'channels', label: `Channels (${channels.length})` },
+    { id: 'videos',   label: `Videos (${videoCount})` },
   ];
 
   const thStyle = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.textMuted, borderBottom: `1px solid ${C.border}` };
@@ -730,9 +614,6 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-      {showAddChannel && (
-        <AddChannelModal brainId={brain.brainId} locationId={locationId} onClose={() => setShowAddChannel(false)} onAdded={handleChannelAdded} />
-      )}
       {showDocsModal && (
         <DocsModal brain={brain} onClose={() => setShowDocsModal(false)} onGenerate={generateDocs} generatingDocs={generatingDocs} />
       )}
@@ -775,101 +656,13 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
               );
             })()}
           </div>
-          {/* Action buttons — hidden for shared (read-only) brains */}
+          {/* Read-only badge */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
             {isSharedBrain && (
               <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', fontWeight: 600 }}>Shared by Admin</span>
             )}
-            {/* Auto-sync toggle */}
-            <label title={autoSync ? 'Auto-sync ON — discovers new videos every Monday at 8am' : 'Auto-sync OFF — manual only'}
-              onClick={async e => {
-                e.preventDefault();
-                const next = !autoSync;
-                setAutoSync(next);
-                try {
-                  await apiFetch(`/brain/${brain.brainId}`, locationId, { method: 'PATCH', body: { autoSync: next } });
-                  showFlash(true, next ? 'Auto-sync enabled — will discover new videos every Monday.' : 'Auto-sync disabled.');
-                } catch { setAutoSync(!next); }
-              }}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', userSelect: 'none' }}>
-              <span style={{ fontSize: 12, color: C.textMuted }}>Auto</span>
-              <div style={{
-                width: 36, height: 20, borderRadius: 10, background: autoSync ? C.blue : C.border,
-                position: 'relative', transition: 'background .2s', flexShrink: 0,
-              }}>
-                <div style={{
-                  position: 'absolute', top: 3, left: autoSync ? 18 : 3,
-                  width: 14, height: 14, borderRadius: '50%', background: '#fff',
-                  transition: 'left .2s',
-                }} />
-              </div>
-            </label>
-            {/* Manual sync icon button */}
-            <button
-              title={batchProcessing ? 'Processing transcripts…' : 'Sync now'}
-              disabled={syncing || batchProcessing}
-              onClick={async () => {
-                setSyncing(true);
-                showFlash(true, 'Discovering videos for all channels…');
-                try {
-                  const chs = channels.filter(c => c.channelUrl);
-                  let totalDiscovered = 0;
-                  for (const ch of chs) {
-                    // Incremental discovery per channel
-                    let result;
-                    do {
-                      result = await apiFetch(`/brain/${brain.brainId}/channels/${ch.channelId}/queue`, locationId, { method: 'POST' });
-                      if (!result.success) break;
-                      if (result.discovering) {
-                        showFlash(true, `Discovering "${ch.channelName}"… ${result.videoCount || 0} videos found`);
-                        await reloadVideos();
-                      }
-                    } while (result.discovering);
-                    if (result.success) totalDiscovered += result.videoCount || result.queued || 0;
-                  }
-                  showFlash(true, `${totalDiscovered} videos discovered. Starting transcript processing…`);
-                  onRefresh();
-                  await reloadBrain();
-                  await reloadVideos();
-                  setTab('videos');
-                  startBatchLoop();
-                } catch { showFlash(false, 'Sync failed.'); }
-                setSyncing(false);
-              }}
-              style={{
-                ...btnSecondary, padding: '7px 10px', fontSize: 16, lineHeight: 1,
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                opacity: (syncing || batchProcessing) ? 0.5 : 1,
-              }}>
-              <span style={{
-                display: 'inline-block',
-                animation: (syncing || batchProcessing) ? 'spin 1s linear infinite' : 'none',
-              }}>↻</span>
-            </button>
-            <button
-              title="Re-index existing chunks into vector database"
-              onClick={async () => {
-                showFlash(true, 'Re-indexing into vector database…');
-                try {
-                  const r = await apiFetch(`/brain/${brain.brainId}/reindex`, locationId, { method: 'POST' });
-                  if (r.success) showFlash(true, `✓ Vector index updated: ${r.vectors} chunks from ${r.docs} docs`);
-                  else showFlash(false, r.error || 'Re-index failed.');
-                } catch (e) { showFlash(false, e.message); }
-              }}
-              style={{ ...btnSecondary, fontSize: 12 }}>
-              ⚡ Reindex
-            </button>
-            <button onClick={() => setShowAddChannel(true)} style={btnPrimary}>+ Add Channel</button>
           </div>
         </div>
-
-        {pendingCount > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#2d1f00', border: `1px solid ${C.amber}44`, borderRadius: 8, padding: '9px 14px', marginTop: 8 }}>
-            <span style={{ color: C.amber, fontSize: 14 }}>⚠</span>
-            <span style={{ color: C.amber, fontSize: 13, fontWeight: 500 }}>Needs Attention</span>
-            <span style={{ color: '#d97706', fontSize: 13 }}>· {pendingCount} videos pending transcription</span>
-          </div>
-        )}
       </div>
 
       {/* Flash */}
@@ -908,7 +701,6 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
                   <th style={thStyle}>Type</th>
                   <th style={thStyle}>Videos</th>
                   <th style={thStyle}>Last synced</th>
-                  <th style={{ ...thStyle, width: 80 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -928,16 +720,6 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
                         : (ch.videoCount || 0)}
                     </td>
                     <td style={{ ...tdStyle, color: C.textMuted, fontSize: 12 }}>{ch.lastSynced ? timeAgo(ch.lastSynced) : 'Never'}</td>
-                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-                      <button
-                        title={batchProcessing ? 'Processing transcripts…' : 'Sync this channel'}
-                        disabled={syncingChannelId === ch.channelId || batchProcessing}
-                        onClick={() => syncChannel(ch.channelId, ch.channelName)}
-                        style={{ background: 'none', border: 'none', color: (syncingChannelId === ch.channelId || batchProcessing) ? C.blue : C.textMuted, cursor: (syncingChannelId === ch.channelId || batchProcessing) ? 'default' : 'pointer', fontSize: 14, padding: '2px 6px' }}>
-                        <span style={{ display: 'inline-block', animation: syncingChannelId === ch.channelId ? 'spin 1s linear infinite' : 'none' }}>↻</span>
-                      </button>
-                      <button onClick={() => deleteChannel(ch.channelId, ch.channelName)} style={{ background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -964,52 +746,17 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
                 </span>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {batchProcessing ? (
-                <button onClick={stopBatchLoop} style={{ ...btnSecondary, fontSize: 12, padding: '6px 14px', color: C.amber, borderColor: `${C.amber}66` }}>■ Stop Processing</button>
-              ) : videos.some(v => v.transcriptStatus === 'pending') ? (
-                <button onClick={startBatchLoop} style={{ ...btnPrimary, fontSize: 12, padding: '6px 14px' }}>▶ Process All Pending</button>
-              ) : null}
-              <button onClick={reloadVideos} style={{ ...btnSecondary, fontSize: 12, padding: '6px 14px' }}>↻ Refresh</button>
-            </div>
+            <button onClick={reloadVideos} style={{ ...btnSecondary, fontSize: 12, padding: '6px 14px' }}>↻ Refresh</button>
           </div>
-
-          {/* Batch processing progress */}
-          {batchProcessing && batchProgress && (
-            <div style={{ marginBottom: 16, background: '#0d1a2e', border: `1px solid ${C.blue}44`, borderRadius: 10, padding: '12px 16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd' }}>
-                  {batchCooldown > 0
-                    ? `Next batch in ${Math.floor(batchCooldown / 60)}:${String(batchCooldown % 60).padStart(2, '0')}` 
-                    : `Processing transcripts\u2026`
-                  }
-                  {' '}{batchProgress.done} indexed{batchProgress.errors > 0 ? `, ${batchProgress.errors} errors` : ''} \u2014 {batchProgress.remaining} remaining
-                </span>
-                <span style={{ fontSize: 12, color: C.textMuted }}>
-                  {batchProgress.total > 0 ? Math.round(((batchProgress.done + batchProgress.errors) / batchProgress.total) * 100) : 0}%
-                </span>
-              </div>
-              <div style={{ height: 6, background: '#1e2a3a', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%',
-                  borderRadius: 3,
-                  background: `linear-gradient(90deg, ${C.blue}, #60a5fa)`,
-                  width: batchProgress.total > 0 ? `${((batchProgress.done + batchProgress.errors) / batchProgress.total) * 100}%` : '0%',
-                  transition: 'width 0.5s ease',
-                }} />
-              </div>
-            </div>
-          )}
 
           {/* No videos state */}
           {!loadingVideos && videos.length === 0 && (
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '48px 24px', textAlign: 'center' }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>▶</div>
-              <p style={{ color: C.textPri, fontSize: 15, fontWeight: 600, margin: '0 0 8px' }}>No videos discovered yet</p>
-              <p style={{ color: C.textMuted, fontSize: 13, margin: '0 0 20px' }}>
-                Go to the Channels tab and click ↻ next to a channel to sync its video list.
+              <p style={{ color: C.textPri, fontSize: 15, fontWeight: 600, margin: '0 0 8px' }}>No videos yet</p>
+              <p style={{ color: C.textMuted, fontSize: 13, margin: 0 }}>
+                Videos will appear here once the admin syncs the connected channels.
               </p>
-              <button onClick={() => setTab('channels')} style={{ ...btnPrimary, fontSize: 13 }}>Go to Channels</button>
             </div>
           )}
 
@@ -1092,63 +839,6 @@ function BrainDetail({ brain, locationId, onBack, onDeleted, onRefresh, initialM
                     }}>
                       {statusConfig.label}
                     </span>
-
-                    {/* Generate Transcript button */}
-                    {(status === 'pending' || status === 'error') && (
-                      <button
-                        onClick={() => generateTranscript(video.videoId)}
-                        disabled={isGenerating}
-                        title={status === 'error' ? `Retry (${video.transcriptError || 'unknown error'})` : 'Generate transcript and index this video'}
-                        style={{
-                          background: status === 'error' ? '#1c0a00' : '#0d1e3a',
-                          border: `1px solid ${status === 'error' ? '#dc262666' : C.blue + '66'}`,
-                          borderRadius: 7, color: status === 'error' ? '#f87171' : '#60a5fa',
-                          fontSize: 12, fontWeight: 600, padding: '5px 12px',
-                          cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-                          display: 'flex', alignItems: 'center', gap: 5,
-                        }}
-                      >
-                        <span>{status === 'error' ? '↺' : '▶'}</span>
-                        <span>{status === 'error' ? 'Retry' : 'Generate Transcript'}</span>
-                      </button>
-                    )}
-
-                    {/* Download + Delete for completed videos */}
-                    {status === 'complete' && video.docId && (
-                      <>
-                        <button
-                          onClick={async () => {
-                            const res = await fetch(`/brain/${brain.brainId}/videos/${video.videoId}/transcript`, {
-                              headers: { 'x-location-id': locationId || '' },
-                            });
-                            if (!res.ok) return alert('Transcript not available.');
-                            const blob = await res.blob();
-                            const a = document.createElement('a');
-                            a.href = URL.createObjectURL(blob);
-                            a.download = `${(video.title || video.videoId).replace(/[^a-z0-9]+/gi, '-')}.txt`;
-                            a.click();
-                            URL.revokeObjectURL(a.href);
-                          }}
-                          title="Download transcript as .txt"
-                          style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 15, padding: '4px 6px', flexShrink: 0 }}
-                        >
-                          ⬇
-                        </button>
-                        <button
-                          onClick={async () => {
-                            if (!confirm(`Remove transcript for "${video.title || video.videoId}" from this brain?`)) return;
-                            await apiFetch(`/brain/${brain.brainId}/docs/${video.docId}`, locationId, { method: 'DELETE' });
-                            await reloadVideos();
-                            await reloadBrain();
-                            onRefresh();
-                          }}
-                          title="Remove transcript from brain"
-                          style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 14, padding: '4px 6px', flexShrink: 0 }}
-                        >
-                          ✕
-                        </button>
-                      </>
-                    )}
                   </div>
                 );
               })}
