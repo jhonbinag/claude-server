@@ -1857,41 +1857,91 @@ GHL NATIVE JSON SCHEMA:
     if (!figmaUrl && imageBase64) {
       try {
         send('log', { msg: `[${i + 1}/${pages.length}] Pass 1: extracting design spec from image...`, level: 'info' });
-        const specSystem = `You are a precise design analyst. Your only job is to read a screenshot and produce a structured text spec describing every element exactly as you see it. Be exhaustive — miss nothing.`;
-        const specPrompt = `Analyze this design screenshot from top to bottom. Output a structured spec in EXACTLY this format (no JSON, no markdown — plain text only):
+        const specSystem = `You are an expert design analyst and front-end engineer. Your task is to produce a complete, exhaustive structured text spec from a screenshot. You must capture EVERY visual element, background effect, color, spacing, font detail, interactive element, and layout — missing nothing. Be obsessively precise.`;
+        const specPrompt = `Analyze this design screenshot completely from top to bottom. Document every section, every element, every background detail, and every visual effect. Output a structured spec in EXACTLY this format (plain text only — no JSON, no markdown):
 
-━━━ SECTION 1: "Section Name" | bg:#HEXCOLOR padding:TOP/RIGHT/BOTTOM/LEFT px
-  [HEADLINE] "Exact text verbatim here" | color:#HEX size:Npx weight:N align:left/center/right
-  [SUBHEADING] "Exact text verbatim" | color:#HEX size:Npx weight:N align:center
-  [PARAGRAPH] "Full body text verbatim — every word exactly as written" | color:#HEX size:Npx align:left
-  [BUTTON] "Button label verbatim" | bg:#HEX color:#HEX size:Npx weight:N radius:Npx padding:T/R/B/Lpx
-  [IMAGE] "description of image" | position:left/center/right size:WxH
+━━━ SECTION N: "Descriptive Section Name" | bg:#HEXCOLOR padding:TOP/RIGHT/BOTTOM/LEFT px [border-radius:Npx] [shadow:yes]
+  BACKGROUND: solid #HEX  [OR]  gradient:linear-gradient(135deg,#HEX1 0%,#HEX2 100%)  [OR]  image:"description" overlay:#HEX opacity:0.N
+  [NAV] logo:"Logo text or image description" | links:"Link1, Link2, Link3, Link4" | bg:#HEX sticky:yes/no
+  [HEADLINE] "Exact text verbatim — every word" | color:#HEX size:Npx weight:N align:center font:"Font Name if visible"
+  [SUBHEADLINE] "Exact text verbatim" | color:#HEX size:Npx weight:N align:center
+  [PARAGRAPH] "Full body text verbatim — every word exactly as written" | color:#HEX size:Npx align:left line-height:N.N
+  [LABEL] "Small label / eyebrow text verbatim" | color:#HEX size:Npx weight:N align:center letter-spacing:Npx
+  [BUTTON] "Button label verbatim" | bg:#HEX color:#HEX size:Npx weight:N radius:Npx padding:T/R/B/Lpx border:#HEX type:primary/secondary/outline/ghost
+  [BUTTON-GROUP] [BUTTON] "Primary" | ... [BUTTON] "Secondary" | ...
+  [IMAGE] "description of image content" | position:left/center/right size:WxHpx radius:Npx shadow:yes/no
+  [VIDEO] "thumbnail description or video type" | position:center size:WxHpx
+  [ICON] "icon description (e.g. checkmark, arrow, star, logo)" | color:#HEX size:Npx
+  [ICON-ROW] icon:"description" label:"text" | icon:"description" label:"text" | ...
+  [DIVIDER] | color:#HEX thickness:Npx width:full/partial margin:T/Bpx
+  [BADGE] "badge text" | bg:#HEX color:#HEX radius:Npx size:Npx
+  [RATING] stars:N/5 | color:#HEX size:Npx
   [BULLETLIST]
     - Bullet item 1 verbatim
     - Bullet item 2 verbatim
-  [2-COLUMN LAYOUT] widths:7/5 (or 6/6 if equal)
+  [NUMBERED-LIST]
+    1. Item 1 verbatim
+    2. Item 2 verbatim
+  [FORM]
+    INPUT "Placeholder text" | type:text/email/phone/textarea border:#HEX radius:Npx
+    INPUT "Placeholder text" | type:text/email/phone/textarea border:#HEX radius:Npx
+    [BUTTON] "Submit label" | bg:#HEX color:#HEX ...
+  [CARD] | bg:#HEX radius:Npx shadow:yes/no padding:T/R/B/Lpx border:#HEX
+    [elements inside card]
+  [CARD-ROW] count:N (repeat [CARD] for each card)
+  [TESTIMONIAL] quote:"Full verbatim quote" | author:"Name" title:"Job Title" | avatar:yes/no rating:N
+  [TESTIMONIAL-ROW] count:N (repeat [TESTIMONIAL] for each)
+  [PRICING-CARD] name:"Plan Name" | price:"$99" period:"/mo" | highlight:yes/no | bg:#HEX
+    - Feature 1 verbatim
+    - Feature 2 verbatim
+    [BUTTON] "CTA label" | ...
+  [STAT] value:"99%" label:"stat description" | value:"500+" label:"stat description" | ...
+  [PROGRESS-BAR] label:"label" | percent:N | color:#HEX bg:#HEX
+  [ACCORDION] "Question 1" / "Question 2" / ...
+  [TABS] "Tab 1" / "Tab 2" / "Tab 3"
+  [COUNTDOWN] label:"Countdown label" | units:days/hours/minutes/seconds
+  [SOCIAL-PROOF] "text or logos verbatim"
+  [LOGO-ROW] "logo1, logo2, logo3 ..." | grayscale:yes/no opacity:0.N
+  [FOOTER] | bg:#HEX color:#HEX
+    columns: "Col1 heading: link1, link2" | "Col2 heading: link1, link2" | ...
+    copyright: "© verbatim copyright text"
+  [2-COLUMN LAYOUT] widths:7/5
     COL1:
-      [elements in left column]
+      [all elements in left column, each on its own line]
     COL2:
-      [elements in right column]
-  [3-COLUMN LAYOUT]
-    COL1: [elements] | COL2: [elements] | COL3: [elements]
+      [all elements in right column, each on its own line]
+  [3-COLUMN LAYOUT] widths:4/4/4
+    COL1:
+      [elements]
+    COL2:
+      [elements]
+    COL3:
+      [elements]
+  [4-COLUMN LAYOUT]
+    COL1: [elements] | COL2: [elements] | COL3: [elements] | COL4: [elements]
 
-━━━ SECTION 2: "Section Name" | bg:#HEXCOLOR padding:TOP/RIGHT/BOTTOM/LEFT px
-  (repeat for every section)
+━━━ SECTION N+1: ...
 
-RULES:
-- Count sections carefully — every distinct background band is a new section
-- Copy ALL text VERBATIM — do not paraphrase or omit any words
-- Estimate hex colors by sampling the dominant color of each area
-- Estimate font sizes from visual proportions (hero H1 ~52-64px, H2 ~32-40px, body ~16-18px)
-- Bold text = weight:700, semibold = weight:600, regular = weight:400
-- Name sections descriptively: Hero, Features, Testimonials, Pricing, CTA, Footer, etc.
-- If a section has a gradient background, write: bg:linear-gradient(#HEX1,#HEX2)
+ANALYSIS RULES (follow strictly):
+1. SECTIONS: Every distinct horizontal band with its own background IS a new section — never merge, never skip. Count them all.
+2. BACKGROUNDS: Describe every background EXACTLY. If solid color → bg:#HEX. If gradient → gradient:linear-gradient(angle,#HEX stop%,#HEX stop%). If image with overlay → image:"what you see" overlay:#HEX opacity:0.N. If pattern or texture → describe it.
+3. TEXT: Copy ALL text 100% VERBATIM — every word, every character, every punctuation mark. Never paraphrase. Never summarize.
+4. COLORS: Sample hex codes precisely. For text: exact foreground color. For backgrounds: dominant background color. For borders: exact border color.
+5. FONTS: Estimate sizes from visual proportions (hero H1: 52-72px, section H2: 32-44px, subheading: 20-26px, body: 15-18px, small/caption: 12-14px, nav: 14-16px).
+6. WEIGHTS: bold=700, semibold=600, medium=500, regular=400, light=300.
+7. LAYOUT: Identify multi-column layouts (2-col, 3-col, 4-col). Specify column widths from visual proportions (7/5, 6/6, 8/4, etc.).
+8. SPACING: Estimate padding/margin in px from visual whitespace. Typical: hero 120px top/bottom, sections 80-100px, tight sections 40-60px.
+9. EFFECTS: Note border-radius on sections/cards/buttons/images. Note box-shadow on cards. Note text-shadow if visible. Note any glassmorphism/backdrop-blur effects.
+10. INTERACTIVE ELEMENTS: Identify all forms (every input field, label, placeholder, select, checkbox), all buttons (every CTA with exact label), all navigation links, all accordion/tab labels.
+11. ICONS: Describe what each icon represents (checkmark, arrow-right, star, phone, email, menu-hamburger, social icons, etc.) and its color/size.
+12. IMAGES: Describe the visual content of each image/photo (e.g. "smiling woman in office", "product mockup on phone", "abstract background shapes"). Include apparent dimensions and any border-radius or shadow.
+13. CARDS: Identify every card container with its background, border, radius, shadow, and all content inside.
+14. FOOTER: Extract every footer link, column heading, and copyright text verbatim.
+15. NAVBAR: Identify logo, all navigation links verbatim, and any CTA button in nav.
 
-Output ONLY the spec — no explanation, no JSON.`;
+Output ONLY the spec — no explanation, no preamble, no JSON, no markdown.`;
 
-        const specRaw = await tryVision(specSystem, specPrompt, imageBase64, imageMediaType, { maxTokens: 2000 });
+        const specRaw = await tryVision(specSystem, specPrompt, imageBase64, imageMediaType, { maxTokens: 4000 });
         if (specRaw && specRaw.includes('━━━')) {
           const sectionCount = (specRaw.match(/━━━ SECTION/g) || []).length;
           figmaContent = { texts: [], colors: [], spec: specRaw, sectionCount, imageNodes: [], fonts: [] };
@@ -1925,65 +1975,96 @@ ${figmaContent.spec}
 ═══════════════════════════════════════════════════
 
 CONVERSION INSTRUCTIONS:
-1. Create exactly ${figmaContent.sectionCount} section elements — one per ━━━ SECTION in the spec.
-2. Each section: set backgroundColor from spec bg: value. Set paddingTop/Bottom/Left/Right from spec padding: values (or 80/80/20/20 if not specified).
-3. For every [HEADLINE] → "heading" element (tag:"h1"), [SUBHEADLINE] → "heading" (tag:"h2"), [SUBHEADING] → "sub-heading", [PARAGRAPH] → "paragraph", [CAPTION] → "paragraph".
-4. Copy EVERY text string VERBATIM — do not change a single word.
-5. For every text element: set fontSize, fontWeight, color, and textAlign EXACTLY from spec. Include fontFamily if spec specifies one.
-6. For every [BUTTON]: set backgroundColor, color, fontSize, fontWeight, borderRadius, and all padding values from spec exactly.
-7. For every [IMAGE]: use the REAL GHL media URL from the image map below. If the nodeId is not in the map, use "https://picsum.photos/seed/${imgKwDesign}/800/450" as fallback.
-   IMAGE URL MAP (nodeId → real uploaded GHL URL):
-${Object.keys(figmaImageUrlMap).length > 0
-  ? figmaContent.imageNodes.map(n => `   ${n.nodeId}: ${figmaImageUrlMap[n.nodeId] || '(not uploaded — use picsum fallback)'}`).join('\n')
-  : '   (no images uploaded — use picsum fallback for all [IMAGE] elements)'}
-8. For every [DIVIDER]: insert a visual separator (use a paragraph element with border-bottom style or a dedicated divider).
-9. For [2-COLUMN LAYOUT]: create two column elements. Use gridWidth from spec (e.g. 7/12 and 5/12 → width:7 and width:5). Default to width:6 and width:6 if not specified.
-10. For [3-COLUMN LAYOUT]: three column elements each with width:4.
-11. If spec shows a gradient background (e.g. linear-gradient(...)), use that CSS string as backgroundColor.value.
-12. Mobile styles: fontSize = 60% of desktop, paddingTop/Bottom = 50% of desktop.${extraContext ? `\n13. Additional instructions: ${extraContext}` : ''}
-14. Add a top-level "figmaCSS" key: a CSS string for ANY effect GHL's native builder cannot achieve — custom Google Fonts (already imported via @import, just add font-family rules on c-heading/c-paragraph), gradient text (background:linear-gradient;-webkit-background-clip:text;-webkit-text-fill-color:transparent), glassmorphism (backdrop-filter:blur(...)), box-shadow on c-column or c-section, hover states, clip-path, or other advanced CSS. Target GHL elements: c-section, c-row, c-column, c-heading, c-paragraph, c-button, c-image. If nothing special is needed, set "figmaCSS":"".
+1. SECTIONS — Create exactly ${figmaContent.sectionCount} section elements, one per ━━━ SECTION in the spec. Never merge, never skip.
+2. SECTION BACKGROUNDS:
+   • Solid color → backgroundColor from bg:#HEX value
+   • Gradient → use the gradient CSS string as backgroundColor.value (e.g. "linear-gradient(135deg,#1a1a2e 0%,#16213e 100%)")
+   • Image with overlay → set backgroundImage.value to a descriptive picsum URL AND set backgroundColor with low-opacity overlay color
+   If the spec says BACKGROUND: gradient:... use that exact string.
+3. SECTION PADDING — Use padding values from spec exactly. If unspecified: paddingTop:80, paddingBottom:80, paddingLeft:20, paddingRight:20.
+4. TEXT ELEMENTS (always copy text 100% VERBATIM):
+   • [HEADLINE] → type:"heading" tag:"h1"
+   • [SUBHEADLINE] → type:"heading" tag:"h2"
+   • [SUBHEADING] or [LABEL] → type:"sub-heading"
+   • [PARAGRAPH] → type:"paragraph"
+   • [CAPTION] → type:"paragraph" (smaller fontSize)
+   • For ALL text: set fontSize, fontWeight, color, textAlign EXACTLY from spec. Set fontFamily if spec names one.
+5. BUTTONS — For every [BUTTON] or [BUTTON-GROUP] button: set backgroundColor, color, fontSize, fontWeight, borderRadius, paddingTop/Bottom/Left/Right from spec. For outline/ghost type: set backgroundColor transparent, add border color.
+6. IMAGES — Use "https://picsum.photos/seed/${imgKwDesign}/800/450" for all [IMAGE] and [VIDEO] placeholders. Apply borderRadius and box-shadow from spec.
+7. LISTS:
+   • [BULLETLIST] → type:"bulletList" items:[...] (every item verbatim)
+   • [NUMBERED-LIST] → type:"bulletList" items:[...] (items verbatim, numbered formatting handled by CSS)
+8. LAYOUTS:
+   • [2-COLUMN LAYOUT] → row with two columns. Widths from spec (e.g. widths:7/5 → width:7 and width:5). Default 6/6.
+   • [3-COLUMN LAYOUT] → row with three columns. Widths from spec or default 4/4/4.
+   • [4-COLUMN LAYOUT] → row with four columns width:3 each.
+9. CARDS — [CARD] → wrap elements in a column with backgroundColor, borderRadius, paddingTop/Bottom/Left/Right, and box-shadow from spec. [CARD-ROW] → one row containing N card columns.
+10. TESTIMONIALS — [TESTIMONIAL] → a column card containing: paragraph (quote verbatim), sub-heading (author name), paragraph (job title). [TESTIMONIAL-ROW] → row of N testimonial columns.
+11. PRICING CARDS — [PRICING-CARD] → column with section background, plan name as h2 heading, price as large h1 heading, features as bulletList, CTA as button. Highlighted card gets a distinct backgroundColor.
+12. STATS / COUNTERS — [STAT] → for each stat: a column containing a large h2 heading (value) and a paragraph (label below).
+13. FORMS — [FORM] → type:"form" containing input elements. Each INPUT → type:"input" placeholder from spec, inputType from spec (text/email/phone/textarea). Final [BUTTON] inside form → type:"button" role:"submit".
+14. NAVIGATION — [NAV] → type:"nav" with logo text/image and links array. Place as first element of the first section or a dedicated nav section.
+15. ICONS — [ICON] → type:"icon" iconName from description (map to nearest icon slug), color and size from spec. [ICON-ROW] → row of columns each with icon + label.
+16. DIVIDERS — [DIVIDER] → type:"divider" or paragraph with borderBottom style in figmaCSS.
+17. BADGES — [BADGE] → type:"badge" or sub-heading with backgroundColor + borderRadius styling in figmaCSS.
+18. RATINGS — [RATING] → paragraph "★★★★★" with color from spec, or use figmaCSS for star styling.
+19. SOCIAL PROOF / LOGO ROW — [LOGO-ROW] → row of image elements (picsum placeholders). Apply opacity filter via figmaCSS if spec says grayscale/opacity.
+20. FOOTER — [FOOTER] section: create columns for each footer column. Each column has a sub-heading (column title) + paragraph elements for each link. Copyright → paragraph at bottom of a full-width row.
+21. COUNTDOWN — [COUNTDOWN] → type:"countdown" with label from spec.
+22. MOBILE STYLES — For every element: set mobile fontSize = 60% of desktop, mobile paddingTop/Bottom = 50% of desktop. Override in mobileStyles object.
+23. EFFECTS / figmaCSS — Add a top-level "figmaCSS" key with CSS for everything GHL's native builder cannot do natively:
+   • Custom fonts: @import Google Font URL then font-family on .c-heading, .c-paragraph
+   • Gradient text: background:linear-gradient(...);-webkit-background-clip:text;-webkit-text-fill-color:transparent on .c-heading
+   • Section background image: use CSS background-image, background-size:cover, background-position:center on .c-section
+   • Card shadows: box-shadow on .c-column
+   • Glassmorphism: backdrop-filter:blur(Npx); background:rgba(...) on .c-column
+   • Button hover: .c-button:hover{...}
+   • Letter-spacing, line-height, text-transform, border on any element
+   • Any clip-path, animation, or advanced visual effect from spec
+   If nothing special is needed, set "figmaCSS":"".${extraContext ? `\n24. Additional instructions: ${extraContext}` : ''}
 
 Output ONLY the JSON object. No markdown, no explanation.`;
       } else {
-        // Image upload mode
-        const figmaColorNote = figmaContent.colors.length > 0
-          ? `\n\nEXACT COLORS FROM DESIGN:\n${figmaContent.colors.join(', ')}`
-          : '';
-        visionText = `You are looking at a screenshot of a web page design. Your task is to reconstruct it EXACTLY as a native GHL page JSON for "${page.name}".
+        // Image upload mode (spec extraction failed — single pass)
+        visionText = `Reconstruct this design screenshot 100% faithfully as a native GHL page JSON for "${page.name}". Analyze every section, background, color, text, layout, and element.
 
-STEP 1 — SCAN THE IMAGE top to bottom. Count every distinct horizontal band/section. Each section has its own background color and clear visual boundary.
+SCAN top to bottom. For every distinct horizontal band:
+- Extract background: solid hex OR gradient (write as CSS linear-gradient string) OR image-with-overlay
+- Identify layout: single-column, 2-column (note widths), 3-column, 4-column
+- Extract every element in order:
+  • All headlines/subheadings/paragraphs/labels — VERBATIM text, exact hex color, font size (H1:52-64px, H2:32-40px, body:16px), weight (bold=700, semi=600, reg=400), alignment
+  • All buttons — exact label, background hex, text hex, border-radius, padding
+  • All images/videos — note position and size (use picsum placeholder)
+  • All bullet lists and numbered lists — every item verbatim
+  • All forms — every input field (type, placeholder text), submit button
+  • All cards — background, border-radius, shadow, all inner content
+  • All testimonials — full quote verbatim, author name, title, rating
+  • All pricing tables — plan name, price, period, feature list, CTA button
+  • All stat/counter blocks — value and label verbatim
+  • All navigation bars — logo text, all nav links verbatim, any CTA button
+  • All footer columns — column headings and links verbatim, copyright text
+  • All icons — describe what they represent, color
+  • All dividers, badges, tags
 
-STEP 2 — For EACH section you see, extract:
-• Background color (use the exact hex — sample the dominant background color of that band)
-• Layout: is it full-width single column, or side-by-side (2-column), or 3-column grid?
-• Padding: estimate top/bottom padding in px from the visual whitespace
-• Every text element: copy VERBATIM, identify type (H1=main headline, H2=section headline, subheading, body paragraph, bullet item, button label, caption)
-• Font size in px (estimate from visual proportions — H1 ~48-64px, H2 ~32-40px, body ~16-18px)
-• Font weight (bold=700, semibold=600, regular=400)
-• Text color (exact hex)
-• Text alignment (left, center, right)
-• Every button: background color, text color, approximate padding and border-radius
-• Every image/photo placeholder: note its position and size
-• Every bullet list: extract all items verbatim
+GHL ELEMENT MAPPING:
+• H1 headline → type:"heading" tag:"h1"  |  H2 → type:"heading" tag:"h2"  |  subheading/label → type:"sub-heading"
+• Body text → type:"paragraph"  |  Bullet list → type:"bulletList" items:[...]
+• Button → type:"button"  |  Input field → type:"input"  |  Form → type:"form"
+• Image/video → type:"image" src:"https://picsum.photos/seed/${imgKwDesign}/800/450"
+• Icon → type:"icon"  |  Divider → type:"divider"
 
-STEP 3 — Map each element to a GHL type:
-• Main headline → "heading" with tag:"h1"
-• Section headline → "heading" with tag:"h2"
-• Subheading/tagline → "sub-heading"
-• Body text block → "paragraph" (plain text, NO HTML tags)
-• Bullet/feature list → "bulletList" with items:["item1","item2",...] (plain strings ONLY)
-• Call-to-action button → "button"
-• Photo/image/illustration → "image" with src:"https://picsum.photos/seed/${imgKwDesign}/800/450"
+LAYOUT RULES:
+• 2-column → row with 2 columns (widths from visual proportions e.g. width:7 + width:5, or 6+6)
+• 3-column → row with 3 columns width:4 each  |  4-column → width:3 each
+• Cards in a row → row with N column children, each with backgroundColor+borderRadius
 
-CONVERSION RULES:
-1. One visual section band = one "section" element. Never merge or skip.
-2. Side-by-side layout → row with two column elements, width:6 each (or 7+5 if unequal).
-3. 3-column grid → row with three column elements, width:4 each.
-4. All text VERBATIM — do not rephrase, summarize, or invent words.
-5. All colors as exact hex codes — sample carefully from the image.
-6. Font sizes as integers in px units.
-7. Mobile styles: fontSize = 60% of desktop value, paddingTop/Bottom = 50%.
-8. Section padding: estimate from visual whitespace (typical: 80px top/bottom, 20px left/right).${figmaColorNote}${extraContext ? `\n\nAdditional instructions: ${extraContext}` : ''}
+STYLE RULES:
+• Every text element: fontSize (integer px), fontWeight, color (hex), textAlign
+• Every button: backgroundColor, color, borderRadius, paddingTop/Right/Bottom/Left
+• Every section: backgroundColor (use gradient CSS string if gradient), paddingTop/Bottom/Left/Right
+• Mobile styles: fontSize 60% of desktop, paddingTop/Bottom 50%
+
+Add "figmaCSS" string for: gradient backgrounds as CSS background-image, box-shadows on cards, custom fonts, gradient text, glassmorphism, hover effects, letter-spacing, any effect not achievable natively. Set "" if not needed.${extraContext ? `\n\nAdditional instructions: ${extraContext}` : ''}
 
 Output ONLY the JSON object — no markdown, no explanation, no code fences.`;
       }
