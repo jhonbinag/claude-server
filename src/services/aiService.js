@@ -365,6 +365,47 @@ async function generateWithVisionWithKey(apiKey, system, userText, imageBase64, 
 // Loads the key saved via Settings → Integrations for the given locationId.
 // Falls back to the platform-level env-var provider if no per-location key found.
 
+function detectKeyProvider(key = '') {
+  if (key.startsWith('sk-ant-')) return 'anthropic';
+  if (key.startsWith('gsk_'))    return 'groq';
+  if (key.startsWith('AIza'))    return 'google';
+  if (key.startsWith('sk-'))     return 'openai';
+  return null;
+}
+
+async function generateWithAnyKey(apiKey, system, userText, opts = {}) {
+  const provider = detectKeyProvider(apiKey);
+  const maxTokens = opts.maxTokens || 8192;
+  if (provider === 'anthropic') {
+    return generateWithKey(apiKey, system, userText, { ...opts, maxTokens });
+  }
+  if (provider === 'openai') {
+    const resp = await httpsPost('api.openai.com', '/v1/chat/completions',
+      { Authorization: `Bearer ${apiKey}` },
+      { model: opts.model || 'gpt-4o-mini', max_tokens: maxTokens,
+        messages: [{ role: 'system', content: system }, { role: 'user', content: userText }] });
+    return resp.choices?.[0]?.message?.content || '';
+  }
+  if (provider === 'groq') {
+    const resp = await httpsPost('api.groq.com', '/openai/v1/chat/completions',
+      { Authorization: `Bearer ${apiKey}` },
+      { model: opts.model || 'llama-3.3-70b-versatile', max_tokens: maxTokens,
+        messages: [{ role: 'system', content: system }, { role: 'user', content: userText }] });
+    return resp.choices?.[0]?.message?.content || '';
+  }
+  if (provider === 'google') {
+    const m = opts.model || 'gemini-2.5-flash-preview-05-20';
+    const resp = await httpsPost('generativelanguage.googleapis.com',
+      `/v1beta/models/${m}:generateContent?key=${apiKey}`, {},
+      { systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: userText }] }],
+        generationConfig: { maxOutputTokens: maxTokens } });
+    return resp.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
+  // Unknown key format — fall through to env-var provider
+  return generate(system, userText, opts);
+}
+
 async function generateForLocation(locationId, systemPrompt, userPrompt, opts = {}) {
   if (locationId) {
     try {
@@ -372,7 +413,7 @@ async function generateForLocation(locationId, systemPrompt, userPrompt, opts = 
       const configs  = await registry.loadToolConfigs(locationId);
       for (const p of ['anthropic', 'openai', 'groq', 'google']) {
         if (configs?.[p]?.apiKey) {
-          return generateWithKey(configs[p].apiKey, systemPrompt, userPrompt, opts);
+          return generateWithAnyKey(configs[p].apiKey, systemPrompt, userPrompt, opts);
         }
       }
     } catch { /* fall through to env-var provider */ }
