@@ -16,7 +16,7 @@ const authenticate  = require('../middleware/authenticate');
 const ghlClient     = require('../services/ghlClient');
 const { getFirebaseToken, connectFirebase } = require('../services/ghlFirebaseService');
 
-const VIBE_HOST = 'leadgen-vibe-ai-builder.leadconnectorhq.com';
+const VIBE_HOST = 'backend.leadconnectorhq.com';
 
 // ── Firebase token helper (same pattern as FunnelBuilder) ─────────────────────
 // Vibe AI endpoint is a Firebase/GCloud service — needs Firebase ID token, not OAuth token.
@@ -91,8 +91,11 @@ function vibeRequest(method, path, token, body = null, isMultipart = false, mult
       : 'application/json';
 
     const headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': contentType,
+      'token-id':       token,
+      'channel':        'APP',
+      'source':         'WEB_USER',
+      'version':        '2021-07-28',
+      'Content-Type':   contentType,
     };
     if (payload) headers['Content-Length'] = Buffer.byteLength(payload);
 
