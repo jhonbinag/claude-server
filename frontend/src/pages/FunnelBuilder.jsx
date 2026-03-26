@@ -1867,9 +1867,17 @@ export default function FunnelBuilder() {
                 {vibeDone && vibeProjectId && (
                   <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)' }}>
                     <p className="text-xs font-semibold text-emerald-400">✓ Generation complete!</p>
-                    <p className="text-xs text-gray-400">Your {vibePageType} was built by GHL AI Studio. Find it in:</p>
-                    <p className="text-xs text-white font-medium">GHL Dashboard → Funnels & Websites → {vibePageType === 'funnel' ? 'Funnels' : 'Websites'}</p>
-                    <p className="text-xs text-gray-600">Project ID: {vibeProjectId}</p>
+                    <p className="text-xs text-gray-400">Your project is ready in GHL's AI Studio (Vibe section).</p>
+                    <a
+                      href={`${appDomain}/v2/location/${locationId}/vibe`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block text-center py-2 rounded-lg text-xs font-semibold transition-all"
+                      style={{ background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', color: '#fff' }}
+                    >
+                      Open in GHL AI Studio →
+                    </a>
+                    <p className="text-xs text-gray-600 text-center">Project ID: {vibeProjectId}</p>
                   </div>
                 )}
               </form>
