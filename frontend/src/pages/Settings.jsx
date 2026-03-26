@@ -338,6 +338,31 @@ export default function Settings() {
                   <span className="text-sm text-gray-400">Location ID</span>
                   <span className="text-sm font-mono text-gray-300">{locationId || '—'}</span>
                 </div>
+                {locationId && (
+                  <div className="py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <p className="text-sm text-gray-400">Your Personal Link</p>
+                        <p className="text-xs text-gray-600 mt-0.5">Set this as your GHL custom link — locationId is baked in</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/ui?locationId=${locationId}`);
+                          showToast('Personal link copied!', true);
+                        }}
+                        className="btn-primary px-4 py-2 text-sm whitespace-nowrap flex-shrink-0"
+                      >
+                        📋 Copy Link
+                      </button>
+                    </div>
+                    <div
+                      className="rounded-lg px-3 py-2 text-xs font-mono break-all"
+                      style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', color: '#a5b4fc' }}
+                    >
+                      {`${window.location.origin}/ui?locationId=${locationId}`}
+                    </div>
+                  </div>
+                )}
                 {tierInfo && (
                   <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                     <span className="text-sm text-gray-400">Plan</span>
