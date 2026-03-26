@@ -568,9 +568,10 @@ function httpsGet(hostname, path, headers = {}, retries = 3) {
               if (retryAfter > 30) {
                 const hours = Math.round(retryAfter / 3600);
                 return reject(new Error(
-                  `Your Figma token is rate-limited for ~${hours} hour${hours !== 1 ? 's' : ''}. ` +
-                  `Go to Settings → Funnel Builder → Figma Token, disconnect, then create a new ` +
-                  `Personal Access Token at figma.com → Settings → Personal Access Tokens and reconnect.`
+                  `Figma account rate-limited for ~${hours} more hour${hours !== 1 ? 's' : ''}. ` +
+                  `Note: Figma rate-limits by account — generating a new token on the same account will not help. ` +
+                  `To unblock: either wait ${hours} hours, or go to Settings → Funnel Builder → Figma Token, ` +
+                  `disconnect, and reconnect with a token from a DIFFERENT Figma account.`
                 ));
               }
               if (retries > 0) {
@@ -1060,7 +1061,11 @@ async function loadStoredFigmaToken(locationId) {
   try {
     const pat = await getFigmaToken(locationId)
       || (await getToolConfig(locationId).catch(() => ({})))?.figmaToken?.token;
-    if (pat) { const t = String(pat).trim(); return { token: t, authHeader: { 'X-Figma-Token': t } }; }
+    if (pat) {
+      const t = String(pat).trim();
+      console.log(`[FunnelBuilder] loadStoredFigmaToken(${locationId}): using PAT ${t.slice(0, 8)}...`);
+      return { token: t, authHeader: { 'X-Figma-Token': t } };
+    }
   } catch { /* fall through */ }
 
   return null;
