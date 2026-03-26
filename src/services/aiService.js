@@ -408,16 +408,25 @@ async function generateWithAnyKey(apiKey, system, userText, opts = {}) {
 
 async function generateForLocation(locationId, systemPrompt, userPrompt, opts = {}) {
   if (locationId) {
+    let configs = null;
     try {
       const registry = require('../tools/toolRegistry');
-      const configs  = await registry.loadToolConfigs(locationId);
+      configs = await registry.loadToolConfigs(locationId);
+    } catch (err) {
+      console.warn(`[aiService] loadToolConfigs failed for ${locationId}:`, err.message);
+    }
+    if (configs) {
       for (const p of ['anthropic', 'openai', 'groq', 'google']) {
         if (configs?.[p]?.apiKey) {
+          console.log(`[aiService] generateForLocation(${locationId}): using stored ${p} key`);
+          // Do NOT catch here — if the API call fails, let the error propagate to the caller
           return generateWithAnyKey(configs[p].apiKey, systemPrompt, userPrompt, opts);
         }
       }
-    } catch { /* fall through to env-var provider */ }
+    }
   }
+  // No per-location key found — fall back to env-var provider
+  console.log(`[aiService] generateForLocation(${locationId}): no stored key, using env-var provider (${getProvider()?.name || 'none'})`);
   return generate(systemPrompt, userPrompt, opts);
 }
 
