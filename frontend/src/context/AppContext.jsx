@@ -136,6 +136,7 @@ export function AppProvider({ children }) {
     const params = new URLSearchParams(window.location.search);
     const urlLoc = params.get('locationId');
     const urlUid = params.get('userId');
+    const ssoKey = params.get('ssoKey');
 
     if (urlLoc) {
       localStorage.setItem('gtm_location_id', urlLoc);
@@ -149,6 +150,27 @@ export function AppProvider({ children }) {
 
     if (urlLoc || urlUid) {
       window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    // ── GHL SSO key — verify with backend to get the real locationId ─────
+    // GHL Marketplace passes ?ssoKey=xxx on every iframe load.
+    // Verify it server-side; reload if it reveals a different location.
+    if (ssoKey) {
+      fetch(`/oauth/sso?ssoKey=${encodeURIComponent(ssoKey)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.locationId) {
+            const current = localStorage.getItem('gtm_location_id');
+            if (data.locationId !== current) {
+              localStorage.setItem('gtm_location_id', data.locationId);
+              if (data.userId) localStorage.setItem('gtm_user_id', data.userId);
+              window.location.reload();
+            } else {
+              window.history.replaceState({}, '', window.location.pathname);
+            }
+          }
+        })
+        .catch(() => {});
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

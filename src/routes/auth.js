@@ -18,6 +18,7 @@
 
 const express           = require('express');
 const router            = express.Router();
+const jwt               = require('jsonwebtoken');
 const ghlClient         = require('../services/ghlClient');
 const apiKeyService     = require('../services/apiKeyService');
 const tokenStore        = require('../services/tokenStore');
@@ -280,6 +281,25 @@ router.post('/billing/failed', async (req, res) => {
     res.json({ success: true, data });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// ─── GHL SSO Key Verification ─────────────────────────────────────────────────
+// GHL passes ?ssoKey=xxx when loading a Marketplace app iframe.
+// Verify the JWT (signed with GHL_CLIENT_SECRET) and return the locationId.
+
+router.get('/sso', (req, res) => {
+  const { ssoKey } = req.query;
+  if (!ssoKey) return res.json({ success: false, error: 'No ssoKey provided' });
+  if (!config.ghl.clientSecret) return res.json({ success: false, error: 'GHL_CLIENT_SECRET not configured' });
+
+  try {
+    const payload = jwt.verify(ssoKey, config.ghl.clientSecret);
+    const locationId = payload.activeLocation || payload.locationId || payload.location_id;
+    if (!locationId) return res.json({ success: false, error: 'No locationId in SSO token' });
+    res.json({ success: true, locationId, userId: payload.userId || payload.user_id || null });
+  } catch (err) {
+    res.json({ success: false, error: `SSO verification failed: ${err.message}` });
   }
 });
 
