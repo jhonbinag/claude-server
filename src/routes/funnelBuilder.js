@@ -1817,6 +1817,24 @@ GHL NATIVE JSON SCHEMA:
 
   const results = [];
 
+  // ── Shared vision helpers (used in both Pass 1 spec extraction and Pass 2 JSON gen) ──
+  const isTooLarge = (e) => {
+    const m = e?.message || '';
+    return m.toLowerCase().includes('too large') || m.includes('request_too_large') || m.includes('413') || m.startsWith('<') || m.includes('<html');
+  };
+  const tryVision = async (sys, usr, b64, mime, opts) => {
+    try {
+      const t = (await aiDesign.generateWithVision(sys, usr, b64, mime, opts)).trim();
+      if (t.startsWith('<')) return null;
+      return t;
+    } catch (e) {
+      if (isTooLarge(e)) return null;
+      throw e;
+    }
+  };
+  const minimalSystem = `You are a GHL page builder. Output ONLY valid JSON: {"sections":[...]}. Each section has id, type:"section", styles:{backgroundColor,paddingTop,paddingBottom,paddingLeft,paddingRight}, children:[rows→columns→elements]. Element types: heading(tag,text,styles), sub-heading, paragraph(text), button(text,link,styles), image(src,styles), bulletList(items[]). All styles use {"value":X,"unit":"px"} format. IDs: type-XXXXXXXX.`;
+  const imageOnlyPrompt = `Reconstruct this design as GHL JSON. Match every section, color, text, and layout. Output ONLY the JSON object.`;
+
   for (let i = 0; i < pages.length; i++) {
     const page     = pages[i];
     const pageType = inferPageType(page.name || '');
@@ -1835,17 +1853,73 @@ GHL NATIVE JSON SCHEMA:
 
     send('log', { msg: `[${i + 1}/${pages.length}] Analyzing "${page.name}" with AI vision...`, level: 'info' });
 
+    // ── Image upload: Pass 1 — extract structured spec from screenshot ──────
+    if (!figmaUrl && imageBase64) {
+      try {
+        send('log', { msg: `[${i + 1}/${pages.length}] Pass 1: extracting design spec from image...`, level: 'info' });
+        const specSystem = `You are a precise design analyst. Your only job is to read a screenshot and produce a structured text spec describing every element exactly as you see it. Be exhaustive — miss nothing.`;
+        const specPrompt = `Analyze this design screenshot from top to bottom. Output a structured spec in EXACTLY this format (no JSON, no markdown — plain text only):
+
+━━━ SECTION 1: "Section Name" | bg:#HEXCOLOR padding:TOP/RIGHT/BOTTOM/LEFT px
+  [HEADLINE] "Exact text verbatim here" | color:#HEX size:Npx weight:N align:left/center/right
+  [SUBHEADING] "Exact text verbatim" | color:#HEX size:Npx weight:N align:center
+  [PARAGRAPH] "Full body text verbatim — every word exactly as written" | color:#HEX size:Npx align:left
+  [BUTTON] "Button label verbatim" | bg:#HEX color:#HEX size:Npx weight:N radius:Npx padding:T/R/B/Lpx
+  [IMAGE] "description of image" | position:left/center/right size:WxH
+  [BULLETLIST]
+    - Bullet item 1 verbatim
+    - Bullet item 2 verbatim
+  [2-COLUMN LAYOUT] widths:7/5 (or 6/6 if equal)
+    COL1:
+      [elements in left column]
+    COL2:
+      [elements in right column]
+  [3-COLUMN LAYOUT]
+    COL1: [elements] | COL2: [elements] | COL3: [elements]
+
+━━━ SECTION 2: "Section Name" | bg:#HEXCOLOR padding:TOP/RIGHT/BOTTOM/LEFT px
+  (repeat for every section)
+
+RULES:
+- Count sections carefully — every distinct background band is a new section
+- Copy ALL text VERBATIM — do not paraphrase or omit any words
+- Estimate hex colors by sampling the dominant color of each area
+- Estimate font sizes from visual proportions (hero H1 ~52-64px, H2 ~32-40px, body ~16-18px)
+- Bold text = weight:700, semibold = weight:600, regular = weight:400
+- Name sections descriptively: Hero, Features, Testimonials, Pricing, CTA, Footer, etc.
+- If a section has a gradient background, write: bg:linear-gradient(#HEX1,#HEX2)
+
+Output ONLY the spec — no explanation, no JSON.`;
+
+        const specRaw = await tryVision(specSystem, specPrompt, imageBase64, imageMediaType, { maxTokens: 2000 });
+        if (specRaw && specRaw.includes('━━━')) {
+          const sectionCount = (specRaw.match(/━━━ SECTION/g) || []).length;
+          figmaContent = { texts: [], colors: [], spec: specRaw, sectionCount, imageNodes: [], fonts: [] };
+          send('log', { msg: `[${i + 1}/${pages.length}] Spec extracted: ${sectionCount} sections — starting Pass 2...`, level: 'success' });
+          send('figma_spec', { spec: specRaw, colors: [] });
+        } else {
+          send('log', { msg: `[${i + 1}/${pages.length}] Spec extraction incomplete — using single-pass mode`, level: 'warn' });
+        }
+      } catch (specErr) {
+        send('log', { msg: `[${i + 1}/${pages.length}] Spec pass failed (${specErr.message?.slice(0,60)}) — using single-pass`, level: 'warn' });
+      }
+    }
+
     let pageJson, genError;
     try {
       let visionText;
-      if (figmaUrl && figmaContent.spec) {
-        // Figma mode: full structural spec is the source of truth; image is visual reference only
-        visionText = `Convert the Figma design below into a complete native GHL page JSON for "${page.name}".
+      if ((figmaUrl && figmaContent.spec) || (!figmaUrl && figmaContent.spec)) {
+        // Spec mode (Figma API or image-extracted): spec is the source of truth; image is visual reference
+        const specLabel = figmaUrl ? 'FIGMA DESIGN SPEC' : 'DESIGN SPEC (extracted from screenshot)';
+        const specNote  = figmaUrl
+          ? 'The FIGMA DESIGN SPEC is the authoritative source — it contains the EXACT text, colors, font sizes, font weights, font families, padding, border-radius, and layout from the actual Figma file. Follow every detail in the spec literally.'
+          : 'The DESIGN SPEC was extracted from the screenshot by a first analysis pass. Use it as the authoritative source for all text, colors, font sizes, and layout. The screenshot is provided as visual confirmation.';
+        visionText = `Convert the design spec below into a complete native GHL page JSON for "${page.name}".
 
-The screenshot is provided as visual context. The FIGMA DESIGN SPEC is the authoritative source — it contains the EXACT text, colors, font sizes, font weights, font families, padding, border-radius, and layout from the actual Figma file. Follow every detail in the spec literally.
+The screenshot is provided as visual context. ${specNote}
 
 ═══════════════════════════════════════════════════
-FIGMA DESIGN SPEC (${figmaContent.sectionCount} sections):
+${specLabel} (${figmaContent.sectionCount} sections):
 ═══════════════════════════════════════════════════
 ${figmaContent.spec}
 ═══════════════════════════════════════════════════
@@ -1913,26 +1987,6 @@ CONVERSION RULES:
 
 Output ONLY the JSON object — no markdown, no explanation, no code fences.`;
       }
-      const isTooLarge = (e) => {
-        const m = e?.message || '';
-        return m.toLowerCase().includes('too large') || m.includes('request_too_large') || m.includes('413') || m.startsWith('<') || m.includes('<html');
-      };
-
-      const minimalSystem = `You are a GHL page builder. Output ONLY valid JSON: {"sections":[...]}. Each section has id, type:"section", styles:{backgroundColor,paddingTop,paddingBottom,paddingLeft,paddingRight}, children:[rows→columns→elements]. Element types: heading(tag,text,styles), sub-heading, paragraph(text), button(text,link,styles), image(src,styles), bulletList(items[]). All styles use {"value":X,"unit":"px"} format. IDs: type-XXXXXXXX.`;
-      const imageOnlyPrompt = `Reconstruct this design as GHL JSON. Match every section, color, text, and layout. Output ONLY the JSON object.`;
-
-      // Helper: try vision call, return null on too-large errors
-      const tryVision = async (sys, usr, b64, mime, opts) => {
-        try {
-          const t = (await aiDesign.generateWithVision(sys, usr, b64, mime, opts)).trim();
-          if (t.startsWith('<')) return null; // HTML error page
-          return t;
-        } catch (e) {
-          if (isTooLarge(e)) return null;
-          throw e;
-        }
-      };
-
       // Attempt 1: full prompt + image at normal quality
       let rawText = await tryVision(systemPrompt, visionText, imageBase64, imageMediaType, { maxTokens: 8192 });
 
