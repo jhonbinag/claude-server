@@ -153,6 +153,18 @@ export default function FunnelBuilder() {
   const [figmaPatSaving,  setFigmaPatSaving]  = useState(false);
   const [figmaPatSaved,   setFigmaPatSaved]   = useState(false);
 
+  // Vibe AI Studio state
+  const [vibePrompt,      setVibePrompt]      = useState('');
+  const [vibeFile,        setVibeFile]        = useState(null);
+  const [vibePreview,     setVibePreview]     = useState(null);
+  const [vibePageType,    setVibePageType]    = useState('funnel');
+  const [vibeGenerating,  setVibeGenerating]  = useState(false);
+  const [vibeProjectId,   setVibeProjectId]   = useState(null);
+  const [vibeLog,         setVibeLog]         = useState([]);
+  const [vibeDone,        setVibeDone]        = useState(false);
+  const [vibeDragging,    setVibeDragging]    = useState(false);
+  const vibeFileRef                           = useRef(null);
+
   const saveFigmaPat = async () => {
     if (!figmaPat.trim() || !apiKey) return;
     setFigmaPatSaving(true);
@@ -365,6 +377,70 @@ export default function FunnelBuilder() {
       toast(setToastState, err.message || 'Analysis failed.', 'error');
     }
     setAnalyzing(false);
+  }
+
+  async function handleVibeGenerate(e) {
+    e.preventDefault();
+    if (!vibePrompt.trim()) { toast(setToastState, 'Prompt is required.', 'error'); return; }
+
+    const locId = locationId || localStorage.getItem('gtm_location_id') || '';
+    if (!locId) { toast(setToastState, 'Location ID not found. Please refresh the page.', 'error'); return; }
+
+    setVibeGenerating(true);
+    setVibeProjectId(null);
+    setVibeDone(false);
+    setVibeLog([]);
+
+    const addLog = (msg, level = 'info') => setVibeLog(prev => [...prev, { msg, level, ts: Date.now() }]);
+
+    try {
+      let imageBase64 = null;
+      let imageMediaType = null;
+      if (vibeFile) {
+        const buf = await vibeFile.arrayBuffer();
+        imageBase64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        imageMediaType = vibeFile.type || 'image/png';
+      }
+
+      const resp = await fetch('/vibe-ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-location-id': locId },
+        body: JSON.stringify({ prompt: vibePrompt.trim(), imageBase64, imageMediaType, pageType: vibePageType }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${resp.status}`);
+      }
+
+      const reader  = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let   buf     = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        for (const part of parts) {
+          const dataLine = part.match(/^data: (.+)$/m)?.[1];
+          if (!dataLine) continue;
+          try {
+            const d = JSON.parse(dataLine);
+            if (d.event === 'log')     addLog(d.msg, d.level || 'info');
+            if (d.event === 'created') { setVibeProjectId(d.projectId); addLog(`Project created: ${d.projectId}`, 'info'); }
+            if (d.event === 'status')  addLog(`[${d.polls}/60] Status: ${d.state || 'processing'}`, 'info');
+            if (d.event === 'done')    { setVibeDone(true); addLog('Generation complete!', 'success'); }
+            if (d.event === 'error')   { addLog(d.error, 'error'); toast(setToastState, d.error, 'error'); }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      addLog(err.message, 'error');
+      toast(setToastState, err.message || 'Generation failed.', 'error');
+    }
+    setVibeGenerating(false);
   }
 
   async function handleGenerate(e) {
@@ -1083,6 +1159,7 @@ export default function FunnelBuilder() {
                   { key: 'text',   label: '✍️ From Brief' },
                   { key: 'design', label: '🎨 From Design' },
                   { key: 'funnel', label: '🚀 Full Funnel' },
+                  { key: 'vibe',   label: '✨ AI Studio' },
                 ].map(({ key, label }) => (
                   <button
                     key={key}
@@ -1677,6 +1754,125 @@ export default function FunnelBuilder() {
                 </div>
               )}
             </form>
+            )}
+
+            {/* ── Vibe AI Studio Mode ───────────────────────────────────── */}
+            {genMode === 'vibe' && (
+              <form onSubmit={handleVibeGenerate} className="space-y-4">
+                <div className="rounded-lg px-3 py-2 flex items-center gap-2" style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)' }}>
+                  <span className="text-purple-400 text-sm">✨</span>
+                  <div>
+                    <p className="text-xs font-semibold text-purple-300">GHL Native AI Studio</p>
+                    <p className="text-xs text-gray-500">Builds a funnel or website using GHL's own AI builder — result appears directly in your GHL account.</p>
+                  </div>
+                </div>
+
+                {/* Page type */}
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Type</label>
+                  <div className="flex rounded-lg overflow-hidden border border-gray-700">
+                    {[['funnel','🚀 Funnel'],['website','🌐 Website']].map(([t, label]) => (
+                      <button key={t} type="button"
+                        onClick={() => setVibePageType(t)}
+                        className="flex-1 text-xs py-2 font-medium transition-colors"
+                        style={{ background: vibePageType === t ? '#7c3aed' : 'rgba(255,255,255,0.03)', color: vibePageType === t ? '#fff' : '#9ca3af' }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Prompt */}
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Prompt <span className="text-red-400">*</span></label>
+                  <textarea
+                    value={vibePrompt}
+                    onChange={e => setVibePrompt(e.target.value)}
+                    rows={4}
+                    placeholder="Describe what you want to build — niche, offer, audience, style, colors, sections..."
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 resize-none"
+                  />
+                </div>
+
+                {/* Optional image upload */}
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Reference Design <span className="text-gray-600">(optional)</span></label>
+                  <div
+                    className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors"
+                    style={{ borderColor: vibeDragging ? '#7c3aed' : 'rgba(255,255,255,0.1)', background: vibeDragging ? 'rgba(139,92,246,0.07)' : 'rgba(0,0,0,0.2)' }}
+                    onClick={() => vibeFileRef.current?.click()}
+                    onDragOver={ev => { ev.preventDefault(); setVibeDragging(true); }}
+                    onDragLeave={() => setVibeDragging(false)}
+                    onDrop={ev => {
+                      ev.preventDefault(); setVibeDragging(false);
+                      const f = ev.dataTransfer.files[0];
+                      if (f && f.type.startsWith('image/')) {
+                        setVibeFile(f);
+                        setVibePreview(URL.createObjectURL(f));
+                      }
+                    }}
+                  >
+                    {vibePreview ? (
+                      <div className="relative">
+                        <img src={vibePreview} alt="preview" className="max-h-32 mx-auto rounded object-contain" />
+                        <button type="button" className="absolute top-0 right-0 text-gray-400 hover:text-white text-xs px-1"
+                          onClick={ev => { ev.stopPropagation(); setVibeFile(null); setVibePreview(null); }}>✕</button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-500">Drag & drop or click to upload a design screenshot</p>
+                    )}
+                  </div>
+                  <input ref={vibeFileRef} type="file" accept="image/*" className="hidden"
+                    onChange={ev => {
+                      const f = ev.target.files[0];
+                      if (f) { setVibeFile(f); setVibePreview(URL.createObjectURL(f)); }
+                    }} />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={vibeGenerating}
+                  className="w-full py-3 rounded-xl text-sm font-bold transition-all"
+                  style={{
+                    background: vibeGenerating ? 'rgba(139,92,246,0.3)' : 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                    color: '#fff',
+                    opacity: vibeGenerating ? 0.7 : 1,
+                  }}
+                >
+                  {vibeGenerating ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                      Building with AI Studio…
+                    </span>
+                  ) : '✨ Generate with GHL AI Studio'}
+                </button>
+
+                {/* Log */}
+                {vibeLog.length > 0 && (
+                  <div className="rounded-lg overflow-y-auto text-xs font-mono space-y-0.5"
+                    style={{ background: 'rgba(0,0,0,0.5)', padding: '10px 12px', maxHeight: '200px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    {vibeLog.map((l, i) => (
+                      <div key={i} className="flex items-start gap-2 leading-5">
+                        <span style={{ flexShrink: 0, color: l.level === 'success' ? '#6ee7b7' : l.level === 'error' ? '#f87171' : '#6b7280' }}>
+                          {l.level === 'success' ? '✓' : l.level === 'error' ? '✗' : '›'}
+                        </span>
+                        <span style={{ color: l.level === 'success' ? '#a7f3d0' : l.level === 'error' ? '#fca5a5' : '#9ca3af' }}>{l.msg}</span>
+                      </div>
+                    ))}
+                    {vibeGenerating && <div className="flex items-center gap-2 mt-1"><span className="animate-pulse text-gray-600">›</span><span className="animate-pulse text-gray-700">_</span></div>}
+                  </div>
+                )}
+
+                {/* Done */}
+                {vibeDone && vibeProjectId && (
+                  <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                    <p className="text-xs font-semibold text-emerald-400">✓ Generation complete!</p>
+                    <p className="text-xs text-gray-400">Your {vibePageType} was built by GHL AI Studio. Find it in:</p>
+                    <p className="text-xs text-white font-medium">GHL Dashboard → Funnels & Websites → {vibePageType === 'funnel' ? 'Funnels' : 'Websites'}</p>
+                    <p className="text-xs text-gray-600">Project ID: {vibeProjectId}</p>
+                  </div>
+                )}
+              </form>
             )}
 
           </section>
