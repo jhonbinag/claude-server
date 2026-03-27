@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 
 const AppContext = createContext(null);
 
@@ -272,6 +272,15 @@ export function AppProvider({ children }) {
     fetchStatus(locationId);
     loadIntegrations(locationId);
     fetchRole(locationId, userId);
+
+    // Poll integrations every 20s so admin-shared tools appear without a page refresh
+    const poll = setInterval(() => loadIntegrations(locationId), 20000);
+    const onVisible = () => { if (document.visibilityState === 'visible') loadIntegrations(locationId); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
 
     fetch('/social/sync', {
       method: 'POST',

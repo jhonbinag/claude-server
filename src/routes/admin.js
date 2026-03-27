@@ -656,6 +656,8 @@ router.post('/locations/:id/tool-access/:category', async (req, res) => {
 
   try {
     await toolRegistry.setIntegrationShared(id, category, shared);
+    // Invalidate Redis cache so the next user request reads fresh sharing state
+    await toolTokenService.invalidateToolConfigCache(id).catch(() => {});
     activityLogger.log({
       locationId: id,
       event: 'admin_tool_visibility_update',
