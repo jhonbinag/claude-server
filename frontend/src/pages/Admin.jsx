@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'react-toastify';
 
 // ── Static feature/role defaults (mirrors roleService.js) ─────────────────────
 const ALL_FEATURES_DEFAULT = [
@@ -1983,8 +1984,6 @@ export default function Admin() {
 
   const toggleToolShared = async (locationId, category, shared) => {
     const locationLabel = getLocationLabel(locationId);
-    const verb = shared ? 'share' : 'hide';
-    if (!confirm(`${verb === 'share' ? 'Share' : 'Hide'} ${category} for users in ${locationLabel}?`)) return;
 
     const res = await adminFetch(`/admin/locations/${locationId}/tool-access/${category}`, {
       method: 'POST',
@@ -1993,7 +1992,7 @@ export default function Admin() {
     });
 
     if (res.success) {
-      flash(`✓ ${shared ? 'Shared' : 'Hidden'} ${category} for ${locationLabel}`);
+      toast.success(`${shared ? 'Shared' : 'Hidden'} ${category} for ${locationLabel}`, { autoClose: 2500 });
       setTroubleshootData((prev) => {
         const loc = prev[locationId] || {};
         return {
@@ -2011,7 +2010,7 @@ export default function Admin() {
         setToolAccessItems((prev) => prev.map((item) => item.key === category ? { ...item, shared } : item));
       }
     } else {
-      flash(`✗ ${res.error}`);
+      toast.error(res.error || 'Failed to update tool access');
     }
   };
 
