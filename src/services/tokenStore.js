@@ -139,6 +139,21 @@ function getToolConfig(locationId) {
   return (record && record.toolConfigs) ? record.toolConfigs : {};
 }
 
+function saveToolSharing(locationId, sharing) {
+  const store = readStore();
+  if (!store.locations[locationId]) store.locations[locationId] = {};
+  store.locations[locationId].toolSharing = {
+    ...(store.locations[locationId].toolSharing || {}),
+    ...sharing,
+  };
+  writeStore(store);
+}
+
+function getToolSharing(locationId) {
+  const record = getTokenRecord(locationId);
+  return (record && record.toolSharing) ? record.toolSharing : {};
+}
+
 // App-level settings (GHL clientId/secret/redirectUri) stored in fallback
 function saveAppSettings(settings) {
   const store = readStore();
@@ -161,6 +176,8 @@ module.exports = {
   listLocations,
   saveToolConfig,
   getToolConfig,
+  saveToolSharing,
+  getToolSharing,
   saveAppSettings,
   getAppSettings,
 };

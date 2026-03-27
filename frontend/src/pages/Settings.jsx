@@ -103,6 +103,25 @@ export default function Settings() {
   const sidebarUrl = `${window.location.origin}/ui`;
   // Build lookup: key → server integration record (has .enabled, .configPreview)
   const serverMap = Object.fromEntries((integrations || []).map(i => [i.key, i]));
+  const visibleIntegrationKeys = new Set((integrations || []).map(i => i.key));
+  const visibleStandardIntegrations = INTEGRATIONS.filter(cfg => visibleIntegrationKeys.has(cfg.key));
+  const visiblePaymentProviders = PAYMENT_PROVIDERS.filter(provider => visibleIntegrationKeys.has(provider.key));
+  const SOCIAL_PLATFORM_TO_KEY = {
+    facebook: 'social_facebook',
+    instagram: 'social_instagram',
+    tiktok: 'social_tiktok_organic',
+    youtube: 'social_youtube',
+    linkedin: 'social_linkedin_organic',
+    pinterest: 'social_pinterest',
+    twitter: 'social_twitter',
+    gmb: 'social_gmb',
+  };
+  const plannerShared = visibleIntegrationKeys.has('ghl_social_planner');
+  const visibleSocialPlatforms = plannerShared
+    ? CONNECTABLE
+    : CONNECTABLE.filter((platformKey) => visibleIntegrationKeys.has(SOCIAL_PLATFORM_TO_KEY[platformKey]));
+  const showSocialHub = plannerShared || visibleSocialPlatforms.length > 0;
+  const showPaymentHub = visiblePaymentProviders.length > 0;
 
   // ── Toast helper ──────────────────────────────────────────────────────────
 
@@ -686,21 +705,32 @@ export default function Settings() {
         </div>
 
         {/* ── Social Hub ─────────────────────────────────────────────────── */}
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Social Hub</h2>
-        <div className="mb-8">
-          <SocialHubCard />
-        </div>
+        {showSocialHub && (
+          <>
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Social Hub</h2>
+            <div className="mb-8">
+              <SocialHubCard visiblePlatforms={visibleSocialPlatforms} />
+            </div>
+          </>
+        )}
 
         {/* ── External integrations ──────────────────────────────────────── */}
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">External Integrations</h2>
 
         {/* Payment Hub — unified card for all payment providers */}
-        <div className="mb-4">
-          <PaymentHubCard serverMap={serverMap} showToast={showToast} refreshStatus={refreshStatus} />
-        </div>
+        {showPaymentHub && (
+          <div className="mb-4">
+            <PaymentHubCard
+              serverMap={serverMap}
+              showToast={showToast}
+              refreshStatus={refreshStatus}
+              visibleProviders={visiblePaymentProviders}
+            />
+          </div>
+        )}
 
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(340px, 100%), 1fr))' }}>
-          {INTEGRATIONS.map(cfg => {
+          {visibleStandardIntegrations.map(cfg => {
             const sv      = serverMap[cfg.key] || {};
             const enabled = sv.enabled || false;
             const isOpen     = expanded[cfg.key] || false;
@@ -958,6 +988,14 @@ export default function Settings() {
             );
           })}
         </div>
+        {!showSocialHub && !showPaymentHub && visibleStandardIntegrations.length === 0 && (
+          <div className="card p-5 mt-4">
+            <p className="text-sm text-white font-semibold mb-1">No tools shared by admin yet</p>
+            <p className="text-xs text-gray-500">
+              This location will only show integrations after an admin shares them from the admin console.
+            </p>
+          </div>
+        )}
 
       </main>
       )}
@@ -1020,7 +1058,7 @@ const PAYMENT_PROVIDERS = [
   },
 ];
 
-function PaymentHubCard({ serverMap, showToast, refreshStatus }) {
+function PaymentHubCard({ serverMap, showToast, refreshStatus, visibleProviders = PAYMENT_PROVIDERS }) {
   const [selected,    setSelected]    = useState(null);      // active provider key
   const [formVals,    setFormVals]    = useState({});         // { fieldKey: value }
   const [saving,      setSaving]      = useState(false);
@@ -1028,8 +1066,8 @@ function PaymentHubCard({ serverMap, showToast, refreshStatus }) {
   const [testResult,  setTestResult]  = useState(null);
   const [isOpen,      setIsOpen]      = useState(false);
 
-  const provider = PAYMENT_PROVIDERS.find(p => p.key === selected);
-  const connectedProviders = PAYMENT_PROVIDERS.filter(p => serverMap[p.key]?.enabled);
+  const provider = visibleProviders.find(p => p.key === selected);
+  const connectedProviders = visibleProviders.filter(p => serverMap[p.key]?.enabled);
   const anyConnected = connectedProviders.length > 0;
 
   const selectProvider = (key) => {
@@ -1066,7 +1104,7 @@ function PaymentHubCard({ serverMap, showToast, refreshStatus }) {
   };
 
   const disconnect = async (providerKey) => {
-    const p = PAYMENT_PROVIDERS.find(x => x.key === providerKey);
+    const p = visibleProviders.find(x => x.key === providerKey);
     if (!confirm(`Disconnect ${p?.label}? Credentials will be removed.`)) return;
     const data = await api.del(`/tools/${providerKey}`);
     if (data.success) {
@@ -1119,7 +1157,7 @@ function PaymentHubCard({ serverMap, showToast, refreshStatus }) {
         <div className="mt-4 fade-up">
           {/* Provider selector tabs */}
           <div className="flex flex-wrap gap-2 mb-4">
-            {PAYMENT_PROVIDERS.map(p => {
+            {visibleProviders.map(p => {
               const isConn = serverMap[p.key]?.enabled;
               const isActive = selected === p.key;
               return (
@@ -1411,7 +1449,7 @@ const OAUTH_PLATFORM_ROUTE = {
   gmb:       'google',   // Google My Business connects via Google OAuth
 };
 
-function SocialHubCard() {
+function SocialHubCard({ visiblePlatforms = CONNECTABLE }) {
   const { apiKey, refreshStatus: refreshIntegrations } = useApp();
   const [accounts,      setAccounts]      = useState([]);
   const [status,        setStatus]        = useState({}); // { facebook: { connected, name, avatar }, ... }
@@ -1473,8 +1511,9 @@ function SocialHubCard() {
   useEffect(() => { loadAccounts(); }, []);
 
 
-  const connectedCount = Object.values(status).filter(s => s.connected).length;
-  const anyConnected   = connectedCount > 0 || accounts.length > 0;
+  const visibleAccounts = accounts.filter((acc) => visiblePlatforms.includes(normalizePlatform(acc.type || acc.platform || acc.accountType || '')));
+  const connectedCount = visiblePlatforms.filter((platformKey) => status[platformKey]?.connected).length;
+  const anyConnected   = connectedCount > 0 || visibleAccounts.length > 0;
 
   return (
     <div className={`card p-5${anyConnected ? ' connected' : ''}`}>
@@ -1501,7 +1540,7 @@ function SocialHubCard() {
       {/* Collapsed pill preview */}
       {anyConnected && !isOpen && (
         <div className="flex flex-wrap gap-2 mt-1">
-          {accounts.map(acc => {
+          {visibleAccounts.map(acc => {
             const type = normalizePlatform(acc.type || acc.platform || acc.accountType || '');
             const meta = PLATFORM_META[type] || { icon: '🔗', bg: '#6366f1', color: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.4)' };
             return (
@@ -1543,7 +1582,7 @@ function SocialHubCard() {
 
           {!loading && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '0.75rem' }}>
-              {CONNECTABLE.map(platformKey => {
+              {visiblePlatforms.map(platformKey => {
                 const meta        = PLATFORM_META[platformKey];
                 const s           = status[platformKey] || {};
                 const isConnected = !!s.connected;

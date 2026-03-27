@@ -14,6 +14,7 @@ const workflowStore = require('../services/workflowStore');
 const claudeService = require('../services/claudeService');
 const activityLogger = require('../services/activityLogger');
 const brain         = require('../services/brainStore');
+const toolRegistry  = require('../tools/toolRegistry');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -60,13 +61,15 @@ router.get('/run-schedules', cronAuth, async (req, res) => {
         }
 
         const { locationId, workflow } = found;
-        const prompt  = buildPrompt(workflow.steps, workflow.context);
-        const allowed = [...new Set((workflow.steps || []).map((s) => s.tool).filter((t) => t && t !== 'ghl'))];
+        const prompt    = buildPrompt(workflow.steps, workflow.context);
+        const requested = [...new Set((workflow.steps || []).map((s) => s.tool).filter((t) => t && t !== 'ghl'))];
+        const shared    = await toolRegistry.getSharedIntegrations(locationId);
+        const allowed   = requested.filter((category) => shared.includes(category));
 
         const result = await claudeService.runTask({
           task:                prompt,
           locationId,
-          allowedIntegrations: allowed.length ? allowed : null,
+          allowedIntegrations: allowed,
         });
 
         await scheduleStore.markRan(sched.id);

@@ -66,13 +66,27 @@ async function deletePersistedToolConfig(locationId, category) {
   }
 }
 
+async function getSharedCategorySet(locationId) {
+  return new Set(await toolRegistry.getSharedIntegrations(locationId));
+}
+
+async function isCategoryShared(locationId, category) {
+  const shared = await getSharedCategorySet(locationId);
+  return shared.has(category);
+}
+
 // ─── GET /tools — list all integrations ──────────────────────────────────────
 
 router.get('/', async (req, res) => {
   try {
     const allMeta = toolRegistry.getAllIntegrationsMeta();
     const configs = await toolRegistry.getToolConfig(req.locationId);
-    const enabled = new Set(await toolRegistry.getEnabledIntegrations(req.locationId));
+    const [enabled, shared] = await Promise.all([
+      toolRegistry.getEnabledIntegrations(req.locationId, { userVisibleOnly: true }),
+      toolRegistry.getSharedIntegrations(req.locationId),
+    ]);
+    const enabledSet = new Set(enabled);
+    const sharedSet = new Set(shared);
 
     // Tier info
     let tierKey = 'bronze';
@@ -83,14 +97,17 @@ router.get('/', async (req, res) => {
       tierCfg = await planTierStore.getTier(tierKey);
     } catch { /* non-fatal */ }
 
-    const list = allMeta.map((meta) => {
-      const isEnabled    = enabled.has(meta.key);
+    const list = allMeta
+      .filter((meta) => sharedSet.has(meta.key))
+      .map((meta) => {
+      const isEnabled    = enabledSet.has(meta.key);
       const tierAllowed  = !tierCfg || tierCfg.allowedIntegrations === null || (Array.isArray(tierCfg.allowedIntegrations) && tierCfg.allowedIntegrations.includes(meta.key));
-      const limitReached = !isEnabled && tierCfg && tierCfg.integrationLimit !== -1 && enabled.size >= tierCfg.integrationLimit;
+      const limitReached = !isEnabled && tierCfg && tierCfg.integrationLimit !== -1 && enabledSet.size >= tierCfg.integrationLimit;
       return {
         ...meta,
         enabled:       isEnabled,
         configPreview: isEnabled ? maskConfig(configs[meta.key]) : null,
+        shared:        true,
         tierLocked:    !isEnabled && (!tierAllowed || limitReached),
         tierReason:    !isEnabled && !tierAllowed
           ? `Not available on ${tierCfg?.name || 'your'} plan`
@@ -112,17 +129,23 @@ router.get('/', async (req, res) => {
 router.get('/sync', async (req, res) => {
   try {
     const allMeta   = toolRegistry.getAllIntegrationsMeta();
-    const enabled   = new Set(await toolRegistry.getEnabledIntegrations(req.locationId));
-    const allTools  = await toolRegistry.getTools(req.locationId);
+    const [enabled, shared, allTools] = await Promise.all([
+      toolRegistry.getEnabledIntegrations(req.locationId, { userVisibleOnly: true }),
+      toolRegistry.getSharedIntegrations(req.locationId),
+      toolRegistry.getTools(req.locationId, null, { userVisibleOnly: true }),
+    ]);
+    const enabledSet = new Set(enabled);
+    const sharedSet = new Set(shared);
     const tokenStat = await toolTokenService.getTokenStatus(req.locationId);
 
-    const integrations = allMeta.map((meta) => ({
+    const integrations = allMeta.filter((meta) => sharedSet.has(meta.key)).map((meta) => ({
       key:       meta.key,
       label:     meta.label,
       icon:      meta.icon,
-      enabled:   enabled.has(meta.key),
+      enabled:   enabledSet.has(meta.key),
       toolCount: meta.toolCount,
       toolNames: meta.toolNames,
+      shared:    true,
     }));
 
     res.json({
@@ -148,7 +171,7 @@ router.get('/sync', async (req, res) => {
 
 router.post('/reconnect', async (req, res) => {
   try {
-    const enabledCategories = await toolRegistry.getEnabledIntegrations(req.locationId);
+    const enabledCategories = await toolRegistry.getEnabledIntegrations(req.locationId, { userVisibleOnly: true });
     const token = await toolTokenService.generateToolSessionToken(req.locationId, enabledCategories);
 
     activityLogger.log({
@@ -181,6 +204,9 @@ router.post('/test/:category', async (req, res) => {
   const meta    = allMeta.find((m) => m.key === category);
 
   if (!meta) return res.status(404).json({ success: false, error: `Unknown integration: ${category}` });
+  if (!(await isCategoryShared(req.locationId, category))) {
+    return res.status(403).json({ success: false, error: `${meta.label} is not shared to this location by admin.` });
+  }
 
   try {
     const configs = await toolRegistry.getToolConfig(req.locationId);
@@ -456,6 +482,9 @@ router.get('/:category', async (req, res) => {
   const meta         = allMeta.find((m) => m.key === category);
 
   if (!meta) return res.status(404).json({ success: false, error: `Unknown integration: ${category}` });
+  if (!(await isCategoryShared(req.locationId, category))) {
+    return res.status(403).json({ success: false, error: `${meta.label} is not shared to this location by admin.` });
+  }
 
   try {
     const configs = await toolRegistry.getToolConfig(req.locationId);
@@ -481,6 +510,9 @@ router.post('/:category', async (req, res) => {
   const meta         = allMeta.find((m) => m.key === category);
 
   if (!meta) return res.status(404).json({ success: false, error: `Unknown integration: ${category}` });
+  if (!(await isCategoryShared(req.locationId, category))) {
+    return res.status(403).json({ success: false, error: `${meta.label} is not shared to this location by admin.` });
+  }
 
   const allowedKeys = meta.configFields.map((f) => f.key);
   const filtered    = {};
@@ -498,7 +530,7 @@ router.post('/:category', async (req, res) => {
   try {
     const billing        = await billingStore.getBilling(req.locationId);
     const tierKey        = billing?.tier || 'bronze';
-    const currentEnabled = await toolRegistry.getEnabledIntegrations(req.locationId);
+    const currentEnabled = await toolRegistry.getEnabledIntegrations(req.locationId, { userVisibleOnly: true });
     // Only count if this is a new integration (not already enabled)
     const alreadyEnabled = currentEnabled.includes(category);
     if (!alreadyEnabled) {
@@ -516,7 +548,7 @@ router.post('/:category', async (req, res) => {
     await persistToolConfig(req.locationId, category, filtered);
     // Cache already updated by toolRegistry.saveToolConfig — no separate invalidation needed
 
-    const enabledCategories = await toolRegistry.getEnabledIntegrations(req.locationId);
+    const enabledCategories = await toolRegistry.getEnabledIntegrations(req.locationId, { userVisibleOnly: true });
     const token = await toolTokenService.generateToolSessionToken(req.locationId, enabledCategories);
 
     activityLogger.log({
@@ -567,6 +599,9 @@ router.delete('/:category', async (req, res) => {
   const allMeta      = toolRegistry.getAllIntegrationsMeta();
   const meta         = allMeta.find((m) => m.key === category);
   const label        = meta?.label ?? category;
+  if (meta && !(await isCategoryShared(req.locationId, category))) {
+    return res.status(403).json({ success: false, error: `${label} is not shared to this location by admin.` });
+  }
 
   try {
     const configs = await toolRegistry.getToolConfig(req.locationId);
@@ -579,7 +614,7 @@ router.delete('/:category', async (req, res) => {
     // Explicitly invalidate cache after delete so next read hits Firebase fresh
     await toolTokenService.invalidateToolConfigCache(req.locationId);
 
-    const enabledCategories = await toolRegistry.getEnabledIntegrations(req.locationId);
+    const enabledCategories = await toolRegistry.getEnabledIntegrations(req.locationId, { userVisibleOnly: true });
     const token = await toolTokenService.generateToolSessionToken(req.locationId, enabledCategories);
 
     activityLogger.log({

@@ -17,6 +17,7 @@ const workflowStore    = require('../services/workflowStore');
 const scheduleStore    = require('../services/scheduleStore');
 const claudeService    = require('../services/claudeService');
 const activityLogger   = require('../services/activityLogger');
+const toolRegistry     = require('../tools/toolRegistry');
 
 // ── Build structured prompt from workflow steps ───────────────────────────────
 
@@ -143,13 +144,15 @@ router.post('/trigger/:token', async (req, res) => {
     if (!found) return res.status(404).json({ success: false, error: 'Workflow not found or token invalid.' });
 
     const { locationId, workflow } = found;
-    const prompt  = buildPrompt(workflow.steps, workflow.context, req.body);
-    const allowed = [...new Set(workflow.steps.map((s) => s.tool).filter((t) => t !== 'ghl'))];
+    const prompt    = buildPrompt(workflow.steps, workflow.context, req.body);
+    const requested = [...new Set(workflow.steps.map((s) => s.tool).filter((t) => t !== 'ghl'))];
+    const shared    = await toolRegistry.getSharedIntegrations(locationId);
+    const allowed   = requested.filter((category) => shared.includes(category));
 
     const result = await claudeService.runTask({
       task:                prompt,
       locationId,
-      allowedIntegrations: allowed.length ? allowed : null,
+      allowedIntegrations: allowed,
     });
 
     activityLogger.log({

@@ -139,6 +139,17 @@ async function getToolConfig(locationId) {
   return (record && record.toolConfigs) ? record.toolConfigs : {};
 }
 
+async function saveToolSharing(locationId, sharing) {
+  const existing = await getRecord(locationId) || {};
+  existing.toolSharing = { ...(existing.toolSharing || {}), ...sharing };
+  await redis.set(KEY_PREFIX + locationId, JSON.stringify(existing));
+}
+
+async function getToolSharing(locationId) {
+  const record = await getRecord(locationId);
+  return (record && record.toolSharing) ? record.toolSharing : {};
+}
+
 const APP_SETTINGS_KEY = 'hltools:appsettings';
 
 async function saveAppSettings(settings) {
@@ -163,6 +174,8 @@ module.exports = {
   listLocations,
   saveToolConfig,
   getToolConfig,
+  saveToolSharing,
+  getToolSharing,
   saveAppSettings,
   getAppSettings,
 };

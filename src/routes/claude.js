@@ -37,6 +37,13 @@ const activityLogger = require('../services/activityLogger');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
+async function getUserAllowedIntegrations(locationId, requested) {
+  const registry = require('../tools/toolRegistry');
+  const shared = await registry.getSharedIntegrations(locationId);
+  if (!Array.isArray(requested)) return shared;
+  return requested.filter((category) => shared.includes(category));
+}
+
 // All Claude routes require a valid x-api-key
 router.use(authenticate);
 
@@ -67,11 +74,12 @@ router.post('/task', async (req, res) => {
   const toolsCalled = [];
 
   try {
+    const safeAllowedIntegrations = await getUserAllowedIntegrations(req.locationId, allowedIntegrations);
     await claudeSvc.runTask({
       task:                task.trim(),
       locationId:          req.locationId,
       companyId:           req.companyId,
-      allowedIntegrations: Array.isArray(allowedIntegrations) ? allowedIntegrations : null,
+      allowedIntegrations: safeAllowedIntegrations,
       conversationHistory: Array.isArray(conversationHistory) ? conversationHistory.slice(-10) : [],
       onEvent: (evt) => {
         switch (evt.type) {
@@ -139,11 +147,12 @@ router.post('/task/sync', async (req, res) => {
   }
 
   try {
+    const safeAllowedIntegrations = await getUserAllowedIntegrations(req.locationId, allowedIntegrations);
     const result = await claudeSvc.runTask({
       task:                task.trim(),
       locationId:          req.locationId,
       companyId:           req.companyId,
-      allowedIntegrations: Array.isArray(allowedIntegrations) ? allowedIntegrations : null,
+      allowedIntegrations: safeAllowedIntegrations,
     });
 
     activityLogger.log({
@@ -284,7 +293,7 @@ router.get('/status', async (req, res) => {
     const config      = require('../config');
 
     const configs = await registry.loadToolConfigs(req.locationId);
-    const tools   = await registry.getTools(req.locationId);
+    const tools   = await registry.getTools(req.locationId, null, { userVisibleOnly: true });
 
     // Check per-location AI provider (any of the four supported providers)
     const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google'];

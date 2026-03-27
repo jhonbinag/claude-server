@@ -48,6 +48,24 @@ async function getConnectedPaymentProviders(locationId) {
   } catch { return []; }
 }
 
+function maskToolConfigValue(value) {
+  if (typeof value === 'string' && value.length > 8) {
+    return value.slice(0, 4) + '••••' + value.slice(-4);
+  }
+  return value;
+}
+
+function maskToolConfig(configs = {}) {
+  const masked = {};
+  for (const [category, cfg] of Object.entries(configs || {})) {
+    masked[category] = {};
+    for (const [key, value] of Object.entries(cfg || {})) {
+      masked[category][key] = maskToolConfigValue(value);
+    }
+  }
+  return masked;
+}
+
 // ─── GET /admin/app-settings — get GHL app credentials (masked) ──────────────
 
 router.get('/app-settings', async (req, res) => {
@@ -604,6 +622,56 @@ router.get('/locations/:id/connections', async (req, res) => {
 });
 
 // ─── DELETE /admin/locations/:id/connections/:category — clear a broken integration
+
+router.get('/locations/:id/tool-access', async (req, res) => {
+  try {
+    const [configs, sharing] = await Promise.all([
+      toolRegistry.getToolConfig(req.params.id),
+      toolRegistry.loadToolSharing(req.params.id),
+    ]);
+    const maskedConfigs = maskToolConfig(configs);
+    const items = toolRegistry.getAllIntegrationsMeta().map((meta) => ({
+      ...meta,
+      connected: !!(configs[meta.key] && Object.keys(configs[meta.key]).length > 0),
+      shared: !!sharing?.[meta.key],
+      configPreview: maskedConfigs[meta.key] || null,
+    }));
+    res.json({ success: true, data: items });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/locations/:id/tool-access/:category', async (req, res) => {
+  const { id, category } = req.params;
+  const { shared } = req.body || {};
+  const meta = toolRegistry.getAllIntegrationsMeta().find((item) => item.key === category);
+
+  if (!meta) {
+    return res.status(404).json({ success: false, error: `Unknown integration: ${category}` });
+  }
+  if (typeof shared !== 'boolean') {
+    return res.status(400).json({ success: false, error: '"shared" boolean is required.' });
+  }
+
+  try {
+    await toolRegistry.setIntegrationShared(id, category, shared);
+    activityLogger.log({
+      locationId: id,
+      event: 'admin_tool_visibility_update',
+      detail: { category, shared },
+      success: true,
+      adminId: req.adminId,
+    });
+    res.json({
+      success: true,
+      message: `${meta.label} ${shared ? 'shared to users' : 'hidden from users'} for ${id}.`,
+      data: { category, shared },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 router.delete('/locations/:id/connections/:category', async (req, res) => {
   const { id, category } = req.params;

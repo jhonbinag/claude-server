@@ -166,6 +166,41 @@ async function getToolConfig(locationId) {
   return result;
 }
 
+async function saveToolSharing(locationId, sharing) {
+  const d = db();
+  if (!d) return;
+
+  const payload = {
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  for (const [category, isShared] of Object.entries(sharing || {})) {
+    payload[`sharing.${category}`] = !!isShared;
+  }
+
+  await d.collection(COLLECTION).doc(locationId).set(payload, { merge: true });
+  console.log(`[FirebaseStore] Saved tool sharing for location ${locationId}`);
+}
+
+async function getToolSharing(locationId) {
+  const d = db();
+  if (!d) return {};
+
+  const snap = await d.collection(COLLECTION).doc(locationId).get();
+  if (!snap.exists) return {};
+
+  const data = snap.data();
+  const result = {};
+
+  for (const [key, val] of Object.entries(data || {})) {
+    if (key.startsWith('sharing.')) {
+      result[key.slice(8)] = !!val;
+    }
+  }
+
+  return result;
+}
+
 /**
  * Delete one integration category from Firestore.
  *
@@ -204,6 +239,8 @@ async function removeLocation(locationId) {
 module.exports = {
   saveToolConfig,
   getToolConfig,
+  saveToolSharing,
+  getToolSharing,
   deleteToolConfig,
   removeLocation,
   isEnabled: () => !!db(),

@@ -192,9 +192,9 @@ ${hasFacebook ? '- Use facebook_create_campaign to set up the Facebook campaign\
 - **Error handling**: if a tool fails, try an alternative approach and explain what happened.
 
 ## Contact data field rules:
-- The `name` field in search_contacts and get_contact responses is the **exact display name from GHL's CRM UI** — always use this as the contact's name.
-- Never construct a name by combining `firstName + lastName` — these are separate personalization fields that may differ from the display name.
-- Use `contactId` (not `id`) for all follow-up tool calls (update_contact, send_sms, etc.).
+- The \`name\` field in search_contacts and get_contact responses is the **exact display name from GHL's CRM UI** — always use this as the contact's name.
+- Never construct a name by combining \`firstName + lastName\` — these are separate personalization fields that may differ from the display name.
+- Use \`contactId\` (not \`id\`) for all follow-up tool calls (update_contact, send_sms, etc.).
 
 ## Response style:
 - When a request begins with [DIRECT]:

@@ -1561,6 +1561,7 @@ const EVENT_COLORS = {
   admin_workflow_delete:    '#f43f5e',
   admin_connection_clear:   '#fb923c',
   admin_connection_update:  '#34d399',
+  admin_tool_visibility_update: '#22c55e',
   admin_run_task:           '#818cf8',
   app_settings_update:      '#60a5fa',
   billing_update:           '#4ade80',
@@ -1879,8 +1880,9 @@ export default function Admin() {
       if (data.success) setDetailData((prev) => ({ ...prev, [locationId]: data.data }));
     }
     if (!troubleshootData[locationId]) {
-      const [connRes, wfRes, wfLogsRes, taskLogsRes] = await Promise.all([
+      const [connRes, accessRes, wfRes, wfLogsRes, taskLogsRes] = await Promise.all([
         adminFetch(`/admin/locations/${locationId}/connections`, { adminKey }),
+        adminFetch(`/admin/locations/${locationId}/tool-access`, { adminKey }),
         adminFetch(`/admin/locations/${locationId}/workflows`, { adminKey }),
         adminFetch(`/admin/logs?locationId=${locationId}&event=workflow_trigger&limit=100`, { adminKey }),
         adminFetch(`/admin/logs?locationId=${locationId}&limit=200`, { adminKey }),
@@ -1889,6 +1891,7 @@ export default function Admin() {
         ...prev,
         [locationId]: {
           connections: connRes.success ? connRes.data : {},
+          toolAccess:  accessRes.success ? accessRes.data : [],
           workflows:   wfRes.success   ? wfRes.data  : [],
         },
       }));
@@ -1916,7 +1919,18 @@ export default function Admin() {
         const loc = prev[locationId] || {};
         const newConn = { ...loc.connections };
         delete newConn[category];
-        return { ...prev, [locationId]: { ...loc, connections: newConn } };
+        return {
+          ...prev,
+          [locationId]: {
+            ...loc,
+            connections: newConn,
+            toolAccess: (loc.toolAccess || []).map((item) => (
+              item.key === category
+                ? { ...item, connected: false, configPreview: null }
+                : item
+            )),
+          },
+        };
       });
       setDetailData((prev) => {
         const d = prev[locationId];
@@ -1949,6 +1963,36 @@ export default function Admin() {
 
   const editConnection = (locationId, cat, cfg) => {
     setAdminModal({ type: 'edit-connection', locationId, data: { cat, cfg } });
+  };
+
+  const toggleToolShared = async (locationId, category, shared) => {
+    const locationLabel = getLocationLabel(locationId);
+    const verb = shared ? 'share' : 'hide';
+    if (!confirm(`${verb === 'share' ? 'Share' : 'Hide'} ${category} for users in ${locationLabel}?`)) return;
+
+    const res = await adminFetch(`/admin/locations/${locationId}/tool-access/${category}`, {
+      method: 'POST',
+      adminKey,
+      body: { shared },
+    });
+
+    if (res.success) {
+      flash(`✓ ${shared ? 'Shared' : 'Hidden'} ${category} for ${locationLabel}`);
+      setTroubleshootData((prev) => {
+        const loc = prev[locationId] || {};
+        return {
+          ...prev,
+          [locationId]: {
+            ...loc,
+            toolAccess: (loc.toolAccess || []).map((item) => (
+              item.key === category ? { ...item, shared } : item
+            )),
+          },
+        };
+      });
+    } else {
+      flash(`✗ ${res.error}`);
+    }
   };
 
   // ── Login screen ──────────────────────────────────────────────────────────
@@ -2433,6 +2477,7 @@ export default function Admin() {
                               onDeleteWorkflow={(id, name) => deleteWorkflow(loc.locationId, id, name)}
                               onEditWorkflow={(wf) => editWorkflow(loc.locationId, wf)}
                               onEditConnection={(cat, cfg) => editConnection(loc.locationId, cat, cfg)}
+                              onToggleToolShared={(category, shared) => toggleToolShared(loc.locationId, category, shared)}
                             />
                           </td>
                         </tr>
@@ -2476,6 +2521,7 @@ export default function Admin() {
                   'claude_task','voice_task',
                   'workflow_save','workflow_delete','workflow_trigger',
                   'admin_refresh','admin_revoke','admin_workflow_edit','admin_workflow_delete',
+                  'admin_tool_visibility_update',
                   'admin_connection_clear','admin_connection_update','admin_run_task',
                   'app_settings_update','billing_update',
                 ].map((e) => (
@@ -4586,11 +4632,12 @@ function ActionBtn({ icon, title, color, onClick }) {
 // ── Detail panel (expanded row) ───────────────────────────────────────────────
 
 function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId, locationName, adminKey,
-                        onClearConnection, onDeleteWorkflow, onEditWorkflow, onEditConnection }) {
+                        onClearConnection, onDeleteWorkflow, onEditWorkflow, onEditConnection, onToggleToolShared }) {
   const [tsTab,       setTsTab]       = useState('tasks');
   const [runTask,     setRunTask]     = useState('');
   const [runResult,   setRunResult]   = useState(null);
   const [runLoading,  setRunLoading]  = useState(false);
+  const toolAccessItems = troubleshoot?.toolAccess || [];
 
   // Billing edit state
   const [billingRec,     setBillingRec]     = useState(null);
@@ -4696,7 +4743,7 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
             { key: 'tasks',       label: `🤖 Tasks (${taskLogs.length})` },
             { key: 'run',         label: `🚀 Run Task` },
             { key: 'workflows',   label: `🔀 Workflows (${troubleshoot?.workflows?.length ?? 0})` },
-            { key: 'connections', label: `🔌 Connections (${Object.keys(troubleshoot?.connections || {}).length})` },
+            { key: 'connections', label: `🔌 Connections (${toolAccessItems.length || Object.keys(troubleshoot?.connections || {}).length})` },
             { key: 'billing',     label: `💳 Billing / Tier` },
             { key: 'logs',        label: `📋 All Logs` },
           ].map(({ key, label }) => (
@@ -4845,34 +4892,62 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
           <div>
             {!troubleshoot ? (
               <p style={{ color: '#6b7280', fontSize: 13 }}>Loading…</p>
-            ) : Object.keys(troubleshoot.connections || {}).length === 0 ? (
-              <p style={{ color: '#6b7280', fontSize: 13 }}>No tool connections found.</p>
+            ) : toolAccessItems.length === 0 ? (
+              <p style={{ color: '#6b7280', fontSize: 13 }}>No tool access rules found.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {Object.entries(troubleshoot.connections).map(([cat, cfg]) => (
-                  <div key={cat} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                {toolAccessItems.map((item) => (
+                  <div key={item.key} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                     <div style={{ flex: 1 }}>
-                      <span style={{ color: '#60a5fa', fontSize: 12, fontWeight: 600 }}>{cat}</span>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                        {Object.entries(cfg || {}).map(([k, v]) => (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ color: '#60a5fa', fontSize: 12, fontWeight: 600 }}>{item.label || item.key}</span>
+                        <span style={{ background: item.shared ? '#16331f' : '#2d1b1b', color: item.shared ? '#4ade80' : '#f87171', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
+                          {item.shared ? 'Shared to user' : 'Hidden from user'}
+                        </span>
+                        <span style={{ background: item.connected ? '#1e3a5f' : '#222', color: item.connected ? '#60a5fa' : '#6b7280', padding: '2px 8px', borderRadius: 999, fontSize: 11 }}>
+                          {item.connected ? 'Connected' : 'Not connected'}
+                        </span>
+                        {item.toolCount > 0 && (
+                          <span style={{ color: '#6b7280', fontSize: 11 }}>
+                            {item.toolCount} tool{item.toolCount === 1 ? '' : 's'}
+                          </span>
+                        )}
+                      </div>
+                      <p style={{ color: '#6b7280', fontSize: 12, margin: '6px 0 0' }}>
+                        {item.description || 'No description available.'}
+                      </p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                        {Object.entries(item.configPreview || {}).map(([k, v]) => (
                           <span key={k} style={{ background: '#111', border: '1px solid #333', borderRadius: 4, padding: '1px 8px', fontSize: 11, color: '#9ca3af' }}>
                             <span style={{ color: '#6b7280' }}>{k}: </span>
                             <span style={{ color: '#e5e7eb', fontFamily: 'monospace' }}>{String(v)}</span>
                           </span>
                         ))}
+                        {!item.connected && (
+                          <span style={{ color: '#6b7280', fontSize: 11 }}>User can only connect this after it is shared here.</span>
+                        )}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       <button
-                        onClick={() => onEditConnection(cat, cfg)}
-                        title={`Edit ${cat} config`}
-                        style={{ background: 'none', border: '1px solid #7c3aed44', borderRadius: 6, color: '#a78bfa', padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
-                      >✏️ Edit</button>
-                      <button
-                        onClick={() => onClearConnection(cat)}
-                        title={`Clear ${cat} connection`}
-                        style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#dc2626', padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
-                      >✕ Clear</button>
+                        onClick={() => onToggleToolShared(item.key, !item.shared)}
+                        title={`${item.shared ? 'Hide' : 'Share'} ${item.label || item.key} for users`}
+                        style={{ background: 'none', border: `1px solid ${item.shared ? '#dc262644' : '#16653466'}`, borderRadius: 6, color: item.shared ? '#f87171' : '#4ade80', padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+                      >{item.shared ? 'Hide from User' : 'Share to User'}</button>
+                      {item.connected && (
+                        <button
+                          onClick={() => onEditConnection(item.key, item.configPreview || {})}
+                          title={`Edit ${item.label || item.key} config`}
+                          style={{ background: 'none', border: '1px solid #7c3aed44', borderRadius: 6, color: '#a78bfa', padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+                        >✏️ Edit</button>
+                      )}
+                      {item.connected && (
+                        <button
+                          onClick={() => onClearConnection(item.key)}
+                          title={`Clear ${item.label || item.key} connection`}
+                          style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#dc2626', padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+                        >✕ Clear</button>
+                      )}
                     </div>
                   </div>
                 ))}

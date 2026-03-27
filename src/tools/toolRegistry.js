@@ -77,6 +77,26 @@ async function loadToolConfigs(locationId) {
   return configs;
 }
 
+async function loadToolSharing(locationId) {
+  let sharing = {};
+
+  if (config.isFirebaseEnabled && typeof firebaseStore.getToolSharing === 'function') {
+    try {
+      sharing = await firebaseStore.getToolSharing(locationId);
+      if (Object.keys(sharing).length > 0) return sharing;
+    } catch (err) {
+      console.error(`[ToolRegistry] Firebase sharing read failed for ${locationId}:`, err.message);
+    }
+  }
+
+  try {
+    const fallback = await Promise.resolve(tokenStore.getToolSharing?.(locationId));
+    if (fallback && Object.keys(fallback).length > 0) sharing = fallback;
+  } catch { /* ignore */ }
+
+  return sharing;
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 /**
@@ -87,13 +107,19 @@ async function loadToolConfigs(locationId) {
  * @param {string[]|null} allowedCategories  Whitelist; null = all enabled; [] = GHL only.
  * @returns {Promise<Array>}
  */
-async function getTools(locationId, allowedCategories = null) {
+async function getTools(locationId, allowedCategories = null, options = {}) {
   const ghlTools    = getGhlDefs();
-  const toolConfigs = await loadToolConfigs(locationId);
+  const { userVisibleOnly = false } = options || {};
+  const [toolConfigs, sharedIntegrations] = await Promise.all([
+    loadToolConfigs(locationId),
+    userVisibleOnly ? getSharedIntegrations(locationId) : Promise.resolve(null),
+  ]);
   const external    = [];
+  const sharedSet   = sharedIntegrations ? new Set(sharedIntegrations) : null;
 
   for (const [category, defs] of Object.entries(EXTERNAL_TOOL_DEFINITIONS)) {
     if (allowedCategories !== null && !allowedCategories.includes(category)) continue;
+    if (sharedSet && !sharedSet.has(category)) continue;
     if (toolConfigs[category] && Object.keys(toolConfigs[category]).length > 0) {
       external.push(...defs);
     }
@@ -126,11 +152,35 @@ async function executeTool(toolName, input, locationId, companyId) {
  * @param {string} locationId
  * @returns {Promise<string[]>}
  */
-async function getEnabledIntegrations(locationId) {
-  const toolConfigs = await loadToolConfigs(locationId);
+async function getEnabledIntegrations(locationId, options = {}) {
+  const { userVisibleOnly = false } = options || {};
+  const [toolConfigs, sharedIntegrations] = await Promise.all([
+    loadToolConfigs(locationId),
+    userVisibleOnly ? getSharedIntegrations(locationId) : Promise.resolve(null),
+  ]);
+  const sharedSet = sharedIntegrations ? new Set(sharedIntegrations) : null;
   return Object.keys(toolConfigs).filter(
-    (k) => toolConfigs[k] && Object.keys(toolConfigs[k]).length > 0,
+    (k) => toolConfigs[k]
+      && Object.keys(toolConfigs[k]).length > 0
+      && (!sharedSet || sharedSet.has(k)),
   );
+}
+
+async function getSharedIntegrations(locationId) {
+  const sharing = await loadToolSharing(locationId);
+  return Object.entries(sharing)
+    .filter(([, isShared]) => !!isShared)
+    .map(([category]) => category);
+}
+
+async function setIntegrationShared(locationId, category, isShared) {
+  if (typeof firebaseStore.saveToolSharing === 'function' && config.isFirebaseEnabled) {
+    await firebaseStore.saveToolSharing(locationId, { [category]: !!isShared });
+    return;
+  }
+  if (typeof tokenStore.saveToolSharing === 'function') {
+    await Promise.resolve(tokenStore.saveToolSharing(locationId, { [category]: !!isShared }));
+  }
 }
 
 /**
@@ -186,6 +236,9 @@ module.exports = {
   getEnabledIntegrations,
   getAllIntegrationsMeta,
   getToolConfig,
+  getSharedIntegrations,
   loadToolConfigs,
+  loadToolSharing,
   saveToolConfig,
+  setIntegrationShared,
 };
