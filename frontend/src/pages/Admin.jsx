@@ -1673,6 +1673,23 @@ export default function Admin() {
   const [toolAccessLoading,    setToolAccessLoading]    = useState(false);
   const [toolAccessFilter,     setToolAccessFilter]     = useState('all'); // 'all' | 'shared' | 'hidden'
 
+  // 3PL Connection state
+  const [tplConfig,          setTplConfig]          = useState(null);
+  const [tplConfigForm,      setTplConfigForm]      = useState({ baseUrl: '', clientId: '', clientSecret: '', globalClientId: '', globalClientSecret: '' });
+  const [tplConfigLoading,   setTplConfigLoading]   = useState(false);
+  const [tplSubTab,          setTplSubTab]          = useState('config');
+  const [tplRateForm,        setTplRateForm]        = useState({ shipperZip: '', consigneeZip: '', shipperCountry: 'US', consigneeCountry: 'US', shipmentMode: 'LTL', equipmentType: 'StraightVan', items: [{ class: '70', pieces: 1, weight: 100, packaging: 'Pallets', isHazardous: false, productDescription: '', length: 0, width: 0, height: 0 }] });
+  const [tplRates,           setTplRates]           = useState([]);
+  const [tplRateLoading,     setTplRateLoading]     = useState(false);
+  const [tplLoads,           setTplLoads]           = useState([]);
+  const [tplLoadsLoading,    setTplLoadsLoading]    = useState(false);
+  const [tplLoadFilter,      setTplLoadFilter]      = useState({ status: 'Booked', startDate: '', endDate: '' });
+  const [tplCarriers,        setTplCarriers]        = useState([]);
+  const [tplCarriersLoading, setTplCarriersLoading] = useState(false);
+  const [tplCarrierFilter,   setTplCarrierFilter]   = useState({ startDate: '', endDate: '' });
+  const [tplDocs,            setTplDocs]            = useState({ loadId: '', list: [], loading: false });
+  const [tplDocSend,         setTplDocSend]         = useState({ loadId: '', emails: '', docs: [] });
+
   // Plan Tiers state
   const [tiers,              setTiers]              = useState(null);
   const [tiersLoading,       setTiersLoading]       = useState(false);
@@ -1894,7 +1911,100 @@ export default function Admin() {
     if (tab === 'users-roles' && locations.length === 0) loadLocations();
     // Tool Access tab: ensure locations list is loaded for the dropdown
     if (tab === 'tool-access' && locations.length === 0) loadLocations();
+    if (tab === '3pl') load3plConfig();
   }, [authed, tab]); // eslint-disable-line
+
+  // ── 3PL functions ─────────────────────────────────────────────────────────
+
+  const load3plConfig = async () => {
+    const res = await adminFetch('/3pl/config', { adminKey });
+    if (res.success) {
+      setTplConfig(res.data);
+      if (res.data.configured) {
+        setTplConfigForm(f => ({
+          ...f,
+          baseUrl:        res.data.baseUrl        || '',
+          clientId:       res.data.clientId        || '',
+          globalClientId: res.data.globalClientId  || '',
+        }));
+      }
+    }
+  };
+
+  const save3plConfig = async () => {
+    setTplConfigLoading(true);
+    try {
+      const res = await adminFetch('/3pl/config', { method: 'POST', adminKey, body: tplConfigForm });
+      if (res.success) { toast.success('3PL credentials saved'); load3plConfig(); }
+      else toast.error(res.error || 'Save failed');
+    } finally { setTplConfigLoading(false); }
+  };
+
+  const test3plConn = async () => {
+    setTplConfigLoading(true);
+    try {
+      const res = await adminFetch('/3pl/test', { method: 'POST', adminKey });
+      if (res.success) {
+        const r = res.data.results || {};
+        const msg = `Client: ${r.client || '?'} | Global: ${r.global || '?'}`;
+        (r.client === 'ok' || r.global === 'ok') ? toast.success(msg) : toast.error(msg);
+      } else toast.error(res.error || 'Test failed');
+    } finally { setTplConfigLoading(false); }
+  };
+
+  const get3plRates = async () => {
+    setTplRateLoading(true);
+    setTplRates([]);
+    try {
+      const res = await adminFetch('/3pl/rates', { method: 'POST', adminKey, body: tplRateForm });
+      if (res.success) setTplRates(Array.isArray(res.data) ? res.data : []);
+      else toast.error(res.error || 'Rate lookup failed');
+    } finally { setTplRateLoading(false); }
+  };
+
+  const get3plLoads = async () => {
+    setTplLoadsLoading(true);
+    setTplLoads([]);
+    try {
+      const params = new URLSearchParams({ status: tplLoadFilter.status });
+      if (tplLoadFilter.startDate) params.append('startDate', tplLoadFilter.startDate);
+      if (tplLoadFilter.endDate)   params.append('endDate',   tplLoadFilter.endDate);
+      const res = await adminFetch(`/3pl/shipments?${params}`, { adminKey });
+      if (res.success) setTplLoads(Array.isArray(res.data) ? res.data : []);
+      else toast.error(res.error || 'Failed to load shipments');
+    } finally { setTplLoadsLoading(false); }
+  };
+
+  const get3plCarriers = async () => {
+    setTplCarriersLoading(true);
+    setTplCarriers([]);
+    try {
+      const params = new URLSearchParams();
+      if (tplCarrierFilter.startDate) params.append('startDate', tplCarrierFilter.startDate);
+      if (tplCarrierFilter.endDate)   params.append('endDate',   tplCarrierFilter.endDate);
+      const res = await adminFetch(`/3pl/carriers?${params}`, { adminKey });
+      if (res.success) setTplCarriers(Array.isArray(res.data) ? res.data : []);
+      else toast.error(res.error || 'Failed to load carriers');
+    } finally { setTplCarriersLoading(false); }
+  };
+
+  const get3plDocs = async (loadId) => {
+    setTplDocs(d => ({ ...d, loading: true, list: [] }));
+    try {
+      const res = await adminFetch(`/3pl/documents?loadId=${loadId}`, { adminKey });
+      if (res.success) setTplDocs(d => ({ ...d, list: Array.isArray(res.data) ? res.data : [], loading: false }));
+      else { toast.error(res.error || 'Failed'); setTplDocs(d => ({ ...d, loading: false })); }
+    } catch { setTplDocs(d => ({ ...d, loading: false })); }
+  };
+
+  const send3plDocs = async () => {
+    const { loadId, emails, docs } = tplDocSend;
+    if (!loadId || docs.length === 0) return toast.error('Select a load ID and at least one document');
+    const emailList = emails.split(',').map(e => e.trim()).filter(Boolean);
+    if (emailList.length === 0) return toast.error('Enter at least one email address');
+    const res = await adminFetch('/3pl/documents/send', { method: 'POST', adminKey, body: { loadId, emails: emailList, documentNames: docs } });
+    res.success ? toast.success('Documents sent!') : toast.error(res.error || 'Send failed');
+  };
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -2096,6 +2206,7 @@ export default function Admin() {
     { key: 'plan-tiers',   label: 'Plan Tiers',   icon: '🏅' },
     { key: 'users-roles',  label: 'Users & Roles',icon: '👥' },
     { key: 'tool-access',  label: 'Tool Access',  icon: '🔧' },
+    { key: '3pl',          label: '3PL Connection', icon: '🚚' },
     { key: 'brain',        label: 'Brain',        icon: '🧠' },
     { key: 'logs',         label: 'Activity Logs',icon: '📋' },
     { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
@@ -2104,7 +2215,7 @@ export default function Admin() {
   const PAGE_TITLE = {
     overview: 'Dashboard', locations: 'Locations', billing: 'Billing',
     'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles', 'tool-access': 'Tool Access',
-    brain: 'Brain', logs: 'Activity Logs', 'app-settings': 'App Settings',
+    '3pl': '3PL Connection', brain: 'Brain', logs: 'Activity Logs', 'app-settings': 'App Settings',
   };
 
   const navItemStyle = (active) => ({
@@ -3435,6 +3546,386 @@ export default function Admin() {
             )}
           </div>
         )}
+
+        {/* ── 3PL Connection Tab ───────────────────────────────────────── */}
+        {tab === '3pl' && (() => {
+          const inp3pl = { background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', padding: '8px 12px', fontSize: 13, width: '100%', boxSizing: 'border-box' };
+          const lbl3pl = { fontSize: 12, color: '#9ca3af', fontWeight: 600, marginBottom: 4, display: 'block' };
+          const sub3plTabs = [
+            { key: 'config',    label: '⚙️ Config' },
+            { key: 'rates',     label: '💲 Rate Calculator' },
+            { key: 'shipments', label: '📦 Shipments' },
+            { key: 'carriers',  label: '🚛 Carriers' },
+            { key: 'documents', label: '📄 Documents' },
+          ];
+          return (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 20 }}>
+                <div>
+                  <h3 style={{ color: '#fff', margin: '0 0 4px', fontSize: 16 }}>🚚 3PL Connection</h3>
+                  <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
+                    BrokerWare TMS integration — rate quotes, shipment management, carriers, and documents.
+                  </p>
+                </div>
+                {tplConfig?.configured && (
+                  <span style={{ marginLeft: 'auto', background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    ● Connected
+                  </span>
+                )}
+              </div>
+
+              {/* Sub-tab bar */}
+              <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 3, marginBottom: 24, flexWrap: 'wrap' }}>
+                {sub3plTabs.map(st => (
+                  <button key={st.key} onClick={() => setTplSubTab(st.key)} style={{
+                    background: tplSubTab === st.key ? 'rgba(124,58,237,0.25)' : 'transparent',
+                    border: 'none', color: tplSubTab === st.key ? '#a78bfa' : '#6b7280',
+                    borderRadius: 6, padding: '6px 16px', cursor: 'pointer', fontSize: 12, fontWeight: tplSubTab === st.key ? 700 : 500, whiteSpace: 'nowrap',
+                  }}>{st.label}</button>
+                ))}
+              </div>
+
+              {/* ── Config ── */}
+              {tplSubTab === 'config' && (
+                <div style={{ maxWidth: 560 }}>
+                  <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, padding: '20px 24px', marginBottom: 16 }}>
+                    <h4 style={{ color: '#e2e8f0', margin: '0 0 16px', fontSize: 14 }}>Connection Settings</h4>
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={lbl3pl}>Base URL</label>
+                      <input value={tplConfigForm.baseUrl} onChange={e => setTplConfigForm(f => ({ ...f, baseUrl: e.target.value }))}
+                        placeholder="https://yourbrokerage.hyperiontms.com" style={inp3pl} />
+                      <p style={{ fontSize: 11, color: '#6b7280', margin: '4px 0 0' }}>Provided by 3PL Systems or your freight brokerage.</p>
+                    </div>
+
+                    <h4 style={{ color: '#e2e8f0', margin: '20px 0 12px', fontSize: 14 }}>Client Credentials <span style={{ color: '#6b7280', fontSize: 12, fontWeight: 400 }}>(Customer-specific access)</span></h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+                      <div>
+                        <label style={lbl3pl}>Client ID</label>
+                        <input value={tplConfigForm.clientId} onChange={e => setTplConfigForm(f => ({ ...f, clientId: e.target.value }))}
+                          placeholder="Client ID" style={inp3pl} />
+                      </div>
+                      <div>
+                        <label style={lbl3pl}>Client Secret</label>
+                        <input type="password" value={tplConfigForm.clientSecret} onChange={e => setTplConfigForm(f => ({ ...f, clientSecret: e.target.value }))}
+                          placeholder={tplConfig?.configured ? '••••••••' : 'Client Secret'} style={inp3pl} />
+                      </div>
+                    </div>
+
+                    <h4 style={{ color: '#e2e8f0', margin: '20px 0 12px', fontSize: 14 }}>Global Credentials <span style={{ color: '#6b7280', fontSize: 12, fontWeight: 400 }}>(Broker-only access)</span></h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+                      <div>
+                        <label style={lbl3pl}>Global Client ID</label>
+                        <input value={tplConfigForm.globalClientId} onChange={e => setTplConfigForm(f => ({ ...f, globalClientId: e.target.value }))}
+                          placeholder="Global Client ID" style={inp3pl} />
+                      </div>
+                      <div>
+                        <label style={lbl3pl}>Global Client Secret</label>
+                        <input type="password" value={tplConfigForm.globalClientSecret} onChange={e => setTplConfigForm(f => ({ ...f, globalClientSecret: e.target.value }))}
+                          placeholder={tplConfig?.configured ? '••••••••' : 'Global Secret'} style={inp3pl} />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <button onClick={save3plConfig} disabled={tplConfigLoading || !tplConfigForm.baseUrl}
+                        style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: tplConfigLoading ? 0.6 : 1 }}>
+                        {tplConfigLoading ? '⟳ Saving…' : '💾 Save Config'}
+                      </button>
+                      <button onClick={test3plConn} disabled={tplConfigLoading || !tplConfig?.configured}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#9ca3af', padding: '9px 20px', fontSize: 13, cursor: 'pointer', opacity: tplConfigLoading ? 0.6 : 1 }}>
+                        {tplConfigLoading ? '⟳ Testing…' : '🔌 Test Connection'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Rate Calculator ── */}
+              {tplSubTab === 'rates' && (
+                <div>
+                  <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, padding: '20px 24px', marginBottom: 16, maxWidth: 700 }}>
+                    <h4 style={{ color: '#e2e8f0', margin: '0 0 16px', fontSize: 14 }}>Shipment Details</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+                      <div>
+                        <label style={lbl3pl}>Shipper ZIP</label>
+                        <input value={tplRateForm.shipperZip} onChange={e => setTplRateForm(f => ({ ...f, shipperZip: e.target.value }))} placeholder="e.g. 30071" style={inp3pl} />
+                      </div>
+                      <div>
+                        <label style={lbl3pl}>Consignee ZIP</label>
+                        <input value={tplRateForm.consigneeZip} onChange={e => setTplRateForm(f => ({ ...f, consigneeZip: e.target.value }))} placeholder="e.g. 33467" style={inp3pl} />
+                      </div>
+                      <div>
+                        <label style={lbl3pl}>Mode</label>
+                        <select value={tplRateForm.shipmentMode} onChange={e => setTplRateForm(f => ({ ...f, shipmentMode: e.target.value }))} style={inp3pl}>
+                          {['LTL','Truckload','Intermodal','Air','Drayage','HotShot','Parcel'].map(m => <option key={m}>{m}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={lbl3pl}>Equipment Type</label>
+                        <select value={tplRateForm.equipmentType} onChange={e => setTplRateForm(f => ({ ...f, equipmentType: e.target.value }))} style={inp3pl}>
+                          {['StraightVan','Van','Flatbed','Reefer','Step Deck','NotSpecified'].map(t => <option key={t}>{t}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <h4 style={{ color: '#e2e8f0', margin: '16px 0 12px', fontSize: 13 }}>Items</h4>
+                    {tplRateForm.items.map((item, idx) => (
+                      <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8, padding: '12px 14px', marginBottom: 10 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                          <div><label style={lbl3pl}>Class</label><input value={item.class} onChange={e => setTplRateForm(f => { const its = [...f.items]; its[idx] = { ...its[idx], class: e.target.value }; return { ...f, items: its }; })} style={inp3pl} /></div>
+                          <div><label style={lbl3pl}>Pieces</label><input type="number" value={item.pieces} onChange={e => setTplRateForm(f => { const its = [...f.items]; its[idx] = { ...its[idx], pieces: +e.target.value }; return { ...f, items: its }; })} style={inp3pl} /></div>
+                          <div><label style={lbl3pl}>Weight (lbs)</label><input type="number" value={item.weight} onChange={e => setTplRateForm(f => { const its = [...f.items]; its[idx] = { ...its[idx], weight: +e.target.value }; return { ...f, items: its }; })} style={inp3pl} /></div>
+                          <div><label style={lbl3pl}>Packaging</label>
+                            <select value={item.packaging} onChange={e => setTplRateForm(f => { const its = [...f.items]; its[idx] = { ...its[idx], packaging: e.target.value }; return { ...f, items: its }; })} style={inp3pl}>
+                              {['Pallets','Boxes','Cases','Crates','Pieces','Cartons','Drums','Totes','Units'].map(p => <option key={p}>{p}</option>)}
+                            </select>
+                          </div>
+                          <div style={{ gridColumn: '1/-1' }}><label style={lbl3pl}>Description</label><input value={item.productDescription} onChange={e => setTplRateForm(f => { const its = [...f.items]; its[idx] = { ...its[idx], productDescription: e.target.value }; return { ...f, items: its }; })} placeholder="Product description" style={inp3pl} /></div>
+                        </div>
+                        {tplRateForm.items.length > 1 && (
+                          <button onClick={() => setTplRateForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}
+                            style={{ marginTop: 8, background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: 12 }}>✕ Remove item</button>
+                        )}
+                      </div>
+                    ))}
+                    <button onClick={() => setTplRateForm(f => ({ ...f, items: [...f.items, { class: '70', pieces: 1, weight: 100, packaging: 'Pallets', isHazardous: false, productDescription: '', length: 0, width: 0, height: 0 }] }))}
+                      style={{ background: 'none', border: '1px dashed rgba(255,255,255,0.2)', borderRadius: 8, color: '#6b7280', padding: '7px 16px', cursor: 'pointer', fontSize: 12, width: '100%', marginBottom: 16 }}>
+                      + Add Item
+                    </button>
+
+                    <button onClick={get3plRates} disabled={tplRateLoading || !tplConfig?.configured}
+                      style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: tplRateLoading ? 0.6 : 1 }}>
+                      {tplRateLoading ? '⟳ Getting Rates…' : '💲 Get Carrier Rates'}
+                    </button>
+                    {!tplConfig?.configured && <p style={{ color: '#f87171', fontSize: 12, marginTop: 8 }}>Configure connection first.</p>}
+                  </div>
+
+                  {tplRates.length > 0 && (
+                    <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, overflow: 'hidden' }}>
+                      <div style={{ padding: '14px 20px', borderBottom: `1px solid ${BD.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>Rate Results</span>
+                        <span style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>{tplRates.length} carriers</span>
+                      </div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+                              {['Carrier', 'SCAC', 'Billed ($)', 'Transit (days)'].map(h => (
+                                <th key={h} style={{ padding: '10px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[...tplRates].sort((a, b) => a.billed - b.billed).map((r, i) => (
+                              <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                                <td style={{ padding: '10px 16px', color: '#e2e8f0' }}>{r.name}</td>
+                                <td style={{ padding: '10px 16px', color: '#9ca3af', fontFamily: 'monospace' }}>{r.scac}</td>
+                                <td style={{ padding: '10px 16px', color: '#34d399', fontWeight: 700 }}>${Number(r.billed).toFixed(2)}</td>
+                                <td style={{ padding: '10px 16px', color: '#9ca3af' }}>{r.transitTime ?? '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Shipments ── */}
+              {tplSubTab === 'shipments' && (
+                <div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
+                    <div>
+                      <label style={lbl3pl}>Status</label>
+                      <select value={tplLoadFilter.status} onChange={e => setTplLoadFilter(f => ({ ...f, status: e.target.value }))} style={{ ...inp3pl, width: 160 }}>
+                        {['Quoted','Booked','Dispatched','Loading','InTransit','OutForDelivery','Delivered','Canceled','CanceledWithCharges','OSD'].map(s => <option key={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={lbl3pl}>Start Date</label>
+                      <input type="date" value={tplLoadFilter.startDate} onChange={e => setTplLoadFilter(f => ({ ...f, startDate: e.target.value }))} style={{ ...inp3pl, width: 160 }} />
+                    </div>
+                    <div>
+                      <label style={lbl3pl}>End Date</label>
+                      <input type="date" value={tplLoadFilter.endDate} onChange={e => setTplLoadFilter(f => ({ ...f, endDate: e.target.value }))} style={{ ...inp3pl, width: 160 }} />
+                    </div>
+                    <button onClick={get3plLoads} disabled={tplLoadsLoading || !tplConfig?.configured}
+                      style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: tplLoadsLoading ? 0.6 : 1 }}>
+                      {tplLoadsLoading ? '⟳ Loading…' : '🔍 Search Loads'}
+                    </button>
+                  </div>
+
+                  {!tplConfig?.configured && <p style={{ color: '#f87171', fontSize: 13 }}>Configure 3PL connection first.</p>}
+
+                  {tplLoads.length > 0 && (
+                    <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, overflow: 'hidden' }}>
+                      <div style={{ padding: '12px 20px', borderBottom: `1px solid ${BD.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>Loads</span>
+                        <span style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>{tplLoads.length}</span>
+                      </div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+                              {['Load ID','Status','Mode','Pickup','Delivery','PO Ref','Miles'].map(h => (
+                                <th key={h} style={{ padding: '9px 14px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tplLoads.map((ld, i) => {
+                              const pickup = ld.stops?.find(s => s.stopType === 'Pickup');
+                              const drop   = ld.stops?.find(s => s.stopType === 'Drop');
+                              const statusColor = { Delivered: '#34d399', Canceled: '#f87171', CanceledWithCharges: '#f87171', InTransit: '#60a5fa', Booked: '#a78bfa', Quoted: '#9ca3af' };
+                              return (
+                                <tr key={ld.loadId || i} style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                                  <td style={{ padding: '10px 14px', color: '#818cf8', fontWeight: 700 }}>#{ld.loadId}</td>
+                                  <td style={{ padding: '10px 14px' }}>
+                                    <span style={{ background: 'rgba(255,255,255,0.06)', color: statusColor[ld.shipmentStatus] || '#9ca3af', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{ld.shipmentStatus}</span>
+                                  </td>
+                                  <td style={{ padding: '10px 14px', color: '#9ca3af' }}>{ld.shipmentMode || '—'}</td>
+                                  <td style={{ padding: '10px 14px', color: '#9ca3af', fontSize: 12 }}>{pickup?.fullAddress || (ld.pickupDate ? new Date(ld.pickupDate).toLocaleDateString() : '—')}</td>
+                                  <td style={{ padding: '10px 14px', color: '#9ca3af', fontSize: 12 }}>{drop?.fullAddress || (ld.estimatedDelivery ? new Date(ld.estimatedDelivery).toLocaleDateString() : '—')}</td>
+                                  <td style={{ padding: '10px 14px', color: '#e2e8f0' }}>{ld.poReference || '—'}</td>
+                                  <td style={{ padding: '10px 14px', color: '#9ca3af' }}>{ld.miles ? `${ld.miles} mi` : '—'}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {tplLoads.length === 0 && !tplLoadsLoading && tplConfig?.configured && (
+                    <div style={{ textAlign: 'center', color: '#6b7280', padding: '40px 0', fontSize: 13 }}>
+                      Select filters and click Search Loads to view shipments.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Carriers ── */}
+              {tplSubTab === 'carriers' && (
+                <div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
+                    <div>
+                      <label style={lbl3pl}>Start Date</label>
+                      <input type="date" value={tplCarrierFilter.startDate} onChange={e => setTplCarrierFilter(f => ({ ...f, startDate: e.target.value }))} style={{ ...inp3pl, width: 170 }} />
+                    </div>
+                    <div>
+                      <label style={lbl3pl}>End Date</label>
+                      <input type="date" value={tplCarrierFilter.endDate} onChange={e => setTplCarrierFilter(f => ({ ...f, endDate: e.target.value }))} style={{ ...inp3pl, width: 170 }} />
+                    </div>
+                    <button onClick={get3plCarriers} disabled={tplCarriersLoading || !tplConfig?.configured}
+                      style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: tplCarriersLoading ? 0.6 : 1 }}>
+                      {tplCarriersLoading ? '⟳ Loading…' : '🚛 Load Carriers'}
+                    </button>
+                  </div>
+
+                  {!tplConfig?.configured && <p style={{ color: '#f87171', fontSize: 13 }}>Configure 3PL connection first.</p>}
+
+                  {tplCarriers.length > 0 && (
+                    <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, overflow: 'hidden' }}>
+                      <div style={{ padding: '12px 20px', borderBottom: `1px solid ${BD.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>Carriers</span>
+                        <span style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>{tplCarriers.length}</span>
+                      </div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+                              {['Carrier Name','ID','Status','Location','MC','DOT','Terms'].map(h => (
+                                <th key={h} style={{ padding: '9px 14px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tplCarriers.map((c, i) => (
+                              <tr key={c.carrierId || i} style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                                <td style={{ padding: '10px 14px', color: '#e2e8f0', fontWeight: 600 }}>{c.carrierName}</td>
+                                <td style={{ padding: '10px 14px', color: '#818cf8', fontFamily: 'monospace' }}>{c.carrierId}</td>
+                                <td style={{ padding: '10px 14px' }}>
+                                  <span style={{ background: c.status === 'Active' ? 'rgba(52,211,153,0.12)' : 'rgba(107,114,128,0.15)', color: c.status === 'Active' ? '#34d399' : '#9ca3af', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{c.status}</span>
+                                </td>
+                                <td style={{ padding: '10px 14px', color: '#9ca3af', fontSize: 12 }}>{[c.carrierCity, c.carrierState].filter(Boolean).join(', ') || '—'}</td>
+                                <td style={{ padding: '10px 14px', color: '#9ca3af', fontFamily: 'monospace' }}>{c.mc || '—'}</td>
+                                <td style={{ padding: '10px 14px', color: '#9ca3af', fontFamily: 'monospace' }}>{c.dot || '—'}</td>
+                                <td style={{ padding: '10px 14px', color: '#9ca3af' }}>{c.carrierTerm || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {tplCarriers.length === 0 && !tplCarriersLoading && tplConfig?.configured && (
+                    <div style={{ textAlign: 'center', color: '#6b7280', padding: '40px 0', fontSize: 13 }}>
+                      Select a date range and click Load Carriers.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Documents ── */}
+              {tplSubTab === 'documents' && (
+                <div style={{ maxWidth: 600 }}>
+                  <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, padding: '20px 24px', marginBottom: 16 }}>
+                    <h4 style={{ color: '#e2e8f0', margin: '0 0 16px', fontSize: 14 }}>Fetch Documents by Load</h4>
+                    <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'flex-end' }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={lbl3pl}>Load ID</label>
+                        <input value={tplDocs.loadId} onChange={e => setTplDocs(d => ({ ...d, loadId: e.target.value, list: [] }))}
+                          placeholder="e.g. 12937" style={inp3pl} />
+                      </div>
+                      <button onClick={() => get3plDocs(tplDocs.loadId)} disabled={tplDocs.loading || !tplDocs.loadId || !tplConfig?.configured}
+                        style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: tplDocs.loading ? 0.6 : 1 }}>
+                        {tplDocs.loading ? '⟳' : '🔍 Fetch'}
+                      </button>
+                    </div>
+
+                    {tplDocs.list.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                        {tplDocs.list.map(docName => (
+                          <label key={docName} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontSize: 13, color: '#e5e7eb' }}>
+                            <input type="checkbox"
+                              checked={tplDocSend.docs.includes(docName)}
+                              onChange={e => setTplDocSend(s => ({ ...s, docs: e.target.checked ? [...s.docs, docName] : s.docs.filter(d => d !== docName) }))}
+                            />
+                            {docName}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {tplDocs.list.length > 0 && (
+                    <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 12, padding: '20px 24px' }}>
+                      <h4 style={{ color: '#e2e8f0', margin: '0 0 16px', fontSize: 14 }}>Send Documents</h4>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={lbl3pl}>Load ID</label>
+                        <input value={tplDocSend.loadId} onChange={e => setTplDocSend(s => ({ ...s, loadId: e.target.value }))}
+                          placeholder="Load ID (same as above)" style={inp3pl} />
+                      </div>
+                      <div style={{ marginBottom: 14 }}>
+                        <label style={lbl3pl}>Recipient Emails (comma-separated)</label>
+                        <input value={tplDocSend.emails} onChange={e => setTplDocSend(s => ({ ...s, emails: e.target.value }))}
+                          placeholder="email@example.com, another@example.com" style={inp3pl} />
+                      </div>
+                      <button onClick={send3plDocs} disabled={!tplConfig?.configured}
+                        style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                        📤 Send Documents
+                      </button>
+                    </div>
+                  )}
+
+                  {!tplConfig?.configured && <p style={{ color: '#f87171', fontSize: 13 }}>Configure 3PL connection first.</p>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── Brain Tab ────────────────────────────────────────────────── */}
         {tab === 'brain' && (
