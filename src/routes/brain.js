@@ -657,7 +657,8 @@ router.delete('/:brainId/changelog/:entryId', async (req, res) => {
 
 router.post('/:brainId/reindex', async (req, res) => {
   try {
-    const result = await brain.reindexBrain(req.locationId, req.params.brainId);
+    const locId  = await getLocId(req, req.params.brainId);
+    const result = await brain.reindexBrain(locId, req.params.brainId);
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
