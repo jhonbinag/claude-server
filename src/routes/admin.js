@@ -384,13 +384,23 @@ router.get('/stats', async (req, res) => {
 
 router.get('/billing', async (req, res) => {
   try {
-    const records = await billingStore.listAllBilling();
-    const enrichedRecords = await Promise.all(records.map(async (record) => {
-      const location = await resolveLocationRecord({ locationId: record.locationId });
+    const seedMap = await buildLocationSeedMap({ includeUninstalled: true });
+    const storedRecords = await billingStore.listAllBilling();
+    const recordMap = new Map(storedRecords.map((record) => [record.locationId, record]));
+
+    for (const locationId of seedMap.keys()) {
+      if (!recordMap.has(locationId)) {
+        recordMap.set(locationId, await billingStore.getOrCreateBilling(locationId));
+      }
+    }
+
+    const enrichedRecords = await Promise.all([...recordMap.values()].map(async (record) => {
+      const location = await resolveLocationRecord(seedMap.get(record.locationId) || { locationId: record.locationId });
       return {
         ...record,
         name: location?.name || null,
         companyId: location?.companyId || null,
+        status: record.status || 'trial',
       };
     }));
     const summary = {
