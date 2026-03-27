@@ -100,16 +100,78 @@ async function enrichLocation(rec) {
   };
 }
 
+function extractLocationName(payload) {
+  const source = payload?.location || payload || {};
+  return (
+    source.name ||
+    payload?.name ||
+    source?.business?.name ||
+    payload?.business?.name ||
+    null
+  );
+}
+
+async function buildLocationSeedMap({ includeUninstalled = true } = {}) {
+  const registryLocations = await locationRegistry.listAllLocations({ includeUninstalled });
+  const tokenLocationIds = await tokenStore.listLocations();
+  const seeds = new Map(registryLocations.map((loc) => [loc.locationId, { ...loc }]));
+
+  for (const locationId of tokenLocationIds) {
+    if (!seeds.has(locationId)) seeds.set(locationId, { locationId, status: 'active' });
+  }
+
+  return seeds;
+}
+
+async function resolveLocationRecord(seed) {
+  if (!seed?.locationId) return null;
+
+  const locationId = seed.locationId;
+  const tokenRec = await tokenStore.getTokenRecord(locationId);
+  const resolved = {
+    status: 'active',
+    ...seed,
+    ...(tokenRec?.companyId && !seed.companyId ? { companyId: tokenRec.companyId } : {}),
+  };
+
+  const patch = {};
+  if (!seed.companyId && tokenRec?.companyId) patch.companyId = tokenRec.companyId;
+
+  if (!resolved.name && tokenRec?.accessToken) {
+    try {
+      const data = await ghlClient.ghlRequest(locationId, 'GET', `/locations/${locationId}`);
+      const liveName = extractLocationName(data);
+      if (liveName) {
+        resolved.name = liveName;
+        patch.name = liveName;
+      }
+    } catch (err) {
+      console.warn(`[Admin] Failed live location lookup for ${locationId}: ${err.message}`);
+    }
+  }
+
+  if (Object.keys(patch).length) {
+    try {
+      await locationRegistry.updateLocationMetadata(locationId, patch);
+    } catch (err) {
+      console.warn(`[Admin] Failed to persist location metadata for ${locationId}: ${err.message}`);
+    }
+  }
+
+  return resolved;
+}
+
 // ─── GET /admin/locations — list all locations ────────────────────────────────
 
 router.get('/locations', async (req, res) => {
   try {
     const { active } = req.query; // ?active=true to exclude uninstalled
     const includeUninstalled = active !== 'true';
-    const locations = await locationRegistry.listAllLocations({ includeUninstalled });
+    const seedMap = await buildLocationSeedMap({ includeUninstalled });
+    const locations = [...seedMap.values()];
 
     // Enrich in parallel (cap at 20 concurrent to avoid flooding Redis)
-    const enriched = await Promise.all(locations.map(enrichLocation));
+    const enriched = await Promise.all(locations.map(async (loc) => enrichLocation(await resolveLocationRecord(loc))));
 
     res.json({ success: true, count: enriched.length, data: enriched });
   } catch (err) {
@@ -123,7 +185,8 @@ router.get('/locations', async (req, res) => {
 router.get('/locations/:id', async (req, res) => {
   const locationId = req.params.id;
   try {
-    const rec = await locationRegistry.getLocation(locationId);
+    const seedMap = await buildLocationSeedMap({ includeUninstalled: true });
+    const rec = await resolveLocationRecord(seedMap.get(locationId) || { locationId });
     if (!rec) return res.status(404).json({ success: false, error: 'Location not found.' });
 
     const enriched  = await enrichLocation(rec);
@@ -161,7 +224,8 @@ router.get('/locations/:id', async (req, res) => {
 router.post('/locations/:id/refresh', async (req, res) => {
   const locationId = req.params.id;
   try {
-    const rec = await locationRegistry.getLocation(locationId);
+    const seedMap = await buildLocationSeedMap({ includeUninstalled: true });
+    const rec = await resolveLocationRecord(seedMap.get(locationId) || { locationId });
     if (!rec) return res.status(404).json({ success: false, error: 'Location not found.' });
 
     // Invalidate cache so getEnabledIntegrations reads fresh data
@@ -284,7 +348,8 @@ router.get('/logs', async (req, res) => {
 
 router.get('/stats', async (req, res) => {
   try {
-    const locations  = await locationRegistry.listAllLocations({ includeUninstalled: true });
+    const seedMap = await buildLocationSeedMap({ includeUninstalled: true });
+    const locations = [...seedMap.values()];
     const active     = locations.filter((l) => l.status === 'active').length;
     const uninstalled = locations.filter((l) => l.status === 'uninstalled').length;
 
@@ -320,15 +385,23 @@ router.get('/stats', async (req, res) => {
 router.get('/billing', async (req, res) => {
   try {
     const records = await billingStore.listAllBilling();
+    const enrichedRecords = await Promise.all(records.map(async (record) => {
+      const location = await resolveLocationRecord({ locationId: record.locationId });
+      return {
+        ...record,
+        name: location?.name || null,
+        companyId: location?.companyId || null,
+      };
+    }));
     const summary = {
-      total:       records.length,
-      active:      records.filter(r => r.status === 'active').length,
-      trial:       records.filter(r => r.status === 'trial').length,
-      pastDue:     records.filter(r => r.status === 'past_due').length,
-      cancelled:   records.filter(r => r.status === 'cancelled').length,
-      revenue:     records.filter(r => r.status === 'active').reduce((s, r) => s + (r.amount || 0), 0),
+      total:       enrichedRecords.length,
+      active:      enrichedRecords.filter(r => r.status === 'active').length,
+      trial:       enrichedRecords.filter(r => r.status === 'trial').length,
+      pastDue:     enrichedRecords.filter(r => r.status === 'past_due').length,
+      cancelled:   enrichedRecords.filter(r => r.status === 'cancelled').length,
+      revenue:     enrichedRecords.filter(r => r.status === 'active').reduce((s, r) => s + (r.amount || 0), 0),
     };
-    res.json({ success: true, summary, data: records });
+    res.json({ success: true, summary, data: enrichedRecords });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -340,7 +413,8 @@ router.get('/billing/:locationId', async (req, res) => {
   try {
     const rec = await billingStore.getOrCreateBilling(req.params.locationId);
     const connectedPaymentProviders = await getConnectedPaymentProviders(req.params.locationId);
-    res.json({ success: true, data: { ...rec, connectedPaymentProviders } });
+    const location = await resolveLocationRecord({ locationId: req.params.locationId });
+    res.json({ success: true, data: { ...rec, connectedPaymentProviders, name: location?.name || null, companyId: location?.companyId || null } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

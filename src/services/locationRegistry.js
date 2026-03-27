@@ -106,7 +106,7 @@ function now() { return new Date().toISOString(); }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-async function registerLocation(locationId, { companyId } = {}) {
+async function registerLocation(locationId, { companyId, name } = {}) {
   const ts = now();
   const store = db();
 
@@ -115,21 +115,21 @@ async function registerLocation(locationId, { companyId } = {}) {
     const ref  = store.collection(FB_COLLECTION).doc(locationId);
     const snap = await ref.get();
     if (snap.exists) {
-      await ref.update({ status: 'active', installedAt: ts, uninstalledAt: null, ...(companyId ? { companyId } : {}) });
+      await ref.update({ status: 'active', installedAt: ts, uninstalledAt: null, ...(companyId ? { companyId } : {}), ...(name ? { name } : {}) });
     } else {
-      await ref.set({ status: 'active', companyId: companyId || null, installedAt: ts, uninstalledAt: null, restoredAt: null, restoredBy: null, lastActive: ts });
+      await ref.set({ status: 'active', companyId: companyId || null, name: name || null, installedAt: ts, uninstalledAt: null, restoredAt: null, restoredBy: null, lastActive: ts });
     }
   } else {
     // Redis fallback
     const existing = await redisGetLocation(locationId);
     const record = existing
-      ? { ...existing, status: 'active', installedAt: ts, uninstalledAt: null, ...(companyId ? { companyId } : {}) }
-      : { status: 'active', companyId: companyId || null, installedAt: ts, uninstalledAt: null, restoredAt: null, restoredBy: null, lastActive: ts };
+      ? { ...existing, status: 'active', installedAt: ts, uninstalledAt: null, ...(companyId ? { companyId } : {}), ...(name ? { name } : {}) }
+      : { status: 'active', companyId: companyId || null, name: name || null, installedAt: ts, uninstalledAt: null, restoredAt: null, restoredBy: null, lastActive: ts };
     await r.set(LOC_PREFIX + locationId, JSON.stringify(record), TTL);
     await redisAddToIndex(locationId);
   }
 
-  console.log(`[LocationRegistry] Registered: ${locationId}`);
+  console.log(`[LocationRegistry] Registered: ${locationId}${name ? ` (${name})` : ''}`);
 }
 
 async function uninstallLocation(locationId) {
@@ -166,6 +166,64 @@ async function updateLastActive(locationId) {
     const existing = await redisGetLocation(locationId);
     if (existing) r.set(LOC_PREFIX + locationId, JSON.stringify({ ...existing, lastActive: now() }), TTL).catch(() => {});
   }
+}
+
+async function updateLocationMetadata(locationId, patch = {}) {
+  if (!locationId || !patch || typeof patch !== 'object') return;
+
+  const cleanPatch = Object.fromEntries(
+    Object.entries(patch).filter(([, value]) => value !== undefined)
+  );
+  if (!Object.keys(cleanPatch).length) return;
+
+  const store = db();
+  if (store) {
+    const ref = store.collection(FB_COLLECTION).doc(locationId);
+    const snap = await ref.get();
+    if (snap.exists) {
+      await ref.set(cleanPatch, { merge: true });
+    } else {
+      await ref.set({
+        status: 'active',
+        companyId: null,
+        name: null,
+        installedAt: now(),
+        uninstalledAt: null,
+        restoredAt: null,
+        restoredBy: null,
+        lastActive: now(),
+        ...cleanPatch,
+      });
+    }
+    return;
+  }
+
+  const existing = await redisGetLocation(locationId);
+  const record = existing
+    ? { ...existing, ...cleanPatch }
+    : {
+        locationId,
+        status: 'active',
+        companyId: null,
+        name: null,
+        installedAt: now(),
+        uninstalledAt: null,
+        restoredAt: null,
+        restoredBy: null,
+        lastActive: now(),
+        ...cleanPatch,
+      };
+  await r.set(LOC_PREFIX + locationId, JSON.stringify({
+    status: record.status,
+    companyId: record.companyId ?? null,
+    name: record.name ?? null,
+    installedAt: record.installedAt ?? now(),
+    uninstalledAt: record.uninstalledAt ?? null,
+    restoredAt: record.restoredAt ?? null,
+    restoredBy: record.restoredBy ?? null,
+    lastActive: record.lastActive ?? now(),
+  }), TTL);
+  await redisAddToIndex(locationId);
 }
 
 async function redisGetLocation(locationId) {
@@ -207,4 +265,13 @@ async function isUninstalled(locationId) {
   return rec?.status === 'uninstalled';
 }
 
-module.exports = { registerLocation, uninstallLocation, restoreLocation, updateLastActive, getLocation, listAllLocations, isUninstalled };
+module.exports = {
+  registerLocation,
+  uninstallLocation,
+  restoreLocation,
+  updateLastActive,
+  updateLocationMetadata,
+  getLocation,
+  listAllLocations,
+  isUninstalled,
+};
