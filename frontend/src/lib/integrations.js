@@ -331,11 +331,9 @@ export const INTEGRATIONS = [
     description: 'Freight rate quotes, shipment creation and tracking via BrokerWare TMS.',
     docsUrl:     'https://documenter.getpostman.com/view/1985869/TWDWJch4',
     fields: [
-      { key: 'baseUrl',            label: 'Base URL',             type: 'text',     placeholder: 'https://yourbrokerage.hyperiontms.com' },
-      { key: 'clientId',           label: 'Client ID',            type: 'text',     placeholder: 'From Customer Tools → API Keys' },
-      { key: 'clientSecret',       label: 'Client Secret',        type: 'password', placeholder: 'Client API Secret' },
-      { key: 'globalClientId',     label: 'Global Client ID',     type: 'text',     placeholder: 'From General Information (broker-only)' },
-      { key: 'globalClientSecret', label: 'Global Client Secret', type: 'password', placeholder: 'Global API Secret' },
+      { key: 'baseUrl',      label: 'Base URL',       type: 'text',     placeholder: 'https://yourbrokerage.hyperiontms.com' },
+      { key: 'clientId',     label: 'Client ID',      type: 'text',     placeholder: 'From Customer Tools → API Keys' },
+      { key: 'clientSecret', label: 'Client Secret',  type: 'password', placeholder: 'Client API Secret' },
     ],
   },
 ];

@@ -4037,11 +4037,9 @@ const TOOL_METADATA = {
     icon:        '🚚',
     description: 'Freight rate quotes, shipment management, carrier lookup and document delivery via BrokerWare TMS',
     configFields: [
-      { key: 'baseUrl',            label: 'Base URL',             type: 'text',     placeholder: 'https://yourbrokerage.hyperiontms.com' },
-      { key: 'clientId',           label: 'Client ID',            type: 'text',     placeholder: 'Client API ID (from Customer Tools → API Keys)' },
-      { key: 'clientSecret',       label: 'Client Secret',        type: 'password', placeholder: 'Client API Secret' },
-      { key: 'globalClientId',     label: 'Global Client ID',     type: 'text',     placeholder: 'Global API ID (from General Information — broker only)' },
-      { key: 'globalClientSecret', label: 'Global Client Secret', type: 'password', placeholder: 'Global API Secret' },
+      { key: 'baseUrl',      label: 'Base URL',      type: 'text',     placeholder: 'https://yourbrokerage.hyperiontms.com' },
+      { key: 'clientId',     label: 'Client ID',     type: 'text',     placeholder: 'From Customer Tools → API Keys' },
+      { key: 'clientSecret', label: 'Client Secret', type: 'password', placeholder: 'Client API Secret' },
     ],
   },
 };
