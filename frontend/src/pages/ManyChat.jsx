@@ -242,7 +242,7 @@ export default function ManyChat() {
       <div style={{
         borderBottom: '1px solid rgba(255,255,255,0.08)',
         background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)',
-        position: 'sticky', top: 53, zIndex: 40,
+        position: 'sticky', top: 0, zIndex: 40,
       }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 3, margin: '8px 0' }}>

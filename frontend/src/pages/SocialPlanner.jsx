@@ -142,12 +142,7 @@ export default function SocialPlanner() {
 
   /* ── Render ───────────────────────────────────────────────────────── */
   return (
-    <div style={{ minHeight: '100vh', background: '#0f0f13', color: '#e2e8f0', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column' }}>
-
-      {/* Shared top nav */}
-      <Header icon="📱" title="Social Planner" subtitle={`${accounts.length} account${accounts.length !== 1 ? 's' : ''} connected`} />
-
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+    <div style={{ background: '#0f0f13', color: '#e2e8f0', fontFamily: 'sans-serif' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '1.5rem' }}>
 
         {/* ── Page hero ──────────────────────────────────────────────── */}
@@ -403,7 +398,6 @@ export default function SocialPlanner() {
             </div>
           )}
         </section>
-      </div>
       </div>
     </div>
   );
