@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'react-toastify';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import Header from '../components/Header';
@@ -285,7 +286,6 @@ function BrainDetail({ brain, locationId, onBack, onRefresh, initialModal, onMod
   const [tab,               setTab]               = useState('videos');
   const [docs,              setDocs]              = useState(brain.docs || []);
   const [channels,          setChannels]          = useState(brain.channels || []);
-  const [flash,             setFlash]             = useState(null);
 
   const [generatingDocs,    setGeneratingDocs]    = useState(false);
 
@@ -305,20 +305,15 @@ function BrainDetail({ brain, locationId, onBack, onRefresh, initialModal, onMod
   const [videoPage,        setVideoPage]        = useState(1);
   const [videoPageSize,    setVideoPageSize]    = useState(10);
 
-  const showFlash = (ok, text) => {
-    setFlash({ ok, text });
-    setTimeout(() => setFlash(null), 4000);
-  };
-
   async function generateDocs() {
     setGeneratingDocs(true);
     try {
       const r = await apiFetch(`/brain/${brain.brainId}/generate-docs`, locationId, { method: 'POST' });
       if (r.success) {
-        showFlash(true, `Documentation v${r.version || ''} generated.`);
+        toast.success(`Documentation v${r.version || ''} generated.`);
         onRefresh();
-      } else showFlash(false, r.error || 'Failed to generate docs.');
-    } catch { showFlash(false, 'Request failed.'); }
+      } else toast.error(r.error || 'Failed to generate docs.');
+    } catch { toast.error('Request failed.'); }
     setGeneratingDocs(false);
   }
 
@@ -408,12 +403,6 @@ function BrainDetail({ brain, locationId, onBack, onRefresh, initialModal, onMod
         </div>
       </div>
 
-      {/* Flash */}
-      {flash && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: flash.ok ? '#052e16' : '#1c0a00', border: `1px solid ${flash.ok ? C.green + '44' : C.red + '44'}`, color: flash.ok ? '#4ade80' : '#f87171', fontSize: 13 }}>
-          {flash.ok ? '✓ ' : '✗ '}{flash.text}
-        </div>
-      )}
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}>

@@ -13,6 +13,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { toast } from 'react-toastify';
 import Header                  from '../components/Header';
 import { api }                 from '../lib/api';
 import SelfImprovementPanel    from '../components/SelfImprovementPanel';
@@ -194,9 +195,9 @@ export default function ManyChat() {
     try {
       const msg = step.message + (step.cta ? `\n\n${step.cta}` : '');
       const d = await api.post('/manychat/broadcast', { message: msg });
-      if (d.error) alert('Broadcast error: ' + d.error);
-      else alert(`✓ Broadcast sent to all subscribers!`);
-    } catch (e) { alert('Error: ' + e.message); }
+      if (d.error) toast.error('Broadcast error: ' + d.error);
+      else toast.success('Broadcast sent to all subscribers!');
+    } catch (e) { toast.error('Error: ' + e.message); }
     finally { setBroadcasting(null); }
   }
 

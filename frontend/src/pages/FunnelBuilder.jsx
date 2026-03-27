@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'react-toastify';
 import { useApp }              from '../context/AppContext';
 import AuthGate                from '../components/AuthGate';
 import Header                  from '../components/Header';
@@ -19,11 +20,6 @@ import { api }                 from '../lib/api';
 import SelfImprovementPanel    from '../components/SelfImprovementPanel';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-
-function toast(setToast, msg, type = 'success') {
-  setToast({ msg, type });
-  setTimeout(() => setToast(null), 4000);
-}
 
 const PAGE_TYPES = [
   'Sales Page',
@@ -66,7 +62,6 @@ const COLOR_PRESETS = [
 export default function FunnelBuilder() {
   const { isAuthenticated, isAuthLoading, apiKey, locationId } = useApp(); // eslint-disable-line no-unused-vars
 
-  const [toastState,    setToastState]    = useState(null);
   const [fbStatus,      setFbStatus]      = useState(null);
   const [fbLoading,     setFbLoading]     = useState(true);
 
@@ -252,37 +247,38 @@ export default function FunnelBuilder() {
     try {
       const d = await api.postWithKey('/funnel-builder/connect', { refreshedToken: token.trim() }, apiKey);
       if (d.success) {
-        toast(setToastState, 'Page Builder connected!');
+        toast.success('Page Builder connected!');
         setToken('');
         await loadStatus();
       } else {
-        toast(setToastState, d.error || 'Connection failed.', 'error');
+        toast.error(d.error || 'Connection failed.');
       }
     } catch (err) {
-      toast(setToastState, err.message || 'Connection failed.', 'error');
+      toast.error(err.message || 'Connection failed.');
     }
     setConnecting(false);
   }
 
-  async function handleDisconnect() {
-    if (!confirm('Disconnect the Firebase page builder token?')) return;
-    try {
-      await api.deleteWithKey('/funnel-builder/connect', apiKey);
-      toast(setToastState, 'Disconnected.');
-      setFbStatus({ connected: false, expiresAt: null });
-    } catch (err) {
-      toast(setToastState, err.message, 'error');
-    }
+  function handleDisconnect() {
+    toast(({ closeToast }) => (
+      <div>
+        <p style={{ margin: '0 0 10px', fontWeight: 500 }}>Disconnect the Firebase page builder token?</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={async () => { closeToast(); try { await api.deleteWithKey('/funnel-builder/connect', apiKey); toast.success('Disconnected.'); setFbStatus({ connected: false, expiresAt: null }); } catch (err) { toast.error(err.message); } }} style={{ background: '#dc2626', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Disconnect</button>
+          <button onClick={closeToast} style={{ background: '#333', border: 'none', borderRadius: 6, color: '#e5e7eb', padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+        </div>
+      </div>
+    ), { autoClose: false, closeOnClick: false, draggable: false });
   }
 
   function handleDesignFile(file) {
     if (!file) return;
     if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
-      toast(setToastState, 'Only PNG, JPG, WEBP, or GIF images are accepted.', 'error');
+      toast.error('Only PNG, JPG, WEBP, or GIF images are accepted.');
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast(setToastState, 'Image must be under 10 MB.', 'error');
+      toast.error('Image must be under 10 MB.');
       return;
     }
     setDesignFile(file);
@@ -293,10 +289,10 @@ export default function FunnelBuilder() {
 
   async function handleAnalyzeDesign(e) {
     e.preventDefault();
-    if (designMode === 'upload' && !designFile) { toast(setToastState, 'Upload a design image first.', 'error'); return; }
-    if (designMode === 'figma'  && !figmaUrl.trim()) { toast(setToastState, 'Paste a Figma URL first.', 'error'); return; }
-    if (designMode === 'figma'  && !figmaConnected) { toast(setToastState, 'Enter your Figma Personal Access Token above.', 'error'); return; }
-    if (!designFunnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
+    if (designMode === 'upload' && !designFile) { toast.error('Upload a design image first.'); return; }
+    if (designMode === 'figma'  && !figmaUrl.trim()) { toast.error('Paste a Figma URL first.'); return; }
+    if (designMode === 'figma'  && !figmaConnected) { toast.error('Enter your Figma Personal Access Token above.'); return; }
+    if (!designFunnelId.trim()) { toast.error('Funnel ID is required.'); return; }
 
     const colorScheme = colorPreset || customColor || COLOR_PRESETS[0].value;
     const formData = new FormData();
@@ -309,7 +305,7 @@ export default function FunnelBuilder() {
 
     const locId = locationId || localStorage.getItem('gtm_location_id') || '';
     if (!locId) {
-      toast(setToastState, 'Location ID not found. Please refresh the page.', 'error');
+      toast.error('Location ID not found. Please refresh the page.');
       return;
     }
 
@@ -329,7 +325,7 @@ export default function FunnelBuilder() {
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
         if (errData.needsPages) {
-          toast(setToastState, errData.error || 'No pages in this funnel.', 'error');
+          toast.error(errData.error || 'No pages in this funnel.');
           setAnalyzing(false);
           return;
         }
@@ -355,7 +351,7 @@ export default function FunnelBuilder() {
             if (eventLine === 'log') {
               setLogLines(prev => [...prev, { msg: d.msg, level: d.level || 'info', ts: Date.now() }]);
             } else if (eventLine === 'error') {
-              toast(setToastState, d.error || 'Design analysis failed.', 'error');
+              toast.error(d.error || 'Design analysis failed.');
             } else if (eventLine === 'start') {
               setFunnelPages(d.pages.map(p => ({ ...p, status: 'pending' })));
             } else if (eventLine === 'page_start') {
@@ -367,24 +363,24 @@ export default function FunnelBuilder() {
             } else if (eventLine === 'figma_spec') {
               if (d.spec) setFigmaSpec(d.spec);
             } else if (eventLine === 'complete') {
-              toast(setToastState, `Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
+              toast.success(`Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
               if (d.previewUrl) window.open(d.previewUrl, '_blank');
             }
           } catch {}
         }
       }
     } catch (err) {
-      toast(setToastState, err.message || 'Analysis failed.', 'error');
+      toast.error(err.message || 'Analysis failed.');
     }
     setAnalyzing(false);
   }
 
   async function handleVibeGenerate(e) {
     e.preventDefault();
-    if (!vibePrompt.trim()) { toast(setToastState, 'Prompt is required.', 'error'); return; }
+    if (!vibePrompt.trim()) { toast.error('Prompt is required.'); return; }
 
     const locId = locationId || localStorage.getItem('gtm_location_id') || '';
-    if (!locId) { toast(setToastState, 'Location ID not found. Please refresh the page.', 'error'); return; }
+    if (!locId) { toast.error('Location ID not found. Please refresh the page.'); return; }
 
     setVibeGenerating(true);
     setVibeProjectId(null);
@@ -432,22 +428,22 @@ export default function FunnelBuilder() {
             if (d.event === 'created') { setVibeProjectId(d.projectId); addLog(`Project created: ${d.projectId}`, 'info'); }
             if (d.event === 'status')  addLog(`[${d.polls}/60] Status: ${d.state || 'processing'}`, 'info');
             if (d.event === 'done')    { setVibeDone(true); addLog('Generation complete!', 'success'); }
-            if (d.event === 'error')   { addLog(d.error, 'error'); toast(setToastState, d.error, 'error'); }
+            if (d.event === 'error')   { addLog(d.error, 'error'); toast.error(d.error); }
           } catch {}
         }
       }
     } catch (err) {
       addLog(err.message, 'error');
-      toast(setToastState, err.message || 'Generation failed.', 'error');
+      toast.error(err.message || 'Generation failed.');
     }
     setVibeGenerating(false);
   }
 
   async function handleGenerate(e) {
     e.preventDefault();
-    if (!funnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
-    if (!niche.trim())    { toast(setToastState, 'Niche / Business is required.', 'error'); return; }
-    if (!offer.trim())    { toast(setToastState, 'Offer is required.', 'error'); return; }
+    if (!funnelId.trim()) { toast.error('Funnel ID is required.'); return; }
+    if (!niche.trim())    { toast.error('Niche / Business is required.'); return; }
+    if (!offer.trim())    { toast.error('Offer is required.'); return; }
 
     const colorScheme = colorPreset || customColor || COLOR_PRESETS[0].value;
 
@@ -499,7 +495,7 @@ export default function FunnelBuilder() {
               setLogLines(prev => [...prev, { msg: d.msg, level: d.level || 'info', ts: Date.now() }]);
             } else if (eventLine === 'error') {
               if (d.needsPages) setNeedsPages(d.pagesToCreate || []);
-              else toast(setToastState, d.error || 'Generation failed.', 'error');
+              else toast.error(d.error || 'Generation failed.');
             } else if (eventLine === 'start') {
               setFunnelPages(d.pages.map(p => ({ ...p, status: 'pending' })));
             } else if (eventLine === 'page_start') {
@@ -509,14 +505,14 @@ export default function FunnelBuilder() {
             } else if (eventLine === 'page_error') {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
             } else if (eventLine === 'complete') {
-              toast(setToastState, `Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
+              toast.success(`Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
               if (d.previewUrl) window.open(d.previewUrl, '_blank');
             }
           } catch {}
         }
       }
     } catch (err) {
-      toast(setToastState, err.message || 'Generation failed.', 'error');
+      toast.error(err.message || 'Generation failed.');
     }
     setGenerating(false);
   }
@@ -524,7 +520,7 @@ export default function FunnelBuilder() {
   // ── Email Campaign Generator ──────────────────────────────────────────────
   async function handleEmailGenerate(e) {
     e.preventDefault();
-    if (!emailNiche.trim()) { toast(setToastState, 'Niche/topic is required.', 'error'); return; }
+    if (!emailNiche.trim()) { toast.error('Niche/topic is required.'); return; }
     setEmailGenerating(true);
     setEmailResult(null);
     setEmailLog([]);
@@ -549,7 +545,7 @@ export default function FunnelBuilder() {
 
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        toast(setToastState, j.error || `Error ${res.status}`, 'error');
+        toast.error(j.error || `Error ${res.status}`);
         setEmailGenerating(false);
         return;
       }
@@ -572,12 +568,12 @@ export default function FunnelBuilder() {
             if (evtLine === 'step')    { setEmailLog(l => [...l, { msg: d.label, level: 'info' }]); }
             if (evtLine === 'content') { setEmailLog(l => [...l, { msg: `Subject: ${d.subject}`, level: 'success' }]); }
             if (evtLine === 'done')    { setEmailResult(d); }
-            if (evtLine === 'error')   { setEmailLog(l => [...l, { msg: `Error: ${d.error}`, level: 'error' }]); toast(setToastState, d.error, 'error'); }
+            if (evtLine === 'error')   { setEmailLog(l => [...l, { msg: `Error: ${d.error}`, level: 'error' }]); toast.error(d.error); }
           } catch {}
         }
       }
     } catch (err) {
-      toast(setToastState, err.message, 'error');
+      toast.error(err.message);
     }
     setEmailGenerating(false);
   }
@@ -589,9 +585,9 @@ export default function FunnelBuilder() {
       const res = await fetch('/website-builder/websites', { headers: { 'x-location-id': apiKey } });
       const j = await res.json();
       setWebsites(j.websites || []);
-      if ((j.websites || []).length === 0) toast(setToastState, 'No websites found for this location.', 'error');
+      if ((j.websites || []).length === 0) toast.error('No websites found for this location.');
     } catch (err) {
-      toast(setToastState, 'Could not load websites: ' + err.message, 'error');
+      toast.error('Could not load websites: ' + err.message);
     }
     setWebsitesLoading(false);
   }
@@ -606,22 +602,22 @@ export default function FunnelBuilder() {
       const res = await fetch(`/website-builder/pages?websiteId=${encodeURIComponent(wsId)}`, { headers: { 'x-location-id': apiKey } });
       const j = await res.json();
       if (!res.ok || !j.success) {
-        toast(setToastState, `Pages error: ${j.error || res.status}`, 'error');
+        toast.error(`Pages error: ${j.error || res.status}`);
       } else if ((j.pages || []).length === 0) {
-        toast(setToastState, 'No pages found for this website. Create a blank page in GHL first.', 'warn');
+        toast.warning('No pages found for this website. Create a blank page in GHL first.');
       }
       setWebPages(j.pages || []);
     } catch (err) {
-      toast(setToastState, 'Could not load pages: ' + err.message, 'error');
+      toast.error('Could not load pages: ' + err.message);
     }
     setWebPagesLoading(false);
   }
 
   async function handleWebGenerate(e) {
     e.preventDefault();
-    if (!webNiche.trim() && !webOffer.trim()) { toast(setToastState, 'Enter a niche or offer.', 'error'); return; }
-    if (!webWebsiteId.trim()) { toast(setToastState, 'Select a website first.', 'error'); return; }
-    if (!webPageId.trim()) { toast(setToastState, 'Select a page or paste a Page ID to write content to.', 'error'); return; }
+    if (!webNiche.trim() && !webOffer.trim()) { toast.error('Enter a niche or offer.'); return; }
+    if (!webWebsiteId.trim()) { toast.error('Select a website first.'); return; }
+    if (!webPageId.trim()) { toast.error('Select a page or paste a Page ID to write content to.'); return; }
     setWebGenerating(true);
     setWebResult(null);
     setWebLog([]);
@@ -649,7 +645,7 @@ export default function FunnelBuilder() {
 
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        toast(setToastState, j.error || `Error ${res.status}`, 'error');
+        toast.error(j.error || `Error ${res.status}`);
         setWebGenerating(false);
         return;
       }
@@ -674,12 +670,12 @@ export default function FunnelBuilder() {
             if (evtLine === 'content') { setWebLog(l => [...l, { msg: `Generated ${d.sections?.length || 0} sections`, level: 'success' }]); }
             if (evtLine === 'warn')    { setWebLog(l => [...l, { msg: d.message, level: 'warn' }]); }
             if (evtLine === 'done')    { setWebResult(d); }
-            if (evtLine === 'error')   { setWebLog(l => [...l, { msg: `Error: ${d.error}`, level: 'error' }]); toast(setToastState, d.error, 'error'); }
+            if (evtLine === 'error')   { setWebLog(l => [...l, { msg: `Error: ${d.error}`, level: 'error' }]); toast.error(d.error); }
           } catch {}
         }
       }
     } catch (err) {
-      toast(setToastState, err.message, 'error');
+      toast.error(err.message);
     }
     setWebGenerating(false);
   }
@@ -687,8 +683,8 @@ export default function FunnelBuilder() {
   // ── Full Funnel Generator ─────────────────────────────────────────────────
   async function handleGenerateFunnel(e) {
     e.preventDefault();
-    if (!funnelType)          { toast(setToastState, 'Please select a funnel type.', 'error'); return; }
-    if (!fullFunnelId.trim()) { toast(setToastState, 'Funnel ID is required.', 'error'); return; }
+    if (!funnelType)          { toast.error('Please select a funnel type.'); return; }
+    if (!fullFunnelId.trim()) { toast.error('Funnel ID is required.'); return; }
 
     setFunnelRunning(true);
     setFunnelPages([]);
@@ -750,14 +746,14 @@ export default function FunnelBuilder() {
             } else if (eventLine === 'page_error') {
               setFunnelPages(prev => prev.map(p => p.id === d.pageId ? { ...p, status: 'error', error: d.error } : p));
             } else if (eventLine === 'complete') {
-              toast(setToastState, `Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
+              toast.success(`Done! ${d.succeeded}/${d.total} pages generated.`, d.failed > 0 ? 'error' : 'success');
               if (d.previewUrl) window.open(d.previewUrl, '_blank');
             }
           } catch {}
         }
       }
     } catch (err) {
-      toast(setToastState, err.message || 'Funnel generation failed.', 'error');
+      toast.error(err.message || 'Funnel generation failed.');
     }
     setFunnelRunning(false);
   }
@@ -798,15 +794,6 @@ export default function FunnelBuilder() {
           </span>
         </div>
 
-        {/* Toast */}
-        {toastState && (
-          <div
-            className="fixed top-4 right-4 z-50 px-4 py-3 rounded-lg text-sm font-medium shadow-lg"
-            style={{ background: toastState.type === 'error' ? '#7f1d1d' : '#14532d', color: '#fff', maxWidth: 360 }}
-          >
-            {toastState.msg}
-          </div>
-        )}
 
         <div className="flex-1 overflow-y-auto p-4 max-w-4xl mx-auto w-full">
 
@@ -965,7 +952,7 @@ export default function FunnelBuilder() {
 
                     {!emailResult.success && emailResult.templateJson && (
                       <button
-                        onClick={() => { navigator.clipboard.writeText(JSON.stringify(emailResult.templateJson, null, 2)); toast(setToastState, 'Template JSON copied!', 'success'); }}
+                        onClick={() => { navigator.clipboard.writeText(JSON.stringify(emailResult.templateJson, null, 2)); toast.success('Template JSON copied!'); }}
                         className="mt-1 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
                         style={{ background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.4)' }}>
                         📋 Copy Template JSON
@@ -1058,7 +1045,7 @@ export default function FunnelBuilder() {
                       const snippet =
 `(async()=>{
   const SERVER='${serverUrl}',LOC='${locId}';
-  const post=(t,src)=>{console.log('[GHL Connect] Trying token from:',src,'length:',t.length,'prefix:',t.slice(0,30));return fetch(SERVER+'/funnel-builder/connect',{method:'POST',headers:{'Content-Type':'application/json','x-location-id':LOC},body:JSON.stringify({refreshedToken:t})}).then(r=>r.json()).then(d=>{console.log('[GHL Connect] Server response:',d);if(d.success)alert('✅ Connected! Go back to your app.');else alert('❌ '+(d.error||JSON.stringify(d)));});};
+  const post=(t,src)=>{console.log('[GHL Connect] Trying token from:',src,'length:',t.length,'prefix:',t.slice(0,30));return fetch(SERVER+'/funnel-builder/connect',{method:'POST',headers:{'Content-Type':'application/json','x-location-id':LOC},body:JSON.stringify({refreshedToken:t})}).then(r=>r.json()).then(d=>{console.log('[GHL Connect] Server response:',d);if(d.success)toast.success('Connected! Go back to your app.');else toast.error('❌ '+(d.error||JSON.stringify(d)));});};
   // 1st: Firebase refresh token from IndexedDB (Firebase v9+ — never expires, best option)
   try{
     const db=await new Promise((res,rej)=>{const r=indexedDB.open('firebaseLocalStorageDb');r.onsuccess=e=>res(e.target.result);r.onerror=()=>rej(r.error);});
@@ -1079,7 +1066,7 @@ export default function FunnelBuilder() {
   const rt=localStorage.getItem('refreshedToken');
   console.log('[GHL Connect] refreshedToken:',rt?'found (length '+rt.length+')':'not found');
   if(rt){return post(rt,'GHL refreshedToken');}
-  alert('❌ No Firebase token found. Make sure you are logged in to GHL first.');
+  toast.error('No Firebase token found. Make sure you are logged in to GHL first.');
 })();`;
                       return (
                         <div className="mb-4">
@@ -1987,7 +1974,7 @@ export default function FunnelBuilder() {
                   <button
                     onClick={() => {
                       navigator.clipboard.writeText(JSON.stringify(result.pageJson || result.ghlResponse, null, 2));
-                      toast(setToastState, 'Copied!');
+                      toast.success('Copied!');
                     }}
                     className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
                   >

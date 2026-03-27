@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'react-toastify';
 import { api } from '../lib/api';
 import Header from '../components/Header';
 
@@ -127,14 +128,16 @@ export default function SocialPlanner() {
   }
 
   /* delete post */
-  async function handleDelete(postId) {
-    if (!confirm('Delete this post?')) return;
-    try {
-      await api.del(`/social/posts/${postId}`);
-      loadPosts(tab);
-    } catch (err) {
-      alert('Delete failed: ' + err.message);
-    }
+  function handleDelete(postId) {
+    toast(({ closeToast }) => (
+      <div>
+        <p style={{ margin: '0 0 10px', fontWeight: 500 }}>Delete this post?</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={async () => { closeToast(); try { await api.del(`/social/posts/${postId}`); loadPosts(tab); } catch (err) { toast.error('Delete failed: ' + err.message); } }} style={{ background: '#dc2626', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Delete</button>
+          <button onClick={closeToast} style={{ background: '#333', border: 'none', borderRadius: 6, color: '#e5e7eb', padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+        </div>
+      </div>
+    ), { autoClose: false, closeOnClick: false, draggable: false });
   }
 
   /* ── Render ───────────────────────────────────────────────────────── */

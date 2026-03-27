@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { toast } from 'react-toastify';
 import { useApp }   from '../context/AppContext';
 import AuthGate     from '../components/AuthGate';
 import Header       from '../components/Header';
@@ -50,7 +51,6 @@ function openOAuthPopup(platform, locationId) {
 export default function Settings() {
   const { isAuthenticated, isAuthLoading, apiKey, claudeReady, aiProvider, providerPreviews, locationId, locationName, refreshStatus, integrations, ghlMessages } = useApp();
 
-  const [toast,       setToast]       = useState(null);
   const [testResults, setTestResults] = useState({});
   const [expanded,    setExpanded]    = useState({});
   const [formValues,  setFormValues]  = useState({});
@@ -123,12 +123,7 @@ export default function Settings() {
   const showSocialHub = plannerShared || visibleSocialPlatforms.length > 0;
   const showPaymentHub = visiblePaymentProviders.length > 0;
 
-  // ── Toast helper ──────────────────────────────────────────────────────────
-
-  const showToast = (msg, ok) => {
-    setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = (msg, ok) => ok ? toast.success(msg) : toast.error(msg);
 
   // ── Field helpers ─────────────────────────────────────────────────────────
 
@@ -226,16 +221,16 @@ export default function Settings() {
   // ── Disconnect ────────────────────────────────────────────────────────────
 
   const disconnect = async cfg => {
-    if (!confirm(`Disconnect ${cfg.label}? API keys will be removed from the database.`)) return;
-    const data = await api.del(`/tools/${cfg.key}`);
-    if (data.success) {
-      showToast('Disconnected.', true);
-      setEditMode({});
-      setFormValues({});
-      await refreshStatus();
-    } else {
-      showToast(data.error, false);
-    }
+    toast(({ closeToast }) => (
+      <div>
+        <p style={{ margin: '0 0 10px', fontWeight: 500 }}>Disconnect {cfg.label}?</p>
+        <p style={{ margin: '0 0 12px', fontSize: 13, color: '#9ca3af' }}>API keys will be removed from the database.</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={async () => { closeToast(); const data = await api.del(`/tools/${cfg.key}`); if (data.success) { showToast('Disconnected.', true); setEditMode({}); setFormValues({}); await refreshStatus(); } else showToast(data.error, false); }} style={{ background: '#dc2626', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Disconnect</button>
+          <button onClick={closeToast} style={{ background: '#333', border: 'none', borderRadius: 6, color: '#e5e7eb', padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+        </div>
+      </div>
+    ), { autoClose: false, closeOnClick: false, draggable: false });
   };
 
   // ── Reconnect (token refresh) ─────────────────────────────────────────────
@@ -1000,17 +995,6 @@ export default function Settings() {
       </main>
       )}
 
-      {/* Toast */}
-      {toast && (
-        <div
-          className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl text-sm font-medium fade-up"
-          style={toast.ok
-            ? { background: 'rgba(34,197,94,0.15)',  border: '1px solid rgba(34,197,94,0.3)',  color: '#4ade80' }
-            : { background: 'rgba(239,68,68,0.15)',  border: '1px solid rgba(239,68,68,0.3)',  color: '#f87171' }}
-        >
-          {toast.msg}
-        </div>
-      )}
     </div>
   );
 }
@@ -1105,15 +1089,16 @@ function PaymentHubCard({ serverMap, showToast, refreshStatus, visibleProviders 
 
   const disconnect = async (providerKey) => {
     const p = visibleProviders.find(x => x.key === providerKey);
-    if (!confirm(`Disconnect ${p?.label}? Credentials will be removed.`)) return;
-    const data = await api.del(`/tools/${providerKey}`);
-    if (data.success) {
-      showToast(`${p?.label} disconnected.`, true);
-      if (selected === providerKey) { setSelected(null); setFormVals({}); setTestResult(null); }
-      await refreshStatus();
-    } else {
-      showToast(data.error, false);
-    }
+    toast(({ closeToast }) => (
+      <div>
+        <p style={{ margin: '0 0 10px', fontWeight: 500 }}>Disconnect {p?.label}?</p>
+        <p style={{ margin: '0 0 12px', fontSize: 13, color: '#9ca3af' }}>Credentials will be removed.</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={async () => { closeToast(); const data = await api.del(`/tools/${providerKey}`); if (data.success) { showToast(`${p?.label} disconnected.`, true); if (selected === providerKey) { setSelected(null); setFormVals({}); setTestResult(null); } await refreshStatus(); } else showToast(data.error, false); }} style={{ background: '#dc2626', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Disconnect</button>
+          <button onClick={closeToast} style={{ background: '#333', border: 'none', borderRadius: 6, color: '#e5e7eb', padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+        </div>
+      </div>
+    ), { autoClose: false, closeOnClick: false, draggable: false });
   };
 
   return (

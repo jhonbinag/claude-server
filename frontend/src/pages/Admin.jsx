@@ -13,6 +13,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-toastify';
 
+function confirmToast(message, onConfirm, confirmLabel = 'Confirm', confirmColor = '#dc2626') {
+  toast(({ closeToast }) => (
+    <div>
+      <p style={{ margin: '0 0 10px', fontWeight: 500 }}>{message}</p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          onClick={() => { closeToast(); onConfirm(); }}
+          style={{ background: confirmColor, border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+        >{confirmLabel}</button>
+        <button
+          onClick={closeToast}
+          style={{ background: '#333', border: 'none', borderRadius: 6, color: '#e5e7eb', padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}
+        >Cancel</button>
+      </div>
+    </div>
+  ), { autoClose: false, closeOnClick: false, draggable: false });
+}
+
 // ── Static feature/role defaults (mirrors roleService.js) ─────────────────────
 const ALL_FEATURES_DEFAULT = [
   { key: 'funnel_builder',   label: 'Funnel Builder',        icon: '🏗️' },
@@ -645,7 +663,6 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
   const [brain,             setBrain]             = useState(initialBrain);
   const [tab,               setTab]               = useState('progress');
   const [channels,          setChannels]          = useState(initialBrain.channels || []);
-  const [flash,             setFlashLocal]        = useState(null);
   const [syncing,           setSyncing]           = useState(false);
   const [autoSync,          setAutoSync]          = useState(!!initialBrain.autoSync);
   const [syncingChannelId,  setSyncingChannelId]  = useState(null);
@@ -672,8 +689,6 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
   const [noteType,          setNoteType]          = useState('note');
   const [noteAdding,        setNoteAdding]        = useState(false);
   const [showNoteForm,      setShowNoteForm]      = useState(false);
-
-  const showFlash = (ok, text) => { setFlashLocal({ ok, text }); setTimeout(() => setFlashLocal(null), 4000); };
 
   useEffect(() => {
     setBrain(initialBrain);
@@ -728,14 +743,14 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
     while (batchActiveRef.current) {
       try {
         const r = await adminFetch(`/brain/${brain.brainId}/sync-batch${brainLocQ}`, { method:'POST', adminKey, body:{ batchSize:2 } });
-        if (!r.success) { showFlash(false, r.error || 'Batch processing failed.'); break; }
+        if (!r.success) { toast.error(r.error || 'Batch processing failed.'); break; }
         totalDone += r.ingested || 0;
         totalErrors += r.errors || 0;
         setBatchProgress({ done:totalDone, remaining:r.remaining||0, total:totalDone+totalErrors+(r.remaining||0), errors:totalErrors });
         await reloadVideos();
         if (r.done) {
           adminFetch(`/brain/${brain.brainId}${brainLocQ}`, { method:'PATCH', adminKey, body:{ pipelineStage:'ready' } });
-          showFlash(true, `Processing complete — ${totalDone} video${totalDone!==1?'s':''} indexed${totalErrors>0?`, ${totalErrors} errors`:''}. `);
+          toast.success(`Processing complete — ${totalDone} video${totalDone!==1?'s':''} indexed${totalErrors>0?`, ${totalErrors} errors`:''}. `);
           break;
         }
         if (batchActiveRef.current) {
@@ -746,7 +761,7 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
           }
           setBatchCooldown(0);
         }
-      } catch(e) { showFlash(false, `Processing error: ${e.message}`); break; }
+      } catch(e) { toast.error(`Processing error: ${e.message}`); break; }
     }
     batchActiveRef.current = false;
     setBatchProcessing(false);
@@ -765,15 +780,15 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
     try {
       const r = await adminFetch(`/brain/${brain.brainId}/videos/${videoId}/transcript${brainLocQ}`, { method:'POST', adminKey });
       if (r.success) {
-        showFlash(true, `Transcript generated — ${r.chunks} chunks stored.`);
+        toast.success(`Transcript generated — ${r.chunks} chunks stored.`);
         await reloadVideos();
         onRefresh?.();
       } else {
-        showFlash(false, r.error || 'Failed to generate transcript.');
+        toast.error(r.error || 'Failed to generate transcript.');
         setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus:'error', transcriptError:r.error } : v));
       }
     } catch(e) {
-      showFlash(false, e.message || 'Failed.');
+      toast.error(e.message || 'Failed.');
       setVideos(prev => prev.map(v => v.videoId === videoId ? { ...v, transcriptStatus:'error' } : v));
     }
     setGeneratingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
@@ -785,14 +800,14 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
     try {
       const r = await adminFetch(`/brain/${brain.brainId}/youtube${brainLocQ}`, { method:'POST', adminKey, body:{ url:ytUrl.trim() } });
       if (r.success) {
-        showFlash(true, `"${r.title}" ingested — ${r.chunks} chunks stored.`);
+        toast.success(`"${r.title}" ingested — ${r.chunks} chunks stored.`);
         setYtUrl('');
         await reloadBrain();
         onRefresh?.();
       } else {
-        showFlash(false, r.error || 'Failed to ingest video.');
+        toast.error(r.error || 'Failed to ingest video.');
       }
-    } catch { showFlash(false, 'Request failed.'); }
+    } catch { toast.error('Request failed.'); }
     setIngesting(false);
   }
 
@@ -801,50 +816,51 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
     try {
       const r = await adminFetch(`/brain/${brain.brainId}/generate-docs${brainLocQ}`, { method:'POST', adminKey });
       if (r.success) {
-        showFlash(true, `Documentation v${r.version||''} generated.`);
+        toast.success(`Documentation v${r.version||''} generated.`);
         await reloadBrain();
         onRefresh?.();
-      } else showFlash(false, r.error || 'Failed to generate docs.');
-    } catch { showFlash(false, 'Request failed.'); }
+      } else toast.error(r.error || 'Failed to generate docs.');
+    } catch { toast.error('Request failed.'); }
     setGeneratingDocs(false);
   }
 
-  async function deleteChannel(channelId, name) {
-    if (!confirm(`Remove channel "${name}" from this brain?`)) return;
-    try {
-      const r = await adminFetch(`/brain/${brain.brainId}/channels/${channelId}${brainLocQ}`, { method:'DELETE', adminKey });
-      if (r.success) { setChannels(prev => prev.filter(c => c.channelId !== channelId)); onRefresh?.(); }
-      else showFlash(false, r.error || 'Failed to remove channel.');
-    } catch { showFlash(false, 'Failed to remove channel.'); }
+  function deleteChannel(channelId, name) {
+    confirmToast(`Remove channel "${name}" from this brain?`, async () => {
+      try {
+        const r = await adminFetch(`/brain/${brain.brainId}/channels/${channelId}${brainLocQ}`, { method:'DELETE', adminKey });
+        if (r.success) { setChannels(prev => prev.filter(c => c.channelId !== channelId)); onRefresh?.(); }
+        else toast.error(r.error || 'Failed to remove channel.');
+      } catch { toast.error('Failed to remove channel.'); }
+    });
   }
 
   async function syncChannel(channelId, name) {
     setSyncingChannelId(channelId);
-    showFlash(true, `Discovering videos for "${name}"…`);
+    toast.success(`Discovering videos for "${name}"…`);
     try {
       let result;
       do {
         result = await adminFetch(`/brain/${brain.brainId}/channels/${channelId}/queue${brainLocQ}`, { method:'POST', adminKey });
-        if (!result.success) { showFlash(false, result.error||'Failed to sync channel.'); setSyncingChannelId(null); return; }
+        if (!result.success) { toast.error(result.error||'Failed to sync channel.'); setSyncingChannelId(null); return; }
         if (result.discovering) {
-          showFlash(true, `Discovering videos for "${name}"… ${result.videoCount||0} found so far`);
+          toast.info(`Discovering videos for "${name}"… ${result.videoCount||0} found so far`);
           await reloadVideos();
         }
       } while (result.discovering);
       const discovered = result.videoCount || result.queued || 0;
-      showFlash(true, `"${name}" — ${discovered} videos discovered. Starting transcript processing…`);
+      toast.success(`"${name}" — ${discovered} videos discovered. Starting transcript processing…`);
       onRefresh?.();
       await reloadBrain();
       await reloadVideos();
       setTab('videos');
       startBatchLoop();
-    } catch(e) { showFlash(false, e.message || 'Sync failed.'); }
+    } catch(e) { toast.error(e.message || 'Sync failed.'); }
     setSyncingChannelId(null);
   }
 
   async function syncAllChannels() {
     setSyncing(true);
-    showFlash(true, 'Discovering videos for all channels…');
+    toast.info('Discovering videos for all channels…');
     try {
       let totalDiscovered = 0;
       for (const ch of channels.filter(c => c.channelUrl)) {
@@ -853,19 +869,19 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
           result = await adminFetch(`/brain/${brain.brainId}/channels/${ch.channelId}/queue${brainLocQ}`, { method:'POST', adminKey });
           if (!result.success) break;
           if (result.discovering) {
-            showFlash(true, `Discovering "${ch.channelName}"… ${result.videoCount||0} videos found`);
+            toast.info(`Discovering "${ch.channelName}"… ${result.videoCount||0} videos found`);
             await reloadVideos();
           }
         } while (result.discovering);
         if (result.success) totalDiscovered += result.videoCount || result.queued || 0;
       }
-      showFlash(true, `${totalDiscovered} videos discovered. Starting transcript processing…`);
+      toast.success(`${totalDiscovered} videos discovered. Starting transcript processing…`);
       onRefresh?.();
       await reloadBrain();
       await reloadVideos();
       setTab('videos');
       startBatchLoop();
-    } catch { showFlash(false, 'Sync failed.'); }
+    } catch { toast.error('Sync failed.'); }
     setSyncing(false);
   }
 
@@ -877,22 +893,23 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
         method:'POST', adminKey, body:{ title:noteTitle, text:noteText, noteType },
       });
       if (r.success) {
-        showFlash(true, 'Note added.');
+        toast.success('Note added.');
         setNoteTitle(''); setNoteText(''); setNoteType('note'); setShowNoteForm(false);
         await reloadBrain();
         onRefresh?.();
-      } else showFlash(false, r.error || 'Failed to add note.');
-    } catch { showFlash(false, 'Request failed.'); }
+      } else toast.error(r.error || 'Failed to add note.');
+    } catch { toast.error('Request failed.'); }
     setNoteAdding(false);
   }
 
-  async function deleteNote(entryId) {
-    if (!confirm('Delete this note?')) return;
-    try {
-      const r = await adminFetch(`/brain/${brain.brainId}/changelog/${entryId}${brainLocQ}`, { method:'DELETE', adminKey });
-      if (r.success) { showFlash(true, 'Note deleted.'); await reloadBrain(); onRefresh?.(); }
-      else showFlash(false, r.error || 'Delete failed.');
-    } catch { showFlash(false, 'Request failed.'); }
+  function deleteNote(entryId) {
+    confirmToast('Delete this note?', async () => {
+      try {
+        const r = await adminFetch(`/brain/${brain.brainId}/changelog/${entryId}${brainLocQ}`, { method:'DELETE', adminKey });
+        if (r.success) { toast.success('Note deleted.'); await reloadBrain(); onRefresh?.(); }
+        else toast.error(r.error || 'Delete failed.');
+      } catch { toast.error('Request failed.'); }
+    });
   }
 
   const complete = videos.filter(v => v.transcriptStatus === 'complete').length;
@@ -922,7 +939,7 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
         <AdminAddChannelModal
           brainId={brain.brainId} adminKey={adminKey} brainLocQ={brainLocQ}
           onClose={() => setShowAddChannel(false)}
-          onAdded={ch => { setChannels(prev => [...prev, ch]); setShowAddChannel(false); showFlash(true, `Channel "${ch.channelName}" added.`); onRefresh?.(); }}
+          onAdded={ch => { setChannels(prev => [...prev, ch]); setShowAddChannel(false); toast.success(`Channel "${ch.channelName}" added.`); onRefresh?.(); }}
         />
       )}
       {showDocsModal && (
@@ -977,7 +994,7 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
                 setAutoSync(next);
                 try {
                   await adminFetch(`/brain/${brain.brainId}${brainLocQ}`, { method:'PATCH', adminKey, body:{ autoSync:next } });
-                  showFlash(true, next?'Auto-sync enabled.':'Auto-sync disabled.');
+                  toast.success(next?'Auto-sync enabled.':'Auto-sync disabled.');
                 } catch { setAutoSync(!next); }
               }}
               style={{ display:'flex', alignItems:'center', gap:7, cursor:'pointer', userSelect:'none' }}>
@@ -992,12 +1009,12 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
             </button>
             <button title="Re-index existing chunks into vector database"
               onClick={async () => {
-                showFlash(true, 'Re-indexing into vector database…');
+                toast.info('Re-indexing into vector database…');
                 try {
                   const r = await adminFetch(`/brain/${brain.brainId}/reindex${brainLocQ}`, { method:'POST', adminKey });
-                  if (r.success) showFlash(true, `✓ Vector index updated: ${r.vectors} chunks from ${r.docs} docs`);
-                  else showFlash(false, r.error||'Re-index failed.');
-                } catch(e) { showFlash(false, e.message); }
+                  if (r.success) toast.success(`Vector index updated: ${r.vectors} chunks from ${r.docs} docs`);
+                  else toast.error(r.error||'Re-index failed.');
+                } catch(e) { toast.error(e.message); }
               }}
               style={{ ...bdBtnS, fontSize:12 }}>⚡ Reindex</button>
             <button onClick={() => setShowAddChannel(true)} style={bdBtnP}>+ Add Channel</button>
@@ -1011,13 +1028,6 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
           </div>
         )}
       </div>
-
-      {/* Flash */}
-      {flash && (
-        <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:8, background:flash.ok?'#052e16':'#1c0a00', border:`1px solid ${flash.ok?BD.green+'44':BD.red+'44'}`, color:flash.ok?'#4ade80':'#f87171', fontSize:13 }}>
-          {flash.ok?'✓ ':'✗ '}{flash.text}
-        </div>
-      )}
 
       {/* Tabs */}
       <div style={{ display:'flex', gap:0, borderBottom:`1px solid ${BD.border}`, marginBottom:20 }}>
@@ -1290,10 +1300,11 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
                           title="Download transcript as .txt"
                           style={{ background:'none', border:'none', color:BD.textMuted, cursor:'pointer', fontSize:15, padding:'4px 6px', flexShrink:0 }}>⬇</button>
                         <button
-                          onClick={async () => {
-                            if (!confirm(`Remove transcript for "${video.title||video.videoId}" from this brain?`)) return;
-                            await adminFetch(`/brain/${brain.brainId}/docs/${video.docId}${brainLocQ}`, { method:'DELETE', adminKey });
-                            await reloadVideos(); await reloadBrain(); onRefresh?.();
+                          onClick={() => {
+                            confirmToast(`Remove transcript for "${video.title||video.videoId}" from this brain?`, async () => {
+                              await adminFetch(`/brain/${brain.brainId}/docs/${video.docId}${brainLocQ}`, { method:'DELETE', adminKey });
+                              await reloadVideos(); await reloadBrain(); onRefresh?.();
+                            });
                           }}
                           title="Remove transcript from brain"
                           style={{ background:'none', border:'none', color:BD.textMuted, cursor:'pointer', fontSize:14, padding:'4px 6px', flexShrink:0 }}>✕</button>
@@ -1353,12 +1364,12 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
                 try {
                   const r = await adminFetch(`/brain/${brain.brainId}${brainLocQ}`, { method:'PATCH', adminKey, body:{ name:editName, description:editDesc } });
                   if (r.success) {
-                    showFlash(true, 'Brain settings saved.');
+                    toast.success('Brain settings saved.');
                     setBrain(prev => ({ ...prev, name:editName, description:editDesc }));
                     onBrainUpdated?.({ brainId:brain.brainId, name:editName, description:editDesc });
                     onRefresh?.();
-                  } else showFlash(false, r.error||'Save failed.');
-                } catch { showFlash(false, 'Request failed.'); }
+                  } else toast.error(r.error||'Save failed.');
+                } catch { toast.error('Request failed.'); }
                 setSaving(false);
               }} style={{ ...bdBtnP, opacity:saving?0.5:1 }}>
                 💾 {saving?'Saving…':'Save changes'}
@@ -1620,7 +1631,6 @@ export default function Admin() {
   const [locations,  setLocations]  = useState([]);
   const [logs,       setLogs]       = useState([]);
   const [loading,    setLoading]    = useState(false);
-  const [actionMsg,  setActionMsg]  = useState('');
 
   const [logFilter,       setLogFilter]       = useState({ locationId: '', event: '' });
   const [expandedId,        setExpandedId]        = useState(null);
@@ -1842,7 +1852,7 @@ export default function Admin() {
         if (rolesData.tiers) setRoleTiers(rolesData.tiers);
       }
       setLocationEnabledIntegrations(intData.success ? (intData.enabled || []) : []);
-    } catch { flash('✗ Failed to load users/roles'); }
+    } catch { toast.error('Failed to load users/roles'); }
     setRolesLoading(false);
   }, [adminKey, rolesLocationId]); // eslint-disable-line
 
@@ -1888,16 +1898,14 @@ export default function Admin() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  const flash = (msg) => { setActionMsg(msg); setTimeout(() => setActionMsg(''), 3500); };
-
   const doAction = async (path, label) => {
     const data = await adminFetch(path, { method: 'POST', adminKey });
     if (data.success) {
-      flash(`✓ ${label}`);
+      toast.success(label);
       loadLocations();
       loadStats();
     } else {
-      flash(`✗ ${data.error}`);
+      toast.error(data.error);
     }
   };
 
@@ -1937,53 +1945,55 @@ export default function Admin() {
     }
   };
 
-  const clearConnection = async (locationId, category) => {
+  const clearConnection = (locationId, category) => {
     const locationLabel = getLocationLabel(locationId);
-    if (!confirm(`Clear ${category} connection for ${locationLabel}? The user will need to reconnect it.`)) return;
-    const res = await adminFetch(`/admin/locations/${locationId}/connections/${category}`, { method: 'DELETE', adminKey });
-    if (res.success) {
-      flash(`✓ Cleared ${category} for ${locationLabel}`);
-      // Refresh troubleshoot data
-      setTroubleshootData((prev) => {
-        const loc = prev[locationId] || {};
-        const newConn = { ...loc.connections };
-        delete newConn[category];
-        return {
-          ...prev,
-          [locationId]: {
-            ...loc,
-            connections: newConn,
-            toolAccess: (loc.toolAccess || []).map((item) => (
-              item.key === category
-                ? { ...item, connected: false, configPreview: null }
-                : item
-            )),
-          },
-        };
-      });
-      setDetailData((prev) => {
-        const d = prev[locationId];
-        if (!d) return prev;
-        return { ...prev, [locationId]: { ...d, connectedCategories: (d.connectedCategories || []).filter(c => c !== category) } };
-      });
-    } else {
-      flash(`✗ ${res.error}`);
-    }
+    confirmToast(`Clear ${category} connection for ${locationLabel}? The user will need to reconnect it.`, async () => {
+      const res = await adminFetch(`/admin/locations/${locationId}/connections/${category}`, { method: 'DELETE', adminKey });
+      if (res.success) {
+        toast.success(`Cleared ${category} for ${locationLabel}`);
+        // Refresh troubleshoot data
+        setTroubleshootData((prev) => {
+          const loc = prev[locationId] || {};
+          const newConn = { ...loc.connections };
+          delete newConn[category];
+          return {
+            ...prev,
+            [locationId]: {
+              ...loc,
+              connections: newConn,
+              toolAccess: (loc.toolAccess || []).map((item) => (
+                item.key === category
+                  ? { ...item, connected: false, configPreview: null }
+                  : item
+              )),
+            },
+          };
+        });
+        setDetailData((prev) => {
+          const d = prev[locationId];
+          if (!d) return prev;
+          return { ...prev, [locationId]: { ...d, connectedCategories: (d.connectedCategories || []).filter(c => c !== category) } };
+        });
+      } else {
+        toast.error(res.error);
+      }
+    });
   };
 
-  const deleteWorkflow = async (locationId, wfId, wfName) => {
+  const deleteWorkflow = (locationId, wfId, wfName) => {
     const locationLabel = getLocationLabel(locationId);
-    if (!confirm(`Delete workflow "${wfName}" from ${locationLabel}?`)) return;
-    const res = await adminFetch(`/admin/locations/${locationId}/workflows/${wfId}`, { method: 'DELETE', adminKey });
-    if (res.success) {
-      flash(`✓ Deleted workflow "${wfName}" from ${locationLabel}`);
-      setTroubleshootData((prev) => {
-        const loc = prev[locationId] || {};
-        return { ...prev, [locationId]: { ...loc, workflows: (loc.workflows || []).filter(w => w.id !== wfId) } };
-      });
-    } else {
-      flash(`✗ ${res.error}`);
-    }
+    confirmToast(`Delete workflow "${wfName}" from ${locationLabel}?`, async () => {
+      const res = await adminFetch(`/admin/locations/${locationId}/workflows/${wfId}`, { method: 'DELETE', adminKey });
+      if (res.success) {
+        toast.success(`Deleted workflow "${wfName}" from ${locationLabel}`);
+        setTroubleshootData((prev) => {
+          const loc = prev[locationId] || {};
+          return { ...prev, [locationId]: { ...loc, workflows: (loc.workflows || []).filter(w => w.id !== wfId) } };
+        });
+      } else {
+        toast.error(res.error);
+      }
+    });
   };
 
   const editWorkflow = (locationId, wf) => {
@@ -2205,13 +2215,6 @@ export default function Admin() {
           </div>
         </div>
 
-        {/* Flash */}
-        {actionMsg && (
-          <div style={{ background: actionMsg.startsWith('✓') ? '#14532d' : '#450a0a', color: '#fff', padding: '10px 24px', fontSize: 13, flexShrink: 0 }}>
-            {actionMsg}
-          </div>
-        )}
-
         {/* Page content */}
         <div style={{ padding: isMobile ? '16px' : '28px', flex: 1, overflowX: 'hidden' }}>
 
@@ -2291,17 +2294,17 @@ export default function Admin() {
                 ['clientId', 'clientSecret', 'redirectUri'].forEach((k) => {
                   if (appSettingsForm[k].trim()) payload[k] = appSettingsForm[k].trim();
                 });
-                if (!Object.keys(payload).length) { flash('No changes to save.'); return; }
+                if (!Object.keys(payload).length) { toast.info('No changes to save.'); return; }
                 setAppSettingsSaving(true);
                 const data = await adminFetch('/admin/app-settings', { method: 'POST', adminKey, body: payload });
                 setAppSettingsSaving(false);
                 if (data.success) {
-                  flash('✓ GHL app credentials saved.');
+                  toast.success('GHL app credentials saved.');
                   setAppSettingsEdit({ clientId: false, clientSecret: false, redirectUri: false });
                   setAppSettingsForm({ clientId: '', clientSecret: '', redirectUri: '' });
                   loadAppSettings();
                 } else {
-                  flash(`✗ ${data.error}`);
+                  toast.error(data.error);
                 }
               }}
               style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '10px 24px', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: appSettingsSaving ? 0.6 : 1 }}
@@ -2664,11 +2667,12 @@ export default function Admin() {
                               <ActionBtn icon="＋" title="Add invoice" color="#059669"
                                 onClick={() => setBillingModal({ type: 'add-invoice', locationId: rec.locationId, data: {} })} />
                               <ActionBtn icon="🗑" title="Delete all billing data" color="#dc2626"
-                                onClick={async () => {
-                                  if (!confirm(`Delete ALL billing data for ${locationLabel}?`)) return;
-                                  await adminFetch(`/admin/billing/${rec.locationId}`, { method: 'DELETE', adminKey });
-                                  flash(`✓ Deleted billing for ${locationLabel}`);
-                                  loadBilling();
+                                onClick={() => {
+                                  confirmToast(`Delete ALL billing data for ${locationLabel}?`, async () => {
+                                    await adminFetch(`/admin/billing/${rec.locationId}`, { method: 'DELETE', adminKey });
+                                    toast.success(`Deleted billing for ${locationLabel}`);
+                                    loadBilling();
+                                  });
                                 }} />
                             </div>
                           </td>
@@ -2717,19 +2721,21 @@ export default function Admin() {
                                                   onClick={() => setBillingModal({ type: 'edit-invoice', locationId: rec.locationId, data: inv })} />
                                                 {inv.status === 'paid' && (
                                                   <ActionBtn icon="↩" title="Refund" color="#f97316"
-                                                    onClick={async () => {
-                                                      if (!confirm(`Refund $${inv.amount} invoice?`)) return;
-                                                      await adminFetch(`/admin/billing/${rec.locationId}/refund/${inv.id}`, { method: 'POST', adminKey });
-                                                      flash(`✓ Refunded ${inv.id}`);
-                                                      loadBilling();
+                                                    onClick={() => {
+                                                      confirmToast(`Refund $${inv.amount} invoice?`, async () => {
+                                                        await adminFetch(`/admin/billing/${rec.locationId}/refund/${inv.id}`, { method: 'POST', adminKey });
+                                                        toast.success(`Refunded ${inv.id}`);
+                                                        loadBilling();
+                                                      });
                                                     }} />
                                                 )}
                                                 <ActionBtn icon="🗑" title="Delete invoice" color="#dc2626"
-                                                  onClick={async () => {
-                                                    if (!confirm('Delete this invoice?')) return;
-                                                    await adminFetch(`/admin/billing/${rec.locationId}/invoice/${inv.id}`, { method: 'DELETE', adminKey });
-                                                    flash(`✓ Invoice deleted`);
-                                                    loadBilling();
+                                                  onClick={() => {
+                                                    confirmToast('Delete this invoice?', async () => {
+                                                      await adminFetch(`/admin/billing/${rec.locationId}/invoice/${inv.id}`, { method: 'DELETE', adminKey });
+                                                      toast.success('Invoice deleted');
+                                                      loadBilling();
+                                                    });
                                                   }} />
                                               </div>
                                             </td>
@@ -2764,8 +2770,8 @@ export default function Admin() {
                 getLocationName={getLocationName}
                 getLocationLabel={getLocationLabel}
                 onClose={() => setBillingModal(null)}
-                onSaved={() => { setBillingModal(null); loadBilling(); flash('✓ Saved'); }}
-                onFlash={flash}
+                onSaved={() => { setBillingModal(null); loadBilling(); toast.success('Saved'); }}
+                onFlash={(msg) => msg.startsWith('✗') ? toast.error(msg.replace(/^✗\s*/, '')) : toast.info(msg.replace(/^✓\s*/, ''))}
               />
             )}
           </div>
@@ -2804,9 +2810,9 @@ export default function Admin() {
                   setGhlProductsLoading(true);
                   try {
                     const data = await adminFetch(`/admin/ghl-products?locationId=${encodeURIComponent(ghlProductsLocId)}`, { adminKey });
-                    if (data.success) { setGhlProducts(data.data); flash(`✓ ${data.data.length} GHL products loaded`); }
-                    else flash(`✗ ${data.error || 'Failed'}`);
-                  } catch { flash('✗ Request failed'); }
+                    if (data.success) { setGhlProducts(data.data); toast.success(`${data.data.length} GHL products loaded`); }
+                    else toast.error(data.error || 'Failed');
+                  } catch { toast.error('Request failed'); }
                   setGhlProductsLoading(false);
                 }}
                 style={{ padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', opacity: (!ghlProductsLocId || ghlProductsLoading) ? 0.5 : 1 }}
@@ -2935,9 +2941,9 @@ export default function Admin() {
                                 const upd  = { ghlProductId: pid || null, ghlProductName: prod?.name || null, ghlPriceId: null };
                                 try {
                                   const res = await adminFetch(`/admin/plan-tiers/${tierKey}`, { method: 'POST', adminKey, body: upd });
-                                  if (res.success) { setTiers(prev => ({ ...prev, [tierKey]: res.data })); flash(`✓ ${tier.name}: GHL product updated`); }
-                                  else flash(`✗ ${res.error}`);
-                                } catch { flash('✗ Save failed'); }
+                                  if (res.success) { setTiers(prev => ({ ...prev, [tierKey]: res.data })); toast.success(`${tier.name}: GHL product updated`); }
+                                  else toast.error(res.error);
+                                } catch { toast.error('Save failed'); }
                               }}
                               style={{ width: '100%', padding: '6px 10px', background: '#111', border: `1px solid ${tierColor}33`, borderRadius: 6, color: '#e5e7eb', fontSize: 12 }}
                             >
@@ -2964,9 +2970,9 @@ export default function Admin() {
                                     };
                                     try {
                                       const res = await adminFetch(`/admin/plan-tiers/${tierKey}`, { method: 'POST', adminKey, body: upd });
-                                      if (res.success) { setTiers(prev => ({ ...prev, [tierKey]: res.data })); flash(`✓ ${tier.name}: price synced from GHL`); }
-                                      else flash(`✗ ${res.error}`);
-                                    } catch { flash('✗ Save failed'); }
+                                      if (res.success) { setTiers(prev => ({ ...prev, [tierKey]: res.data })); toast.success(`${tier.name}: price synced from GHL`); }
+                                      else toast.error(res.error);
+                                    } catch { toast.error('Save failed'); }
                                   }}
                                   style={{ width: '100%', marginTop: 6, padding: '6px 10px', background: '#111', border: `1px solid ${tierColor}33`, borderRadius: 6, color: '#e5e7eb', fontSize: 12 }}
                                 >
@@ -3004,10 +3010,10 @@ export default function Admin() {
                 onClose={() => setTierModal(null)}
                 onSaved={(tierKey, saved) => {
                   setTierModal(null);
-                  flash(`✓ ${saved.name} tier updated`);
+                  toast.success(`${saved.name} tier updated`);
                   setTiers(prev => ({ ...prev, [tierKey]: saved }));
                 }}
-                onFlash={flash}
+                onFlash={(msg) => msg.startsWith('✗') ? toast.error(msg.replace(/^✗\s*/, '')) : toast.success(msg.replace(/^✓\s*/, ''))}
               />
             )}
           </div>
@@ -3111,9 +3117,9 @@ export default function Admin() {
                                       setRolesSaving(prev => ({ ...prev, [u.userId]: true }));
                                       try {
                                         const data = await adminFetch(`/admin/locations/${rolesLocationId}/users/${u.userId}/role`, { method: 'POST', adminKey, body: { role: newRole } });
-                                        if (data.success) { setRolesUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, role: newRole } : x)); flash(`✓ ${u.name || u.userId} → ${newRole}`); }
-                                        else flash(`✗ ${data.error}`);
-                                      } catch { flash('✗ Save failed'); }
+                                        if (data.success) { setRolesUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, role: newRole } : x)); toast.success(`${u.name || u.userId} → ${newRole}`); }
+                                        else toast.error(data.error);
+                                      } catch { toast.error('Save failed'); }
                                       setRolesSaving(prev => ({ ...prev, [u.userId]: false }));
                                     }}
                                     style={{ background: '#111', border: '1px solid #333', borderRadius: 6, color: curColor, padding: '4px 8px', fontSize: 12, cursor: 'pointer', opacity: rolesSaving[u.userId] ? 0.5 : 1 }}
@@ -3206,13 +3212,14 @@ export default function Admin() {
                               <div style={{ display: 'flex', gap: 4 }}>
                                 <button onClick={() => setRoleModal({ mode: 'edit', role: r })}
                                   style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#9ca3af', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>✏️ Edit</button>
-                                <button onClick={async () => {
-                                    if (!confirm(`Delete role "${r.name}"?`)) return;
-                                    try {
-                                      const data = await adminFetch(`/admin/locations/${rolesLocationId}/custom-roles/${r.id}`, { method: 'DELETE', adminKey });
-                                      if (data.success) { setCustomRoles(prev => prev.filter(x => x.id !== r.id)); flash(`✓ Role "${r.name}" deleted`); }
-                                      else flash(`✗ ${data.error}`);
-                                    } catch { flash('✗ Delete failed'); }
+                                <button onClick={() => {
+                                    confirmToast(`Delete role "${r.name}"?`, async () => {
+                                      try {
+                                        const data = await adminFetch(`/admin/locations/${rolesLocationId}/custom-roles/${r.id}`, { method: 'DELETE', adminKey });
+                                        if (data.success) { setCustomRoles(prev => prev.filter(x => x.id !== r.id)); toast.success(`Role "${r.name}" deleted`); }
+                                        else toast.error(data.error);
+                                      } catch { toast.error('Delete failed'); }
+                                    });
                                   }}
                                   style={{ background: 'none', border: '1px solid #dc262644', borderRadius: 6, color: '#f87171', padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>✕</button>
                               </div>
@@ -3259,14 +3266,14 @@ export default function Admin() {
                   } else {
                     setCustomRoles(prev => prev.map(r => r.id === saved.id ? saved : r));
                   }
-                  flash(`✓ Role "${saved.name}" ${isNew ? 'created' : 'updated'}`);
+                  toast.success(`Role "${saved.name}" ${isNew ? 'created' : 'updated'}`);
                 }}
                 onReset={(reset) => {
                   setRoleModal(null);
                   setBuiltinRoles(prev => prev.map(r => r.id === reset.id ? { ...reset, overridden: false } : r));
-                  flash(`✓ "${reset.name}" role reset to defaults`);
+                  toast.success(`"${reset.name}" role reset to defaults`);
                 }}
-                onFlash={flash}
+                onFlash={(msg) => msg.startsWith('✗') ? toast.error(msg.replace(/^✗\s*/, '')) : toast.success(msg.replace(/^✓\s*/, ''))}
               />
             )}
           </div>
@@ -3709,7 +3716,7 @@ export default function Admin() {
                         await adminFetch(`/brain/${selectedBrain.brainId}/sync${brainLocQ}`, { method: 'POST', adminKey });
                         await loadBrainDetail(selectedBrain);
                         setBrainSyncing(false);
-                        flash('✓ Sync queued');
+                        toast.success('Sync queued');
                       }}
                       style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 20px', fontSize: 14, fontWeight: 600, cursor: brainSyncing ? 'not-allowed' : 'pointer', opacity: brainSyncing ? 0.6 : 1 }}
                     >
@@ -3738,10 +3745,10 @@ export default function Admin() {
                           setBrainChannelAdding(false);
                           if (res.success) {
                             setBrainChannelInput('');
-                            flash('✓ Channel added');
+                            toast.success('Channel added');
                             await loadBrainDetail(selectedBrain);
                           } else {
-                            flash(`✗ ${res.error}`);
+                            toast.error(res.error);
                           }
                         }}
                         style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: (brainChannelAdding || !brainChannelInput.trim()) ? 'not-allowed' : 'pointer', opacity: (brainChannelAdding || !brainChannelInput.trim()) ? 0.5 : 1 }}
@@ -3760,11 +3767,12 @@ export default function Admin() {
                               <div style={{ color: '#4b5563', fontSize: 12, fontFamily: 'monospace' }}>{ch.channelUrl || ch.channelId}</div>
                             </div>
                             <button
-                              onClick={async () => {
-                                if (!confirm(`Remove channel "${ch.channelTitle || ch.channelId}"?`)) return;
-                                const res = await adminFetch(`/brain/${selectedBrain.brainId}/channels/${ch.channelId}${brainLocQ}`, { method: 'DELETE', adminKey });
-                                if (res.success) { flash('✓ Channel removed'); await loadBrainDetail(selectedBrain); }
-                                else flash(`✗ ${res.error}`);
+                              onClick={() => {
+                                confirmToast(`Remove channel "${ch.channelTitle || ch.channelId}"?`, async () => {
+                                  const res = await adminFetch(`/brain/${selectedBrain.brainId}/channels/${ch.channelId}${brainLocQ}`, { method: 'DELETE', adminKey });
+                                  if (res.success) { toast.success('Channel removed'); await loadBrainDetail(selectedBrain); }
+                                  else toast.error(res.error);
+                                });
                               }}
                               style={{ background: 'none', border: '1px solid #f87171', borderRadius: 8, color: '#f87171', padding: '4px 10px', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}
                             >Remove</button>
@@ -3840,11 +3848,11 @@ export default function Admin() {
                           });
                           setBrainSettingsSaving(false);
                           if (res.success) {
-                            flash('✓ Brain settings saved');
+                            toast.success('Brain settings saved');
                             setSelectedBrain(prev => ({ ...prev, name: brainSettingsForm.name, description: brainSettingsForm.description, autoSync: brainSettingsForm.autoSync }));
                             setSharedBrains(prev => prev.map(b => b.brainId === selectedBrain.brainId ? { ...b, ...res.data } : b));
                           } else {
-                            flash(`✗ ${res.error}`);
+                            toast.error(res.error);
                           }
                         }}
                         style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '10px 24px', fontSize: 14, fontWeight: 600, cursor: brainSettingsSaving ? 'not-allowed' : 'pointer', opacity: brainSettingsSaving ? 0.6 : 1 }}
@@ -3852,18 +3860,19 @@ export default function Admin() {
                         {brainSettingsSaving ? 'Saving…' : 'Save Settings'}
                       </button>
                       <button
-                        onClick={async () => {
-                          if (!confirm(`Delete brain "${selectedBrain.name}"? This will remove all videos and data.`)) return;
-                          const res = await adminFetch(`/brain/${selectedBrain.brainId}${brainLocQ}`, { method: 'DELETE', adminKey });
-                          if (res.success) {
-                            flash('✓ Brain deleted');
-                            setSelectedBrain(null);
-                            setBrainStatus(null);
-                            setBrainVideos([]);
-                            loadSharedBrains();
-                          } else {
-                            flash(`✗ ${res.error}`);
-                          }
+                        onClick={() => {
+                          confirmToast(`Delete brain "${selectedBrain.name}"? This will remove all videos and data.`, async () => {
+                            const res = await adminFetch(`/brain/${selectedBrain.brainId}${brainLocQ}`, { method: 'DELETE', adminKey });
+                            if (res.success) {
+                              toast.success('Brain deleted');
+                              setSelectedBrain(null);
+                              setBrainStatus(null);
+                              setBrainVideos([]);
+                              loadSharedBrains();
+                            } else {
+                              toast.error(res.error);
+                            }
+                          });
                         }}
                         style={{ background: 'none', border: '1px solid #f87171', borderRadius: 8, color: '#f87171', padding: '10px 20px', fontSize: 14, cursor: 'pointer' }}
                       >Delete Brain</button>
@@ -3926,10 +3935,10 @@ export default function Admin() {
                         setBrainFormSaving(false);
                         if (res.success) {
                           setShowCreateBrain(false);
-                          flash('✓ Brain created');
+                          toast.success('Brain created');
                           await loadSharedBrains();
                         } else {
-                          flash(`✗ ${res.error}`);
+                          toast.error(res.error);
                         }
                       }}
                       style={{ flex: 1, background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '10px', fontSize: 14, fontWeight: 600, cursor: (brainFormSaving || !brainForm.name.trim()) ? 'not-allowed' : 'pointer', opacity: (brainFormSaving || !brainForm.name.trim()) ? 0.5 : 1 }}
@@ -4312,13 +4321,13 @@ export default function Admin() {
           onClose={() => setAdminModal(null)}
           onSaved={(locationId, updatedWf) => {
             setAdminModal(null);
-            flash(`✓ Workflow "${updatedWf.name}" updated`);
+            toast.success(`Workflow "${updatedWf.name}" updated`);
             setTroubleshootData((prev) => {
               const loc = prev[locationId] || {};
               return { ...prev, [locationId]: { ...loc, workflows: (loc.workflows || []).map(w => w.id === updatedWf.id ? updatedWf : w) } };
             });
           }}
-          onFlash={flash}
+          onFlash={(msg) => msg.startsWith('✗') ? toast.error(msg.replace(/^✗\s*/, '')) : toast.success(msg.replace(/^✓\s*/, ''))}
         />
       )}
       {adminModal?.type === 'edit-connection' && (
@@ -4329,13 +4338,13 @@ export default function Admin() {
           onClose={() => setAdminModal(null)}
           onSaved={(locationId, cat, newCfg) => {
             setAdminModal(null);
-            flash(`✓ ${cat} connection updated`);
+            toast.success(`${cat} connection updated`);
             setTroubleshootData((prev) => {
               const loc = prev[locationId] || {};
               return { ...prev, [locationId]: { ...loc, connections: { ...loc.connections, [cat]: newCfg } } };
             });
           }}
-          onFlash={flash}
+          onFlash={(msg) => msg.startsWith('✗') ? toast.error(msg.replace(/^✗\s*/, '')) : toast.success(msg.replace(/^✓\s*/, ''))}
         />
       )}
     </div>
@@ -4585,15 +4594,16 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
     setSaving(false);
   };
 
-  const reset = async () => {
-    if (!confirm(`Reset "${role?.name}" to its default features? This will remove any customization.`)) return;
-    setResetting(true);
-    try {
-      const data = await adminFetch(`/admin/locations/${locationId}/custom-roles/${role.id}/reset`, { method: 'POST', adminKey });
-      if (data.success) onReset(data.role);
-      else onFlash(`✗ ${data.error}`);
-    } catch { onFlash('✗ Reset failed'); }
-    setResetting(false);
+  const reset = () => {
+    confirmToast(`Reset "${role?.name}" to its default features? This will remove any customization.`, async () => {
+      setResetting(true);
+      try {
+        const data = await adminFetch(`/admin/locations/${locationId}/custom-roles/${role.id}/reset`, { method: 'POST', adminKey });
+        if (data.success) onReset(data.role);
+        else onFlash(`✗ ${data.error}`);
+      } catch { onFlash('✗ Reset failed'); }
+      setResetting(false);
+    });
   };
 
   // ── Step 2: tier summary helpers ──────────────────────────────────────────

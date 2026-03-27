@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'react-toastify';
 import { Link } from 'react-router-dom';
 import { useApp }  from '../context/AppContext';
 import AuthGate    from '../components/AuthGate';
@@ -467,10 +468,9 @@ export default function Billing() {
   const [loading,                   setLoading]                   = useState(false);
   const [checkoutLoading,           setCheckoutLoading]           = useState(false);
   const [tab,                       setTab]                       = useState('all');
-  const [toast,                     setToast]                     = useState(null);
   const [showTierModal,             setShowTierModal]             = useState(false);
 
-  const showToast = (msg, ok) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3500); };
+  const showToast = (msg, ok) => ok ? toast.success(msg) : toast.error(msg);
 
   const loadBilling = useCallback(() => {
     if (!locationId) return;
@@ -729,16 +729,6 @@ export default function Billing() {
         />
       )}
 
-      {toast && (
-        <div
-          className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl text-sm font-medium fade-up"
-          style={toast.ok
-            ? { background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', color: '#4ade80' }
-            : { background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
-        >
-          {toast.msg}
-        </div>
-      )}
     </div>
   );
 }

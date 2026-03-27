@@ -7,6 +7,19 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'react-toastify';
+
+function confirmToast(message, onConfirm, confirmLabel = 'Confirm') {
+  toast(({ closeToast }) => (
+    <div>
+      <p style={{ margin: '0 0 10px', fontWeight: 500 }}>{message}</p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => { closeToast(); onConfirm(); }} style={{ background: '#dc2626', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>{confirmLabel}</button>
+        <button onClick={closeToast} style={{ background: '#333', border: 'none', borderRadius: 6, color: '#e5e7eb', padding: '5px 12px', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+      </div>
+    </div>
+  ), { autoClose: false, closeOnClick: false, draggable: false });
+}
 import { useApp }              from '../context/AppContext';
 import AuthGate                from '../components/AuthGate';
 import Header                  from '../components/Header';
@@ -241,23 +254,24 @@ export default function Agents() {
         await loadAgents();
         closeModal();
       } else {
-        alert(data.error || 'Save failed.');
+        toast.error(data.error || 'Save failed.');
       }
     } catch (e) {
-      alert(e.message);
+      toast.error(e.message);
     } finally {
       setSaving(false);
     }
   }
 
   async function deleteAgent(agent) {
-    if (!confirm(`Delete agent "${agent.name}"?`)) return;
-    try {
-      await fetch(`/agent/agents/${agent.id}`, { method: 'DELETE', headers: headers() });
-      setAgents(prev => prev.filter(a => a.id !== agent.id));
-    } catch (e) {
-      alert(e.message);
-    }
+    confirmToast(`Delete agent "${agent.name}"?`, async () => {
+      try {
+        await fetch(`/agent/agents/${agent.id}`, { method: 'DELETE', headers: headers() });
+        setAgents(prev => prev.filter(a => a.id !== agent.id));
+      } catch (e) {
+        toast.error(e.message);
+      }
+    });
   }
 
   async function executeAgent() {
