@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 
 export default function TopBar({ onMenuClick }) {
-  const { theme, toggleTheme, claudeReady } = useApp();
+  const { theme, toggleTheme, claudeReady, locationId, locationName } = useApp();
   const [searchOpen,  setSearchOpen]  = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const inputRef = useRef(null);
@@ -97,6 +97,42 @@ export default function TopBar({ onMenuClick }) {
 
       {/* Right — status dot + theme toggle */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12, width: 'auto', justifyContent: 'flex-end' }}>
+        {locationId && (
+          <div
+            title={locationName ? `${locationName} (${locationId})` : locationId}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              minWidth: 0,
+              maxWidth: 220,
+            }}
+          >
+            <span style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--text-primary)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: '100%',
+            }}>
+              {locationName || 'Connected Location'}
+            </span>
+            <span style={{
+              fontSize: 10,
+              color: 'var(--text-muted)',
+              fontFamily: 'monospace',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: '100%',
+            }}>
+              {locationId}
+            </span>
+          </div>
+        )}
+
         {/* Status dot */}
         <div title={claudeReady ? 'API connected' : 'API not configured'} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{

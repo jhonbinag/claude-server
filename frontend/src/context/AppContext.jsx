@@ -46,6 +46,22 @@ function getInitialUserId() {
   return params.get('userId') || localStorage.getItem('gtm_user_id') || '';
 }
 
+function getCachedLocationName(locationId) {
+  if (!locationId) return '';
+  return localStorage.getItem(`gtm_location_name_${locationId}`) || '';
+}
+
+function extractLocationName(payload) {
+  const source = payload?.data || payload || {};
+  return (
+    source?.location?.name ||
+    source?.name ||
+    source?.business?.name ||
+    source?.companyName ||
+    ''
+  );
+}
+
 export function AppProvider({ children }) {
   // ── Theme ─────────────────────────────────────────────────────────────────
   const [theme, setThemeState] = useState(() => {
@@ -64,6 +80,7 @@ export function AppProvider({ children }) {
   };
 
   const [locationId,         setLocationId]         = useState(getInitialLocationId);
+  const [locationName,       setLocationName]       = useState(() => getCachedLocationName(getInitialLocationId()));
   const [ghlMessages,        setGhlMessages]        = useState([]);
   // Auth is immediate: if we have a locationId, user is in. No API gatekeeping.
   const [isAuthenticated,    setIsAuthenticated]    = useState(() => !!getInitialLocationId());
@@ -106,6 +123,18 @@ export function AppProvider({ children }) {
       if (data.success) {
         setUserRole(data.role || 'owner');
         setAllowedFeatures(data.features || ['*']);
+      }
+    } catch {}
+  }, []);
+
+  const fetchLocationMeta = useCallback(async (locId) => {
+    if (!locId) return;
+    try {
+      const data = await apiFetch(`/api/locations/${encodeURIComponent(locId)}`, locId);
+      const nextName = extractLocationName(data);
+      if (nextName) {
+        setLocationName(nextName);
+        localStorage.setItem(`gtm_location_name_${locId}`, nextName);
       }
     } catch {}
   }, []);
@@ -230,6 +259,7 @@ export function AppProvider({ children }) {
     if (!locationId) return;
 
     // Reset all per-location state immediately
+    setLocationName(getCachedLocationName(locationId));
     setClaudeReady(localStorage.getItem(`claude_ready_${locationId}`) === '1');
     setEnabledTools([]);
     setIntegrations([]);
@@ -238,6 +268,7 @@ export function AppProvider({ children }) {
     setAllowedFeatures(['*']);
 
     // Fetch fresh data for this location
+    fetchLocationMeta(locationId);
     fetchStatus(locationId);
     loadIntegrations(locationId);
     fetchRole(locationId, userId);
@@ -280,6 +311,7 @@ export function AppProvider({ children }) {
     localStorage.removeItem('gtm_location_id');
     localStorage.removeItem('gtm_user_id');
     setLocationId('');
+    setLocationName('');
     setUserId('');
     setIsAuthenticated(false);
     setClaudeReady(false);
@@ -299,6 +331,7 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider value={{
       locationId,
+      locationName,
       ghlMessages,
       apiKey: locationId,
       isAuthenticated,

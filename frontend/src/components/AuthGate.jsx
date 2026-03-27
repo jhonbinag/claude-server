@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useApp } from '../context/AppContext';
 
 export default function AuthGate({ icon = '🤖', title, subtitle }) {
-  const { locationId, isAuthenticated } = useApp();
+  const { locationId, locationName } = useApp();
   const [manualId, setManualId]         = useState('');
   const [showManual, setShowManual]     = useState(false);
 
@@ -25,6 +25,7 @@ export default function AuthGate({ icon = '🤖', title, subtitle }) {
           <>
             <p className="text-gray-400 text-sm mb-4">
               Unable to connect for location:<br />
+              <span className="text-gray-200 font-medium">{locationName || 'Unknown Location'}</span><br />
               <span className="text-gray-300 font-mono text-xs">{locationId}</span>
             </p>
             <p className="text-gray-500 text-xs">

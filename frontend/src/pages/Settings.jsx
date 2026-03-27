@@ -48,7 +48,7 @@ function openOAuthPopup(platform, locationId) {
 }
 
 export default function Settings() {
-  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, aiProvider, providerPreviews, locationId, refreshStatus, integrations, ghlMessages } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, claudeReady, aiProvider, providerPreviews, locationId, locationName, refreshStatus, integrations, ghlMessages } = useApp();
 
   const [toast,       setToast]       = useState(null);
   const [testResults, setTestResults] = useState({});
@@ -352,6 +352,10 @@ export default function Settings() {
               </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="text-sm text-gray-400">Business / Location</span>
+                  <span className="text-sm text-gray-300 font-medium text-right">{locationName || '—'}</span>
+                </div>
+                <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                   <span className="text-sm text-gray-400">Location ID</span>
                   <span className="text-sm font-mono text-gray-300">{locationId || '—'}</span>
                 </div>
@@ -452,9 +456,10 @@ export default function Settings() {
               <div className="space-y-4">
                 {/* Active location */}
                 <div className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  <span className="text-sm text-gray-400">Active Location ID</span>
-                  <span className="text-sm font-mono" style={{ color: locationId ? '#4ade80' : '#f87171' }}>
-                    {locationId || '(none)'}
+                  <span className="text-sm text-gray-400">Active Location</span>
+                  <span className="text-sm text-right" style={{ color: locationId ? '#4ade80' : '#f87171' }}>
+                    <span className="font-medium">{locationName || '(unknown)'}</span><br />
+                    <span className="font-mono text-xs">{locationId || '(none)'}</span>
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>

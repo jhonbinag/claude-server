@@ -2261,7 +2261,7 @@ export default function Admin() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#9ca3af', textAlign: 'left' }}>
-                    {['Location ID', 'Status', 'Integrations', 'Last Active', 'Installed', 'Actions'].map((h) => (
+                    {['Location', 'Status', 'Integrations', 'Last Active', 'Installed', 'Actions'].map((h) => (
                       <th key={h} style={{ padding: '10px 14px', fontWeight: 500 }}>{h}</th>
                     ))}
                   </tr>
@@ -2274,8 +2274,13 @@ export default function Admin() {
                         onClick={() => loadDetail(loc.locationId)}
                         style={{ borderBottom: '1px solid #222', cursor: 'pointer', background: expandedId === loc.locationId ? '#1e1e2e' : 'transparent' }}
                       >
-                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#a78bfa' }}>
-                          {loc.locationId}
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ color: '#e5e7eb', fontWeight: 600 }}>
+                            {loc.name || 'Unnamed Location'}
+                          </div>
+                          <div style={{ fontFamily: 'monospace', color: '#a78bfa', fontSize: 12, marginTop: 2 }}>
+                            {loc.locationId}
+                          </div>
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           <StatusBadge status={loc.status === 'uninstalled' ? 'uninstalled' : loc.tokenStatus || 'none'} />
@@ -2862,7 +2867,7 @@ export default function Admin() {
                 <option value="">— Select a location —</option>
                 {locations.filter(l => l.status !== 'uninstalled').map(l => (
                   <option key={l.locationId} value={l.locationId}>
-                    {l.locationId}{l.companyId ? ` (${l.companyId.slice(0, 8)}…)` : ''}
+                    {l.name || l.locationId}{l.name ? ` · ${l.locationId.slice(0, 10)}…` : ''}
                   </option>
                 ))}
               </select>
