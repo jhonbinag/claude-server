@@ -235,14 +235,13 @@ export default function ManyChat() {
     : { color: '#9ca3af', bg: 'rgba(107,114,128,0.1)',border: 'rgba(107,114,128,0.3)',label: '● Checking…' };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0f0f1a', color: '#e2e8f0', fontFamily: 'sans-serif' }}>
-      <Header />
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f0f1a', color: '#e2e8f0', fontFamily: 'sans-serif' }}>
 
       {/* ── Sub-nav ── */}
       <div style={{
         borderBottom: '1px solid rgba(255,255,255,0.08)',
         background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)',
-        position: 'sticky', top: 0, zIndex: 40,
+        flexShrink: 0,
       }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 3, margin: '8px 0' }}>
@@ -276,6 +275,7 @@ export default function ManyChat() {
       </div>
 
       {/* ── Body ── */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '1.5rem 1.5rem' }}>
 
         {/* ════ SEQUENCE GENERATOR ════ */}
@@ -599,6 +599,7 @@ export default function ManyChat() {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
