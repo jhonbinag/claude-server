@@ -1523,8 +1523,15 @@ export default function Admin() {
   // without waiting for the background verification call to return.
   const [authed,       setAuthed]       = useState(() => !!localStorage.getItem('gtm_admin_key'));
   const [authError,    setAuthError]    = useState('');
-  const [tab,          setTab]          = useState('overview');
+  const [tab,          setTab]          = useState(() => new URLSearchParams(window.location.search).get('tab') || 'overview');
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
+
+  // Keep ?tab= in sync so reload returns to the same section
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', tab);
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+  }, [tab]);
 
   const [stats,      setStats]      = useState(null);
   const [locations,  setLocations]  = useState([]);
