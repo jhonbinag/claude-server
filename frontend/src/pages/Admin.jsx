@@ -1368,7 +1368,27 @@ function AdminBrainDetail({ brain: initialBrain, adminKey, brainLocQ, onBack, on
           <div style={{ background:'#1a0808', border:`1px solid ${BD.red}33`, borderRadius:12, padding:24, marginBottom:20 }}>
             <h3 style={{ margin:'0 0 6px', fontSize:15, fontWeight:700, color:BD.red, display:'flex', alignItems:'center', gap:8 }}>⚠ Danger Zone</h3>
             <p style={{ margin:'0 0 16px', fontSize:13, color:BD.textMuted }}>Permanently delete this brain and all its channels, videos, chunks, and documentation. This cannot be undone.</p>
-            <button onClick={() => { if (confirm(`Delete brain "${brain.name}"? This cannot be undone.`)) onDeleted(brain.brainId); }}
+            <button onClick={() => {
+                toast(
+                  ({ closeToast }) => (
+                    <div>
+                      <p style={{ margin:'0 0 10px', fontWeight:600 }}>Delete &ldquo;{brain.name}&rdquo;?</p>
+                      <p style={{ margin:'0 0 12px', fontSize:13, color:'#9ca3af' }}>This cannot be undone.</p>
+                      <div style={{ display:'flex', gap:8 }}>
+                        <button onClick={() => { closeToast(); onDeleted(brain.brainId); }}
+                          style={{ background:'#dc2626', border:'none', borderRadius:6, color:'#fff', padding:'6px 14px', cursor:'pointer', fontSize:13, fontWeight:600 }}>
+                          Delete
+                        </button>
+                        <button onClick={closeToast}
+                          style={{ background:'#333', border:'none', borderRadius:6, color:'#e5e7eb', padding:'6px 14px', cursor:'pointer', fontSize:13 }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ),
+                  { autoClose: false, closeOnClick: false, draggable: false }
+                );
+              }}
               style={{ background:'none', border:`1px solid ${BD.red}`, borderRadius:8, color:BD.red, padding:'8px 16px', fontSize:13, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
               🗑 Delete Brain
             </button>
@@ -3633,7 +3653,18 @@ export default function Admin() {
                 onBack={() => setSelectedBrain(null)}
                 onRefresh={loadSharedBrains}
                 onFlash={flash}
-                onDeleted={() => { setSelectedBrain(null); flash('✓ Brain deleted'); loadSharedBrains(); }}
+                onDeleted={async (brainId) => {
+                  const locQ = selectedBrain?._locationId && selectedBrain._locationId !== '__shared__'
+                    ? `?loc=${encodeURIComponent(selectedBrain._locationId)}` : '';
+                  const res = await adminFetch(`/brain/${brainId}${locQ}`, { method: 'DELETE', adminKey });
+                  if (res.success || res.deleted) {
+                    setSelectedBrain(null);
+                    toast.success('Brain deleted');
+                    loadSharedBrains();
+                  } else {
+                    toast.error(res.error || 'Failed to delete brain');
+                  }
+                }}
                 onBrainUpdated={(updated) => {
                   setSelectedBrain(prev => ({ ...prev, ...updated }));
                   setSharedBrains(prev => prev.map(b => b.brainId === updated.brainId ? { ...b, ...updated } : b));
