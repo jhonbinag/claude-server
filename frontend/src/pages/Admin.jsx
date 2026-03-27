@@ -1636,6 +1636,12 @@ export default function Admin() {
   const [roleModal,          setRoleModal]          = useState(null);   // null | { mode:'create'|'edit', role? }
   const [roleTiers,          setRoleTiers]          = useState({});
 
+  // Tool Access tab state
+  const [toolAccessLocationId, setToolAccessLocationId] = useState('');
+  const [toolAccessItems,      setToolAccessItems]      = useState([]);
+  const [toolAccessLoading,    setToolAccessLoading]    = useState(false);
+  const [toolAccessFilter,     setToolAccessFilter]     = useState('all'); // 'all' | 'shared' | 'hidden'
+
   // Plan Tiers state
   const [tiers,              setTiers]              = useState(null);
   const [tiersLoading,       setTiersLoading]       = useState(false);
@@ -1855,6 +1861,8 @@ export default function Admin() {
     if (tab === 'brain')        loadSharedBrains();
     // Users & Roles tab: ensure locations list is loaded for the dropdown
     if (tab === 'users-roles' && locations.length === 0) loadLocations();
+    // Tool Access tab: ensure locations list is loaded for the dropdown
+    if (tab === 'tool-access' && locations.length === 0) loadLocations();
   }, [authed, tab]); // eslint-disable-line
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -1965,6 +1973,14 @@ export default function Admin() {
     setAdminModal({ type: 'edit-connection', locationId, data: { cat, cfg } });
   };
 
+  const loadToolAccess = async (locationId) => {
+    if (!locationId) return;
+    setToolAccessLoading(true);
+    const res = await adminFetch(`/admin/locations/${locationId}/tool-access`, { adminKey });
+    setToolAccessItems(res.success ? res.data : []);
+    setToolAccessLoading(false);
+  };
+
   const toggleToolShared = async (locationId, category, shared) => {
     const locationLabel = getLocationLabel(locationId);
     const verb = shared ? 'share' : 'hide';
@@ -1990,6 +2006,10 @@ export default function Admin() {
           },
         };
       });
+      // Also update the dedicated Tool Access tab if it's showing this location
+      if (locationId === toolAccessLocationId) {
+        setToolAccessItems((prev) => prev.map((item) => item.key === category ? { ...item, shared } : item));
+      }
     } else {
       flash(`✗ ${res.error}`);
     }
@@ -2046,6 +2066,7 @@ export default function Admin() {
     { key: 'billing',      label: 'Billing',      icon: '💳' },
     { key: 'plan-tiers',   label: 'Plan Tiers',   icon: '🏅' },
     { key: 'users-roles',  label: 'Users & Roles',icon: '👥' },
+    { key: 'tool-access',  label: 'Tool Access',  icon: '🔧' },
     { key: 'brain',        label: 'Brain',        icon: '🧠' },
     { key: 'logs',         label: 'Activity Logs',icon: '📋' },
     { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
@@ -2053,7 +2074,7 @@ export default function Admin() {
 
   const PAGE_TITLE = {
     overview: 'Dashboard', locations: 'Locations', billing: 'Billing',
-    'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles',
+    'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles', 'tool-access': 'Tool Access',
     brain: 'Brain', logs: 'Activity Logs', 'app-settings': 'App Settings',
   };
 
@@ -2335,6 +2356,7 @@ export default function Admin() {
                 { key: 'billing',     label: 'Billing',           icon: '💳', desc: `$${billingSummary?.revenue ?? 0} MRR` },
                 { key: 'brain',       label: 'Shared Brains',     icon: '🧠', desc: 'Knowledge bases' },
                 { key: 'users-roles', label: 'Users & Roles',     icon: '👥', desc: 'Permissions' },
+                { key: 'tool-access', label: 'Tool Access',       icon: '🔧', desc: 'Per-location tools' },
                 { key: 'plan-tiers',  label: 'Plan Tiers',        icon: '🏅', desc: 'Feature gating' },
                 { key: 'logs',        label: 'Activity Logs',     icon: '📋', desc: 'Recent events' },
               ].map(item => (
@@ -3227,6 +3249,163 @@ export default function Admin() {
                 }}
                 onFlash={flash}
               />
+            )}
+          </div>
+        )}
+
+        {/* ── Tool Access Tab ──────────────────────────────────────────── */}
+        {tab === 'tool-access' && (
+          <div>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 24 }}>
+              <div>
+                <h3 style={{ color: '#fff', margin: '0 0 4px', fontSize: 16 }}>🔧 Tool Access</h3>
+                <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
+                  Control which integrations are visible to users at each location. Users can only see and configure tools you share here.
+                </p>
+              </div>
+            </div>
+
+            {/* Location picker + filter */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select
+                value={toolAccessLocationId}
+                onChange={e => {
+                  const id = e.target.value;
+                  setToolAccessLocationId(id);
+                  setToolAccessItems([]);
+                  setToolAccessFilter('all');
+                  if (id) loadToolAccess(id);
+                }}
+                style={{ flex: 1, minWidth: 240, background: '#111', border: '1px solid #333', borderRadius: 8, color: toolAccessLocationId ? '#e5e7eb' : '#6b7280', padding: '8px 12px', fontSize: 13 }}
+              >
+                <option value="">— Select a location —</option>
+                {locations.filter(l => l.status !== 'uninstalled').map(l => (
+                  <option key={l.locationId} value={l.locationId}>
+                    {l.name || l.locationId}{l.name ? ` · ${l.locationId.slice(0, 10)}…` : ''}
+                  </option>
+                ))}
+              </select>
+              {toolAccessItems.length > 0 && (
+                <select
+                  value={toolAccessFilter}
+                  onChange={e => setToolAccessFilter(e.target.value)}
+                  style={{ background: '#111', border: '1px solid #333', borderRadius: 8, color: '#e5e7eb', padding: '8px 12px', fontSize: 13 }}
+                >
+                  <option value="all">All integrations</option>
+                  <option value="shared">Shared only</option>
+                  <option value="hidden">Hidden only</option>
+                </select>
+              )}
+              {toolAccessLocationId && (
+                <button
+                  onClick={() => loadToolAccess(toolAccessLocationId)}
+                  style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '8px 14px', cursor: 'pointer', fontSize: 13 }}
+                >⟳ Refresh</button>
+              )}
+            </div>
+
+            {/* Summary badges */}
+            {toolAccessItems.length > 0 && (() => {
+              const sharedCount = toolAccessItems.filter(i => i.shared).length;
+              const connectedCount = toolAccessItems.filter(i => i.connected).length;
+              return (
+                <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+                  <span style={{ background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 20, padding: '4px 14px', fontSize: 12, color: '#4ade80', fontWeight: 600 }}>
+                    {sharedCount} shared to users
+                  </span>
+                  <span style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 20, padding: '4px 14px', fontSize: 12, color: '#f87171', fontWeight: 600 }}>
+                    {toolAccessItems.length - sharedCount} hidden
+                  </span>
+                  <span style={{ background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 20, padding: '4px 14px', fontSize: 12, color: '#60a5fa', fontWeight: 600 }}>
+                    {connectedCount} connected
+                  </span>
+                </div>
+              );
+            })()}
+
+            {/* Integration cards */}
+            {!toolAccessLocationId ? (
+              <div style={{ textAlign: 'center', padding: '48px 0', color: '#4b5563', fontSize: 14 }}>
+                Select a location to manage its tool access.
+              </div>
+            ) : toolAccessLoading ? (
+              <div style={{ textAlign: 'center', padding: '48px 0', color: '#6b7280', fontSize: 13 }}>Loading integrations…</div>
+            ) : toolAccessItems.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 0', color: '#4b5563', fontSize: 14 }}>No integrations found.</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 10 }}>
+                {toolAccessItems
+                  .filter(item => toolAccessFilter === 'all' || (toolAccessFilter === 'shared' ? item.shared : !item.shared))
+                  .map(item => (
+                    <div key={item.key} style={{
+                      background: '#111',
+                      border: `1px solid ${item.shared ? 'rgba(74,222,128,0.2)' : '#1e1e1e'}`,
+                      borderRadius: 10, padding: '14px 16px',
+                      display: 'flex', flexDirection: 'column', gap: 10,
+                    }}>
+                      {/* Top row: icon + name + badges */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                        <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{item.icon || '🔌'}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{ color: '#e5e7eb', fontWeight: 600, fontSize: 14 }}>{item.label || item.key}</span>
+                            {item.shared ? (
+                              <span style={{ background: '#16331f', color: '#4ade80', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>Shared</span>
+                            ) : (
+                              <span style={{ background: '#2d1b1b', color: '#f87171', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>Hidden</span>
+                            )}
+                            {item.connected && (
+                              <span style={{ background: '#1e3a5f', color: '#60a5fa', padding: '1px 8px', borderRadius: 999, fontSize: 11 }}>Connected</span>
+                            )}
+                          </div>
+                          <p style={{ color: '#6b7280', fontSize: 12, margin: '4px 0 0', lineHeight: 1.4 }}>
+                            {item.description || ''}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Tool count + names */}
+                      {item.toolCount > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {(item.toolNames || []).map(t => (
+                            <span key={t} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, padding: '1px 7px', fontSize: 11, color: '#60a5fa', fontFamily: 'monospace' }}>{t}</span>
+                          ))}
+                          {!item.toolNames?.length && (
+                            <span style={{ color: '#4b5563', fontSize: 12 }}>{item.toolCount} tool{item.toolCount !== 1 ? 's' : ''}</span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Config preview */}
+                      {item.connected && Object.keys(item.configPreview || {}).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                          {Object.entries(item.configPreview).map(([k, v]) => (
+                            <span key={k} style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 4, padding: '1px 8px', fontSize: 11, color: '#9ca3af' }}>
+                              <span style={{ color: '#4b5563' }}>{k}: </span>
+                              <span style={{ fontFamily: 'monospace' }}>{String(v)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Action button */}
+                      <div style={{ marginTop: 2 }}>
+                        <button
+                          onClick={() => toggleToolShared(toolAccessLocationId, item.key, !item.shared)}
+                          style={{
+                            background: 'none',
+                            border: `1px solid ${item.shared ? 'rgba(220,38,38,0.4)' : 'rgba(22,101,52,0.5)'}`,
+                            borderRadius: 6, color: item.shared ? '#f87171' : '#4ade80',
+                            padding: '5px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                          }}
+                        >
+                          {item.shared ? 'Hide from Users' : 'Share to Users'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
             )}
           </div>
         )}

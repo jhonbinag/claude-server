@@ -158,8 +158,16 @@ router.get('/callback', async (req, res) => {
     let apiKey = await apiKeyService.getApiKey(locationId);
     if (!apiKey) apiKey = await apiKeyService.generateApiKey(locationId);
 
-    // Register location in Redis so admin dashboard can see it
-    locationRegistry.registerLocation(locationId, { companyId: tokenData.companyId }).catch(() => {});
+    // Register location in Redis so admin dashboard can see it.
+    // Try to fetch the location name from GHL so the admin UI shows a readable label.
+    let locationName = null;
+    try {
+      const locData = await ghlClient.ghlRequest(locationId, 'GET', `/locations/${locationId}`);
+      // GHL wraps the response: { location: { name: "..." } }
+      const loc = locData?.location || locData;
+      locationName = loc?.name || loc?.business?.name || null;
+    } catch { /* non-fatal — name stays null */ }
+    locationRegistry.registerLocation(locationId, { companyId: tokenData.companyId, name: locationName }).catch(() => {});
 
     // Sync GHL users + assign default roles (fire-and-forget)
     const installingUserId = tokenData.userId || tokenData.user_id || null;
