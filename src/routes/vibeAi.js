@@ -96,6 +96,9 @@ function vibeRequest(method, path, token, body = null, isMultipart = false, mult
       'source':         'WEB_USER',
       'version':        '2021-07-28',
       'Content-Type':   contentType,
+      'origin':         'https://leadgen-vibe-ai-builder.leadconnectorhq.com',
+      'referer':        'https://leadgen-vibe-ai-builder.leadconnectorhq.com/',
+      'user-agent':     'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1',
     };
     if (payload) headers['Content-Length'] = Buffer.byteLength(payload);
 
