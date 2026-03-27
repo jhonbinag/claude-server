@@ -524,8 +524,9 @@ router.post('/:brainId/channels', async (req, res) => {
   const { channelName, channelUrl, isPrimary } = req.body;
   if (!channelName) return res.status(400).json({ success: false, error: '"channelName" is required.' });
   try {
+    const locId  = await getLocId(req, req.params.brainId);
     const result = await brain.addChannelToBrain(
-      req.locationId,
+      locId,
       req.params.brainId,
       { channelName, channelUrl, isPrimary: !!isPrimary },
     );
@@ -539,7 +540,8 @@ router.post('/:brainId/channels', async (req, res) => {
 
 router.post('/:brainId/channels/:channelId/queue', async (req, res) => {
   try {
-    const result = await brain.queueChannelSync(req.locationId, req.params.brainId, req.params.channelId);
+    const locId  = await getLocId(req, req.params.brainId);
+    const result = await brain.queueChannelSync(locId, req.params.brainId, req.params.channelId);
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -562,9 +564,10 @@ router.post('/:brainId/sync-batch', async (req, res) => {
 
 router.post('/:brainId/channels/:channelId/sync', async (req, res) => {
   try {
-    await brain.updateBrainMeta(req.locationId, req.params.brainId, { pipelineStage: 'syncing' });
+    const locId = await getLocId(req, req.params.brainId);
+    await brain.updateBrainMeta(locId, req.params.brainId, { pipelineStage: 'syncing' });
     res.json({ success: true, message: 'Channel sync started.' });
-    brain.syncSingleChannel(req.locationId, req.params.brainId, req.params.channelId)
+    brain.syncSingleChannel(locId, req.params.brainId, req.params.channelId)
       .catch(e => console.error('[brain/channel-sync] background sync error:', e));
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -663,8 +666,9 @@ router.post('/:brainId/reindex', async (req, res) => {
 
 router.delete('/:brainId/channels/:channelId', async (req, res) => {
   try {
+    const locId  = await getLocId(req, req.params.brainId);
     const result = await brain.removeChannelFromBrain(
-      req.locationId,
+      locId,
       req.params.brainId,
       req.params.channelId,
     );
