@@ -48,8 +48,22 @@ async function vUpsertChunks(locationId, brainId, docId, chunks, meta) {
     data:     text,
     metadata: { docId, chunkIndex: i, text, ...meta },
   }));
-  for (let i = 0; i < records.length; i += 100) {
-    await vReq('/upsert-data', records.slice(i, i + 100), vNs(locationId, brainId));
+  // Batch by cumulative metadata size to stay under Upstash's 49152-byte limit
+  const MAX_BATCH_META = 40000;
+  let batch = [];
+  let batchSize = 0;
+  for (const record of records) {
+    const recSize = JSON.stringify(record.metadata).length;
+    if (batch.length > 0 && batchSize + recSize > MAX_BATCH_META) {
+      await vReq('/upsert-data', batch, vNs(locationId, brainId));
+      batch = [];
+      batchSize = 0;
+    }
+    batch.push(record);
+    batchSize += recSize;
+  }
+  if (batch.length) {
+    await vReq('/upsert-data', batch, vNs(locationId, brainId));
   }
 }
 
