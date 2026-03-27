@@ -120,7 +120,14 @@ async function getLogs({ locationId, event, limit = 100, offset = 0 } = {}) {
       q = q.limit(limit);
 
       const snap = await q.get();
-      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      return snap.docs.map((d) => {
+        const data = d.data();
+        // Firestore Timestamp → ISO string so frontend can parse with new Date()
+        if (data.timestamp && typeof data.timestamp.toDate === 'function') {
+          data.timestamp = data.timestamp.toDate().toISOString();
+        }
+        return { id: d.id, ...data };
+      });
     } catch (err) {
       console.error('[ActivityLog] getLogs Firebase error:', err.message);
       // Fall through to memory fallback

@@ -1460,7 +1460,16 @@ function StatusBadge({ status }) {
 
 function relTime(val) {
   if (!val) return '—';
-  const ms   = typeof val === 'number' ? val : new Date(val).getTime();
+  let ms;
+  if (typeof val === 'number') {
+    ms = val;
+  } else if (val && typeof val === 'object' && (val._seconds != null || val.seconds != null)) {
+    // Firestore Timestamp object ({ _seconds, _nanoseconds } or { seconds, nanoseconds })
+    ms = (val._seconds ?? val.seconds) * 1000;
+  } else {
+    ms = new Date(val).getTime();
+  }
+  if (!ms || isNaN(ms)) return '—';
   const diff = Date.now() - ms;
   const mins = Math.floor(diff / 60000);
   if (mins < 1)   return 'just now';
