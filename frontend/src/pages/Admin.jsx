@@ -2331,7 +2331,11 @@ export default function Admin() {
               <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>
                 All Locations {loading ? '…' : `(${locations.length})`}
               </h3>
-              {locationLabel && <p style={{ margin: '4px 0 0', color: '#9ca3af', fontSize: 12 }}>{locationLabel}</p>}
+              {expandedId && (
+                <p style={{ margin: '4px 0 0', color: '#9ca3af', fontSize: 12 }}>
+                  {getLocationLabel(expandedId)}
+                </p>
+              )}
               <button onClick={loadLocations} style={{ background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Reload</button>
             </div>
 
