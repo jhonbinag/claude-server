@@ -90,6 +90,63 @@ async function adminFetch(path, { method = 'GET', adminKey, body } = {}) {
   return res.json();
 }
 
+function shortLocationId(locationId, maxLength = 10) {
+  if (!locationId) return '';
+  return locationId.length > maxLength ? `${locationId.slice(0, maxLength)}...` : locationId;
+}
+
+function getLocationNameFromList(locations, locationId) {
+  if (!locationId || locationId === '__shared__') return '';
+  const match = locations.find((loc) => loc.locationId === locationId);
+  return match?.name?.trim() || '';
+}
+
+function formatLocationLabelFromList(locations, locationId, fallbackName = 'Unnamed Location') {
+  if (locationId === '__shared__') return 'Shared Across All Locations';
+  if (!locationId) return fallbackName;
+  const name = getLocationNameFromList(locations, locationId);
+  return name ? `${name} · ${locationId}` : locationId;
+}
+
+function LocationIdentity({
+  locationId,
+  name,
+  fallbackName = 'Unnamed Location',
+  nameColor = '#e5e7eb',
+  idColor = '#a78bfa',
+  nameWeight = 600,
+  idFontSize = 12,
+  compact = false,
+  shortId = false,
+}) {
+  if (locationId === '__shared__') {
+    return <span style={{ color: nameColor, fontWeight: nameWeight }}>Shared Across All Locations</span>;
+  }
+
+  const displayName = name?.trim() || fallbackName;
+  const displayId = shortId ? shortLocationId(locationId) : locationId;
+
+  if (compact) {
+    return (
+      <span style={{ color: nameColor }}>
+        {displayName}
+        {locationId ? <span style={{ color: idColor, fontFamily: 'monospace', fontSize: idFontSize }}> {' · '}{displayId}</span> : null}
+      </span>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ color: nameColor, fontWeight: nameWeight }}>{displayName}</div>
+      {locationId ? (
+        <div style={{ fontFamily: 'monospace', color: idColor, fontSize: idFontSize, marginTop: 2 }}>
+          {displayId}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // ── Brain Detail helper constants ─────────────────────────────────────────────
 
 const BD = {
@@ -183,7 +240,7 @@ function AdminSourceAccordion({ s, rank, pct, rankColor, rankLabel }) {
 
 // ── Admin Search View (mirrors Brain.jsx SearchView) ──────────────────────────
 
-function AdminSearchView({ brains, adminKey }) {
+function AdminSearchView({ brains, adminKey, getLocationLabel }) {
   const [selectedBrainVal, setSelectedBrainVal] = useState(() => {
     if (brains.length === 0) return '';
     const b = brains[0];
@@ -263,7 +320,11 @@ function AdminSearchView({ brains, adminKey }) {
         >
           {brains.map(b => {
             const locQ = (b._locationId && b._locationId !== '__shared__') ? `?loc=${encodeURIComponent(b._locationId)}` : '';
-            return <option key={`${b._locationId}-${b.brainId}`} value={JSON.stringify({ brainId: b.brainId, locQ })}>{b.name}{!b.isShared && b._locationId ? ` (${b._locationId.slice(0,10)}…)` : ''}</option>;
+            return (
+              <option key={`${b._locationId}-${b.brainId}`} value={JSON.stringify({ brainId: b.brainId, locQ })}>
+                {b.name}{b._locationId && b._locationId !== '__shared__' ? ` (${getLocationLabel?.(b._locationId) || b._locationId})` : ' (Shared Across All Locations)'}
+              </option>
+            );
           })}
         </select>
         <input
@@ -1607,6 +1668,14 @@ export default function Admin() {
   const [brainMcpTab,        setBrainMcpTab]         = useState('claude');
   const [brainMcpCopied,     setBrainMcpCopied]      = useState(false);
 
+  const getLocationName = useCallback((locationId) => (
+    getLocationNameFromList(locations, locationId)
+  ), [locations]);
+
+  const getLocationLabel = useCallback((locationId, fallbackName = 'Unnamed Location') => (
+    formatLocationLabelFromList(locations, locationId, fallbackName)
+  ), [locations]);
+
   // All available integration keys (must match backend externalTools.js + planTierStore)
   const ALL_INTEGRATIONS = [
     { key: 'perplexity',              label: 'Perplexity AI',       icon: '🔍' },
@@ -1677,6 +1746,7 @@ export default function Admin() {
     if (adminKey) login(adminKey);
   }, []); // eslint-disable-line
 
+
   // ── Data loading ─────────────────────────────────────────────────────────
 
   const loadLocations = useCallback(async () => {
@@ -1685,6 +1755,11 @@ export default function Admin() {
     if (data.success) setLocations(data.data || []);
     setLoading(false);
   }, [adminKey]);
+
+  useEffect(() => {
+    if (!authed || !adminKey || locations.length > 0 || loading) return;
+    loadLocations();
+  }, [adminKey, authed, loadLocations, loading, locations.length]);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -1831,10 +1906,11 @@ export default function Admin() {
   };
 
   const clearConnection = async (locationId, category) => {
-    if (!confirm(`Clear ${category} connection for ${locationId}? The user will need to reconnect it.`)) return;
+    const locationLabel = getLocationLabel(locationId);
+    if (!confirm(`Clear ${category} connection for ${locationLabel}? The user will need to reconnect it.`)) return;
     const res = await adminFetch(`/admin/locations/${locationId}/connections/${category}`, { method: 'DELETE', adminKey });
     if (res.success) {
-      flash(`✓ Cleared ${category} for ${locationId}`);
+      flash(`✓ Cleared ${category} for ${locationLabel}`);
       // Refresh troubleshoot data
       setTroubleshootData((prev) => {
         const loc = prev[locationId] || {};
@@ -1853,10 +1929,11 @@ export default function Admin() {
   };
 
   const deleteWorkflow = async (locationId, wfId, wfName) => {
-    if (!confirm(`Delete workflow "${wfName}"?`)) return;
+    const locationLabel = getLocationLabel(locationId);
+    if (!confirm(`Delete workflow "${wfName}" from ${locationLabel}?`)) return;
     const res = await adminFetch(`/admin/locations/${locationId}/workflows/${wfId}`, { method: 'DELETE', adminKey });
     if (res.success) {
-      flash(`✓ Deleted workflow "${wfName}"`);
+      flash(`✓ Deleted workflow "${wfName}" from ${locationLabel}`);
       setTroubleshootData((prev) => {
         const loc = prev[locationId] || {};
         return { ...prev, [locationId]: { ...loc, workflows: (loc.workflows || []).filter(w => w.id !== wfId) } };
@@ -2243,7 +2320,7 @@ export default function Admin() {
               <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Recent Activity</p>
               <button onClick={() => setTab('logs')} style={{ fontSize: 12, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500 }}>View all →</button>
             </div>
-            <LogTable logs={logs.slice(0, 12)} />
+            <LogTable logs={logs.slice(0, 12)} getLocationName={getLocationName} />
           </div>
         )}
 
@@ -2254,6 +2331,7 @@ export default function Admin() {
               <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>
                 All Locations {loading ? '…' : `(${locations.length})`}
               </h3>
+              {locationLabel && <p style={{ margin: '4px 0 0', color: '#9ca3af', fontSize: 12 }}>{locationLabel}</p>}
               <button onClick={loadLocations} style={{ background: '#2a2a2a', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Reload</button>
             </div>
 
@@ -2267,7 +2345,10 @@ export default function Admin() {
                   </tr>
                 </thead>
                 <tbody>
-                  {locations.map((loc) => (
+                  {locations.map((loc) => {
+                    const locationName = loc.name || getLocationName(loc.locationId);
+                    const locationLabel = getLocationLabel(loc.locationId);
+                    return (
                     <>
                       <tr
                         key={loc.locationId}
@@ -2275,12 +2356,7 @@ export default function Admin() {
                         style={{ borderBottom: '1px solid #222', cursor: 'pointer', background: expandedId === loc.locationId ? '#1e1e2e' : 'transparent' }}
                       >
                         <td style={{ padding: '10px 14px' }}>
-                          <div style={{ color: '#e5e7eb', fontWeight: 600 }}>
-                            {loc.name || 'Unnamed Location'}
-                          </div>
-                          <div style={{ fontFamily: 'monospace', color: '#a78bfa', fontSize: 12, marginTop: 2 }}>
-                            {loc.locationId}
-                          </div>
+                          <LocationIdentity locationId={loc.locationId} name={locationName} />
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           <StatusBadge status={loc.status === 'uninstalled' ? 'uninstalled' : loc.tokenStatus || 'none'} />
@@ -2305,21 +2381,21 @@ export default function Admin() {
                               title="Refresh connection"
                               icon="↻"
                               color="#7c3aed"
-                              onClick={() => doAction(`/admin/locations/${loc.locationId}/refresh`, `Refreshed ${loc.locationId}`)}
+                              onClick={() => doAction(`/admin/locations/${loc.locationId}/refresh`, `Refreshed ${locationLabel}`)}
                             />
                             {loc.status === 'uninstalled' ? (
                               <ActionBtn
                                 title="Restore location"
                                 icon="⟳"
                                 color="#059669"
-                                onClick={() => doAction(`/admin/locations/${loc.locationId}/restore`, `Restored ${loc.locationId}`)}
+                                onClick={() => doAction(`/admin/locations/${loc.locationId}/restore`, `Restored ${locationLabel}`)}
                               />
                             ) : (
                               <ActionBtn
                                 title="Revoke token (force reconnect)"
                                 icon="✕"
                                 color="#dc2626"
-                                onClick={() => doAction(`/admin/locations/${loc.locationId}/revoke`, `Token revoked for ${loc.locationId}`)}
+                                onClick={() => doAction(`/admin/locations/${loc.locationId}/revoke`, `Token revoked for ${locationLabel}`)}
                               />
                             )}
                             <ActionBtn
@@ -2347,6 +2423,7 @@ export default function Admin() {
                               workflowRunLogs={workflowRunLogs[loc.locationId] || []}
                               taskLogs={taskLogs[loc.locationId] || []}
                               locationId={loc.locationId}
+                              locationName={locationName}
                               adminKey={adminKey}
                               onClearConnection={(cat) => clearConnection(loc.locationId, cat)}
                               onDeleteWorkflow={(id, name) => deleteWorkflow(loc.locationId, id, name)}
@@ -2357,7 +2434,8 @@ export default function Admin() {
                         </tr>
                       )}
                     </>
-                  ))}
+                    );
+                  })}
                   {locations.length === 0 && !loading && (
                     <tr>
                       <td colSpan={6} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>
@@ -2407,7 +2485,7 @@ export default function Admin() {
                 {loading ? 'Loading…' : `${logs.length} entries`}
               </span>
             </div>
-            <LogTable logs={logs} />
+            <LogTable logs={logs} getLocationName={getLocationName} />
           </div>
         )}
 
@@ -2452,7 +2530,7 @@ export default function Admin() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#9ca3af', textAlign: 'left' }}>
-                    {['Location ID', 'Plan', 'Status', 'Amount', 'Payment Method', 'Next Renewal', 'Invoices', 'Actions'].map(h => (
+                    {['Location', 'Plan', 'Status', 'Amount', 'Payment Method', 'Next Renewal', 'Invoices', 'Actions'].map(h => (
                       <th key={h} style={{ padding: '10px 14px', fontWeight: 500 }}>{h}</th>
                     ))}
                   </tr>
@@ -2460,6 +2538,8 @@ export default function Admin() {
                 <tbody>
                   {billingRecords.map(rec => {
                     const statusColor = { active: '#4ade80', trial: '#60a5fa', past_due: '#f87171', cancelled: '#6b7280', suspended: '#fb923c' }[rec.status] || '#9ca3af';
+                    const locationName = getLocationName(rec.locationId);
+                    const locationLabel = getLocationLabel(rec.locationId, 'Unknown Location');
                     return (
                       <>
                         <tr
@@ -2467,7 +2547,9 @@ export default function Admin() {
                           onClick={() => setBillingExpanded(billingExpanded === rec.locationId ? null : rec.locationId)}
                           style={{ borderBottom: '1px solid #222', cursor: 'pointer', background: billingExpanded === rec.locationId ? '#1a1a2a' : 'transparent' }}
                         >
-                          <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#a78bfa', fontSize: 12 }}>{rec.locationId}</td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <LocationIdentity locationId={rec.locationId} name={locationName} fallbackName="Unknown Location" />
+                          </td>
                           <td style={{ padding: '10px 14px', textTransform: 'capitalize', color: '#e5e7eb' }}>{rec.plan}</td>
                           <td style={{ padding: '10px 14px' }}>
                             <span style={{ color: statusColor, fontWeight: 600, fontSize: 12 }}>{rec.status?.replace('_', ' ')}</span>
@@ -2492,9 +2574,9 @@ export default function Admin() {
                                 onClick={() => setBillingModal({ type: 'add-invoice', locationId: rec.locationId, data: {} })} />
                               <ActionBtn icon="🗑" title="Delete all billing data" color="#dc2626"
                                 onClick={async () => {
-                                  if (!confirm(`Delete ALL billing data for ${rec.locationId}?`)) return;
+                                  if (!confirm(`Delete ALL billing data for ${locationLabel}?`)) return;
                                   await adminFetch(`/admin/billing/${rec.locationId}`, { method: 'DELETE', adminKey });
-                                  flash(`✓ Deleted billing for ${rec.locationId}`);
+                                  flash(`✓ Deleted billing for ${locationLabel}`);
                                   loadBilling();
                                 }} />
                             </div>
@@ -2588,6 +2670,8 @@ export default function Admin() {
               <BillingModal
                 modal={billingModal}
                 adminKey={adminKey}
+                getLocationName={getLocationName}
+                getLocationLabel={getLocationLabel}
                 onClose={() => setBillingModal(null)}
                 onSaved={() => { setBillingModal(null); loadBilling(); flash('✓ Saved'); }}
                 onFlash={flash}
@@ -2620,7 +2704,7 @@ export default function Admin() {
               >
                 <option value="">— Select a location to load GHL products —</option>
                 {locations.map(l => (
-                  <option key={l.locationId} value={l.locationId}>{l.name || l.locationId}</option>
+                  <option key={l.locationId} value={l.locationId}>{getLocationLabel(l.locationId)}</option>
                 ))}
               </select>
               <button
@@ -2866,9 +2950,7 @@ export default function Admin() {
               >
                 <option value="">— Select a location —</option>
                 {locations.filter(l => l.status !== 'uninstalled').map(l => (
-                  <option key={l.locationId} value={l.locationId}>
-                    {l.name || l.locationId}{l.name ? ` · ${l.locationId.slice(0, 10)}…` : ''}
-                  </option>
+                  <option key={l.locationId} value={l.locationId}>{getLocationLabel(l.locationId)}</option>
                 ))}
               </select>
               <button onClick={() => loadUsersForLocation(rolesLocationId)} disabled={!rolesLocationId}
@@ -3073,6 +3155,7 @@ export default function Admin() {
                 allFeatures={allFeatures}
                 adminKey={adminKey}
                 locationId={rolesLocationId}
+                locationLabel={getLocationLabel(rolesLocationId)}
                 tiers={roleTiers}
                 enabledIntegrations={locationEnabledIntegrations}
                 onClose={() => setRoleModal(null)}
@@ -3247,6 +3330,21 @@ export default function Admin() {
 
                             {/* Slug */}
                             {b.slug && <code style={{ fontSize: 11, color: BD.textMuted, background: BD.codeBg, padding: '2px 7px', borderRadius: 4, border: `1px solid ${BD.border}`, display: 'inline-block', marginBottom: 14 }}>{b.slug}</code>}
+                            {b._locationId && b._locationId !== '__shared__' && (
+                              <div style={{ marginBottom: 12 }}>
+                                <LocationIdentity
+                                  locationId={b._locationId}
+                                  name={getLocationName(b._locationId)}
+                                  fallbackName="Unknown Location"
+                                  compact
+                                  shortId
+                                  nameColor={BD.textSec}
+                                  idColor={BD.textMuted}
+                                  idFontSize={11}
+                                  nameWeight={500}
+                                />
+                              </div>
+                            )}
 
                             {/* Mini stats */}
                             <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
@@ -3644,6 +3742,21 @@ export default function Admin() {
                               >
                                 <div style={{ fontSize: 13, fontWeight: 700, color: BD.textPri, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</div>
                                 <code style={{ fontSize: 10, color: BD.textMuted }}>{b.slug}</code>
+                                {b._locationId && b._locationId !== '__shared__' && (
+                                  <div style={{ marginTop: 6, fontSize: 11, color: BD.textMuted }}>
+                                    <LocationIdentity
+                                      locationId={b._locationId}
+                                      name={getLocationName(b._locationId)}
+                                      fallbackName="Unknown Location"
+                                      compact
+                                      shortId
+                                      nameColor={BD.textSec}
+                                      idColor={BD.textMuted}
+                                      idFontSize={10}
+                                      nameWeight={500}
+                                    />
+                                  </div>
+                                )}
                                 <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: BD.textSec }}>
                                   <span>▶ {b.docCount || 0} videos</span>
                                   <span>🧩 {b.chunkCount || 0} chunks</span>
@@ -3664,7 +3777,7 @@ export default function Admin() {
 
             {/* ── Search view ── */}
             {adminBrainView === 'search' && (
-              <AdminSearchView brains={sharedBrains} adminKey={adminKey} />
+              <AdminSearchView brains={sharedBrains} adminKey={adminKey} getLocationLabel={getLocationLabel} />
             )}
 
             {/* ── DEAD CODE: old search view preserved ── */}
@@ -3883,6 +3996,11 @@ export default function Admin() {
                           <div key={`${b._locationId}-${b.brainId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, background: BD.bg, border: `1px solid ${BD.border}`, borderRadius: 8, padding: '8px 14px' }}>
                             <span style={{ fontSize: 14, fontWeight: 600, color: BD.textPri }}>{b.name}</span>
                             <code style={{ fontSize: 11, color: BD.textMuted, background: BD.codeBg, padding: '2px 6px', borderRadius: 4 }}>{b.slug}</code>
+                            {!b.isShared && b._locationId && (
+                              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(148,163,184,0.12)', color: '#cbd5e1', border: '1px solid rgba(148,163,184,0.24)', fontWeight: 600 }}>
+                                {getLocationLabel(b._locationId, 'Unknown Location')}
+                              </span>
+                            )}
                             {b.isShared
                               ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', fontWeight: 600 }}>shared</span>
                               : <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', fontWeight: 600, fontFamily: 'monospace' }}>{b._locationId?.slice(0,10)}…</span>
@@ -3931,6 +4049,7 @@ export default function Admin() {
         <EditWorkflowModal
           modal={adminModal}
           adminKey={adminKey}
+          locationLabel={getLocationLabel(adminModal.locationId)}
           onClose={() => setAdminModal(null)}
           onSaved={(locationId, updatedWf) => {
             setAdminModal(null);
@@ -3947,6 +4066,7 @@ export default function Admin() {
         <EditConnectionModal
           modal={adminModal}
           adminKey={adminKey}
+          locationLabel={getLocationLabel(adminModal.locationId)}
           onClose={() => setAdminModal(null)}
           onSaved={(locationId, cat, newCfg) => {
             setAdminModal(null);
@@ -3965,7 +4085,7 @@ export default function Admin() {
 
 // ── Billing Modal ─────────────────────────────────────────────────────────────
 
-function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
+function BillingModal({ modal, adminKey, getLocationName, getLocationLabel, onClose, onSaved, onFlash }) {
   const [form, setForm] = useState({
     locationId:  modal.data?.locationId || modal.locationId || '',
     tier:        modal.data?.tier       || 'bronze',
@@ -4018,6 +4138,11 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
 
   const isInvoice = modal.type === 'add-invoice' || modal.type === 'edit-invoice';
   const isNew     = modal.type === 'new-subscription';
+  const activeLocationId = form.locationId || modal.locationId || '';
+  const activeLocationName = getLocationName?.(activeLocationId) || '';
+  const activeLocationLabel = activeLocationId
+    ? (getLocationLabel?.(activeLocationId, 'Unknown Location') || activeLocationId)
+    : '';
 
   const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
   const box     = { background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, width: 'min(420px, 94vw)', maxHeight: '90vh', overflowY: 'auto' };
@@ -4031,7 +4156,14 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
     <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={box}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>{titles[modal.type]}</h3>
+          <div>
+            <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>{titles[modal.type]}</h3>
+            {activeLocationLabel && (
+              <p style={{ color: activeLocationName ? '#9ca3af' : '#6b7280', margin: '4px 0 0', fontSize: 12 }}>
+                {activeLocationLabel}
+              </p>
+            )}
+          </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20 }}>×</button>
         </div>
 
@@ -4039,6 +4171,11 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
           <>
             <label style={lbl}>Location ID</label>
             <input style={inp} value={form.locationId} onChange={e => set('locationId', e.target.value)} placeholder="e.g. n26oX9nNg6MdIrAlZQDg" />
+            {activeLocationName && (
+              <p style={{ color: '#9ca3af', fontSize: 12, margin: '-6px 0 12px' }}>
+                Matching location: {activeLocationName}
+              </p>
+            )}
           </>
         )}
 
@@ -4132,7 +4269,7 @@ function BillingModal({ modal, adminKey, onClose, onSaved, onFlash }) {
 // Step 1: Role name + tool checkboxes (all 12, no tier filter)
 // Step 2: Tier association — see which selected tools the tier covers
 
-function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locationId, tiers, enabledIntegrations, onClose, onSaved, onReset, onFlash }) {
+function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locationId, locationLabel, tiers, enabledIntegrations, onClose, onSaved, onReset, onFlash }) {
   const [step,         setStep]         = useState(1);
   const [name,         setName]         = useState(role?.name     || '');
   const [features,     setFeatures]     = useState(new Set(
@@ -4444,7 +4581,7 @@ function ActionBtn({ icon, title, color, onClick }) {
 
 // ── Detail panel (expanded row) ───────────────────────────────────────────────
 
-function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId, adminKey,
+function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId, locationName, adminKey,
                         onClearConnection, onDeleteWorkflow, onEditWorkflow, onEditConnection }) {
   const [tsTab,       setTsTab]       = useState('tasks');
   const [runTask,     setRunTask]     = useState('');
@@ -4508,6 +4645,10 @@ function DetailPanel({ data, troubleshoot, workflowRunLogs, taskLogs, locationId
 
   return (
     <div style={{ padding: '14px 0' }}>
+      <div style={{ background: '#14141c', border: '1px solid #242438', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+        <p style={{ color: '#6b7280', fontSize: 11, margin: '0 0 6px', fontWeight: 600, letterSpacing: '0.05em' }}>LOCATION</p>
+        <LocationIdentity locationId={locationId} name={locationName} />
+      </div>
 
       {/* Top row: integrations + token + logs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, marginBottom: 20 }}>
@@ -5306,7 +5447,7 @@ function bezierPath(x1, y1, x2, y2) {
   return `M${x1},${y1} C${x1},${cy} ${x2},${cy} ${x2},${y2}`;
 }
 
-function EditWorkflowModal({ modal, adminKey, onClose, onSaved, onFlash }) {
+function EditWorkflowModal({ modal, adminKey, locationLabel, onClose, onSaved, onFlash }) {
   const wf = modal.data;
   const [name,     setName]     = useState(wf.name    || '');
   const [context,  setContext]  = useState(wf.context || '');
@@ -5377,7 +5518,7 @@ function EditWorkflowModal({ modal, adminKey, onClose, onSaved, onFlash }) {
               style={{ background: 'none', border: 'none', color: '#fff', fontSize: 17, fontWeight: 700, width: '100%', outline: 'none', padding: 0 }}
             />
             <p style={{ color: '#4b5563', fontSize: 12, margin: '2px 0 0' }}>
-              {steps.length} node{steps.length !== 1 ? 's' : ''} · {modal.locationId}
+              {steps.length} node{steps.length !== 1 ? 's' : ''} · {locationLabel || modal.locationId}
             </p>
           </div>
           {/* Context inline */}
@@ -5555,7 +5696,7 @@ function EditWorkflowModal({ modal, adminKey, onClose, onSaved, onFlash }) {
 
 // ── Edit Connection Modal ──────────────────────────────────────────────────────
 
-function EditConnectionModal({ modal, adminKey, onClose, onSaved, onFlash }) {
+function EditConnectionModal({ modal, adminKey, locationLabel, onClose, onSaved, onFlash }) {
   const { cat, cfg } = modal.data;
   const [fields, setFields] = useState(() => {
     const init = {};
@@ -5588,7 +5729,10 @@ function EditConnectionModal({ modal, adminKey, onClose, onSaved, onFlash }) {
     <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={box}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>Edit <span style={{ color: '#60a5fa' }}>{cat}</span> Connection</h3>
+          <div>
+            <h3 style={{ color: '#fff', margin: 0, fontSize: 16 }}>Edit <span style={{ color: '#60a5fa' }}>{cat}</span> Connection</h3>
+            {locationLabel && <p style={{ color: '#9ca3af', margin: '4px 0 0', fontSize: 12 }}>{locationLabel}</p>}
+          </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20 }}>×</button>
         </div>
         <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 16px' }}>Edit API credentials for this location. Saving will invalidate the token cache and generate a new session token.</p>
@@ -5648,7 +5792,7 @@ function EditConnectionModal({ modal, adminKey, onClose, onSaved, onFlash }) {
 
 // ── Log table ─────────────────────────────────────────────────────────────────
 
-function LogTable({ logs }) {
+function LogTable({ logs, getLocationName }) {
   return (
     <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 500 }}>
@@ -5665,8 +5809,15 @@ function LogTable({ logs }) {
               <td style={{ padding: '8px 14px', color: '#6b7280', whiteSpace: 'nowrap', fontSize: 12 }}>
                 {relTime(log.timestamp)}
               </td>
-              <td style={{ padding: '8px 14px', fontFamily: 'monospace', color: '#a78bfa', fontSize: 12 }}>
-                {log.locationId?.slice(0, 12)}…
+              <td style={{ padding: '8px 14px' }}>
+                <LocationIdentity
+                  locationId={log.locationId}
+                  name={getLocationName?.(log.locationId)}
+                  fallbackName="Unknown Location"
+                  shortId
+                  idFontSize={11}
+                  nameWeight={500}
+                />
               </td>
               <td style={{ padding: '8px 14px' }}>
                 <EventBadge event={log.event} />
