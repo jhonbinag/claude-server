@@ -58,7 +58,10 @@ async function getLocId(req, brainId) {
     const entry = reg.find(r => r.brainId === brainId);
     if (entry) return entry.locationId;
   } catch {}
-  return SHARED_LOC;
+  // Brain not found in own location or shared registry — fall back to the
+  // requester's own location so the operation fails with a proper 404 rather
+  // than silently touching shared data.
+  return locationId;
 }
 
 // ── List all brains ────────────────────────────────────────────────────────────

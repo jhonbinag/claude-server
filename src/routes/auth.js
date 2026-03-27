@@ -26,6 +26,7 @@ const billingService    = require('../services/billingService');
 const appSettings       = require('../services/appSettings');
 const locationRegistry  = require('../services/locationRegistry');
 const roleService       = require('../services/roleService');
+const adminAuth         = require('../middleware/adminAuth');
 const config            = require('../config');
 
 // ─── All scopes requested during install ─────────────────────────────────────
@@ -171,9 +172,10 @@ router.get('/callback', async (req, res) => {
     console.log(`[Auth] Installation complete for location: ${locationId}`);
 
     // Redirect to the app UI so the user lands on the dashboard after install.
-    // Pass the apiKey, locationId, and userId as query params so the SPA can store them.
+    // Only pass locationId and userId — never expose the private API key in the URL
+    // (URL params appear in browser history, proxy logs, and server access logs).
     const uidParam = installingUserId ? `&userId=${installingUserId}` : '';
-    const appUrl = `${req.protocol}://${req.get('host')}/ui/?locationId=${locationId}&apiKey=${apiKey}${uidParam}`;
+    const appUrl = `${req.protocol}://${req.get('host')}/ui/?locationId=${locationId}${uidParam}`;
     res.redirect(appUrl);
   } catch (err) {
     console.error('[Auth] Callback error:', err.message);
@@ -235,14 +237,20 @@ router.get('/rate-limits/:locationId', (req, res) => {
 });
 
 // ─── Private API Key Management ───────────────────────────────────────────────
-// Protect these routes with an admin secret or IP allowlist in production.
+// Both routes require admin key — either the global ADMIN_API_KEY or the
+// location's own hlpt_* key (which is scoped to that location only).
 
-router.get('/key/:locationId', (req, res) => {
-  const apiKey = apiKeyService.getApiKey(req.params.locationId);
+router.get('/key/:locationId', adminAuth, async (req, res) => {
+  const { locationId } = req.params;
+  // Scoped admin keys may only read their own location's key
+  if (req.adminScoped && req.adminId !== locationId) {
+    return res.status(403).json({ success: false, error: 'Not authorised for this location.' });
+  }
+  const apiKey = await apiKeyService.getApiKey(locationId);
   if (!apiKey) {
     return res.status(404).json({ success: false, error: 'No API key found for this location.' });
   }
-  res.json({ success: true, locationId: req.params.locationId, apiKey });
+  res.json({ success: true, locationId, apiKey });
 });
 
 router.post('/key/rotate/:locationId', async (req, res) => {

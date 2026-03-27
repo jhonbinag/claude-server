@@ -33,8 +33,9 @@
  *   hltools:tooltokenidx:{token}      → locationId (reverse-lookup)
  */
 
-const crypto = require('crypto');
-const https  = require('https');
+const crypto           = require('crypto');
+const https            = require('https');
+const locationRegistry = require('./locationRegistry');
 
 const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
@@ -209,7 +210,7 @@ async function touchToken(locationId) {
     await redis.set(TOOLTOKEN_PREFIX + locationId, JSON.stringify(raw));
 
     // Also update locationRegistry (no await — fire-and-forget)
-    require('./locationRegistry').updateLastActive(locationId).catch(() => {});
+    locationRegistry.updateLastActive(locationId).catch(() => {});
   } catch (err) {
     console.error('[ToolTokenService] Touch error:', err.message);
   }
