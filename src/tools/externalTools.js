@@ -505,6 +505,216 @@ const EXTERNAL_TOOL_DEFINITIONS = {
     },
   ],
 
+  // ── 3PL Systems (BrokerWare TMS) ─────────────────────────────────────────────
+  tpl: [
+    {
+      name: 'tpl_get_rates',
+      description: 'Get carrier rate quotes for a shipment from 3PL Systems BrokerWare TMS. Returns a list of carriers with pricing and transit times.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          shipperZip:       { type: 'string',  description: 'Shipper ZIP code (max 6 chars)' },
+          consigneeZip:     { type: 'string',  description: 'Consignee/destination ZIP code (max 6 chars)' },
+          shipperCountry:   { type: 'string',  description: 'Shipper country: US, USA, CA, CAN, MX' },
+          consigneeCountry: { type: 'string',  description: 'Consignee country: US, USA, CA, CAN, MX' },
+          shipmentMode:     { type: 'string',  description: 'Mode: LTL, Truckload, Intermodal, Air, Drayage, HotShot, Parcel, etc.' },
+          equipmentType:    { type: 'string',  description: 'Equipment type: Van, Flatbed, Reefer, StraightVan, NotSpecified, etc.' },
+          miles:            { type: 'number',  description: 'Mileage (pass 0 to auto-calculate)' },
+          accessorials:     { type: 'array',   description: 'Optional accessorial codes e.g. ["RSDE","INDE"]', items: { type: 'string' } },
+          items: {
+            type: 'array',
+            description: 'Freight items array (at least one required)',
+            items: {
+              type: 'object',
+              properties: {
+                class:              { type: 'string',  description: 'Freight class e.g. "70", "100", "125"' },
+                pieces:             { type: 'number',  description: 'Number of pieces' },
+                weight:             { type: 'number',  description: 'Weight in lbs (no decimals)' },
+                packaging:          { type: 'string',  description: 'Pallets, Boxes, Pieces, Cases, etc.' },
+                isHazardous:        { type: 'boolean', description: 'Hazardous material flag' },
+                productDescription: { type: 'string',  description: 'Product description' },
+                length:             { type: 'number',  description: 'Length in inches' },
+                width:              { type: 'number',  description: 'Width in inches' },
+                height:             { type: 'number',  description: 'Height in inches' },
+                nmfc:               { type: 'string',  description: 'NMFC code' },
+              },
+              required: ['class', 'pieces', 'weight', 'packaging', 'isHazardous'],
+            },
+          },
+        },
+        required: ['shipperZip', 'consigneeZip', 'shipmentMode', 'equipmentType', 'items'],
+      },
+    },
+    {
+      name: 'tpl_create_shipment',
+      description: 'Create a new shipment in 3PL Systems BrokerWare TMS. Returns the new load ID.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          shipperZip:          { type: 'string',  description: 'Shipper ZIP (max 6 chars)' },
+          shipperCountry:      { type: 'string',  description: 'US, USA, CA, CAN, MX' },
+          shipperAddress:      { type: 'string',  description: 'Shipper street address (max 150 chars)' },
+          shipperName:         { type: 'string',  description: 'Shipper company name (max 50 chars)' },
+          shipperContact:      { type: 'string',  description: 'Shipper contact name (max 50 chars)' },
+          shipperEmail:        { type: 'string',  description: 'Shipper email (max 50 chars)' },
+          shipperPhone:        { type: 'string',  description: 'Shipper phone (max 50 chars)' },
+          consigneeZip:        { type: 'string',  description: 'Consignee ZIP (max 6 chars)' },
+          consigneeCountry:    { type: 'string',  description: 'US, USA, CA, CAN, MX' },
+          consigneeAddress:    { type: 'string',  description: 'Consignee street address (max 150 chars)' },
+          consigneeName:       { type: 'string',  description: 'Consignee company name (max 50 chars)' },
+          consigneeContact:    { type: 'string',  description: 'Consignee contact name (max 50 chars)' },
+          consigneeEmail:      { type: 'string',  description: 'Consignee email (max 50 chars)' },
+          consigneePhone:      { type: 'string',  description: 'Consignee phone (max 50 chars)' },
+          shipmentMode:        { type: 'string',  description: 'LTL, Truckload, Intermodal, Air, etc.' },
+          equipmentType:       { type: 'string',  description: 'Van, Flatbed, Reefer, StraightVan, etc.' },
+          pickupDate:          { type: 'string',  description: 'Pickup date ISO 8601 e.g. 2024-06-15T14:00:00Z' },
+          pickupOpenTime:      { type: 'string',  description: 'Pickup open time ISO 8601' },
+          pickupCloseTime:     { type: 'string',  description: 'Pickup close time ISO 8601' },
+          estimatedDelivery:   { type: 'string',  description: 'Estimated delivery ISO 8601' },
+          shipmentStatus:      { type: 'string',  description: 'Quoted, Booked, Dispatched, etc.' },
+          poReference:         { type: 'string',  description: 'PO reference number (max 100 chars)' },
+          billOfLandingNote:   { type: 'string',  description: 'BOL notes (max 2000 chars)' },
+          shipperNumber:       { type: 'string',  description: 'Shipper number (max 100 chars)' },
+          referenceNumber:     { type: 'string',  description: 'Reference number (max 50 chars)' },
+          accessorials:        { type: 'array',   items: { type: 'string' }, description: 'Accessorial codes' },
+          test:                { type: 'boolean', description: 'Set false for production, true for testing' },
+          items: {
+            type: 'array',
+            description: 'Freight items',
+            items: {
+              type: 'object',
+              properties: {
+                class:              { type: 'string'  },
+                pieces:             { type: 'number'  },
+                weight:             { type: 'number'  },
+                packaging:          { type: 'string'  },
+                isHazardous:        { type: 'boolean' },
+                productDescription: { type: 'string'  },
+                length:             { type: 'number'  },
+                width:              { type: 'number'  },
+                height:             { type: 'number'  },
+                nmfc:               { type: 'string'  },
+              },
+              required: ['class', 'pieces', 'weight', 'packaging', 'isHazardous', 'productDescription'],
+            },
+          },
+          carrier: {
+            type: 'object',
+            description: 'Carrier details (optional)',
+            properties: {
+              carrierScac: { type: 'string', description: 'Carrier SCAC code (max 10 chars)' },
+              proNumber:   { type: 'string', description: 'Pro number (max 50 chars)' },
+              providerScac:{ type: 'string', description: 'Provider SCAC (leave empty unless directed)' },
+            },
+          },
+        },
+        required: ['shipperZip', 'shipperCountry', 'shipperAddress', 'consigneeZip', 'consigneeCountry', 'consigneeAddress', 'shipmentMode', 'equipmentType', 'pickupDate', 'items'],
+      },
+    },
+    {
+      name: 'tpl_update_shipment',
+      description: 'Update an existing shipment in 3PL Systems BrokerWare TMS by load ID.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          loadId:          { type: 'number', description: 'The load ID to update' },
+          shipmentStatus:  { type: 'string', description: 'New status: Quoted, Booked, Dispatched, Loading, InTransit, OutForDelivery, Delivered, Canceled, etc.' },
+          shipperZip:      { type: 'string', description: 'Shipper ZIP' },
+          shipperCountry:  { type: 'string', description: 'Shipper country' },
+          consigneeZip:    { type: 'string', description: 'Consignee ZIP' },
+          consigneeCountry:{ type: 'string', description: 'Consignee country' },
+          shipmentMode:    { type: 'string', description: 'Shipment mode' },
+          equipmentType:   { type: 'string', description: 'Equipment type' },
+          pickupDate:      { type: 'string', description: 'Pickup date ISO 8601' },
+          estimatedDelivery:{ type: 'string', description: 'Estimated delivery ISO 8601' },
+          poReference:     { type: 'string', description: 'PO reference' },
+          carrier: {
+            type: 'object',
+            properties: {
+              carrierScac: { type: 'string' },
+              proNumber:   { type: 'string' },
+              providerScac:{ type: 'string' },
+            },
+          },
+          items:       { type: 'array', items: { type: 'object' }, description: 'Updated freight items' },
+          accessorials:{ type: 'array', items: { type: 'object' }, description: 'Accessorials with cost' },
+          test:        { type: 'boolean', description: 'false for production' },
+        },
+        required: ['loadId'],
+      },
+    },
+    {
+      name: 'tpl_get_loads',
+      description: 'Search and retrieve shipment loads from 3PL Systems BrokerWare TMS (broker global access). Filter by status and date range.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          status:    { type: 'string', description: 'Shipment status filter: Quoted, Booked, Dispatched, Loading, InTransit, OutForDelivery, Refused, MissedDelivery, Delivered, OSD, CanceledWithCharges, Canceled' },
+          startDate: { type: 'string', description: 'Start date for last-modified filter (YYYY-MM-DD)' },
+          endDate:   { type: 'string', description: 'End date for last-modified filter (YYYY-MM-DD)' },
+        },
+        required: ['status'],
+      },
+    },
+    {
+      name: 'tpl_get_carriers',
+      description: 'Get the list of freight carriers in 3PL Systems BrokerWare TMS (broker global access). Filter by last-modified date range.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          startDate: { type: 'string', description: 'Start modified date (YYYY-MM-DD)' },
+          endDate:   { type: 'string', description: 'End modified date (YYYY-MM-DD)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'tpl_list_documents',
+      description: 'List available documents (Quote, BOL, Label, etc.) for a specific load in 3PL Systems BrokerWare TMS.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          loadId: { type: 'number', description: 'The load ID to fetch documents for' },
+        },
+        required: ['loadId'],
+      },
+    },
+    {
+      name: 'tpl_send_documents',
+      description: 'Email shipment documents (Quote, BOL, Label) for a load to specified recipients via 3PL Systems BrokerWare TMS.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          loadId:        { type: 'number', description: 'The load ID' },
+          emails:        { type: 'array',  items: { type: 'string' }, description: 'List of recipient email addresses' },
+          documentNames: { type: 'array',  items: { type: 'string' }, description: 'Document names to send: Quote, BOL, Label, etc.' },
+        },
+        required: ['loadId', 'emails', 'documentNames'],
+      },
+    },
+    {
+      name: 'tpl_create_shipment_with_rate',
+      description: 'Create a shipment in 3PL Systems using a previously obtained rate quote ID. Locks in the quoted carrier rate.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          rateQuoteId:     { type: 'string', description: 'Rate quote ID (GUID) from a previous tpl_get_rates call' },
+          shipperZip:      { type: 'string' },
+          shipperCountry:  { type: 'string' },
+          consigneeZip:    { type: 'string' },
+          consigneeCountry:{ type: 'string' },
+          shipmentMode:    { type: 'string' },
+          equipmentType:   { type: 'string' },
+          pickupDate:      { type: 'string' },
+          items:           { type: 'array', items: { type: 'object' } },
+          carrier:         { type: 'object' },
+          test:            { type: 'boolean' },
+        },
+        required: ['rateQuoteId', 'shipperZip', 'consigneeZip', 'shipmentMode', 'equipmentType', 'pickupDate', 'items'],
+      },
+    },
+  ],
+
   // ── ManyChat ─────────────────────────────────────────────────────────────────
   manychat: [
     {
@@ -3399,6 +3609,86 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     return { pins: resp.data.items };
   }
 
+  // ── 3PL Systems (BrokerWare TMS) ─────────────────────────────────────────────
+
+  if (toolName.startsWith('tpl_')) {
+    const cfg = toolConfigs.tpl || {};
+    if (!cfg.baseUrl)     throw new Error('3PL base URL not configured. Add it in Settings → 3PL Systems.');
+    if (!cfg.clientId || !cfg.clientSecret) throw new Error('3PL client credentials not configured.');
+
+    const base = cfg.baseUrl.replace(/\/$/, '');
+
+    // In-memory token cache (keyed by baseUrl+clientId)
+    if (!executeExternalTool._tplTokens) executeExternalTool._tplTokens = new Map();
+    const tokenKey = (type) => `${base}:${type === 'global' ? cfg.globalClientId : cfg.clientId}`;
+
+    async function getTplToken(type = 'client') {
+      const key = tokenKey(type);
+      const cached = executeExternalTool._tplTokens.get(key);
+      if (cached && cached.expires > Date.now()) return cached.token;
+
+      const id     = type === 'global' ? cfg.globalClientId     : cfg.clientId;
+      const secret = type === 'global' ? cfg.globalClientSecret : cfg.clientSecret;
+      if (!id || !secret) throw new Error(`3PL ${type} credentials not configured.`);
+
+      const resp = await axios.post(`${base}/Authentication`,
+        `grant_type=client_credentials&client_id=${encodeURIComponent(id)}&client_secret=${encodeURIComponent(secret)}`,
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      const token = resp.data.access_token || resp.data.token;
+      if (!token) throw new Error('3PL auth returned no access_token');
+      executeExternalTool._tplTokens.set(key, { token, expires: Date.now() + 3500000 });
+      return token;
+    }
+
+    async function tplCall(method, path, body = null, credType = 'client', params = {}) {
+      const token = await getTplToken(credType);
+      const opts  = { method, url: `${base}${path}`, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, params };
+      if (body) opts.data = body;
+      const r = await axios(opts);
+      return r.data;
+    }
+
+    if (toolName === 'tpl_get_rates') {
+      return await tplCall('POST', '/api/v1/rating', input, 'client');
+    }
+
+    if (toolName === 'tpl_create_shipment') {
+      return await tplCall('POST', '/api/v1/createshipment', input, 'client');
+    }
+
+    if (toolName === 'tpl_update_shipment') {
+      return await tplCall('POST', '/api/v1/UpdateShipment', input, 'client');
+    }
+
+    if (toolName === 'tpl_create_shipment_with_rate') {
+      const { rateQuoteId, ...body } = input;
+      return await tplCall('POST', '/api/v1/CreateShipmentWithRateQuoteId', body, 'client', { rateQuoteId });
+    }
+
+    if (toolName === 'tpl_get_loads') {
+      const { status = 'Booked', startDate, endDate } = input;
+      return await tplCall('GET', '/api/clientv1/GetLoads', null, 'global', { status, startDate, endDate });
+    }
+
+    if (toolName === 'tpl_update_shipment_global') {
+      return await tplCall('POST', '/api/clientv1/UpdateShipment', input, 'global');
+    }
+
+    if (toolName === 'tpl_get_carriers') {
+      const { startDate, endDate } = input;
+      return await tplCall('GET', '/api/clientv1/carrier', null, 'global', { startDate, endDate });
+    }
+
+    if (toolName === 'tpl_list_documents') {
+      return await tplCall('GET', '/api/v1/ListShipmentDocuments', null, 'client', { loadId: input.loadId });
+    }
+
+    if (toolName === 'tpl_send_documents') {
+      return await tplCall('POST', '/api/v1/SendShipmentDocuments', { loadId: input.loadId, emails: input.emails, documentNames: input.documentNames }, 'client');
+    }
+  }
+
   throw new Error(`Unknown external tool: ${toolName}`);
 }
 
@@ -3740,6 +4030,18 @@ const TOOL_METADATA = {
     description: 'Pinterest boards and pin creation',
     configFields: [
       { key: 'accessToken', label: 'Access Token', type: 'password', placeholder: 'Your Pinterest OAuth token' },
+    ],
+  },
+  tpl: {
+    label:       '3PL Systems (BrokerWare TMS)',
+    icon:        '🚚',
+    description: 'Freight rate quotes, shipment management, carrier lookup and document delivery via BrokerWare TMS',
+    configFields: [
+      { key: 'baseUrl',            label: 'Base URL',             type: 'text',     placeholder: 'https://yourbrokerage.hyperiontms.com' },
+      { key: 'clientId',           label: 'Client ID',            type: 'text',     placeholder: 'Client API ID (from Customer Tools → API Keys)' },
+      { key: 'clientSecret',       label: 'Client Secret',        type: 'password', placeholder: 'Client API Secret' },
+      { key: 'globalClientId',     label: 'Global Client ID',     type: 'text',     placeholder: 'Global API ID (from General Information — broker only)' },
+      { key: 'globalClientSecret', label: 'Global Client Secret', type: 'password', placeholder: 'Global API Secret' },
     ],
   },
 };
