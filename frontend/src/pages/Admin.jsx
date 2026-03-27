@@ -187,7 +187,7 @@ function AdminSearchView({ brains, adminKey }) {
   const [selectedBrainVal, setSelectedBrainVal] = useState(() => {
     if (brains.length === 0) return '';
     const b = brains[0];
-    const locQ = b.isShared ? '' : (b._locationId ? `?loc=${encodeURIComponent(b._locationId)}` : '');
+    const locQ = (b._locationId && b._locationId !== '__shared__') ? `?loc=${encodeURIComponent(b._locationId)}` : '';
     return JSON.stringify({ brainId: b.brainId, locQ });
   });
   const [query,        setQuery]        = useState('');
@@ -201,7 +201,7 @@ function AdminSearchView({ brains, adminKey }) {
   useEffect(() => {
     if (!selectedBrainVal && brains.length > 0) {
       const b = brains[0];
-      const locQ = b.isShared ? '' : (b._locationId ? `?loc=${encodeURIComponent(b._locationId)}` : '');
+      const locQ = (b._locationId && b._locationId !== '__shared__') ? `?loc=${encodeURIComponent(b._locationId)}` : '';
       setSelectedBrainVal(JSON.stringify({ brainId: b.brainId, locQ }));
     }
   }, [brains]);
@@ -262,7 +262,7 @@ function AdminSearchView({ brains, adminKey }) {
           style={{ ...bdInput, marginBottom: 0, width: 220, flexShrink: 0 }}
         >
           {brains.map(b => {
-            const locQ = b.isShared ? '' : (b._locationId ? `?loc=${encodeURIComponent(b._locationId)}` : '');
+            const locQ = (b._locationId && b._locationId !== '__shared__') ? `?loc=${encodeURIComponent(b._locationId)}` : '';
             return <option key={`${b._locationId}-${b.brainId}`} value={JSON.stringify({ brainId: b.brainId, locQ })}>{b.name}{!b.isShared && b._locationId ? ` (${b._locationId.slice(0,10)}…)` : ''}</option>;
           })}
         </select>
@@ -1888,8 +1888,9 @@ export default function Admin() {
 
   // ── Dashboard ─────────────────────────────────────────────────────────────
 
-  // Query suffix for brain API calls when the brain lives in a user location (not __shared__)
-  const brainLocQ = selectedBrain && !selectedBrain.isShared && selectedBrain._locationId
+  // Query suffix for brain API calls when the brain lives in a user location (not __shared__).
+  // Use _locationId (not isShared) — a brain can be isShared:true but still stored under a real location.
+  const brainLocQ = selectedBrain?._locationId && selectedBrain._locationId !== '__shared__'
     ? `?loc=${encodeURIComponent(selectedBrain._locationId)}`
     : '';
 
