@@ -43,13 +43,16 @@ function vNs(locationId, brainId) {
 
 async function vUpsertChunks(locationId, brainId, docId, chunks, meta) {
   if (!isVectorEnabled) return;
+  // Upstash limit: 48KB per-record metadata. Cap text in metadata to 40000 chars
+  // (data field carries the full text for embedding; metadata.text is display only).
+  const MAX_META_TEXT  = 40000;
+  const MAX_BATCH_META = 40000;
   const records = chunks.map((text, i) => ({
     id:       `${docId}__${i}`,
     data:     text,
-    metadata: { docId, chunkIndex: i, text, ...meta },
+    metadata: { docId, chunkIndex: i, text: text.length > MAX_META_TEXT ? text.slice(0, MAX_META_TEXT) : text, ...meta },
   }));
-  // Batch by cumulative metadata size to stay under Upstash's 49152-byte limit
-  const MAX_BATCH_META = 40000;
+  // Batch by cumulative metadata size to stay under Upstash's 49152-byte request limit
   let batch = [];
   let batchSize = 0;
   for (const record of records) {
