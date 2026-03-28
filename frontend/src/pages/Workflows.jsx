@@ -25,6 +25,11 @@ const TOOL_COLOR = {
   facebook_ads: '#1877f2', sendgrid: '#00a8a8', slack: '#9333ea',
   apollo: '#f97316', heygen: '#a855f7', manychat: '#0084ff',
   hubspot: '#ff7a00', keap: '#00a3e0', social_hub: '#8b5cf6', payment_hub: '#10b981',
+  tpl: '#fb923c', shopify: '#95bf47', woocommerce: '#96588a', google_calendar: '#1a73e8',
+  linkedin: '#0077b5', google_contacts: '#34a853', google_forms: '#7b1fa2',
+  airtable: '#fcb641', monday: '#ff5100', typeform: '#262626', asana: '#fc636b',
+  canva: '#00c7b7', tiktok_ads: '#010101', google_ads: '#fbbc05', openrouter: '#6366f1',
+  gravity_forms: '#ff9900', http_client: '#6b7280',
 };
 
 const NODE_W = 240;
@@ -84,6 +89,78 @@ const TOOL_FIELDS = {
   payment_hub: {
     inputs:  ['customerEmail', 'amount', 'currency', 'description', 'customerId'],
     outputs: ['paymentId', 'paymentUrl', 'status', 'invoiceId', 'receiptUrl'],
+  },
+  tpl: {
+    inputs:  ['shipperZip', 'consigneeZip', 'shipmentMode', 'equipmentType', 'pickupDate', 'loadId', 'status', 'email', 'rateQuoteId', 'items'],
+    outputs: ['rateId', 'carrierId', 'loadId', 'trackingNumber', 'status', 'documentUrl', 'estimatedDelivery', 'totalCost', 'rates'],
+  },
+  shopify: {
+    inputs:  ['customerId', 'email', 'productId', 'orderId', 'variantId', 'quantity'],
+    outputs: ['orderId', 'orderStatus', 'customerId', 'email', 'productTitle', 'discountCode', 'totalPrice'],
+  },
+  woocommerce: {
+    inputs:  ['customerId', 'email', 'productId', 'orderId', 'couponCode'],
+    outputs: ['orderId', 'orderStatus', 'customerId', 'email', 'productName', 'couponCode', 'totalAmount'],
+  },
+  google_calendar: {
+    inputs:  ['title', 'description', 'startTime', 'endTime', 'attendees', 'calendarId'],
+    outputs: ['eventId', 'eventUrl', 'startTime', 'endTime', 'attendees'],
+  },
+  linkedin: {
+    inputs:  ['content', 'imageUrl', 'adCopy', 'audience', 'budget'],
+    outputs: ['postId', 'postUrl', 'impressions', 'clicks', 'campaignId'],
+  },
+  google_contacts: {
+    inputs:  ['firstName', 'lastName', 'email', 'phone', 'company'],
+    outputs: ['contactId', 'firstName', 'lastName', 'email', 'phone'],
+  },
+  google_forms: {
+    inputs:  ['formId', 'title', 'question'],
+    outputs: ['formId', 'formUrl', 'responses', 'submittedAt'],
+  },
+  airtable: {
+    inputs:  ['tableId', 'recordId', 'filterBy', 'fieldName', 'fieldValue'],
+    outputs: ['recordId', 'fields', 'createdAt', 'updatedAt'],
+  },
+  monday: {
+    inputs:  ['boardId', 'itemName', 'status', 'assignee', 'dueDate'],
+    outputs: ['itemId', 'itemName', 'status', 'boardId', 'columnValues'],
+  },
+  typeform: {
+    inputs:  ['formId', 'responseId'],
+    outputs: ['responseId', 'submittedAt', 'answers', 'email', 'score'],
+  },
+  asana: {
+    inputs:  ['projectId', 'taskName', 'assignee', 'dueDate', 'notes'],
+    outputs: ['taskId', 'taskName', 'status', 'assignee', 'projectId'],
+  },
+  canva: {
+    inputs:  ['designId', 'title', 'format'],
+    outputs: ['designId', 'designUrl', 'exportUrl', 'title'],
+  },
+  tiktok_ads: {
+    inputs:  ['campaignId', 'adGroupId', 'budget', 'audience', 'adCopy'],
+    outputs: ['campaignId', 'adGroupId', 'adId', 'impressions', 'clicks', 'spend'],
+  },
+  google_ads: {
+    inputs:  ['campaignId', 'customerId', 'budget', 'keyword', 'adCopy'],
+    outputs: ['campaignId', 'adGroupId', 'conversions', 'clicks', 'impressions', 'spend'],
+  },
+  openrouter: {
+    inputs:  ['prompt', 'model', 'context', 'topic', 'audience'],
+    outputs: ['generatedText', 'summary', 'content', 'response'],
+  },
+  gravity_forms: {
+    inputs:  ['formId', 'entryId'],
+    outputs: ['entryId', 'formId', 'submittedAt', 'email', 'answers'],
+  },
+  http_client: {
+    inputs:  ['url', 'method', 'headers', 'body', 'params'],
+    outputs: ['status', 'data', 'headers', 'response'],
+  },
+  ghl_agent: {
+    inputs:  ['prompt', 'context', 'task', 'funnelId', 'contactId'],
+    outputs: ['result', 'output', 'funnelUrl', 'pageUrl'],
   },
 };
 
@@ -177,6 +254,19 @@ const PAYMENT_ACTIONS = [
   { key: 'custom',              label: 'Custom Action',          icon: '⚡' },
 ];
 
+// ─── 3PL action catalogue ─────────────────────────────────────────────────────
+
+const TPL_ACTIONS = [
+  { key: 'get_rates',         label: 'Get Carrier Rates',        icon: '💰' },
+  { key: 'create_shipment',   label: 'Create Shipment',          icon: '📦' },
+  { key: 'update_shipment',   label: 'Update Shipment',          icon: '✏️' },
+  { key: 'create_with_rate',  label: 'Create with Rate Quote',   icon: '📋' },
+  { key: 'get_loads',         label: 'Get Loads / Track',        icon: '🔍' },
+  { key: 'get_carriers',      label: 'Get Carriers',             icon: '🚛' },
+  { key: 'list_documents',    label: 'List Documents',           icon: '📄' },
+  { key: 'send_documents',    label: 'Send Documents by Email',  icon: '✉️' },
+];
+
 // ─── Config → instruction ─────────────────────────────────────────────────────
 
 function configToInstruction(config, context) {
@@ -227,6 +317,10 @@ Output the full sequence as a JSON array and then a human-readable summary of ea
       const crmLabel = CRM_ACTIONS.find(a => a.key === config.crmAction)?.label || config.crmAction;
       return `${config.toolLabel || 'CRM'}: ${crmLabel}.${ctx} ${config.crmDetail || ''}`;
     }
+    case 'tpl_action': {
+      const tplLabel = TPL_ACTIONS.find(a => a.key === config.tplAction)?.label || config.tplAction;
+      return `3PL Systems (BrokerWare TMS): ${tplLabel || 'freight operation'}.${ctx} ${config.tplDetail || ''}`;
+    }
     case 'social_hub': {
       const platforms = (config.platforms || []).map(p => SOCIAL_PLATFORMS.find(x => x.key === p)?.label || p).join(', ') || 'all connected platforms';
       const actionLabel = SOCIAL_ACTIONS.find(a => a.key === config.action)?.label || config.action;
@@ -273,7 +367,7 @@ function buildGraphPrompt(nodes, edges, context) {
     const inEdges  = edges.filter(e => e.toNodeId === node.id);
     const mappings = inEdges.flatMap(e => (e.mappings || []).map(m => `"${m.from}" → "${m.to}"`));
     const mapNote  = mappings.length ? `\n  Field inputs from previous steps: ${mappings.join(', ')}` : '';
-    const instr    = ['ghl', 'manychat', 'hubspot', 'keap', 'social_hub', 'payment_hub'].includes(node.tool) && node.config
+    const instr    = ['ghl', 'manychat', 'hubspot', 'keap', 'social_hub', 'payment_hub', 'tpl'].includes(node.tool) && node.config
       ? configToInstruction(node.config, context)
       : (node.instruction || `Execute ${node.label}`);
     return `STEP ${idx + 1} [${node.label}]:\n${instr}${mapNote}`;
@@ -291,6 +385,7 @@ function mkNode(tool, label, icon, x, y) {
   else if (tool === 'hubspot' || tool === 'keap') config = { action: 'crm_action', crmAction: null, toolLabel: label };
   else if (tool === 'social_hub') config = { action: 'social_hub', platforms: [], socialAction: null };
   else if (tool === 'payment_hub') config = { action: 'payment_hub', gateway: null, paymentAction: null };
+  else if (tool === 'tpl') config = { action: 'tpl_action', tplAction: null };
   return { id: `n_${uid()}`, tool, label, icon, x, y, instruction: '', config };
 }
 
@@ -1306,7 +1401,7 @@ function CanvasNode({ node, selected, connecting, onHeaderMouseDown, onOutPort, 
         {/* Status line */}
         <div style={{ padding: '6px 10px', fontSize: 11, color: '#6b7280' }}>
           {(() => {
-            const isConfigTool = ['ghl','manychat','hubspot','keap','social_hub','payment_hub'].includes(node.tool);
+            const isConfigTool = ['ghl','manychat','hubspot','keap','social_hub','payment_hub','tpl'].includes(node.tool);
             return (
               <>
                 {node.tool === 'ghl' && !node.config?.action && <span style={{ color: '#f59e0b' }}>⚠ Click to configure action</span>}
@@ -1319,6 +1414,8 @@ function CanvasNode({ node, selected, connecting, onHeaderMouseDown, onOutPort, 
                 {node.tool === 'social_hub' && node.config?.socialAction && <span style={{ color: '#a78bfa' }}>📱 {(node.config.platforms||[]).join(', ') || 'all'} · {SOCIAL_ACTIONS.find(a=>a.key===node.config.socialAction)?.label}</span>}
                 {node.tool === 'payment_hub' && !node.config?.paymentAction && <span style={{ color: '#f59e0b' }}>⚠ Click to select gateway + action</span>}
                 {node.tool === 'payment_hub' && node.config?.paymentAction && <span style={{ color: '#34d399' }}>💳 {PAYMENT_GATEWAYS.find(g=>g.key===node.config.gateway)?.label || 'Gateway'} · {PAYMENT_ACTIONS.find(a=>a.key===node.config.paymentAction)?.label}</span>}
+                {node.tool === 'tpl' && !node.config?.tplAction && <span style={{ color: '#f59e0b' }}>⚠ Click to select action</span>}
+                {node.tool === 'tpl' && node.config?.tplAction && <span style={{ color: '#fb923c' }}>🚚 {TPL_ACTIONS.find(a=>a.key===node.config.tplAction)?.label || node.config.tplAction}</span>}
                 {!isConfigTool && !node.instruction && <span style={{ color: '#f59e0b' }}>⚠ Click to add instruction</span>}
                 {!isConfigTool && node.instruction && <span style={{ color: '#86efac', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>✓ {node.instruction.slice(0, 40)}{node.instruction.length > 40 ? '…' : ''}</span>}
               </>
@@ -1367,6 +1464,8 @@ function NodeConfigPanel({ node, onClose, onChange, onConfigChange, onDelete }) 
           <SocialHubConfigInPanel config={node.config || { action: 'social_hub', platforms: [], socialAction: null }} onChange={onConfigChange} color={color} />
         ) : node.tool === 'payment_hub' ? (
           <PaymentConfigInPanel config={node.config || { action: 'payment_hub', gateway: null, paymentAction: null }} onChange={onConfigChange} color={color} />
+        ) : node.tool === 'tpl' ? (
+          <TPLConfigInPanel config={node.config || { action: 'tpl_action', tplAction: null }} onChange={onConfigChange} color={color} />
         ) : (
           <div>
             <label className="block text-xs text-gray-400 mb-2">Instruction for {node.label}</label>
@@ -1771,6 +1870,64 @@ function PaymentConfigInPanel({ config, onChange, color }) {
           <textarea value={config.detail||''} onChange={e => set({ detail: e.target.value })}
             placeholder={`e.g. "Create a $297 payment link for the coaching program with 30-day trial"`}
             rows={3} className="field w-full text-xs" style={{ resize:'none' }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 3PL Config In Panel ──────────────────────────────────────────────────────
+
+function TPLConfigInPanel({ config, onChange, color }) {
+  const set = patch => onChange({ ...config, ...patch });
+  const selected = TPL_ACTIONS.find(a => a.key === config.tplAction);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-xs text-gray-400 mb-2">3PL Action</p>
+        <div className="grid grid-cols-1 gap-1.5">
+          {TPL_ACTIONS.map(a => (
+            <div key={a.key} onClick={() => set({ tplAction: a.key })}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+              style={{ background: config.tplAction===a.key ? `${color}20` : 'rgba(255,255,255,0.03)', border:`1px solid ${config.tplAction===a.key ? color+'60' : 'rgba(255,255,255,0.07)'}`, color: config.tplAction===a.key ? '#fff' : '#9ca3af' }}>
+              <span>{a.icon}</span>
+              <span className="flex-1">{a.label}</span>
+              {config.tplAction===a.key && <span style={{ color, fontWeight:700 }}>✓</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+      {config.tplAction && (
+        <div>
+          <p className="text-xs text-gray-400 mb-1">Details (optional)</p>
+          <textarea value={config.tplDetail||''} onChange={e => set({ tplDetail: e.target.value })}
+            placeholder={`e.g. "${
+              config.tplAction === 'get_rates'        ? 'Get rates from Chicago (60601) to LA (90001), 48ft dry van, 10 pallets' :
+              config.tplAction === 'create_shipment'  ? 'Create shipment from 60601 to 90001, pickup 2026-04-01, LTL' :
+              config.tplAction === 'get_loads'        ? 'Get all Booked loads from 2026-03-01 to today' :
+              config.tplAction === 'send_documents'   ? 'Send BOL and rate confirmation to driver@example.com' :
+              'Additional instructions for this step'
+            }"`}
+            rows={3} className="field w-full text-xs" style={{ resize:'none' }} />
+        </div>
+      )}
+      {selected && (
+        <div className="rounded-xl p-3 text-xs" style={{ background: `${color}10`, border: `1px solid ${color}30` }}>
+          <p className="font-semibold mb-1" style={{ color }}>🚚 {selected.icon} {selected.label}</p>
+          <p className="text-gray-500">
+            {config.tplAction === 'get_rates'        && 'Returns carrier rate quotes. Outputs: rateId, carrierId, totalCost, estimatedDelivery.'}
+            {config.tplAction === 'create_shipment'  && 'Books a new freight shipment. Outputs: loadId, trackingNumber, status.'}
+            {config.tplAction === 'update_shipment'  && 'Updates an existing shipment. Input: loadId.'}
+            {config.tplAction === 'create_with_rate' && 'Books a shipment using a rate quote. Input: rateQuoteId.'}
+            {config.tplAction === 'get_loads'        && 'Lists active loads by status/date. Outputs: loadId, status, trackingNumber.'}
+            {config.tplAction === 'get_carriers'     && 'Lists available carriers. Outputs: carrierId, name, mode.'}
+            {config.tplAction === 'list_documents'   && 'Lists docs for a shipment. Input: loadId. Outputs: documentUrl.'}
+            {config.tplAction === 'send_documents'   && 'Emails docs to recipients. Inputs: loadId, email.'}
+          </p>
+          <p className="text-gray-600 mt-1">
+            Map fields: {(TOOL_FIELDS.tpl?.outputs || []).slice(0, 4).join(', ')}…
+          </p>
         </div>
       )}
     </div>
