@@ -87,6 +87,12 @@ export default function FunnelBuilder() {
   const [emailLog,      setEmailLog]      = useState([]);
   const [figmaSpec,     setFigmaSpec]     = useState('');
 
+  // Brain / knowledge base for email campaign
+  const [emailBrains,        setEmailBrains]        = useState([]);
+  const [emailBrainId,       setEmailBrainId]        = useState('');
+  const [emailBrainContext,  setEmailBrainContext]   = useState('');
+  const [emailBrainLoading,  setEmailBrainLoading]   = useState(false);
+
   // Website builder state
   const [websites,        setWebsites]        = useState([]);
   const [websitesLoading, setWebsitesLoading] = useState(false);
@@ -219,6 +225,15 @@ export default function FunnelBuilder() {
     if (!apiKey) return;
     api.getWithKey('/agent/agents', apiKey)
       .then(d => { if (d.success) setAgents(d.data || []); })
+      .catch(() => {});
+  }, [apiKey]);
+
+  // Load brains for email campaign brain selector
+  useEffect(() => {
+    if (!apiKey) return;
+    fetch('/brain/list', { headers: { 'x-location-id': apiKey } })
+      .then(r => r.json())
+      .then(d => { if (d.success) setEmailBrains(d.data || []); })
       .catch(() => {});
   }, [apiKey]);
 
@@ -525,6 +540,30 @@ export default function FunnelBuilder() {
     setEmailResult(null);
     setEmailLog([]);
 
+    // Query brain for context before generating
+    let brainContext = '';
+    let brainName = '';
+    if (emailBrainId) {
+      setEmailBrainLoading(true);
+      try {
+        const q = [emailOffer, emailNiche, emailAudience, emailBrand].filter(Boolean).join('. ');
+        const br = await fetch(`/brain/${emailBrainId}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-location-id': apiKey },
+          body: JSON.stringify({ query: q, k: 12 }),
+        });
+        const bd = await br.json();
+        if (bd.success && Array.isArray(bd.data)) {
+          brainContext = bd.data.map(c => c.text || c.content || '').filter(Boolean).join('\n\n');
+        }
+        const brain = emailBrains.find(b => b.brainId === emailBrainId);
+        brainName = brain?.name || 'Knowledge Base';
+        setEmailBrainContext(brainContext);
+        if (brainContext) setEmailLog(l => [...l, { msg: `🧠 Brain context loaded from "${brainName}"`, level: 'success' }]);
+      } catch { /* non-fatal */ }
+      setEmailBrainLoading(false);
+    }
+
     try {
       const res = await fetch('/email-builder/generate', {
         method: 'POST',
@@ -540,6 +579,8 @@ export default function FunnelBuilder() {
           ctaText:      emailCtaText,
           ctaUrl:       emailCtaUrl,
           brandName:    emailBrand,
+          brainContext,
+          brainName,
         }),
       });
 
@@ -902,12 +943,63 @@ export default function FunnelBuilder() {
                     </select>
                   </div>
 
+                  {/* Brain selector */}
+                  {emailBrains.length > 0 && (
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1.5">🧠 Knowledge Base <span className="text-gray-600">(ground email in your brain)</span></label>
+                      <div className="space-y-1.5">
+                        <div
+                          onClick={() => setEmailBrainId('')}
+                          className="flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+                          style={{ background: !emailBrainId ? 'rgba(99,102,241,0.1)' : 'rgba(255,255,255,0.03)', border: `1px solid ${!emailBrainId ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.06)'}` }}
+                        >
+                          <div className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
+                            style={{ background: !emailBrainId ? '#6366f1' : 'rgba(255,255,255,0.08)', border: `1px solid ${!emailBrainId ? '#6366f1' : 'rgba(255,255,255,0.2)'}` }}>
+                            {!emailBrainId && <span style={{ color: '#fff', fontSize: '0.6rem', fontWeight: 700 }}>✓</span>}
+                          </div>
+                          <div>
+                            <div className="text-white font-medium">No brain (generate from scratch)</div>
+                            <div className="text-gray-600">Uses only the fields above</div>
+                          </div>
+                        </div>
+                        {emailBrains.map(b => {
+                          const isSelected = emailBrainId === b.brainId;
+                          return (
+                            <div
+                              key={b.brainId}
+                              onClick={() => setEmailBrainId(b.brainId)}
+                              className="flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+                              style={{ background: isSelected ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.03)', border: `1px solid ${isSelected ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.06)'}` }}
+                            >
+                              <div className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
+                                style={{ background: isSelected ? '#10b981' : 'rgba(255,255,255,0.08)', border: `1px solid ${isSelected ? '#10b981' : 'rgba(255,255,255,0.2)'}` }}>
+                                {isSelected && <span style={{ color: '#fff', fontSize: '0.6rem', fontWeight: 700 }}>✓</span>}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-white font-medium truncate">{b.name}</div>
+                                <div className="text-gray-600">
+                                  {[b.docCount > 0 && `${b.docCount} doc${b.docCount > 1 ? 's' : ''}`, b.videoCount > 0 && `${b.videoCount} video${b.videoCount > 1 ? 's' : ''}`].filter(Boolean).join(' · ') || 'Empty'}
+                                </div>
+                              </div>
+                              {isSelected && <span className="text-green-400 font-medium flex-shrink-0">Active</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {emailBrainId && (
+                        <p className="text-xs text-green-400 mt-1">
+                          🧠 Email copy will be grounded in "{emailBrains.find(b => b.brainId === emailBrainId)?.name}" — voice, offers & facts matched to your knowledge base.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    disabled={emailGenerating || !emailNiche.trim()}
+                    disabled={emailGenerating || emailBrainLoading || !emailNiche.trim()}
                     className="btn-primary w-full py-3 text-sm"
                   >
-                    {emailGenerating ? '⏳ Generating email…' : '📧 Generate Email Campaign Draft'}
+                    {emailBrainLoading ? '🧠 Loading brain…' : emailGenerating ? '⏳ Generating email…' : '📧 Generate Email Campaign Draft'}
                   </button>
                 </form>
 
@@ -976,7 +1068,13 @@ export default function FunnelBuilder() {
                       emailResult.content.headline && `Headline: ${emailResult.content.headline}`,
                       emailResult.content.body,
                     ].filter(Boolean).join('\n\n')}
-                    context={{ niche: emailNiche, offer: emailOffer, audience: emailAudience }}
+                    context={{
+                      niche: emailNiche, offer: emailOffer, audience: emailAudience,
+                      ...(emailBrainContext ? {
+                        knowledgeBase: emailBrainContext.slice(0, 2000),
+                        instruction: 'All improvements MUST stay grounded in the knowledge base. Do not add claims, testimonials, or details outside the documented brand information.',
+                      } : {}),
+                    }}
                     label="Email Copy"
                     autoStart={true}
                     continuous={true}

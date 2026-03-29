@@ -375,8 +375,10 @@ const EMAIL_TYPE_CONTEXT = {
 };
 
 async function generateEmailContent(brief) {
-  const { campaignName, subject, emailType, niche, offer, audience, tone, ctaText, ctaUrl, brandName } = brief;
+  const { campaignName, subject, emailType, niche, offer, audience, tone, ctaText, ctaUrl, brandName, brainContext, brainName } = brief;
   const typeCtx = EMAIL_TYPE_CONTEXT[emailType] || EMAIL_TYPE_CONTEXT.promotional;
+
+  const brainBlock = brainContext ? `\n\nKNOWLEDGE BASE — "${brainName || 'Brand Brain'}"\nYou MUST base all copy, messaging, voice, pain points, benefits, and claims on the following brand knowledge. Do NOT invent facts, testimonials, or product details that contradict or go beyond this information:\n\n${brainContext}\n\n---` : '';
 
   const system = `You are a direct-response email copywriter with 15+ years of experience writing emails that generate millions in revenue. You write like a human, not a brand. Your emails feel personal, honest, and insightful — never salesy or corporate. You understand buyer psychology deeply: you lead with pain, build empathy, then present the solution as the obvious next step.
 
@@ -386,10 +388,10 @@ Your emails always have:
 - A clear, logical bridge from problem to solution
 - Benefits written as outcomes, not features
 - A CTA that feels inevitable, not pushy
-
+${brainContext ? '\nIMPORTANT: A knowledge base has been provided. Every claim, pain point, benefit, and product detail MUST match what is documented in the knowledge base. Accuracy to the brand\'s documented information is non-negotiable.' : ''}
 Return only valid JSON — no markdown, no extra text.`;
 
-  const user = `Write a full direct-response email for this campaign. Make it feel human, personal, and specific — not generic.
+  const user = `Write a full direct-response email for this campaign. Make it feel human, personal, and specific — not generic.${brainBlock}
 
 Campaign: ${campaignName}
 Email Type: ${typeCtx}
@@ -468,6 +470,8 @@ router.post('/generate', async (req, res) => {
     ctaText      = 'Get Started',
     ctaUrl       = '',
     brandName    = '',
+    brainContext = '',
+    brainName    = '',
   } = req.body;
 
   if (!niche && !subject) {
@@ -485,7 +489,7 @@ router.post('/generate', async (req, res) => {
   try {
     send('step', { step: 1, total: 3, label: 'Writing email copy with AI…' });
 
-    const content = await generateEmailContent({ campaignName, subject, emailType, niche, offer, audience, tone, ctaText, ctaUrl, brandName, locationId: req.locationId });
+    const content = await generateEmailContent({ campaignName, subject, emailType, niche, offer, audience, tone, ctaText, ctaUrl, brandName, brainContext, brainName, locationId: req.locationId });
     send('content', content);
     send('step', { step: 2, total: 3, label: 'Building native GHL email template…' });
 
