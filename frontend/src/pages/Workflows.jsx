@@ -30,6 +30,7 @@ const TOOL_COLOR = {
   airtable: '#fcb641', monday: '#ff5100', typeform: '#262626', asana: '#fc636b',
   canva: '#00c7b7', tiktok_ads: '#010101', google_ads: '#fbbc05', openrouter: '#6366f1',
   gravity_forms: '#ff9900', http_client: '#6b7280',
+  __trigger__: '#f59e0b',
 };
 
 const NODE_W = 240;
@@ -163,6 +164,58 @@ const TOOL_FIELDS = {
     outputs: ['result', 'output', 'funnelUrl', 'pageUrl'],
   },
 };
+
+// ─── Run modes & trigger events ───────────────────────────────────────────────
+
+const RUN_MODES = [
+  { key: 'once',     label: 'Run Once',         icon: '⚡', desc: 'Triggers on a single GHL event — new contact, form, payment, tag, etc.' },
+  { key: 'batch',    label: 'Run Per Batch',     icon: '📦', desc: 'Processes a group of records at once — contacts, leads, or custom queries.' },
+  { key: 'schedule', label: 'Run Per Schedule',  icon: '⏰', desc: 'Runs automatically on a recurring time schedule.' },
+];
+
+const TRIGGER_EVENTS = {
+  once: [
+    { key: 'contact_created',    label: 'New Contact Created',     icon: '👤', outputs: ['contactId','email','firstName','lastName','phone','tags','source'] },
+    { key: 'contact_updated',    label: 'Contact Updated',         icon: '✏️', outputs: ['contactId','email','firstName','lastName','phone','tags','updatedField','oldValue','newValue'] },
+    { key: 'form_submitted',     label: 'Form Submitted',          icon: '📋', outputs: ['contactId','email','firstName','lastName','formId','submissionId','answers'] },
+    { key: 'appointment_booked', label: 'Appointment Booked',      icon: '📅', outputs: ['contactId','email','firstName','appointmentId','calendarId','startTime','endTime'] },
+    { key: 'payment_made',       label: 'Payment / Purchase',      icon: '💳', outputs: ['contactId','email','paymentId','amount','currency','productId','invoiceId'] },
+    { key: 'pipeline_changed',   label: 'Pipeline Stage Changed',  icon: '📊', outputs: ['contactId','email','opportunityId','pipelineId','fromStage','toStage','dealValue'] },
+    { key: 'tag_added',          label: 'Tag Added to Contact',    icon: '🏷️', outputs: ['contactId','email','firstName','lastName','phone','tag'] },
+    { key: 'webhook',            label: 'Custom Webhook / API',    icon: '🔗', outputs: ['payload','contactId','email','data','timestamp'] },
+  ],
+  batch: [
+    { key: 'contacts_by_tag',   label: 'Contacts with Tag',          icon: '🏷️', outputs: ['contactId','email','firstName','lastName','phone','tags'] },
+    { key: 'contacts_by_stage', label: 'Contacts in Pipeline Stage', icon: '📊', outputs: ['contactId','email','firstName','lastName','opportunityId','stage','dealValue'] },
+    { key: 'contacts_by_date',  label: 'Contacts by Date Range',     icon: '📅', outputs: ['contactId','email','firstName','lastName','createdAt','updatedAt'] },
+    { key: 'all_contacts',      label: 'All Contacts',               icon: '👥', outputs: ['contactId','email','firstName','lastName','phone','tags'] },
+    { key: 'custom_query',      label: 'Custom GHL Query',           icon: '🔍', outputs: ['contactId','email','firstName','lastName','customField','result'] },
+  ],
+  schedule: [
+    { key: 'daily',    label: 'Daily',         icon: '📅', outputs: ['executedAt','date','time','timezone'] },
+    { key: 'weekly',   label: 'Weekly',        icon: '🗓️', outputs: ['executedAt','date','time','dayOfWeek'] },
+    { key: 'monthly',  label: 'Monthly',       icon: '📆', outputs: ['executedAt','date','time','dayOfMonth','month'] },
+    { key: 'interval', label: 'Every N Hours', icon: '⏱️', outputs: ['executedAt','intervalHours','runCount'] },
+  ],
+};
+
+function getTriggerDef(runMode, event) {
+  return TRIGGER_EVENTS[runMode]?.find(e => e.key === event) || null;
+}
+
+function mkTriggerNode(runMode, event, extraConfig = {}) {
+  const def = getTriggerDef(runMode, event);
+  return {
+    id: '__trigger__',
+    tool: '__trigger__',
+    label: def?.label || 'Trigger',
+    icon: def?.icon || '⚡',
+    x: 60, y: 80,
+    instruction: '',
+    config: { runMode, event, ...extraConfig },
+    _isTrigger: true,
+  };
+}
 
 // ─── GHL action catalogue ─────────────────────────────────────────────────────
 
@@ -362,17 +415,33 @@ function topoSort(nodes, edges) {
 }
 
 function buildGraphPrompt(nodes, edges, context) {
-  const sorted = topoSort(nodes, edges);
-  const lines  = sorted.map((node, idx) => {
+  const triggerNode = nodes.find(n => n._isTrigger || n.tool === '__trigger__');
+  const workNodes   = nodes.filter(n => !n._isTrigger && n.tool !== '__trigger__');
+  const sorted = topoSort(workNodes, edges);
+
+  let triggerBlock = '';
+  if (triggerNode) {
+    const def = getTriggerDef(triggerNode.config?.runMode, triggerNode.config?.event);
+    const runModeLabel = RUN_MODES.find(m => m.key === triggerNode.config?.runMode)?.label || '';
+    const outputs = def?.outputs || [];
+    triggerBlock = `TRIGGER: ${runModeLabel} — ${def?.label || triggerNode.label}
+Available trigger fields: ${outputs.map(f => `{{trigger.${f}}}`).join(', ')}
+When executing steps, resolve {{trigger.fieldName}} with the actual value from the trigger data. For example {{trigger.email}} = the contact's email address, {{trigger.contactId}} = their GHL contact ID, etc.
+
+`;
+  }
+
+  const lines = sorted.map((node, idx) => {
     const inEdges  = edges.filter(e => e.toNodeId === node.id);
     const mappings = inEdges.flatMap(e => (e.mappings || []).map(m => `"${m.from}" → "${m.to}"`));
-    const mapNote  = mappings.length ? `\n  Field inputs from previous steps: ${mappings.join(', ')}` : '';
+    const mapNote  = mappings.length ? `\n  Field mappings: ${mappings.join(', ')}` : '';
     const instr    = ['ghl', 'manychat', 'hubspot', 'keap', 'social_hub', 'payment_hub', 'tpl'].includes(node.tool) && node.config
       ? configToInstruction(node.config, context)
       : (node.instruction || `Execute ${node.label}`);
     return `STEP ${idx + 1} [${node.label}]:\n${instr}${mapNote}`;
   }).join('\n\n');
-  return `Execute this multi-step workflow in order. Complete every step before the next.\n${context ? `Context: ${context}\n` : ''}\n${lines}\n\nAfter all steps: full summary of everything created, with GHL IDs and URLs.`;
+
+  return `Execute this multi-step workflow in order. Complete every step before moving to the next.\n${triggerBlock}${context ? `Context: ${context}\n` : ''}\n${lines}\n\nAfter all steps: full summary of everything created or updated, with GHL IDs and URLs.`;
 }
 
 // ─── ID helpers ───────────────────────────────────────────────────────────────
@@ -522,6 +591,13 @@ export default function Workflows() {
 
   // Selected node for config panel
   const [selectedNode, setSelectedNode] = useState(null);
+
+  // ── Trigger setup modal ────────────────────────────────────────────────────
+  const [showTriggerSetup, setShowTriggerSetup] = useState(false);
+  const [tsStep,           setTsStep]           = useState(1); // 1=run mode, 2=event, 3=config
+  const [tsRunMode,        setTsRunMode]         = useState('once');
+  const [tsEvent,          setTsEvent]           = useState('');
+  const [tsConfig,         setTsConfig]          = useState({});
 
   const canvasRef = useRef(null);
 
@@ -681,7 +757,7 @@ export default function Workflows() {
     setMessages([]);
     setShowOutput(true);
     const prompt  = buildGraphPrompt(nodes, edges, context);
-    const allowed = [...new Set(nodes.map(n => n.tool).filter(t => t !== 'ghl'))];
+    const allowed = [...new Set(nodes.filter(n => n.tool !== '__trigger__' && !n._isTrigger).map(n => n.tool).filter(t => t !== 'ghl'))];
     await stream(
       '/claude/task',
       { task: prompt, allowedIntegrations: allowed.length ? allowed : null },
@@ -724,11 +800,21 @@ export default function Workflows() {
   };
 
   const newWorkflow = () => {
-    setNodes([]); setEdges([]); setWfName(''); setContext([]);
+    setNodes([]); setEdges([]); setWfName(''); setContext('');
     setMessages([]); setCurrentId(null); setWebhookUrl('');
     setSelectedEdge(null); setSelectedNode(null); setShowOutput(false);
-    setCanvasMode(true);
+    // Open trigger setup instead of going straight to canvas
+    setTsStep(1); setTsRunMode('once'); setTsEvent(''); setTsConfig({});
+    setShowTriggerSetup(true);
   };
+
+  function commitTrigger() {
+    if (!tsEvent) return;
+    const trigNode = mkTriggerNode(tsRunMode, tsEvent, tsConfig);
+    setNodes([trigNode]);
+    setShowTriggerSetup(false);
+    setCanvasMode(true);
+  }
 
   const applyTemplate = tpl => {
     const ns = tpl.nodes.map(n => ({ ...mkNode(n.tool, n.label, n.icon, n.x, n.y), instruction: n.instruction || '', config: n.config || (n.tool === 'ghl' ? { action: null } : null) }));
@@ -1344,6 +1430,168 @@ export default function Workflows() {
       )}
       </div>
       )}
+
+      {/* ── Trigger Setup Modal ── */}
+      {showTriggerSetup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.8)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowTriggerSetup(false); }}>
+          <div className="rounded-2xl flex flex-col" style={{ background: '#13131e', border: '1px solid rgba(255,255,255,0.1)', width: 560, maxHeight: '85vh', overflowY: 'auto' }}>
+            {/* Header */}
+            <div className="flex items-center gap-3 px-6 pt-6 pb-4 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+              <span className="text-2xl">⚡</span>
+              <div className="flex-1">
+                <h2 className="font-bold text-white text-sm">Set Up Workflow Trigger</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {tsStep === 1 ? 'Step 1 of 2 — How should this workflow run?' : 'Step 2 of 2 — Choose the trigger event'}
+                </p>
+              </div>
+              <button onClick={() => setShowTriggerSetup(false)} className="text-gray-600 hover:text-gray-300 text-lg">×</button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Step 1: Run mode */}
+              {tsStep === 1 && (
+                <>
+                  <div className="space-y-2">
+                    {RUN_MODES.map(mode => (
+                      <div key={mode.key} onClick={() => setTsRunMode(mode.key)}
+                        className="flex items-center gap-4 rounded-xl p-4 cursor-pointer transition-all"
+                        style={{ background: tsRunMode === mode.key ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.03)', border: `1px solid ${tsRunMode === mode.key ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.07)'}` }}>
+                        <div className="text-2xl flex-shrink-0">{mode.icon}</div>
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-white">{mode.label}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{mode.desc}</p>
+                        </div>
+                        <div className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center"
+                          style={{ background: tsRunMode === mode.key ? '#f59e0b' : 'rgba(255,255,255,0.08)', border: `2px solid ${tsRunMode === mode.key ? '#f59e0b' : 'rgba(255,255,255,0.2)'}` }}>
+                          {tsRunMode === mode.key && <span style={{ color: '#000', fontSize: 10, fontWeight: 800 }}>✓</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => { setTsEvent(''); setTsStep(2); }}
+                    className="btn-primary w-full py-2.5 text-sm mt-2">
+                    Next: Choose Trigger →
+                  </button>
+                </>
+              )}
+
+              {/* Step 2: Event selection */}
+              {tsStep === 2 && (
+                <>
+                  <button onClick={() => setTsStep(1)} className="text-xs text-gray-500 hover:text-indigo-400 mb-1">← Back</button>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                    {RUN_MODES.find(m => m.key === tsRunMode)?.icon} {RUN_MODES.find(m => m.key === tsRunMode)?.label} — Choose Event
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(TRIGGER_EVENTS[tsRunMode] || []).map(ev => (
+                      <div key={ev.key} onClick={() => setTsEvent(ev.key)}
+                        className="rounded-xl p-3 cursor-pointer transition-all"
+                        style={{ background: tsEvent === ev.key ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.03)', border: `1px solid ${tsEvent === ev.key ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.07)'}` }}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-base">{ev.icon}</span>
+                          <span className="text-xs font-semibold text-white">{ev.label}</span>
+                          {tsEvent === ev.key && <span className="ml-auto text-yellow-400 text-xs">✓</span>}
+                        </div>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {ev.outputs.slice(0, 4).map(f => (
+                            <span key={f} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.1)', color: '#fbbf24', fontFamily: 'monospace' }}>{f}</span>
+                          ))}
+                          {ev.outputs.length > 4 && <span className="text-xs text-gray-600">+{ev.outputs.length - 4} more</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Schedule config inline */}
+                  {tsRunMode === 'schedule' && tsEvent && (
+                    <div className="rounded-xl p-3 space-y-3 mt-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                      <p className="text-xs font-semibold text-gray-400">Schedule Config</p>
+                      {(tsEvent === 'daily' || tsEvent === 'weekly' || tsEvent === 'monthly') && (
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">Time of day</label>
+                          <input type="time" value={tsConfig.time || '09:00'} onChange={e => setTsConfig(c => ({ ...c, time: e.target.value }))}
+                            className="field text-xs" style={{ width: 120 }} />
+                        </div>
+                      )}
+                      {tsEvent === 'weekly' && (
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">Day of week</label>
+                          <select value={tsConfig.dow ?? 1} onChange={e => setTsConfig(c => ({ ...c, dow: Number(e.target.value) }))} className="field text-xs" style={{ width: 140 }}>
+                            {['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d, i) => <option key={i} value={i}>{d}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      {tsEvent === 'monthly' && (
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">Day of month</label>
+                          <select value={tsConfig.dom ?? 1} onChange={e => setTsConfig(c => ({ ...c, dom: Number(e.target.value) }))} className="field text-xs" style={{ width: 80 }}>
+                            {Array.from({ length: 28 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      {tsEvent === 'interval' && (
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">Every N hours</label>
+                          <input type="number" min={1} max={24} value={tsConfig.intervalHours || 6} onChange={e => setTsConfig(c => ({ ...c, intervalHours: Number(e.target.value) }))}
+                            className="field text-xs" style={{ width: 80 }} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Batch config inline */}
+                  {tsRunMode === 'batch' && tsEvent && (tsEvent === 'contacts_by_tag' || tsEvent === 'contacts_by_stage' || tsEvent === 'contacts_by_date') && (
+                    <div className="rounded-xl p-3 space-y-2 mt-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                      <p className="text-xs font-semibold text-gray-400">Batch Filter</p>
+                      {tsEvent === 'contacts_by_tag' && (
+                        <input value={tsConfig.tag || ''} onChange={e => setTsConfig(c => ({ ...c, tag: e.target.value }))}
+                          placeholder="Tag name (e.g. hot-lead)" className="field w-full text-xs" />
+                      )}
+                      {tsEvent === 'contacts_by_stage' && (
+                        <input value={tsConfig.stage || ''} onChange={e => setTsConfig(c => ({ ...c, stage: e.target.value }))}
+                          placeholder="Pipeline stage name" className="field w-full text-xs" />
+                      )}
+                      {tsEvent === 'contacts_by_date' && (
+                        <div className="flex gap-2">
+                          <input type="date" value={tsConfig.dateFrom || ''} onChange={e => setTsConfig(c => ({ ...c, dateFrom: e.target.value }))} className="field flex-1 text-xs" />
+                          <input type="date" value={tsConfig.dateTo || ''} onChange={e => setTsConfig(c => ({ ...c, dateTo: e.target.value }))} className="field flex-1 text-xs" />
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-gray-500">Batch size:</label>
+                        <input type="number" min={1} max={500} value={tsConfig.batchSize || 50} onChange={e => setTsConfig(c => ({ ...c, batchSize: Number(e.target.value) }))}
+                          className="field text-xs" style={{ width: 70 }} />
+                        <span className="text-xs text-gray-600">records per run</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {tsEvent && (
+                    <div className="rounded-xl p-3 mt-2" style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                      <p className="text-xs font-semibold text-yellow-400 mb-1">⚡ Trigger fields available to all nodes:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {(getTriggerDef(tsRunMode, tsEvent)?.outputs || []).map(f => (
+                          <span key={f} className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', fontFamily: 'monospace' }}>
+                            trigger.{f}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">Map these to any node input in the field mapping panel.</p>
+                    </div>
+                  )}
+
+                  <button onClick={commitTrigger} disabled={!tsEvent}
+                    className="btn-primary w-full py-2.5 text-sm mt-2"
+                    style={{ opacity: tsEvent ? 1 : 0.4 }}>
+                    ⚡ Create Workflow with this Trigger →
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1352,6 +1600,49 @@ export default function Workflows() {
 
 function CanvasNode({ node, selected, connecting, onHeaderMouseDown, onOutPort, onInPort, onSelect, onDelete }) {
   const color  = TOOL_COLOR[node.tool] || '#6366f1';
+
+  if (node._isTrigger || node.tool === '__trigger__') {
+    const trigColor = '#f59e0b';
+    const def = getTriggerDef(node.config?.runMode, node.config?.event);
+    const runMode = RUN_MODES.find(m => m.key === node.config?.runMode);
+    return (
+      <div style={{ position: 'absolute', left: node.x, top: node.y, width: NODE_W + 20, zIndex: selected ? 10 : 1 }}
+        onClick={e => { e.stopPropagation(); onSelect(); }}>
+        {/* Card */}
+        <div style={{ borderRadius: 14, overflow: 'hidden', border: `2px solid ${selected ? trigColor : trigColor + '80'}`, background: '#13131a', boxShadow: selected ? `0 0 0 2px ${trigColor}40, 0 4px 20px ${trigColor}20` : `0 4px 20px ${trigColor}15` }}>
+          {/* Header */}
+          <div onMouseDown={onHeaderMouseDown} style={{ background: `${trigColor}20`, borderBottom: `1px solid ${trigColor}40`, padding: '8px 10px', cursor: 'grab', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 14, flexShrink: 0 }}>{node.icon}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: trigColor, letterSpacing: '0.08em', textTransform: 'uppercase', lineHeight: 1.2 }}>⚡ Trigger</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.label}</div>
+            </div>
+            {runMode && <span style={{ fontSize: 9, color: trigColor, background: `${trigColor}20`, padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>{runMode.icon} {runMode.label}</span>}
+          </div>
+          {/* Output fields */}
+          <div style={{ padding: '6px 10px', fontSize: 10, color: '#9ca3af' }}>
+            {def ? (
+              <div className="flex flex-wrap gap-1">
+                {(def.outputs || []).slice(0, 6).map(f => (
+                  <span key={f} style={{ background: `${trigColor}15`, color: trigColor, padding: '1px 5px', borderRadius: 3, fontFamily: 'monospace', fontSize: 9 }}>{f}</span>
+                ))}
+                {(def.outputs || []).length > 6 && <span style={{ color: '#6b7280', fontSize: 9 }}>+{def.outputs.length - 6} more</span>}
+              </div>
+            ) : (
+              <span style={{ color: '#f59e0b' }}>⚠ Click to configure trigger</span>
+            )}
+          </div>
+        </div>
+        {/* Output port only (no input port for trigger) */}
+        <div onMouseDown={e => { e.stopPropagation(); onOutPort(e); }}
+          style={{ position: 'absolute', right: -PORT_R, top: 24 - PORT_R, width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: trigColor, border: '2px solid #fff', cursor: 'crosshair', zIndex: 20, transition: 'transform 0.1s' }}
+          onMouseOver={e => { e.currentTarget.style.transform = 'scale(1.4)'; }}
+          onMouseOut={e  => { e.currentTarget.style.transform = 'scale(1)'; }}
+        />
+      </div>
+    );
+  }
+
   const action = node.config?.action ? GHL_ACTIONS.find(a => a.key === node.config.action) : null;
 
   return (
@@ -1443,6 +1734,9 @@ function CanvasNode({ node, selected, connecting, onHeaderMouseDown, onOutPort, 
 // ─── Node Config Panel ────────────────────────────────────────────────────────
 
 function NodeConfigPanel({ node, onClose, onChange, onConfigChange, onDelete }) {
+  if (node._isTrigger || node.tool === '__trigger__') {
+    return <TriggerConfigPanel node={node} onClose={onClose} onChange={onChange} />;
+  }
   const color = TOOL_COLOR[node.tool] || '#6366f1';
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -1934,6 +2228,82 @@ function TPLConfigInPanel({ config, onChange, color }) {
   );
 }
 
+// ─── Trigger Config Panel ─────────────────────────────────────────────────────
+
+function TriggerConfigPanel({ node, onClose, onChange }) {
+  const trigColor = '#f59e0b';
+  const [runMode, setRunMode] = useState(node.config?.runMode || 'once');
+  const [event,   setEvent]   = useState(node.config?.event   || '');
+  const [config,  setConfig]  = useState(node.config || {});
+  const def = getTriggerDef(runMode, event);
+
+  function apply() {
+    const newTrigNode = mkTriggerNode(runMode, event, config);
+    onChange({ label: newTrigNode.label, icon: newTrigNode.icon, config: { runMode, event, ...config }, _isTrigger: true });
+  }
+
+  return (
+    <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <span style={{ color: trigColor, fontSize: 16 }}>⚡</span>
+        <span className="text-sm font-semibold text-white flex-1">Trigger Configuration</span>
+        <button onClick={onClose} className="text-gray-600 hover:text-gray-300 text-sm">×</button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Run mode */}
+        <div>
+          <p className="text-xs text-gray-400 mb-2">Run Mode</p>
+          <div className="space-y-1.5">
+            {RUN_MODES.map(mode => (
+              <div key={mode.key} onClick={() => { setRunMode(mode.key); setEvent(''); }}
+                className="flex items-center gap-3 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+                style={{ background: runMode === mode.key ? `${trigColor}15` : 'rgba(255,255,255,0.03)', border: `1px solid ${runMode === mode.key ? trigColor + '50' : 'rgba(255,255,255,0.07)'}` }}>
+                <span>{mode.icon}</span>
+                <div className="flex-1">
+                  <div className="font-semibold text-white">{mode.label}</div>
+                  <div className="text-gray-500" style={{ fontSize: 10 }}>{mode.desc}</div>
+                </div>
+                {runMode === mode.key && <span style={{ color: trigColor, fontWeight: 700 }}>✓</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Event */}
+        <div>
+          <p className="text-xs text-gray-400 mb-2">Trigger Event</p>
+          <div className="grid grid-cols-1 gap-1.5">
+            {(TRIGGER_EVENTS[runMode] || []).map(ev => (
+              <div key={ev.key} onClick={() => setEvent(ev.key)}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+                style={{ background: event === ev.key ? `${trigColor}15` : 'rgba(255,255,255,0.03)', border: `1px solid ${event === ev.key ? trigColor + '50' : 'rgba(255,255,255,0.07)'}` }}>
+                <span>{ev.icon}</span>
+                <span className="flex-1 font-medium text-white">{ev.label}</span>
+                {event === ev.key && <span style={{ color: trigColor, fontWeight: 700 }}>✓</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Available fields */}
+        {def && (
+          <div className="rounded-xl p-3" style={{ background: `${trigColor}08`, border: `1px solid ${trigColor}25` }}>
+            <p className="text-xs font-semibold mb-2" style={{ color: trigColor }}>Available trigger fields</p>
+            <div className="flex flex-wrap gap-1">
+              {def.outputs.map(f => (
+                <span key={f} className="text-xs px-2 py-0.5 rounded" style={{ background: `${trigColor}18`, color: trigColor, fontFamily: 'monospace' }}>trigger.{f}</span>
+              ))}
+            </div>
+            <p className="text-xs text-gray-600 mt-2">Use these when mapping fields on connected nodes.</p>
+          </div>
+        )}
+
+        <button onClick={apply} className="btn-primary w-full py-2 text-sm">Apply Changes</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Field Mapping Panel ──────────────────────────────────────────────────────
 
 function FieldMappingPanel({ edge, nodes, onClose, onDelete, onSave }) {
@@ -1944,15 +2314,16 @@ function FieldMappingPanel({ edge, nodes, onClose, onDelete, onSave }) {
 
   if (!fromNode || !toNode) return null;
 
+  const triggerNode   = nodes.find(n => n._isTrigger || n.tool === '__trigger__');
+  const triggerDef    = triggerNode ? getTriggerDef(triggerNode.config?.runMode, triggerNode.config?.event) : null;
+  const triggerFields = triggerDef?.outputs || [];
+  const trigColor     = '#f59e0b';
+
   const fromFields = TOOL_FIELDS[fromNode.tool]?.outputs || [];
   const toFields   = TOOL_FIELDS[toNode.tool]?.inputs   || [];
 
   const fromColor = TOOL_COLOR[fromNode.tool] || '#6366f1';
   const toColor   = TOOL_COLOR[toNode.tool]   || '#6366f1';
-
-  function clickFrom(field) {
-    setPending(field);
-  }
 
   function clickTo(field) {
     if (!pending) return;
@@ -1991,7 +2362,29 @@ function FieldMappingPanel({ edge, nodes, onClose, onDelete, onSave }) {
           </div>
         )}
 
-        {/* Two-column mapping */}
+        {/* Trigger fields — always available */}
+        {triggerFields.length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs font-semibold mb-2" style={{ color: trigColor }}>⚡ From Trigger</p>
+            <div className="grid grid-cols-2 gap-1">
+              {triggerFields.map(f => {
+                const key = `trigger.${f}`;
+                const isMapped  = mappings.some(m => m.from === key);
+                const isPending = pending === key;
+                return (
+                  <button key={f} onClick={() => setPending(key)}
+                    className="text-left text-xs px-2 py-1.5 rounded-lg transition-all"
+                    style={{ background: isPending ? `${trigColor}30` : isMapped ? `${trigColor}15` : 'rgba(255,255,255,0.03)', border: `1px solid ${isPending ? trigColor : isMapped ? trigColor+'50' : 'rgba(255,255,255,0.07)'}`, color: isMapped || isPending ? '#fff' : '#9ca3af', fontFamily: 'monospace' }}>
+                    {isMapped && <span style={{ color: trigColor, marginRight: 3 }}>→</span>}
+                    {f}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Node-to-node field mapping */}
         <div className="grid grid-cols-2 gap-3 mb-4">
           {/* From fields */}
           <div>
@@ -2003,7 +2396,7 @@ function FieldMappingPanel({ edge, nodes, onClose, onDelete, onSave }) {
                 const isMapped  = mappings.some(m => m.from === f);
                 const isPending = pending === f;
                 return (
-                  <button key={f} onClick={() => clickFrom(f)}
+                  <button key={f} onClick={() => setPending(f)}
                     className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all"
                     style={{
                       background:  isPending ? `${fromColor}30` : isMapped ? `${fromColor}15` : 'rgba(255,255,255,0.03)',
@@ -2054,7 +2447,7 @@ function FieldMappingPanel({ edge, nodes, onClose, onDelete, onSave }) {
               {mappings.map((m, i) => (
                 <div key={i} className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg"
                   style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                  <span style={{ color: fromColor }}>{m.from}</span>
+                  <span style={{ color: m.from.startsWith('trigger.') ? trigColor : fromColor }}>{m.from}</span>
                   <span className="text-gray-600">→</span>
                   <span style={{ color: toColor }}>{m.to}</span>
                   <button onClick={() => removeMapping(m)} className="ml-auto text-gray-600 hover:text-red-400">×</button>
