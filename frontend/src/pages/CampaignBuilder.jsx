@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useApp }         from '../context/AppContext';
 import { useStreamFetch } from '../hooks/useStreamFetch';
 import AuthGate     from '../components/AuthGate';
@@ -148,7 +148,17 @@ const WORKFLOW_DELAYS = ['immediately', '1 hour', '4 hours', '1 day', '2 days', 
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 
-function buildPrompt({ contentType, template, selectedPages, campaignName, offer, audience, tone, keywords, extra, emailSeq, workflow }) {
+function buildPrompt({ contentType, template, selectedPages, campaignName, offer, audience, tone, keywords, extra, emailSeq, workflow, brainContext, brainName }) {
+
+  // Brain knowledge context block — injected first so Claude grounds everything in it
+  const brainBlock = brainContext ? `
+## KNOWLEDGE BASE: "${brainName || 'Brain'}"
+The following excerpts are from the brand's knowledge base. You MUST base all copy, messaging, voice, offers, and claims on this information. Do NOT invent facts, testimonials, or details that contradict or fall outside this knowledge:
+
+${brainContext}
+
+---
+` : '';
 
   // Email sequence section — Claude generates copy; GHL API can't bulk-create email templates
   const emailSection = emailSeq.enabled ? `
@@ -188,7 +198,7 @@ End with: "✅ What Claude created automatically" vs "📋 What you need to set 
   if (contentType === 'funnel') {
     const pages = selectedPages.map(p => `  - ${p.label} (url slug: "${p.url}")`).join('\n');
     return `Build a complete ${template.label} in GHL for this campaign:
-
+${brainBlock}
 Campaign name: ${campaignName || 'My Campaign'}
 Core offer: ${offer || '(describe the product or service)'}
 Target audience: ${audience || '(describe the ideal customer)'}
@@ -213,7 +223,7 @@ ${emailSection}${workflowSection}
   if (contentType === 'website') {
     const pages = selectedPages.map(p => `  - ${p.label} (url slug: "${p.url}")`).join('\n');
     return `Build a complete ${template.label} in GHL for this business:
-
+${brainBlock}
 Business / brand name: ${campaignName || 'My Business'}
 What we offer: ${offer || '(describe the products or services)'}
 Target audience: ${audience || '(describe the ideal customer)'}
@@ -236,7 +246,7 @@ ${emailSection}${workflowSection}
 
   if (contentType === 'blog') {
     return `Write and publish a ${template.label} blog post in GHL:
-
+${brainBlock}
 Title / topic: ${campaignName || '(your blog topic)'}
 Target audience: ${audience || '(describe the reader)'}
 Core message or offer: ${offer || '(what should readers do after reading)'}
@@ -321,7 +331,7 @@ const DEFAULT_EMAIL = { enabled: false, numEmails: 3, types: ['welcome', 'value'
 const DEFAULT_WF    = { enabled: false, trigger: 'opt-in-form', numSteps: 3, delay: '1 day' };
 
 export default function CampaignBuilder() {
-  const { isAuthenticated, isAuthLoading, apiKey } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, locationId } = useApp();
   const { isRunning, stream, stop } = useStreamFetch();
 
   const [step, setStep]                   = useState(1);
@@ -337,6 +347,23 @@ export default function CampaignBuilder() {
   const [emailSeq, setEmailSeq]           = useState({ ...DEFAULT_EMAIL });
   const [workflow, setWorkflow]           = useState({ ...DEFAULT_WF });
   const [messages, setMessages]           = useState([]);
+
+  // Brain / knowledge base
+  const [brains,          setBrains]          = useState([]);
+  const [selectedBrainId, setSelectedBrainId] = useState('');
+  const [brainContext,    setBrainContext]     = useState('');
+  const [brainLoading,    setBrainLoading]     = useState(false);
+
+  const loc = locationId || apiKey;
+
+  // Load available brains
+  useEffect(() => {
+    if (!loc) return;
+    fetch('/brain/list', { headers: { 'x-location-id': loc } })
+      .then(r => r.json())
+      .then(d => { if (d.success) setBrains(d.data || []); })
+      .catch(() => {});
+  }, [loc]);
 
   function pickType(key) {
     setContentType(key); setTemplate(null); setSelectedPages([]); setStep(2);
@@ -364,10 +391,36 @@ export default function CampaignBuilder() {
   }
 
   const run = useCallback(async () => {
-    const prompt = buildPrompt({ contentType, template, selectedPages, campaignName, offer, audience, tone, keywords, extra, emailSeq, workflow });
-    if (!prompt) return;
+    if (!contentType || !template) return;
     setMessages([]);
     setStep(4);
+
+    // Fetch brain context before generating
+    let ctx = '';
+    let ctxBrainName = '';
+    if (selectedBrainId && loc) {
+      setBrainLoading(true);
+      try {
+        const q = [offer, audience, keywords, campaignName].filter(Boolean).join('. ');
+        const res = await fetch(`/brain/${selectedBrainId}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-location-id': loc },
+          body: JSON.stringify({ query: q, k: 12 }),
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
+          ctx = data.data.map(c => c.text || c.content || '').filter(Boolean).join('\n\n');
+        }
+        const brain = brains.find(b => b.brainId === selectedBrainId);
+        ctxBrainName = brain?.name || 'Knowledge Base';
+      } catch { /* non-fatal */ }
+      setBrainContext(ctx);
+      setBrainLoading(false);
+    }
+
+    const prompt = buildPrompt({ contentType, template, selectedPages, campaignName, offer, audience, tone, keywords, extra, emailSeq, workflow, brainContext: ctx, brainName: ctxBrainName });
+    if (!prompt) return;
+
     await stream('/claude/task', { task: prompt }, (evtType, data) => {
       setMessages(prev => {
         if (evtType === 'text') {
@@ -382,7 +435,7 @@ export default function CampaignBuilder() {
         return prev;
       });
     }, apiKey);
-  }, [contentType, template, selectedPages, campaignName, offer, audience, tone, keywords, extra, emailSeq, workflow, stream, apiKey]);
+  }, [contentType, template, selectedPages, campaignName, offer, audience, tone, keywords, extra, emailSeq, workflow, selectedBrainId, brains, loc, stream, apiKey]);
 
   if (isAuthLoading) return <Spinner />;
   if (!isAuthenticated) return <AuthGate icon="🏗️" title="Campaign Builder" subtitle="Enter your location API key to continue" />;
@@ -482,6 +535,74 @@ export default function CampaignBuilder() {
 
                 {/* Left: campaign fields */}
                 <div className="space-y-3">
+
+                  {/* Brain selector */}
+                  {brains.length > 0 && (
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1.5">
+                        🧠 Knowledge Base <span className="text-gray-600">(ground all content in your brain)</span>
+                      </label>
+                      <div className="space-y-1.5">
+                        {/* None option */}
+                        <div
+                          onClick={() => { setSelectedBrainId(''); setBrainContext(''); }}
+                          className="flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+                          style={{
+                            background: !selectedBrainId ? 'rgba(99,102,241,0.1)' : 'rgba(255,255,255,0.03)',
+                            border: `1px solid ${!selectedBrainId ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.06)'}`,
+                          }}
+                        >
+                          <div className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
+                            style={{ background: !selectedBrainId ? '#6366f1' : 'rgba(255,255,255,0.08)', border: `1px solid ${!selectedBrainId ? '#6366f1' : 'rgba(255,255,255,0.2)'}` }}>
+                            {!selectedBrainId && <span style={{ color: '#fff', fontSize: '0.6rem', fontWeight: 700 }}>✓</span>}
+                          </div>
+                          <div>
+                            <div className="text-white font-medium">No brain (generate from scratch)</div>
+                            <div className="text-gray-600">Claude uses only the details you provide below</div>
+                          </div>
+                        </div>
+                        {/* Brain options */}
+                        {brains.map(b => {
+                          const isSelected = selectedBrainId === b.brainId;
+                          const health = b.docCount > 0 || b.videoCount > 0;
+                          return (
+                            <div
+                              key={b.brainId}
+                              onClick={() => setSelectedBrainId(b.brainId)}
+                              className="flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+                              style={{
+                                background: isSelected ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.03)',
+                                border: `1px solid ${isSelected ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.06)'}`,
+                              }}
+                            >
+                              <div className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
+                                style={{ background: isSelected ? '#10b981' : 'rgba(255,255,255,0.08)', border: `1px solid ${isSelected ? '#10b981' : 'rgba(255,255,255,0.2)'}` }}>
+                                {isSelected && <span style={{ color: '#fff', fontSize: '0.6rem', fontWeight: 700 }}>✓</span>}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-white font-medium truncate">{b.name}</div>
+                                <div className="text-gray-600">
+                                  {b.docCount > 0 && `${b.docCount} doc${b.docCount > 1 ? 's' : ''}`}
+                                  {b.docCount > 0 && b.videoCount > 0 && ' · '}
+                                  {b.videoCount > 0 && `${b.videoCount} video${b.videoCount > 1 ? 's' : ''}`}
+                                  {!health && 'Empty brain'}
+                                </div>
+                              </div>
+                              {isSelected && (
+                                <span className="flex-shrink-0 text-green-400 text-xs font-medium">Active</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {selectedBrainId && (
+                        <p className="text-xs text-green-400 mt-1.5">
+                          🧠 All content will be grounded in "{brains.find(b => b.brainId === selectedBrainId)?.name || 'Brain'}" — Claude will match the exact voice, offers and facts from your knowledge base.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-xs text-gray-400 mb-1">
                       {contentType === 'blog' ? 'Article title / topic *' : 'Campaign / brand name *'}
@@ -691,13 +812,20 @@ export default function CampaignBuilder() {
                 </AddonToggle>
               </div>
 
-              <div className="flex justify-end">
+              <div className="flex items-center justify-between">
+                {selectedBrainId ? (
+                  <p className="text-xs text-green-500">
+                    🧠 Brain: {brains.find(b => b.brainId === selectedBrainId)?.name || 'Selected'}
+                  </p>
+                ) : (
+                  <span />
+                )}
                 <button
                   onClick={run}
-                  disabled={!campaignName.trim() || !offer.trim() || !audience.trim()}
+                  disabled={!campaignName.trim() || !offer.trim() || !audience.trim() || brainLoading}
                   className="btn-primary px-6 py-2.5"
                 >
-                  🚀 Build with Claude →
+                  {brainLoading ? '🧠 Loading brain…' : '🚀 Build with Claude →'}
                 </button>
               </div>
             </>
@@ -712,6 +840,7 @@ export default function CampaignBuilder() {
               {campaignName && <span className="text-gray-500 text-xs">— {campaignName}</span>}
               {emailSeq.enabled && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>✉️ Email sequence</span>}
               {workflow.enabled  && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>⚡ Workflow</span>}
+              {brainContext && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.15)', color: '#6ee7b7' }}>🧠 {brains.find(b => b.brainId === selectedBrainId)?.name || 'Brain'}</span>}
             </div>
             {!isRunning && (
               <button
@@ -719,6 +848,7 @@ export default function CampaignBuilder() {
                   setStep(1); setMessages([]); setContentType(null); setTemplate(null);
                   setCampaignName(''); setOffer(''); setAudience('');
                   setEmailSeq({ ...DEFAULT_EMAIL }); setWorkflow({ ...DEFAULT_WF });
+                  setBrainContext('');
                 }}
                 className="btn-ghost text-xs px-3 py-1.5"
               >← New Build</button>
@@ -739,7 +869,13 @@ export default function CampaignBuilder() {
                 <SelfImprovementPanel
                   type={emailSeq.enabled ? 'manychat_message' : 'funnel_page'}
                   artifact={text.slice(0, 4000)}
-                  context={{ campaignName, offer, audience, tone, contentType }}
+                  context={{
+                    campaignName, offer, audience, tone, contentType,
+                    ...(brainContext ? {
+                      knowledgeBase: brainContext.slice(0, 2000),
+                      instruction: `All improvements MUST stay grounded in the knowledge base. Do not add claims, testimonials, or details that contradict the brand's documented information.`,
+                    } : {}),
+                  }}
                   label="Campaign Copy"
                   autoStart={true}
                   continuous={true}
