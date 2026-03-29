@@ -65,8 +65,9 @@ export default function FunnelBuilder() {
   const [fbStatus,      setFbStatus]      = useState(null);
   const [fbLoading,     setFbLoading]     = useState(true);
 
-  // Top-level builder mode: 'funnel' | 'email' | 'website'
-  const [builderMode,   setBuilderMode]   = useState('funnel');
+  // Top-level builder mode: 'funnel' | 'email' | 'website' — persisted across reloads
+  const [builderMode, setBuilderMode] = useState(() => localStorage.getItem('fb_builder_mode') || 'funnel');
+  function switchMode(mode) { localStorage.setItem('fb_builder_mode', mode); setBuilderMode(mode); }
 
   // Tab: 'text' | 'design' | 'funnel'
   const [genMode,       setGenMode]       = useState('text');
@@ -817,7 +818,7 @@ export default function FunnelBuilder() {
           ].map(({ key, label }) => (
             <button
               key={key}
-              onClick={() => setBuilderMode(key)}
+              onClick={() => switchMode(key)}
               className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all"
               style={{
                 background: builderMode === key ? '#4f46e5' : 'rgba(255,255,255,0.05)',
@@ -943,10 +944,21 @@ export default function FunnelBuilder() {
                     </select>
                   </div>
 
-                  {/* Brain selector */}
-                  {emailBrains.length > 0 && (
-                    <div>
-                      <label className="block text-xs text-gray-400 mb-1.5">🧠 Knowledge Base <span className="text-gray-600">(ground email in your brain)</span></label>
+                  {/* Brain selector — always visible */}
+                  <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.15)' }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">🧠</span>
+                      <div>
+                        <p className="text-xs font-semibold text-white">Knowledge Base</p>
+                        <p className="text-xs text-gray-500">Ground all email copy in your brand's documented information</p>
+                      </div>
+                    </div>
+
+                    {emailBrains.length === 0 ? (
+                      <div className="rounded-lg px-3 py-2.5 text-xs" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <p className="text-gray-400">No brains yet. <a href="/agents" className="text-indigo-400 hover:text-indigo-300">Go to Agents → Brain</a> to create one — then come back and select it here to ground all email content in your brand knowledge.</p>
+                      </div>
+                    ) : (
                       <div className="space-y-1.5">
                         <div
                           onClick={() => setEmailBrainId('')}
@@ -959,7 +971,7 @@ export default function FunnelBuilder() {
                           </div>
                           <div>
                             <div className="text-white font-medium">No brain (generate from scratch)</div>
-                            <div className="text-gray-600">Uses only the fields above</div>
+                            <div className="text-gray-500">Uses only the fields you filled in above</div>
                           </div>
                         </div>
                         {emailBrains.map(b => {
@@ -977,22 +989,22 @@ export default function FunnelBuilder() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="text-white font-medium truncate">{b.name}</div>
-                                <div className="text-gray-600">
-                                  {[b.docCount > 0 && `${b.docCount} doc${b.docCount > 1 ? 's' : ''}`, b.videoCount > 0 && `${b.videoCount} video${b.videoCount > 1 ? 's' : ''}`].filter(Boolean).join(' · ') || 'Empty'}
+                                <div className="text-gray-500">
+                                  {[b.docCount > 0 && `${b.docCount} doc${b.docCount > 1 ? 's' : ''}`, b.videoCount > 0 && `${b.videoCount} video${b.videoCount > 1 ? 's' : ''}`].filter(Boolean).join(' · ') || 'Empty brain'}
                                 </div>
                               </div>
-                              {isSelected && <span className="text-green-400 font-medium flex-shrink-0">Active</span>}
+                              {isSelected && <span className="text-green-400 font-semibold flex-shrink-0">✓ Active</span>}
                             </div>
                           );
                         })}
+                        {emailBrainId && (
+                          <p className="text-xs text-green-400 pt-1">
+                            🧠 Claude will query "{emailBrains.find(b => b.brainId === emailBrainId)?.name}" before generating — all copy, voice, offers & facts will match your brand's documented knowledge.
+                          </p>
+                        )}
                       </div>
-                      {emailBrainId && (
-                        <p className="text-xs text-green-400 mt-1">
-                          🧠 Email copy will be grounded in "{emailBrains.find(b => b.brainId === emailBrainId)?.name}" — voice, offers & facts matched to your knowledge base.
-                        </p>
-                      )}
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   <button
                     type="submit"
