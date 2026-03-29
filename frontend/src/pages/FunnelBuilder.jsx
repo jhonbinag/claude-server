@@ -999,7 +999,7 @@ export default function FunnelBuilder() {
                         })}
                         {emailBrainId && (
                           <p className="text-xs text-green-400 pt-1">
-                            🧠 Claude will query "{emailBrains.find(b => b.brainId === emailBrainId)?.name}" before generating — all copy, voice, offers & facts will match your brand's documented knowledge.
+                            🧠 Agent will query "{emailBrains.find(b => b.brainId === emailBrainId)?.name}" before generating — all copy, voice, offers & facts will match your brand's documented knowledge.
                           </p>
                         )}
                       </div>
