@@ -58,6 +58,7 @@ async function getConversation(locationId, convId) {
       messages: JSON.parse(data.messages || '[]'),
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
+      ...(data.personaId ? { personaId: data.personaId } : {}),
     };
   }
   const m = memMsg[docId];
@@ -67,7 +68,7 @@ async function getConversation(locationId, convId) {
 
 // ── Save (create or update) a conversation ─────────────────────────────────────
 
-async function saveConversation(locationId, { id, title, messages }) {
+async function saveConversation(locationId, { id, title, messages, personaId }) {
   const d = db();
   const docId  = `${locationId}_${id}`;
   const now    = new Date().toISOString();
@@ -80,10 +81,8 @@ async function saveConversation(locationId, { id, title, messages }) {
     const msgRef  = d.collection(MSG_COL).doc(docId);
     const idxRef  = d.collection(INDEX_COL).doc(locationId);
 
-    // Use a batch for atomicity
     const batch = d.batch();
 
-    // Full messages doc
     const msgSnap = await msgRef.get();
     const createdAt = msgSnap.exists ? msgSnap.data().createdAt : now;
     batch.set(msgRef, {
@@ -92,16 +91,16 @@ async function saveConversation(locationId, { id, title, messages }) {
       messages: JSON.stringify(messages),
       createdAt,
       updatedAt: now,
+      ...(personaId ? { personaId } : {}),
     });
 
-    // Update index
     const idxSnap = await idxRef.get();
     let index = [];
     if (idxSnap.exists) {
       try { index = JSON.parse(idxSnap.data().index || '[]'); }
       catch { index = []; }
     }
-    const entry = { id, title: safeTitle, preview, updatedAt: now };
+    const entry = { id, title: safeTitle, preview, updatedAt: now, ...(personaId ? { personaId } : {}) };
     const pos   = index.findIndex(c => c.id === id);
     if (pos >= 0) index[pos] = entry;
     else index.unshift(entry);
@@ -110,12 +109,11 @@ async function saveConversation(locationId, { id, title, messages }) {
     batch.set(idxRef, { index: JSON.stringify(index) }, { merge: true });
     await batch.commit();
   } else {
-    // In-memory fallback
-    memMsg[docId] = { title: safeTitle, messages, updatedAt: now };
+    memMsg[docId] = { title: safeTitle, messages, updatedAt: now, ...(personaId ? { personaId } : {}) };
     if (!memIndex[locationId]) memIndex[locationId] = [];
     const idx  = memIndex[locationId];
     const pos  = idx.findIndex(c => c.id === id);
-    const entry = { id, title: safeTitle, preview, updatedAt: now };
+    const entry = { id, title: safeTitle, preview, updatedAt: now, ...(personaId ? { personaId } : {}) };
     if (pos >= 0) idx[pos] = entry;
     else idx.unshift(entry);
     memIndex[locationId] = idx.slice(0, MAX_CONVS);

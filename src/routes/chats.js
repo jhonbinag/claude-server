@@ -1,14 +1,18 @@
 /**
  * src/routes/chats.js  — mounts at /chats
  *
- * Manages persistent chat sessions and handles AI replies that
- * automatically query all available brains before responding.
+ * GET    /chats/personas            — list active personas for this location
+ * GET    /chats                     — list all chat sessions
+ * POST   /chats                     — create / update a session
+ * GET    /chats/:id                 — get session with messages
+ * DELETE /chats/:id                 — delete a session
+ * POST   /chats/:id/message         — send a user message, stream AI reply (SSE)
  *
- * GET    /chats                  — list all chat sessions
- * POST   /chats                  — create / update a session
- * GET    /chats/:id              — get session with messages
- * DELETE /chats/:id              — delete a session
- * POST   /chats/:id/message      — send a user message, stream AI reply (SSE)
+ * Message flow (two-pass):
+ *   1. Fast draft via Haiku  (silent)
+ *   2. Improve + stream via Sonnet
+ * Persona is loaded per-session (by personaId sent from frontend) or
+ * falls back to the location's assigned default persona.
  */
 
 const express       = require('express');
@@ -19,28 +23,19 @@ const brainStore    = require('../services/brainStore');
 const personaStore  = require('../services/personaStore');
 const Anthropic     = require('@anthropic-ai/sdk');
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client     = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SHARED_LOC = '__shared__';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Collect all brains available to this location (own + shared)
 async function getAllBrains(locationId) {
   const results = [];
-  try {
-    const own = await brainStore.listBrains(locationId);
-    own.forEach(b => results.push({ ...b, _loc: locationId }));
-  } catch (_) {}
-  try {
-    const shared = await brainStore.listBrains(SHARED_LOC);
-    shared.forEach(b => results.push({ ...b, _loc: SHARED_LOC, isShared: true }));
-  } catch (_) {}
-  // De-duplicate by brainId
+  try { const own = await brainStore.listBrains(locationId); own.forEach(b => results.push({ ...b, _loc: locationId })); } catch (_) {}
+  try { const shared = await brainStore.listBrains(SHARED_LOC); shared.forEach(b => results.push({ ...b, _loc: SHARED_LOC, isShared: true })); } catch (_) {}
   const seen = new Set();
   return results.filter(b => { if (seen.has(b.brainId)) return false; seen.add(b.brainId); return true; });
 }
 
-// Query a brain and return its text chunks joined
 async function queryBrain(locId, brainId, query, k = 5) {
   try {
     const chunks = await brainStore.queryKnowledge(locId, brainId, query, k);
@@ -49,7 +44,6 @@ async function queryBrain(locId, brainId, query, k = 5) {
   } catch (_) { return null; }
 }
 
-// Auto-generate a short title from the first user message
 function makeTitle(text) {
   const t = text.trim().replace(/\n+/g, ' ');
   return t.length > 60 ? t.slice(0, 57) + '…' : t;
@@ -58,11 +52,28 @@ function makeTitle(text) {
 // All routes require authentication
 router.use(authenticate);
 
+// ── GET /chats/personas — active personas available to this location ──────────
+// Must be before /:id to avoid routing conflict
+
+router.get('/personas', async (req, res) => {
+  try {
+    const all = await personaStore.listPersonas();
+    const active = all.filter(p =>
+      p.status === 'active' && (
+        p.assignedTo === '__all__' ||
+        (p.assignedTo === 'specific' && Array.isArray(p.assignedLocations) && p.assignedLocations.includes(req.locationId))
+      )
+    );
+    res.json({ success: true, data: active });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ── GET /chats ─────────────────────────────────────────────────────────────────
 
 router.get('/', async (req, res) => {
   try {
-    // Reuse conversationStore but under a "chats:" namespace
     const all = await store.listConversations(req.locationId + ':chats');
     res.json({ success: true, data: all });
   } catch (e) {
@@ -86,10 +97,11 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { id, title, messages } = req.body;
+    const { id, title, messages, personaId } = req.body;
     if (!id) return res.status(400).json({ success: false, error: 'id required' });
     await store.saveConversation(req.locationId + ':chats', {
       id, title: title || 'New Chat', messages: messages || [],
+      ...(personaId ? { personaId } : {}),
     });
     res.json({ success: true });
   } catch (e) {
@@ -108,13 +120,12 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// ── POST /chats/:id/message — stream AI reply ──────────────────────────────────
+// ── POST /chats/:id/message — two-pass AI reply (draft → improve → stream) ────
 
 router.post('/:id/message', async (req, res) => {
-  const { message, history = [] } = req.body;
+  const { message, history = [], personaId } = req.body;
   if (!message?.trim()) return res.status(400).json({ success: false, error: 'message required' });
 
-  // SSE setup
   res.setHeader('Content-Type',      'text/event-stream');
   res.setHeader('Cache-Control',     'no-cache');
   res.setHeader('Connection',        'keep-alive');
@@ -124,63 +135,81 @@ router.post('/:id/message', async (req, res) => {
   const send = (evt, data) => res.write(`event: ${evt}\ndata: ${JSON.stringify(data)}\n\n`);
 
   try {
-    // 1. Load all brains and query them with the user's message
+    // 1. Load brains
     const brains = await getAllBrains(req.locationId);
     let brainContext = '';
-
     if (brains.length > 0) {
-      const results = await Promise.all(
-        brains.map(b => queryBrain(b._loc, b.brainId, message, 5))
-      );
+      const results = await Promise.all(brains.map(b => queryBrain(b._loc, b.brainId, message, 5)));
       const combined = results.filter(Boolean).join('\n\n---\n\n');
       if (combined) {
-        brainContext = `KNOWLEDGE BASE (from ${brains.length} brain${brains.length > 1 ? 's' : ''}):\n${combined}\n\n---\n\nUse the knowledge base above to inform your answer. If the knowledge base covers the topic, prioritise that information. If it doesn't cover it, answer from your own knowledge.\n\n`;
+        brainContext = `KNOWLEDGE BASE (from ${brains.length} brain${brains.length > 1 ? 's' : ''}):\n${combined}\n\n---\n\nUse the knowledge base above to inform your answer. If it covers the topic, prioritise that information.\n\n`;
       }
     }
 
-    // 2. Load active persona for this location (admin-configured)
-    let basePrompt = 'You are a helpful AI assistant. Be concise, clear, and friendly. Use markdown formatting where helpful.';
+    // 2. Load persona — prefer explicit personaId, fall back to location default
+    let persona = null;
     try {
-      const persona = await personaStore.getPersonaForLocation(req.locationId);
-      if (persona) {
-        basePrompt = persona.systemPrompt?.trim() || persona.personality?.trim() || basePrompt;
-        // Prepend persona's own knowledge content before brain context
-        if (persona.content?.trim()) {
-          const personaKnowledge = `PERSONA KNOWLEDGE:\n${persona.content}\n\n---\n\n`;
-          brainContext = personaKnowledge + brainContext;
-        }
-      }
+      if (personaId) persona = await personaStore.getPersona(personaId);
+      if (!persona)  persona = await personaStore.getPersonaForLocation(req.locationId);
     } catch (_) {}
 
-    // 3. Build system prompt
-    const systemPrompt = `${basePrompt}\n\n${brainContext}`.trim();
+    let basePrompt = 'You are a helpful AI assistant. Be concise, clear, and friendly. Use markdown formatting where helpful.';
+    if (persona) {
+      basePrompt = persona.systemPrompt?.trim() || persona.personality?.trim() || basePrompt;
+      if (persona.content?.trim()) {
+        brainContext = `PERSONA KNOWLEDGE:\n${persona.content}\n\n---\n\n` + brainContext;
+      }
+    }
 
-    // 4. Build messages array for Claude (convert history + new message)
+    const systemPrompt   = `${basePrompt}\n\n${brainContext}`.trim();
     const claudeMessages = [
       ...history.slice(-20).map(m => ({ role: m.role, content: m.content })),
       { role: 'user', content: message.trim() },
     ];
 
-    // 5. Stream response
+    // 3. Pass 1 — fast draft via Haiku (silent, not streamed)
+    send('status', { text: 'Thinking…' });
+    const draft = await client.messages.create({
+      model:      'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      system:     systemPrompt,
+      messages:   claudeMessages,
+    });
+    const draftText = draft.content[0]?.text?.trim() || '';
+
+    // 4. Pass 2 — improve the draft and stream the result via Sonnet
+    send('status', { text: '✨ Improving…' });
+
+    const improveMessages = [
+      ...claudeMessages,
+      { role: 'assistant', content: draftText },
+      {
+        role: 'user',
+        content: persona
+          ? `Review your response above and improve it — make it more natural, engaging, and true to your personality as ${persona.name}. Write only the improved response, nothing else.`
+          : 'Review your response above and improve it — make it clearer, more helpful, and better structured. Write only the improved response, nothing else.',
+      },
+    ];
+
     let fullText = '';
     const stream = client.messages.stream({
       model:      'claude-sonnet-4-6',
       max_tokens: 2048,
       system:     systemPrompt,
-      messages:   claudeMessages,
+      messages:   improveMessages,
     });
 
-    stream.on('text', (text) => {
+    stream.on('text', text => {
       fullText += text;
       send('text', { text });
     });
 
     await stream.finalMessage();
 
-    // 6. Persist the updated conversation
-    const conv = await store.getConversation(req.locationId + ':chats', req.params.id).catch(() => null);
+    // 5. Persist updated conversation
+    const conv     = await store.getConversation(req.locationId + ':chats', req.params.id).catch(() => null);
     const existing = conv?.messages || [];
-    const updated = [
+    const updated  = [
       ...existing,
       { role: 'user',      content: message.trim(), ts: Date.now() },
       { role: 'assistant', content: fullText,        ts: Date.now() },
@@ -188,6 +217,7 @@ router.post('/:id/message', async (req, res) => {
     const title = conv?.title && conv.title !== 'New Chat' ? conv.title : makeTitle(message);
     await store.saveConversation(req.locationId + ':chats', {
       id: req.params.id, title, messages: updated,
+      ...(personaId ? { personaId } : (conv?.personaId ? { personaId: conv.personaId } : {})),
     });
 
     send('done', { text: fullText });
