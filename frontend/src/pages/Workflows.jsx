@@ -599,7 +599,8 @@ export default function Workflows() {
   const [tsEvent,          setTsEvent]           = useState('');
   const [tsConfig,         setTsConfig]          = useState({});
 
-  const canvasRef = useRef(null);
+  const canvasRef            = useRef(null);
+  const pendingRunAfterTrigger = useRef(false);
 
   const enabledKeys = new Set((integrations || []).filter(i => i.enabled).map(i => i.key));
 
@@ -752,19 +753,34 @@ export default function Workflows() {
 
   // ── Run ───────────────────────────────────────────────────────────────────
 
-  const run = useCallback(async () => {
-    if (!nodes.length || isRunning) return;
+  const executeRun = useCallback(async (runNodes, runEdges) => {
     setMessages([]);
     setShowOutput(true);
-    const prompt  = buildGraphPrompt(nodes, edges, context);
-    const allowed = [...new Set(nodes.filter(n => n.tool !== '__trigger__' && !n._isTrigger).map(n => n.tool).filter(t => t !== 'ghl'))];
+    const prompt  = buildGraphPrompt(runNodes, runEdges, context);
+    const allowed = [...new Set(runNodes.filter(n => n.tool !== '__trigger__' && !n._isTrigger).map(n => n.tool).filter(t => t !== 'ghl'))];
     await stream(
       '/claude/task',
       { task: prompt, allowedIntegrations: allowed.length ? allowed : null },
       (evtType, data) => setMessages(prev => applyEvent(prev, evtType, data)),
       locationId,
     );
-  }, [nodes, edges, context, isRunning, stream, locationId]);
+  }, [context, stream, locationId]);
+
+  const run = useCallback(async () => {
+    if (!nodes.length || isRunning) return;
+    // If trigger node has no event set, open trigger setup modal first
+    const trigNode = nodes.find(n => n._isTrigger || n.tool === '__trigger__');
+    if (!trigNode?.config?.event) {
+      pendingRunAfterTrigger.current = true;
+      setTsStep(1);
+      setTsRunMode(trigNode?.config?.runMode || 'once');
+      setTsEvent(trigNode?.config?.event || '');
+      setTsConfig(trigNode?.config || {});
+      setShowTriggerSetup(true);
+      return;
+    }
+    await executeRun(nodes, edges);
+  }, [nodes, edges, isRunning, executeRun]);
 
   // ── Save / load ───────────────────────────────────────────────────────────
 
@@ -803,17 +819,26 @@ export default function Workflows() {
     setNodes([]); setEdges([]); setWfName(''); setContext('');
     setMessages([]); setCurrentId(null); setWebhookUrl('');
     setSelectedEdge(null); setSelectedNode(null); setShowOutput(false);
-    // Open trigger setup instead of going straight to canvas
-    setTsStep(1); setTsRunMode('once'); setTsEvent(''); setTsConfig({});
-    setShowTriggerSetup(true);
+    // Place an unconfigured trigger node on the canvas and go straight in
+    setNodes([mkTriggerNode('once', '', {})]);
+    setCanvasMode(true);
   };
 
   function commitTrigger() {
     if (!tsEvent) return;
     const trigNode = mkTriggerNode(tsRunMode, tsEvent, tsConfig);
-    setNodes([trigNode]);
+    let updatedNodes;
+    setNodes(prev => {
+      const without = prev.filter(n => !n._isTrigger && n.tool !== '__trigger__');
+      updatedNodes = [trigNode, ...without];
+      return updatedNodes;
+    });
     setShowTriggerSetup(false);
-    setCanvasMode(true);
+    // If triggered from Run button, execute after state flushes
+    if (pendingRunAfterTrigger.current) {
+      pendingRunAfterTrigger.current = false;
+      setTimeout(() => executeRun(updatedNodes, edges), 50);
+    }
   }
 
   const applyTemplate = tpl => {
@@ -1440,7 +1465,7 @@ export default function Workflows() {
             <div className="flex items-center gap-3 px-6 pt-6 pb-4 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
               <span className="text-2xl">⚡</span>
               <div className="flex-1">
-                <h2 className="font-bold text-white text-sm">Set Up Workflow Trigger</h2>
+                <h2 className="font-bold text-white text-sm">Run Workflow</h2>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {tsStep === 1 ? 'Step 1 of 2 — How should this workflow run?' : 'Step 2 of 2 — Choose the trigger event'}
                 </p>
@@ -1584,7 +1609,7 @@ export default function Workflows() {
                   <button onClick={commitTrigger} disabled={!tsEvent}
                     className="btn-primary w-full py-2.5 text-sm mt-2"
                     style={{ opacity: tsEvent ? 1 : 0.4 }}>
-                    ⚡ Create Workflow with this Trigger →
+                    ⚡ Confirm &amp; Run Workflow →
                   </button>
                 </>
               )}
