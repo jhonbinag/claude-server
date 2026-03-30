@@ -32,6 +32,7 @@ let brainRoutes;      try { brainRoutes      = require('./src/routes/brain');   
 let rolesRoutes;      try { rolesRoutes      = require('./src/routes/roles');       } catch (e) { _errors.roles      = e.message; }
 let improveRoutes;    try { improveRoutes    = require('./src/routes/improve');     } catch (e) { _errors.improve    = e.message; }
 let convRoutes;       try { convRoutes       = require('./src/routes/conversations'); } catch (e) { _errors.conversations = e.message; }
+let chatsRoutes;      try { chatsRoutes      = require('./src/routes/chats');        } catch (e) { _errors.chats        = e.message; }
 let vibeAiRoutes;     try { vibeAiRoutes     = require('./src/routes/vibeAi');       } catch (e) { _errors.vibeAi       = e.message; }
 let threePlRoutes;    try { threePlRoutes    = require('./src/routes/3pl');          } catch (e) { _errors.threePl      = e.message; }
 let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui          = e.message; }
@@ -124,6 +125,7 @@ if (brainRoutes)          app.use('/brain',           brainRoutes);
 if (rolesRoutes)          app.use('/roles',           rolesRoutes);
 if (improveRoutes)        app.use('/improve',         improveRoutes);
 if (convRoutes)           app.use('/conversations',   convRoutes);
+if (chatsRoutes)          app.use('/chats',           chatsRoutes);
 if (vibeAiRoutes)         app.use('/vibe-ai',         vibeAiRoutes);
 if (threePlRoutes)        app.use('/3pl',             threePlRoutes);
 if (uiRoute)         app.use('/',           uiRoute);
