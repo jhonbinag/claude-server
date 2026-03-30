@@ -1186,6 +1186,72 @@ router.delete('/integrations/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ─── POST /admin/integrations/:id/discover — auto-discover OpenAPI/Swagger spec ─
+
+function parseOpenApiToTools(spec, baseUrl) {
+  const tools = [];
+  const basePath = spec.basePath || '';
+  for (const [pathKey, methods] of Object.entries(spec.paths || {})) {
+    for (const [method, op] of Object.entries(methods)) {
+      if (!['get','post','put','patch','delete'].includes(method) || !op || typeof op !== 'object') continue;
+      const rawId   = op.operationId || `${method}_${pathKey.replace(/[^a-z0-9]/gi,'_')}`;
+      const name    = rawId.replace(/[^a-zA-Z0-9_-]/g,'_').replace(/_{2,}/g,'_').slice(0,60);
+      const description = (op.summary || op.description || `${method.toUpperCase()} ${pathKey}`).slice(0,200);
+      const properties = {}, required = [];
+      (op.parameters || []).forEach(p => {
+        if (!p.name) return;
+        properties[p.name] = { type: p.schema?.type || p.type || 'string', description: `[${p.in}] ${p.description || p.name}` };
+        if (p.required) required.push(p.name);
+      });
+      const bodySchema = op.requestBody?.content?.['application/json']?.schema;
+      if (bodySchema?.properties) {
+        Object.entries(bodySchema.properties).forEach(([k,v]) => { properties[k] = { type: v.type||'string', description: v.description||k }; });
+        if (Array.isArray(bodySchema.required)) required.push(...bodySchema.required);
+      }
+      tools.push({ name, description, inputSchema: { type:'object', properties, ...(required.length?{required}:{}) }, _meta: { method: method.toUpperCase(), path: basePath + pathKey, baseUrl } });
+      if (tools.length >= 20) return tools;
+    }
+  }
+  return tools;
+}
+
+router.post('/integrations/:id/discover', async (req, res) => {
+  try {
+    if (!integrationStore) return res.status(503).json({ success: false, error: 'Integration store unavailable' });
+    const integ = await integrationStore.getIntegration(req.params.id);
+    if (!integ) return res.status(404).json({ success: false, error: 'Integration not found' });
+    if (integ.type !== 'api_key') return res.status(400).json({ success: false, error: 'Discovery only works for API Key integrations' });
+    if (!integ.endpoint) return res.status(400).json({ success: false, error: 'No endpoint configured' });
+
+    let extraHeaders = {};
+    try { if (integ.headers) extraHeaders = JSON.parse(integ.headers); } catch {}
+    const headers = { ...(integ.apiKey ? { Authorization: `Bearer ${integ.apiKey}` } : {}), ...extraHeaders };
+
+    const baseUrl = new URL(integ.endpoint).origin;
+    const tryPaths = ['/openapi.json','/swagger.json','/api-docs','/api/openapi.json','/api/v1/openapi.json','/v1/openapi.json','/swagger/v1/swagger.json','/api-docs.json'];
+    let spec = null, specUrl = null;
+
+    for (const p of tryPaths) {
+      try {
+        const ctrl = new AbortController(); setTimeout(() => ctrl.abort(), 5000);
+        const r = await fetch(baseUrl + p, { headers, signal: ctrl.signal });
+        if (!r.ok) continue;
+        const json = await r.json().catch(() => null);
+        if (json && (json.openapi || json.swagger)) { spec = json; specUrl = baseUrl + p; break; }
+      } catch {}
+    }
+
+    if (!spec) {
+      return res.json({ success: false, error: 'No OpenAPI/Swagger spec found.', tried: tryPaths.map(p => baseUrl + p) });
+    }
+
+    const tools = parseOpenApiToTools(spec, baseUrl);
+    const updated = await integrationStore.saveIntegration({ ...integ, mcpTools: tools, specUrl, specTitle: spec.info?.title });
+    activityLogger.log({ locationId: 'admin', event: 'integration_discover', detail: { integrationId: integ.integrationId, toolCount: tools.length, specUrl }, success: true, adminId: req.adminId });
+    res.json({ success: true, found: tools.length, specUrl, title: spec.info?.title, tools, data: updated });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // ─── POST /admin/integrations/:id/test — test an api_key integration ──────────
 
 router.post('/integrations/:id/test', async (req, res) => {

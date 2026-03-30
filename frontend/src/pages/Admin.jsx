@@ -1672,6 +1672,7 @@ export default function Admin() {
   const [toolAccessItems,      setToolAccessItems]      = useState([]);
   const [toolAccessLoading,    setToolAccessLoading]    = useState(false);
   const [toolAccessFilter,     setToolAccessFilter]     = useState('all'); // 'all' | 'shared' | 'hidden'
+  const [toolAccessThirdParty, setToolAccessThirdParty] = useState([]); // 3rd-party integrations for location
 
   // Plan Tiers state
   const [tiers,              setTiers]              = useState(null);
@@ -1698,7 +1699,9 @@ export default function Admin() {
   const [integrations,       setIntegrations]       = useState([]);
   const [intLoading,         setIntLoading]         = useState(false);
   const [intModal,           setIntModal]           = useState(null); // null | 'create' | integration obj
-  const [intForm,            setIntForm]            = useState({ clientName:'', name:'', type:'webhook', apiKey:'', endpoint:'', method:'GET', headers:'', allowQuery:false, assignedTo:'__all__', assignedLocations:[], status:'inactive' });
+  const [intForm,            setIntForm]            = useState({ clientName:'', name:'', type:'webhook', apiKey:'', endpoint:'', method:'GET', headers:'', allowQuery:false, assignedTo:'__all__', assignedLocations:[], personaIds:[], status:'inactive' });
+  const [intDiscovering,     setIntDiscovering]     = useState(null); // integrationId being discovered
+  const [intDiscoverResult,  setIntDiscoverResult]  = useState({}); // { [id]: { found, title, error } }
   const [intSaving,          setIntSaving]          = useState(false);
   const [intTesting,         setIntTesting]         = useState(null); // integrationId being tested
   const [intTestResult,      setIntTestResult]      = useState({}); // { [id]: result }
@@ -2047,8 +2050,23 @@ export default function Admin() {
   const loadToolAccess = async (locationId) => {
     if (!locationId) return;
     setToolAccessLoading(true);
-    const res = await adminFetch(`/admin/locations/${locationId}/tool-access`, { adminKey });
+    const [res, intRes] = await Promise.all([
+      adminFetch(`/admin/locations/${locationId}/tool-access`, { adminKey }),
+      adminFetch('/admin/integrations', { adminKey }),
+    ]);
     setToolAccessItems(res.success ? res.data : []);
+    if (intRes.success) {
+      const all = intRes.data || [];
+      const forLocation = all.filter(i =>
+        i.status === 'active' && (
+          i.assignedTo === '__all__' ||
+          (i.assignedTo === 'specific' && Array.isArray(i.assignedLocations) && i.assignedLocations.includes(locationId))
+        )
+      );
+      setToolAccessThirdParty(forLocation);
+    } else {
+      setToolAccessThirdParty([]);
+    }
     setToolAccessLoading(false);
   };
 
@@ -2882,6 +2900,8 @@ export default function Admin() {
                             {items.map((integ, idx) => {
                               const tc = TYPE_COLORS[integ.type] || TYPE_COLORS.webhook;
                               const testR = intTestResult[integ.integrationId];
+                              const discoverR = intDiscoverResult[integ.integrationId];
+                              const linkedPersonaNames = (integ.personaIds||[]).map(pid => personas.find(p=>p.personaId===pid)?.name).filter(Boolean);
                               return (
                                 <div key={integ.integrationId} style={{ padding:'14px 16px', borderBottom: idx < items.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
                                   <div style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
@@ -2946,11 +2966,38 @@ export default function Admin() {
                                           {testR.response && <pre style={{ margin:'4px 0 0', fontSize:10, color:'#6b7280', overflow:'auto', maxHeight:80 }}>{typeof testR.response === 'object' ? JSON.stringify(testR.response, null, 2) : testR.response}</pre>}
                                         </div>
                                       )}
+
+                                      {/* Discover result */}
+                                      {discoverR && (
+                                        <div style={{ marginTop:6, padding:'6px 10px', borderRadius:6, background: discoverR.success ? 'rgba(245,158,11,0.08)' : 'rgba(239,68,68,0.08)', border: discoverR.success ? '1px solid rgba(245,158,11,0.25)' : '1px solid rgba(239,68,68,0.25)' }}>
+                                          <span style={{ fontSize:11, color: discoverR.success ? '#fbbf24' : '#f87171' }}>{discoverR.success ? `🔍 Found ${discoverR.found} endpoints from "${discoverR.title || discoverR.specUrl}"` : `✗ ${discoverR.error}`}</span>
+                                        </div>
+                                      )}
+
+                                      {/* MCP tools */}
+                                      {integ.mcpTools?.length > 0 && (
+                                        <details style={{ marginTop:6 }}>
+                                          <summary style={{ fontSize:11, color:'#fbbf24', cursor:'pointer' }}>⚡ {integ.mcpTools.length} MCP Tools (auto-discovered) ▸</summary>
+                                          <div style={{ marginTop:6, display:'flex', flexWrap:'wrap', gap:4 }}>
+                                            {integ.mcpTools.map(t => (
+                                              <span key={t.name} style={{ fontSize:10, padding:'2px 7px', borderRadius:6, background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', color:'#d97706' }} title={t.description}>{t.name}</span>
+                                            ))}
+                                          </div>
+                                        </details>
+                                      )}
+
+                                      {/* Linked personas */}
+                                      {linkedPersonaNames.length > 0 && (
+                                        <div style={{ marginTop:6, display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' }}>
+                                          <span style={{ fontSize:10, color:'#4b5563' }}>Linked to:</span>
+                                          {linkedPersonaNames.map(n => <span key={n} style={{ fontSize:10, padding:'2px 8px', borderRadius:10, background:'rgba(99,102,241,0.1)', border:'1px solid rgba(99,102,241,0.25)', color:'#a5b4fc' }}>{n}</span>)}
+                                        </div>
+                                      )}
                                     </div>
 
                                     {/* Action buttons */}
                                     <div style={{ display:'flex', flexDirection:'column', gap:6, flexShrink:0 }}>
-                                      <button onClick={() => { setIntForm({ clientName:integ.clientName, name:integ.name, type:integ.type, apiKey:integ.apiKey||'', endpoint:integ.endpoint||'', method:integ.method||'GET', headers:integ.headers||'', allowQuery:!!integ.allowQuery, assignedTo:integ.assignedTo||'__all__', assignedLocations:integ.assignedLocations||[], status:integ.status }); setIntModal(integ); }}
+                                      <button onClick={() => { setIntForm({ clientName:integ.clientName, name:integ.name, type:integ.type, apiKey:integ.apiKey||'', endpoint:integ.endpoint||'', method:integ.method||'GET', headers:integ.headers||'', allowQuery:!!integ.allowQuery, assignedTo:integ.assignedTo||'__all__', assignedLocations:integ.assignedLocations||[], personaIds:integ.personaIds||[], status:integ.status }); setIntModal(integ); }}
                                         style={{ padding:'5px 10px', borderRadius:6, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#d1d5db', cursor:'pointer', fontSize:11 }}>Edit</button>
                                       {integ.type === 'api_key' && (
                                         <button onClick={async () => { setIntTesting(integ.integrationId); const r = await adminFetch(`/admin/integrations/${integ.integrationId}/test`, { method:'POST', adminKey }); setIntTestResult(p => ({ ...p, [integ.integrationId]: r })); setIntTesting(null); }}
@@ -2959,6 +3006,12 @@ export default function Admin() {
                                       )}
                                       <button onClick={async () => { const ns = integ.status === 'active' ? 'inactive' : 'active'; await adminFetch(`/admin/integrations/${integ.integrationId}`, { method:'PUT', adminKey, body:{ status:ns } }); loadIntegrations(); }}
                                         style={{ padding:'5px 10px', borderRadius:6, background: integ.status === 'active' ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.04)', border: integ.status === 'active' ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(255,255,255,0.08)', color: integ.status === 'active' ? '#34d399' : '#6b7280', cursor:'pointer', fontSize:11 }}>{integ.status === 'active' ? 'Deactivate' : 'Activate'}</button>
+                                      {integ.type === 'api_key' && (
+                                        <button onClick={async () => { setIntDiscovering(integ.integrationId); const r = await adminFetch(`/admin/integrations/${integ.integrationId}/discover`, { method:'POST', adminKey }); setIntDiscoverResult(p => ({ ...p, [integ.integrationId]: r })); setIntDiscovering(null); loadIntegrations(); }}
+                                          disabled={intDiscovering === integ.integrationId}
+                                          style={{ padding:'5px 10px', borderRadius:6, background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.25)', color:'#fbbf24', cursor:'pointer', fontSize:11 }}
+                                          title="Auto-discover OpenAPI spec and convert to MCP tools">{intDiscovering === integ.integrationId ? '…' : `🔍 ${integ.mcpTools?.length > 0 ? `${integ.mcpTools.length} tools` : 'Discover'}`}</button>
+                                      )}
                                       <button onClick={async () => { if (!window.confirm(`Delete "${integ.name}"?`)) return; await adminFetch(`/admin/integrations/${integ.integrationId}`, { method:'DELETE', adminKey }); loadIntegrations(); }}
                                         style={{ padding:'5px 10px', borderRadius:6, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.2)', color:'#f87171', cursor:'pointer', fontSize:11 }}>Delete</button>
                                     </div>
@@ -3084,6 +3137,28 @@ export default function Admin() {
                             onChange={e => setIntForm(f => ({ ...f, assignedLocations: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))} />
                         )}
                       </div>
+
+                      {/* Link to Personas */}
+                      {personas.length > 0 && (
+                        <div>
+                          <label style={bdLabel}>Link to Chat Personas</label>
+                          <p style={{ margin:'0 0 8px', fontSize:11, color:'#4b5563' }}>When linked, this integration's data and tools are available to the persona during chats. For API Key integrations with discovered tools, Claude will call them live.</p>
+                          <div style={{ display:'flex', flexDirection:'column', gap:4, maxHeight:140, overflowY:'auto' }}>
+                            {personas.filter(p => p.status === 'active').map(p => {
+                              const linked = (intForm.personaIds || []).includes(p.personaId);
+                              return (
+                                <label key={p.personaId} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', borderRadius:8, cursor:'pointer', background: linked ? 'rgba(99,102,241,0.1)' : 'rgba(255,255,255,0.03)', border:`1px solid ${linked ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.07)'}` }}>
+                                  <input type="checkbox" checked={linked}
+                                    onChange={e => setIntForm(f => ({ ...f, personaIds: e.target.checked ? [...(f.personaIds||[]), p.personaId] : (f.personaIds||[]).filter(id => id !== p.personaId) }))} />
+                                  <span style={{ fontSize:16 }}>{p.avatar}</span>
+                                  <span style={{ fontSize:13, color: linked ? '#a5b4fc' : '#9ca3af' }}>{p.name}</span>
+                                  {p.description && <span style={{ fontSize:11, color:'#4b5563', marginLeft:'auto' }}>{p.description.slice(0,40)}</span>}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Status */}
                       <div>
@@ -3885,6 +3960,7 @@ export default function Admin() {
                   const id = e.target.value;
                   setToolAccessLocationId(id);
                   setToolAccessItems([]);
+                  setToolAccessThirdParty([]);
                   setToolAccessFilter('all');
                   if (id) loadToolAccess(id);
                 }}
@@ -3917,7 +3993,7 @@ export default function Admin() {
             </div>
 
             {/* Summary badges */}
-            {toolAccessItems.length > 0 && (() => {
+            {(toolAccessItems.length > 0 || toolAccessThirdParty.length > 0) && (() => {
               const sharedCount = toolAccessItems.filter(i => i.shared).length;
               const connectedCount = toolAccessItems.filter(i => i.connected).length;
               return (
@@ -3931,92 +4007,185 @@ export default function Admin() {
                   <span style={{ background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 20, padding: '4px 14px', fontSize: 12, color: '#60a5fa', fontWeight: 600 }}>
                     {connectedCount} connected
                   </span>
+                  {toolAccessThirdParty.length > 0 && (
+                    <span style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 20, padding: '4px 14px', fontSize: 12, color: '#a5b4fc', fontWeight: 600 }}>
+                      {toolAccessThirdParty.length} 3rd-party active
+                    </span>
+                  )}
                 </div>
               );
             })()}
 
-            {/* Integration cards */}
+            {/* GHL Tool Integration cards */}
             {!toolAccessLocationId ? (
               <div style={{ textAlign: 'center', padding: '48px 0', color: '#4b5563', fontSize: 14 }}>
                 Select a location to manage its tool access.
               </div>
             ) : toolAccessLoading ? (
               <div style={{ textAlign: 'center', padding: '48px 0', color: '#6b7280', fontSize: 13 }}>Loading integrations…</div>
-            ) : toolAccessItems.length === 0 ? (
+            ) : toolAccessItems.length === 0 && toolAccessThirdParty.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '48px 0', color: '#4b5563', fontSize: 14 }}>No integrations found.</div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 10 }}>
-                {toolAccessItems
-                  .filter(item => toolAccessFilter === 'all' || (toolAccessFilter === 'shared' ? item.shared : !item.shared))
-                  .map(item => (
-                    <div key={item.key} style={{
-                      background: '#111',
-                      border: `1px solid ${item.shared ? 'rgba(74,222,128,0.2)' : '#1e1e1e'}`,
-                      borderRadius: 10, padding: '14px 16px',
-                      display: 'flex', flexDirection: 'column', gap: 10,
-                    }}>
-                      {/* Top row: icon + name + badges */}
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                        <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{item.icon || '🔌'}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <span style={{ color: '#e5e7eb', fontWeight: 600, fontSize: 14 }}>{item.label || item.key}</span>
-                            {item.shared ? (
-                              <span style={{ background: '#16331f', color: '#4ade80', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>Shared</span>
-                            ) : (
-                              <span style={{ background: '#2d1b1b', color: '#f87171', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>Hidden</span>
-                            )}
-                            {item.connected && (
-                              <span style={{ background: '#1e3a5f', color: '#60a5fa', padding: '1px 8px', borderRadius: 999, fontSize: 11 }}>Connected</span>
-                            )}
-                          </div>
-                          <p style={{ color: '#6b7280', fontSize: 12, margin: '4px 0 0', lineHeight: 1.4 }}>
-                            {item.description || ''}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Tool count + names */}
-                      {item.toolCount > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                          {(item.toolNames || []).map(t => (
-                            <span key={t} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, padding: '1px 7px', fontSize: 11, color: '#60a5fa', fontFamily: 'monospace' }}>{t}</span>
-                          ))}
-                          {!item.toolNames?.length && (
-                            <span style={{ color: '#4b5563', fontSize: 12 }}>{item.toolCount} tool{item.toolCount !== 1 ? 's' : ''}</span>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Config preview */}
-                      {item.connected && Object.keys(item.configPreview || {}).length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                          {Object.entries(item.configPreview).map(([k, v]) => (
-                            <span key={k} style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 4, padding: '1px 8px', fontSize: 11, color: '#9ca3af' }}>
-                              <span style={{ color: '#4b5563' }}>{k}: </span>
-                              <span style={{ fontFamily: 'monospace' }}>{String(v)}</span>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Action button */}
-                      <div style={{ marginTop: 2 }}>
-                        <button
-                          onClick={() => toggleToolShared(toolAccessLocationId, item.key, !item.shared)}
-                          style={{
-                            background: 'none',
-                            border: `1px solid ${item.shared ? 'rgba(220,38,38,0.4)' : 'rgba(22,101,52,0.5)'}`,
-                            borderRadius: 6, color: item.shared ? '#f87171' : '#4ade80',
-                            padding: '5px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                          }}
-                        >
-                          {item.shared ? 'Hide from Users' : 'Share to Users'}
-                        </button>
-                      </div>
+              <>
+                {/* ── Section: GHL / Built-in Tools ── */}
+                {toolAccessItems.length > 0 && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                      <span style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>GHL Integrations</span>
+                      <div style={{ flex: 1, height: 1, background: '#1e1e1e' }} />
                     </div>
-                  ))}
-              </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 10, marginBottom: 28 }}>
+                      {toolAccessItems
+                        .filter(item => toolAccessFilter === 'all' || (toolAccessFilter === 'shared' ? item.shared : !item.shared))
+                        .map(item => (
+                          <div key={item.key} style={{
+                            background: '#111',
+                            border: `1px solid ${item.shared ? 'rgba(74,222,128,0.2)' : '#1e1e1e'}`,
+                            borderRadius: 10, padding: '14px 16px',
+                            display: 'flex', flexDirection: 'column', gap: 10,
+                          }}>
+                            {/* Top row: icon + name + badges */}
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                              <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{item.icon || '🔌'}</span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <span style={{ color: '#e5e7eb', fontWeight: 600, fontSize: 14 }}>{item.label || item.key}</span>
+                                  {item.shared ? (
+                                    <span style={{ background: '#16331f', color: '#4ade80', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>Shared</span>
+                                  ) : (
+                                    <span style={{ background: '#2d1b1b', color: '#f87171', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>Hidden</span>
+                                  )}
+                                  {item.connected && (
+                                    <span style={{ background: '#1e3a5f', color: '#60a5fa', padding: '1px 8px', borderRadius: 999, fontSize: 11 }}>Connected</span>
+                                  )}
+                                </div>
+                                <p style={{ color: '#6b7280', fontSize: 12, margin: '4px 0 0', lineHeight: 1.4 }}>
+                                  {item.description || ''}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Tool count + names */}
+                            {item.toolCount > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                {(item.toolNames || []).map(t => (
+                                  <span key={t} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, padding: '1px 7px', fontSize: 11, color: '#60a5fa', fontFamily: 'monospace' }}>{t}</span>
+                                ))}
+                                {!item.toolNames?.length && (
+                                  <span style={{ color: '#4b5563', fontSize: 12 }}>{item.toolCount} tool{item.toolCount !== 1 ? 's' : ''}</span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Config preview */}
+                            {item.connected && Object.keys(item.configPreview || {}).length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                                {Object.entries(item.configPreview).map(([k, v]) => (
+                                  <span key={k} style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 4, padding: '1px 8px', fontSize: 11, color: '#9ca3af' }}>
+                                    <span style={{ color: '#4b5563' }}>{k}: </span>
+                                    <span style={{ fontFamily: 'monospace' }}>{String(v)}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Action button */}
+                            <div style={{ marginTop: 2 }}>
+                              <button
+                                onClick={() => toggleToolShared(toolAccessLocationId, item.key, !item.shared)}
+                                style={{
+                                  background: 'none',
+                                  border: `1px solid ${item.shared ? 'rgba(220,38,38,0.4)' : 'rgba(22,101,52,0.5)'}`,
+                                  borderRadius: 6, color: item.shared ? '#f87171' : '#4ade80',
+                                  padding: '5px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                                }}
+                              >
+                                {item.shared ? 'Hide from Users' : 'Share to Users'}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </>
+                )}
+
+                {/* ── Section: 3rd-Party Integrations ── */}
+                {toolAccessThirdParty.length > 0 && (() => {
+                  const TYPE_COLORS = { webhook: { bg:'rgba(99,102,241,0.15)', border:'rgba(99,102,241,0.4)', color:'#a5b4fc', label:'Webhook' }, api_key: { bg:'rgba(251,191,36,0.12)', border:'rgba(251,191,36,0.35)', color:'#fbbf24', label:'API Key' }, our_api: { bg:'rgba(34,197,94,0.12)', border:'rgba(34,197,94,0.35)', color:'#4ade80', label:'Our API' } };
+                  return (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                        <span style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>3rd-Party Integrations</span>
+                        <div style={{ flex: 1, height: 1, background: '#1e1e1e' }} />
+                        <button
+                          onClick={() => setTab('integrations')}
+                          style={{ background: 'none', border: '1px solid #2a2a2a', borderRadius: 6, color: '#6b7280', padding: '3px 10px', cursor: 'pointer', fontSize: 11 }}
+                        >Manage →</button>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 10 }}>
+                        {toolAccessThirdParty.map(integ => {
+                          const tc = TYPE_COLORS[integ.type] || TYPE_COLORS.webhook;
+                          const mcpTools = integ.mcpTools || [];
+                          const linkedPersonas = (integ.personaIds || []).map(pid => personas.find(p => p.personaId === pid)?.name).filter(Boolean);
+                          return (
+                            <div key={integ.integrationId} style={{
+                              background: '#111', border: '1px solid rgba(74,222,128,0.2)',
+                              borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+                            }}>
+                              {/* Header */}
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>🔌</span>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{ color: '#e5e7eb', fontWeight: 600, fontSize: 14 }}>{integ.name}</span>
+                                    <span style={{ background: tc.bg, border: `1px solid ${tc.border}`, color: tc.color, padding: '1px 8px', borderRadius: 999, fontSize: 11 }}>{tc.label}</span>
+                                    <span style={{ background: '#16331f', color: '#4ade80', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>Active</span>
+                                    {integ.assignedTo === '__all__' && (
+                                      <span style={{ background: 'rgba(124,58,237,0.15)', color: '#a78bfa', padding: '1px 8px', borderRadius: 999, fontSize: 11 }}>All Locations</span>
+                                    )}
+                                  </div>
+                                  <p style={{ color: '#6b7280', fontSize: 12, margin: '4px 0 0' }}>{integ.clientName}</p>
+                                </div>
+                              </div>
+
+                              {/* MCP Tools */}
+                              {mcpTools.length > 0 && (
+                                <div>
+                                  <div style={{ color: '#4b5563', fontSize: 11, marginBottom: 4 }}>⚡ {mcpTools.length} MCP tool{mcpTools.length !== 1 ? 's' : ''}</div>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                    {mcpTools.slice(0, 6).map(t => (
+                                      <span key={t.name} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, padding: '1px 7px', fontSize: 11, color: '#60a5fa', fontFamily: 'monospace' }}>{t.name}</span>
+                                    ))}
+                                    {mcpTools.length > 6 && <span style={{ color: '#4b5563', fontSize: 11 }}>+{mcpTools.length - 6} more</span>}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Linked personas */}
+                              {linkedPersonas.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                                  <span style={{ color: '#4b5563', fontSize: 11 }}>Personas:</span>
+                                  {linkedPersonas.map(name => (
+                                    <span key={name} style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)', color: '#fbbf24', padding: '1px 8px', borderRadius: 999, fontSize: 11 }}>{name}</span>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Manage button */}
+                              <div style={{ marginTop: 2 }}>
+                                <button
+                                  onClick={() => setTab('integrations')}
+                                  style={{ background: 'none', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 6, color: '#a5b4fc', padding: '5px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                                >Edit in Integrations →</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
+              </>
             )}
           </div>
         )}

@@ -8,18 +8,25 @@
  * DELETE /chats/:id                 — delete a session
  * POST   /chats/:id/message         — send a user message, stream AI reply (SSE)
  *
- * Message flow (two-pass):
- *   1. Fast draft via Haiku  (silent)
- *   2. Improve + stream via Sonnet
- * Persona is loaded per-session (by personaId sent from frontend) or
- * falls back to the location's assigned default persona.
+ * Message flow:
+ *   A. If persona has linked integrations WITH discovered MCP tools:
+ *      → Agentic tool-use loop (Claude calls tools, backend executes live API calls)
+ *      → Stream the final response
+ *   B. Otherwise:
+ *      → Two-pass: Haiku draft (silent) → Sonnet improve (streamed)
+ *
+ * Context injected (always):
+ *   - Brain knowledge (all brains for this location)
+ *   - Persona system prompt + content
+ *   - Live/cached data from persona-linked integrations (webhook/our_api payloads, api_key live fetch)
+ *   - Location-level integration data (fallback)
  */
 
-const express       = require('express');
-const router        = express.Router();
-const authenticate  = require('../middleware/authenticate');
-const store         = require('../services/conversationStore');
-const brainStore    = require('../services/brainStore');
+const express            = require('express');
+const router             = express.Router();
+const authenticate       = require('../middleware/authenticate');
+const store              = require('../services/conversationStore');
+const brainStore         = require('../services/brainStore');
 const personaStore       = require('../services/personaStore');
 const integrationStore   = require('../services/integrationStore');
 const Anthropic          = require('@anthropic-ai/sdk');
@@ -27,12 +34,12 @@ const Anthropic          = require('@anthropic-ai/sdk');
 const client     = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SHARED_LOC = '__shared__';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Brain helpers ─────────────────────────────────────────────────────────────
 
 async function getAllBrains(locationId) {
   const results = [];
-  try { const own = await brainStore.listBrains(locationId); own.forEach(b => results.push({ ...b, _loc: locationId })); } catch (_) {}
-  try { const shared = await brainStore.listBrains(SHARED_LOC); shared.forEach(b => results.push({ ...b, _loc: SHARED_LOC, isShared: true })); } catch (_) {}
+  try { (await brainStore.listBrains(locationId)).forEach(b => results.push({ ...b, _loc: locationId })); } catch (_) {}
+  try { (await brainStore.listBrains(SHARED_LOC)).forEach(b => results.push({ ...b, _loc: SHARED_LOC })); } catch (_) {}
   const seen = new Set();
   return results.filter(b => { if (seen.has(b.brainId)) return false; seen.add(b.brainId); return true; });
 }
@@ -45,6 +52,67 @@ async function queryBrain(locId, brainId, query, k = 5) {
   } catch (_) { return null; }
 }
 
+// ── Live API call helper (used for api_key simple fetch) ──────────────────────
+
+async function liveFetch(integ, message) {
+  try {
+    let extraHeaders = {};
+    try { if (integ.headers) extraHeaders = JSON.parse(integ.headers); } catch {}
+    const url = integ.endpoint + (integ.endpoint.includes('?') ? '&' : '?') + `q=${encodeURIComponent(message)}`;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    try {
+      const res = await fetch(url, {
+        method: integ.method || 'GET',
+        headers: { ...(integ.apiKey ? { Authorization: `Bearer ${integ.apiKey}` } : {}), 'Content-Type': 'application/json', ...extraHeaders },
+        signal: ctrl.signal,
+      });
+      return (await res.text()).slice(0, 1500);
+    } finally { clearTimeout(t); }
+  } catch { return null; }
+}
+
+// ── MCP tool execution ────────────────────────────────────────────────────────
+
+async function executeTool(block, toolMap) {
+  const config = toolMap[block.name];
+  if (!config) return JSON.stringify({ error: 'Unknown tool' });
+  const { integ, meta } = config;
+  const input = block.input || {};
+
+  try {
+    // Build URL — substitute path params
+    const pathParams = [];
+    let url = (meta.baseUrl + meta.path).replace(/\{([^}]+)\}/g, (_, k) => {
+      pathParams.push(k);
+      return encodeURIComponent(input[k] ?? '');
+    });
+
+    let extraHeaders = {};
+    try { if (integ.headers) extraHeaders = JSON.parse(integ.headers); } catch {}
+
+    // Remaining input → query string (GET) or body (POST/PUT/PATCH)
+    const remaining = Object.fromEntries(Object.entries(input).filter(([k]) => !pathParams.includes(k)));
+    const method = meta.method || 'GET';
+    if (method === 'GET' && Object.keys(remaining).length > 0) {
+      url += (url.includes('?') ? '&' : '?') + new URLSearchParams(remaining).toString();
+    }
+
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { ...(integ.apiKey ? { Authorization: `Bearer ${integ.apiKey}` } : {}), 'Content-Type': 'application/json', ...extraHeaders },
+        ...(method !== 'GET' && Object.keys(remaining).length > 0 ? { body: JSON.stringify(remaining) } : {}),
+        signal: ctrl.signal,
+      });
+      const text = await res.text();
+      try { return JSON.stringify(JSON.parse(text), null, 2).slice(0, 3000); } catch { return text.slice(0, 3000); }
+    } finally { clearTimeout(t); }
+  } catch (err) { return JSON.stringify({ error: err.message }); }
+}
+
 function makeTitle(text) {
   const t = text.trim().replace(/\n+/g, ' ');
   return t.length > 60 ? t.slice(0, 57) + '…' : t;
@@ -53,19 +121,26 @@ function makeTitle(text) {
 // All routes require authentication
 router.use(authenticate);
 
-// ── GET /chats/personas — active personas available to this location ──────────
-// Must be before /:id to avoid routing conflict
+// ── GET /chats/personas — active personas for this location ───────────────────
 
 router.get('/personas', async (req, res) => {
   try {
-    const all = await personaStore.listPersonas();
+    const all    = await personaStore.listPersonas();
     const active = all.filter(p =>
       p.status === 'active' && (
         p.assignedTo === '__all__' ||
         (p.assignedTo === 'specific' && Array.isArray(p.assignedLocations) && p.assignedLocations.includes(req.locationId))
       )
     );
-    res.json({ success: true, data: active });
+    // Attach tool count from linked integrations
+    const withTools = await Promise.all(active.map(async p => {
+      try {
+        const linked = await integrationStore.getIntegrationsForPersona(p.personaId);
+        const toolCount = linked.reduce((n, i) => n + (i.mcpTools?.length || 0), 0);
+        return { ...p, _toolCount: toolCount, _integrationCount: linked.length };
+      } catch { return p; }
+    }));
+    res.json({ success: true, data: withTools });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
@@ -77,9 +152,7 @@ router.get('/', async (req, res) => {
   try {
     const all = await store.listConversations(req.locationId + ':chats');
     res.json({ success: true, data: all });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 // ── GET /chats/:id ─────────────────────────────────────────────────────────────
@@ -89,12 +162,10 @@ router.get('/:id', async (req, res) => {
     const conv = await store.getConversation(req.locationId + ':chats', req.params.id);
     if (!conv) return res.status(404).json({ success: false, error: 'Not found' });
     res.json({ success: true, data: conv });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-// ── POST /chats — create empty session ────────────────────────────────────────
+// ── POST /chats ────────────────────────────────────────────────────────────────
 
 router.post('/', async (req, res) => {
   try {
@@ -105,9 +176,7 @@ router.post('/', async (req, res) => {
       ...(personaId ? { personaId } : {}),
     });
     res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 // ── DELETE /chats/:id ──────────────────────────────────────────────────────────
@@ -116,12 +185,10 @@ router.delete('/:id', async (req, res) => {
   try {
     await store.deleteConversation(req.locationId + ':chats', req.params.id);
     res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-// ── POST /chats/:id/message — two-pass AI reply (draft → improve → stream) ────
+// ── POST /chats/:id/message ────────────────────────────────────────────────────
 
 router.post('/:id/message', async (req, res) => {
   const { message, history = [], personaId } = req.body;
@@ -136,18 +203,16 @@ router.post('/:id/message', async (req, res) => {
   const send = (evt, data) => res.write(`event: ${evt}\ndata: ${JSON.stringify(data)}\n\n`);
 
   try {
-    // 1. Load brains
+    // ── 1. Brains ─────────────────────────────────────────────────────────────
     const brains = await getAllBrains(req.locationId);
     let brainContext = '';
     if (brains.length > 0) {
       const results = await Promise.all(brains.map(b => queryBrain(b._loc, b.brainId, message, 5)));
       const combined = results.filter(Boolean).join('\n\n---\n\n');
-      if (combined) {
-        brainContext = `KNOWLEDGE BASE (from ${brains.length} brain${brains.length > 1 ? 's' : ''}):\n${combined}\n\n---\n\nUse the knowledge base above to inform your answer. If it covers the topic, prioritise that information.\n\n`;
-      }
+      if (combined) brainContext = `KNOWLEDGE BASE:\n${combined}\n\n---\n\n`;
     }
 
-    // 2. Load persona — prefer explicit personaId, fall back to location default
+    // ── 2. Persona ────────────────────────────────────────────────────────────
     let persona = null;
     try {
       if (personaId) persona = await personaStore.getPersona(personaId);
@@ -157,73 +222,159 @@ router.post('/:id/message', async (req, res) => {
     let basePrompt = 'You are a helpful AI assistant. Be concise, clear, and friendly. Use markdown formatting where helpful.';
     if (persona) {
       basePrompt = persona.systemPrompt?.trim() || persona.personality?.trim() || basePrompt;
-      if (persona.content?.trim()) {
-        brainContext = `PERSONA KNOWLEDGE:\n${persona.content}\n\n---\n\n` + brainContext;
+      if (persona.content?.trim()) brainContext = `PERSONA KNOWLEDGE:\n${persona.content}\n\n---\n\n` + brainContext;
+    }
+
+    // ── 3. Integrations: separate into data context + MCP tools ──────────────
+    let integrationContext = '';
+    const claudeTools   = []; // tool defs for Claude API
+    const toolMap       = {}; // name → { integ, meta }
+
+    const personaIntegrations = persona
+      ? await integrationStore.getIntegrationsForPersona(persona.personaId).catch(() => [])
+      : [];
+
+    // Also inject location-level integrations as context (non-tool)
+    const locationIntegrations = await integrationStore.getIntegrationsForLocation(req.locationId).catch(() => []);
+
+    // Persona-linked integrations: live calls + tools
+    for (const integ of personaIntegrations) {
+      if (integ.type === 'webhook' || integ.type === 'our_api') {
+        // Use last stored payload as context
+        if (integ.lastPayload) {
+          let payload = integ.lastPayload;
+          try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch {}
+          const ago = integ.lastReceivedAt ? ` (${Math.round((Date.now() - integ.lastReceivedAt) / 60000)}m ago)` : '';
+          integrationContext += `[${integ.clientName} — ${integ.name}${ago}]:\n${typeof payload === 'object' ? JSON.stringify(payload, null, 2) : payload}\n\n`;
+        }
+      } else if (integ.type === 'api_key') {
+        if (integ.mcpTools?.length > 0) {
+          // Convert discovered endpoints to Claude tools
+          integ.mcpTools.forEach(tool => {
+            const safeName = `${integ.integrationId.slice(4, 12)}_${tool.name}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+            claudeTools.push({
+              name: safeName,
+              description: `[${integ.clientName} — ${integ.name}] ${tool.description}`,
+              input_schema: tool.inputSchema || { type: 'object', properties: {} },
+            });
+            toolMap[safeName] = { integ, meta: tool._meta };
+          });
+        } else {
+          // Simple live fetch as data context
+          send('status', { text: `Fetching from ${integ.name}…` });
+          const liveData = await liveFetch(integ, message);
+          if (liveData) integrationContext += `[${integ.name} live data]:\n${liveData}\n\n`;
+        }
       }
     }
 
-    const systemPrompt   = `${basePrompt}\n\n${brainContext}`.trim();
+    // Location-level integrations: inject cached payloads only (not tools)
+    for (const integ of locationIntegrations) {
+      if (personaIntegrations.find(p => p.integrationId === integ.integrationId)) continue; // already handled
+      if (integ.lastPayload) {
+        let payload = integ.lastPayload;
+        try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch {}
+        integrationContext += `[${integ.clientName} — ${integ.name}]:\n${typeof payload === 'object' ? JSON.stringify(payload, null, 2) : payload}\n\n`;
+      }
+    }
+
+    // Build final system prompt
+    let systemPrompt = basePrompt;
+    if (brainContext)       systemPrompt += `\n\n${brainContext}`;
+    if (integrationContext) systemPrompt += `\n\nINTEGRATION DATA (use this to answer accurately):\n${integrationContext}`;
+    systemPrompt = systemPrompt.trim();
+
     const claudeMessages = [
       ...history.slice(-20).map(m => ({ role: m.role, content: m.content })),
       { role: 'user', content: message.trim() },
     ];
 
-    // 3. Load active 3rd-party integrations and inject any recent data
-    try {
-      const integrations = await integrationStore.getIntegrationsForLocation(req.locationId);
-      const intParts = integrations
-        .filter(i => i.lastPayload)
-        .map(i => {
-          let payload = i.lastPayload;
-          try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch {}
-          const ago = i.lastReceivedAt ? `(received ${Math.round((Date.now() - i.lastReceivedAt) / 60000)}m ago)` : '';
-          return `[${i.clientName} — ${i.name}] ${ago}:\n${typeof payload === 'object' ? JSON.stringify(payload, null, 2) : payload}`;
-        });
-      if (intParts.length > 0) {
-        brainContext += `\n\n3RD-PARTY INTEGRATION DATA:\n${intParts.join('\n\n---\n\n')}\n\nUse the above data to provide more accurate and context-aware answers.\n\n`;
-      }
-    } catch (_) {}
-
-    // 4. Pass 1 — fast draft via Haiku (silent, not streamed)
-    send('status', { text: 'Thinking…' });
-    const draft = await client.messages.create({
-      model:      'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      system:     systemPrompt,
-      messages:   claudeMessages,
-    });
-    const draftText = draft.content[0]?.text?.trim() || '';
-
-    // 5. Pass 2 — improve the draft and stream the result via Sonnet
-    send('status', { text: '✨ Improving…' });
-
-    const improveMessages = [
-      ...claudeMessages,
-      { role: 'assistant', content: draftText },
-      {
-        role: 'user',
-        content: persona
-          ? `Review your response above and improve it — make it more natural, engaging, and true to your personality as ${persona.name}. Write only the improved response, nothing else.`
-          : 'Review your response above and improve it — make it clearer, more helpful, and better structured. Write only the improved response, nothing else.',
-      },
-    ];
-
     let fullText = '';
-    const stream = client.messages.stream({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 2048,
-      system:     systemPrompt,
-      messages:   improveMessages,
-    });
 
-    stream.on('text', text => {
-      fullText += text;
-      send('text', { text });
-    });
+    // ── 4A. Agentic tool-use path ─────────────────────────────────────────────
+    if (claudeTools.length > 0) {
+      send('status', { text: `Analyzing request…` });
 
-    await stream.finalMessage();
+      let msgs = [...claudeMessages];
+      let iterations = 0;
 
-    // 6. Persist updated conversation
+      while (iterations < 5) {
+        iterations++;
+        const response = await client.messages.create({
+          model:      'claude-sonnet-4-6',
+          max_tokens: 2048,
+          system:     systemPrompt,
+          messages:   msgs,
+          tools:      claudeTools,
+        });
+
+        if (response.stop_reason === 'tool_use') {
+          const toolUseBlocks  = response.content.filter(b => b.type === 'tool_use');
+          const toolResults    = [];
+
+          for (const block of toolUseBlocks) {
+            const intName = toolMap[block.name]?.integ?.name || block.name;
+            send('status', { text: `Fetching from ${intName}…` });
+            const result = await executeTool(block, toolMap);
+            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+          }
+
+          msgs = [
+            ...msgs,
+            { role: 'assistant', content: response.content },
+            { role: 'user',      content: toolResults },
+          ];
+        } else {
+          fullText = response.content.find(b => b.type === 'text')?.text || '';
+          break;
+        }
+      }
+
+      // Stream improve pass over the tool-use response
+      send('status', { text: '✨ Improving…' });
+      const improveStream = client.messages.stream({
+        model:      'claude-sonnet-4-6',
+        max_tokens: 2048,
+        system:     systemPrompt,
+        messages:   [
+          ...msgs,
+          { role: 'assistant', content: fullText },
+          { role: 'user', content: persona
+            ? `Review and improve this response to make it more natural and true to your personality as ${persona.name}. Write only the improved response.`
+            : 'Review and improve this response to make it clearer and better structured. Write only the improved response.' },
+        ],
+        tools: claudeTools,
+      });
+
+      let improvedText = '';
+      improveStream.on('text', t => { improvedText += t; send('text', { text: t }); });
+      await improveStream.finalMessage();
+      if (improvedText) fullText = improvedText;
+
+    // ── 4B. Two-pass improve path ─────────────────────────────────────────────
+    } else {
+      send('status', { text: 'Thinking…' });
+      const draft     = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 1024, system: systemPrompt, messages: claudeMessages });
+      const draftText = draft.content[0]?.text?.trim() || '';
+
+      send('status', { text: '✨ Improving…' });
+      const stream = client.messages.stream({
+        model:    'claude-sonnet-4-6',
+        max_tokens: 2048,
+        system:   systemPrompt,
+        messages: [
+          ...claudeMessages,
+          { role: 'assistant', content: draftText },
+          { role: 'user', content: persona
+            ? `Review and improve this response to be more natural and true to your personality as ${persona.name}. Write only the improved response.`
+            : 'Review and improve this response to be clearer and better structured. Write only the improved response.' },
+        ],
+      });
+      stream.on('text', t => { fullText += t; send('text', { text: t }); });
+      await stream.finalMessage();
+    }
+
+    // ── 5. Persist ────────────────────────────────────────────────────────────
     const conv     = await store.getConversation(req.locationId + ':chats', req.params.id).catch(() => null);
     const existing = conv?.messages || [];
     const updated  = [

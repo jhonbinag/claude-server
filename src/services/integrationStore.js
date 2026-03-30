@@ -145,6 +145,19 @@ async function getIntegrationsForLocation(locationId) {
   } catch { return []; }
 }
 
+// ── Get active integrations linked to a specific persona ─────────────────────
+
+async function getIntegrationsForPersona(personaId) {
+  try {
+    const all = await listIntegrations();
+    return all.filter(i =>
+      i.status === 'active' &&
+      Array.isArray(i.personaIds) &&
+      i.personaIds.includes(personaId)
+    );
+  } catch { return []; }
+}
+
 module.exports = {
   listIntegrations,
   getIntegration,
@@ -154,4 +167,5 @@ module.exports = {
   getByOurApiKey,
   updateLastPayload,
   getIntegrationsForLocation,
+  getIntegrationsForPersona,
 };
