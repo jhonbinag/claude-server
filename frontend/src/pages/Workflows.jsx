@@ -199,16 +199,47 @@ const TRIGGER_EVENTS = {
   ],
 };
 
+// Data sources for Scheduled mode — what to process when the schedule fires
+const SCHEDULE_SOURCES = [
+  { key: 'contacts_by_tag',   label: 'Contacts with Tag',          icon: '🏷️', outputs: ['contactId','email','firstName','lastName','phone','tags'] },
+  { key: 'contacts_by_stage', label: 'Contacts in Pipeline Stage', icon: '📊', outputs: ['contactId','email','firstName','lastName','opportunityId','pipelineStageName','dealValue'] },
+  { key: 'contacts_by_date',  label: 'New Contacts (since last run)', icon: '📅', outputs: ['contactId','email','firstName','lastName','phone','createdAt'] },
+  { key: 'all_contacts',      label: 'All Contacts',               icon: '👥', outputs: ['contactId','email','firstName','lastName','phone','tags'] },
+  { key: 'custom_query',      label: 'Custom GHL Query',           icon: '🔍', outputs: ['contactId','email','firstName','lastName','customField','result'] },
+];
+
 function getTriggerDef(runMode, event) {
   return TRIGGER_EVENTS[runMode]?.find(e => e.key === event) || null;
 }
 
+function getScheduleSource(sourceKey) {
+  return SCHEDULE_SOURCES.find(s => s.key === sourceKey) || null;
+}
+
+// Returns combined output fields for a trigger node (schedule merges timing + data source fields)
+function getTriggerOutputs(runMode, event, extraConfig = {}) {
+  const def = getTriggerDef(runMode, event);
+  if (runMode === 'schedule' && extraConfig.scheduleSource) {
+    const src = getScheduleSource(extraConfig.scheduleSource);
+    const timing = def?.outputs || [];
+    const data   = src?.outputs || [];
+    return [...new Set([...timing, ...data])];
+  }
+  return def?.outputs || [];
+}
+
 function mkTriggerNode(runMode, event, extraConfig = {}) {
   const def = getTriggerDef(runMode, event);
+  const src = runMode === 'schedule' && extraConfig.scheduleSource
+    ? getScheduleSource(extraConfig.scheduleSource)
+    : null;
+  const label = runMode === 'schedule' && src
+    ? `${def?.label || 'Scheduled'} · ${src.label}`
+    : (def?.label || 'Trigger');
   return {
     id: '__trigger__',
     tool: '__trigger__',
-    label: def?.label || 'Trigger',
+    label,
     icon: def?.icon || '⚡',
     x: 60, y: 80,
     instruction: '',
@@ -423,8 +454,11 @@ function buildGraphPrompt(nodes, edges, context) {
   if (triggerNode) {
     const def = getTriggerDef(triggerNode.config?.runMode, triggerNode.config?.event);
     const runModeLabel = RUN_MODES.find(m => m.key === triggerNode.config?.runMode)?.label || '';
-    const outputs = def?.outputs || [];
-    triggerBlock = `TRIGGER: ${runModeLabel} — ${def?.label || triggerNode.label}
+    const outputs = getTriggerOutputs(triggerNode.config?.runMode, triggerNode.config?.event, triggerNode.config || {});
+    const srcNote = triggerNode.config?.runMode === 'schedule' && triggerNode.config?.scheduleSource
+      ? ` · Data: ${getScheduleSource(triggerNode.config.scheduleSource)?.label || ''}`
+      : '';
+    triggerBlock = `TRIGGER: ${runModeLabel} — ${def?.label || triggerNode.label}${srcNote}
 Available trigger fields: ${outputs.map(f => `{{trigger.${f}}}`).join(', ')}
 When executing steps, resolve {{trigger.fieldName}} with the actual value from the trigger data. For example {{trigger.email}} = the contact's email address, {{trigger.contactId}} = their GHL contact ID, etc.
 
@@ -826,6 +860,7 @@ export default function Workflows() {
 
   function commitTrigger() {
     if (!tsEvent) return;
+    if (tsRunMode === 'schedule' && !tsConfig.scheduleSource) return;
     const trigNode = mkTriggerNode(tsRunMode, tsEvent, tsConfig);
     let updatedNodes;
     setNodes(prev => {
@@ -1593,11 +1628,37 @@ export default function Workflows() {
                     </div>
                   )}
 
+                  {/* Schedule data source picker */}
+                  {tsRunMode === 'schedule' && tsEvent && (
+                    <div className="rounded-xl p-3 mt-2 space-y-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <p className="text-xs font-semibold text-gray-300">What to process when this runs</p>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {SCHEDULE_SOURCES.map(src => (
+                          <div key={src.key} onClick={() => setTsConfig(c => ({ ...c, scheduleSource: src.key }))}
+                            className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+                            style={{ background: tsConfig.scheduleSource === src.key ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.03)', border: `1px solid ${tsConfig.scheduleSource === src.key ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.07)'}` }}>
+                            <span>{src.icon}</span>
+                            <span className="flex-1 text-white">{src.label}</span>
+                            {tsConfig.scheduleSource === src.key && <span className="text-yellow-400">✓</span>}
+                          </div>
+                        ))}
+                      </div>
+                      {tsConfig.scheduleSource === 'contacts_by_tag' && (
+                        <input value={tsConfig.tag || ''} onChange={e => setTsConfig(c => ({ ...c, tag: e.target.value }))}
+                          placeholder="Tag name (e.g. hot-lead)" className="field w-full text-xs" />
+                      )}
+                      {tsConfig.scheduleSource === 'contacts_by_stage' && (
+                        <input value={tsConfig.stage || ''} onChange={e => setTsConfig(c => ({ ...c, stage: e.target.value }))}
+                          placeholder="Pipeline stage name" className="field w-full text-xs" />
+                      )}
+                    </div>
+                  )}
+
                   {tsEvent && tsEvent !== 'webhook' && (
                     <div className="rounded-xl p-3 mt-2" style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' }}>
                       <p className="text-xs font-semibold text-yellow-400 mb-1">⚡ Trigger fields available to all nodes:</p>
                       <div className="flex flex-wrap gap-1">
-                        {(getTriggerDef(tsRunMode, tsEvent)?.outputs || []).map(f => (
+                        {getTriggerOutputs(tsRunMode, tsEvent, tsConfig).map(f => (
                           <span key={f} className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', fontFamily: 'monospace' }}>
                             trigger.{f}
                           </span>
@@ -1614,9 +1675,10 @@ export default function Workflows() {
                     </div>
                   )}
 
-                  <button onClick={commitTrigger} disabled={!tsEvent}
+                  <button onClick={commitTrigger}
+                    disabled={!tsEvent || (tsRunMode === 'schedule' && !tsConfig.scheduleSource)}
                     className="btn-primary w-full py-2.5 text-sm mt-2"
-                    style={{ opacity: tsEvent ? 1 : 0.4 }}>
+                    style={{ opacity: (tsEvent && (tsRunMode !== 'schedule' || tsConfig.scheduleSource)) ? 1 : 0.4 }}>
                     ⚡ Confirm &amp; Run Workflow →
                   </button>
                 </>
@@ -1655,12 +1717,20 @@ function CanvasNode({ node, selected, connecting, onHeaderMouseDown, onOutPort, 
           {/* Output fields */}
           <div style={{ padding: '6px 10px', fontSize: 10, color: '#9ca3af' }}>
             {def ? (
-              <div className="flex flex-wrap gap-1">
-                {(def.outputs || []).slice(0, 6).map(f => (
-                  <span key={f} style={{ background: `${trigColor}15`, color: trigColor, padding: '1px 5px', borderRadius: 3, fontFamily: 'monospace', fontSize: 9 }}>{f}</span>
-                ))}
-                {(def.outputs || []).length > 6 && <span style={{ color: '#6b7280', fontSize: 9 }}>+{def.outputs.length - 6} more</span>}
-              </div>
+              (() => {
+                const outputs = getTriggerOutputs(node.config?.runMode, node.config?.event, node.config || {});
+                const needsSrc = node.config?.runMode === 'schedule' && !node.config?.scheduleSource;
+                return needsSrc ? (
+                  <span style={{ color: '#f59e0b' }}>⚠ Click to select data source</span>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {outputs.slice(0, 6).map(f => (
+                      <span key={f} style={{ background: `${trigColor}15`, color: trigColor, padding: '1px 5px', borderRadius: 3, fontFamily: 'monospace', fontSize: 9 }}>{f}</span>
+                    ))}
+                    {outputs.length > 6 && <span style={{ color: '#6b7280', fontSize: 9 }}>+{outputs.length - 6} more</span>}
+                  </div>
+                );
+              })()
             ) : (
               <span style={{ color: '#f59e0b' }}>⚠ Click to configure trigger</span>
             )}
@@ -2472,15 +2542,45 @@ function TriggerConfigPanel({ node, webhookUrl, onClose, onChange }) {
           </div>
         )}
 
+        {/* Schedule data source — shown when Scheduled mode is selected */}
+        {runMode === 'schedule' && event && (
+          <div>
+            <p className="text-xs text-gray-400 mb-2">What to process when the schedule fires</p>
+            <div className="space-y-1.5">
+              {SCHEDULE_SOURCES.map(src => (
+                <div key={src.key} onClick={() => setConfig(c => ({ ...c, scheduleSource: src.key }))}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-xs transition-all"
+                  style={{ background: config.scheduleSource === src.key ? `${trigColor}15` : 'rgba(255,255,255,0.03)', border: `1px solid ${config.scheduleSource === src.key ? trigColor + '50' : 'rgba(255,255,255,0.07)'}` }}>
+                  <span>{src.icon}</span>
+                  <span className="flex-1 font-medium text-white">{src.label}</span>
+                  {config.scheduleSource === src.key && <span style={{ color: trigColor, fontWeight: 700 }}>✓</span>}
+                </div>
+              ))}
+            </div>
+            {/* Filter config for the selected source */}
+            {config.scheduleSource === 'contacts_by_tag' && (
+              <input value={config.tag || ''} onChange={e => setConfig(c => ({ ...c, tag: e.target.value }))}
+                placeholder="Tag name (e.g. hot-lead)" className="field w-full text-xs mt-2" />
+            )}
+            {config.scheduleSource === 'contacts_by_stage' && (
+              <input value={config.stage || ''} onChange={e => setConfig(c => ({ ...c, stage: e.target.value }))}
+                placeholder="Pipeline stage name" className="field w-full text-xs mt-2" />
+            )}
+          </div>
+        )}
+
         {/* Available fields */}
         {def && event !== 'webhook' && (
           <div className="rounded-xl p-3" style={{ background: `${trigColor}08`, border: `1px solid ${trigColor}25` }}>
             <p className="text-xs font-semibold mb-2" style={{ color: trigColor }}>Available trigger fields</p>
             <div className="flex flex-wrap gap-1">
-              {def.outputs.map(f => (
+              {getTriggerOutputs(runMode, event, config).map(f => (
                 <span key={f} className="text-xs px-2 py-0.5 rounded" style={{ background: `${trigColor}18`, color: trigColor, fontFamily: 'monospace' }}>trigger.{f}</span>
               ))}
             </div>
+            {runMode === 'schedule' && !config.scheduleSource && (
+              <p className="text-xs text-yellow-500 mt-1">⚠ Select a data source above to see all available fields.</p>
+            )}
             <p className="text-xs text-gray-600 mt-2">Use these when mapping fields on connected nodes.</p>
           </div>
         )}
