@@ -11,12 +11,13 @@
  * POST   /chats/:id/message      — send a user message, stream AI reply (SSE)
  */
 
-const express      = require('express');
-const router       = express.Router();
-const authenticate = require('../middleware/authenticate');
-const store        = require('../services/conversationStore');
-const brainStore   = require('../services/brainStore');
-const Anthropic    = require('@anthropic-ai/sdk');
+const express       = require('express');
+const router        = express.Router();
+const authenticate  = require('../middleware/authenticate');
+const store         = require('../services/conversationStore');
+const brainStore    = require('../services/brainStore');
+const personaStore  = require('../services/personaStore');
+const Anthropic     = require('@anthropic-ai/sdk');
 
 const client = new Anthropic();
 const SHARED_LOC = '__shared__';
@@ -137,16 +138,30 @@ router.post('/:id/message', async (req, res) => {
       }
     }
 
-    // 2. Build system prompt
-    const systemPrompt = `You are a helpful AI assistant. Be concise, clear, and friendly. Use markdown formatting where helpful.\n${brainContext}`;
+    // 2. Load active persona for this location (admin-configured)
+    let basePrompt = 'You are a helpful AI assistant. Be concise, clear, and friendly. Use markdown formatting where helpful.';
+    try {
+      const persona = await personaStore.getPersonaForLocation(req.locationId);
+      if (persona) {
+        basePrompt = persona.systemPrompt?.trim() || persona.personality?.trim() || basePrompt;
+        // Prepend persona's own knowledge content before brain context
+        if (persona.content?.trim()) {
+          const personaKnowledge = `PERSONA KNOWLEDGE:\n${persona.content}\n\n---\n\n`;
+          brainContext = personaKnowledge + brainContext;
+        }
+      }
+    } catch (_) {}
 
-    // 3. Build messages array for Claude (convert history + new message)
+    // 3. Build system prompt
+    const systemPrompt = `${basePrompt}\n\n${brainContext}`.trim();
+
+    // 4. Build messages array for Claude (convert history + new message)
     const claudeMessages = [
       ...history.slice(-20).map(m => ({ role: m.role, content: m.content })),
       { role: 'user', content: message.trim() },
     ];
 
-    // 4. Stream response
+    // 5. Stream response
     let fullText = '';
     const stream = client.messages.stream({
       model:      'claude-sonnet-4-6',
@@ -162,7 +177,7 @@ router.post('/:id/message', async (req, res) => {
 
     await stream.finalMessage();
 
-    // 5. Persist the updated conversation
+    // 6. Persist the updated conversation
     const conv = await store.getConversation(req.locationId + ':chats', req.params.id).catch(() => null);
     const existing = conv?.messages || [];
     const updated = [

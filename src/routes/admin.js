@@ -1008,4 +1008,114 @@ router.get('/locations/:id/enabled-integrations', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// CHAT PERSONAS
+// Admin creates/edits AI personas that users chat with.
+// Each persona has a personality description the admin writes, which can be
+// AI-improved into a polished system prompt, then assigned to locations.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let personaStore;
+try { personaStore = require('../services/personaStore'); } catch (e) { console.warn('[Admin] personaStore:', e.message); }
+
+const Anthropic = require('@anthropic-ai/sdk');
+let _pAnthropicClient = null;
+function pClient() {
+  if (!_pAnthropicClient) _pAnthropicClient = new Anthropic();
+  return _pAnthropicClient;
+}
+
+// ─── GET /admin/personas ──────────────────────────────────────────────────────
+
+router.get('/personas', async (req, res) => {
+  try {
+    if (!personaStore) return res.status(503).json({ success: false, error: 'Persona store unavailable' });
+    const data = await personaStore.listPersonas();
+    res.json({ success: true, data });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── POST /admin/personas — create ───────────────────────────────────────────
+
+router.post('/personas', async (req, res) => {
+  try {
+    if (!personaStore) return res.status(503).json({ success: false, error: 'Persona store unavailable' });
+    const { name, description, avatar, personality, content, assignedTo, assignedLocations, status } = req.body;
+    if (!name?.trim()) return res.status(400).json({ success: false, error: 'name required' });
+    const personaId = `persona_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const persona = await personaStore.savePersona({
+      personaId,
+      name: name.trim(),
+      description: description || '',
+      avatar: avatar || '🧑‍💼',
+      personality: personality || '',
+      systemPrompt: '',
+      content: content || '',
+      assignedTo: assignedTo || '__all__',
+      assignedLocations: Array.isArray(assignedLocations) ? assignedLocations : [],
+      status: status || 'draft',
+    });
+    activityLogger.log({ locationId: 'admin', event: 'persona_create', detail: { personaId, name }, success: true, adminId: req.adminId });
+    res.json({ success: true, data: persona });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── PUT /admin/personas/:id — update ────────────────────────────────────────
+
+router.put('/personas/:id', async (req, res) => {
+  try {
+    if (!personaStore) return res.status(503).json({ success: false, error: 'Persona store unavailable' });
+    const existing = await personaStore.getPersona(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, error: 'Persona not found' });
+    const ALLOWED = ['name','description','avatar','personality','systemPrompt','content','assignedTo','assignedLocations','status'];
+    const updates = {};
+    ALLOWED.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+    const persona = await personaStore.savePersona({ ...existing, ...updates });
+    res.json({ success: true, data: persona });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── DELETE /admin/personas/:id ───────────────────────────────────────────────
+
+router.delete('/personas/:id', async (req, res) => {
+  try {
+    if (!personaStore) return res.status(503).json({ success: false, error: 'Persona store unavailable' });
+    await personaStore.deletePersona(req.params.id);
+    activityLogger.log({ locationId: 'admin', event: 'persona_delete', detail: { personaId: req.params.id }, success: true, adminId: req.adminId });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── POST /admin/personas/:id/improve — AI-polish the personality into a system prompt
+
+router.post('/personas/:id/improve', async (req, res) => {
+  try {
+    if (!personaStore) return res.status(503).json({ success: false, error: 'Persona store unavailable' });
+    const persona = await personaStore.getPersona(req.params.id);
+    if (!persona) return res.status(404).json({ success: false, error: 'Persona not found' });
+    if (!persona.personality?.trim()) return res.status(400).json({ success: false, error: 'No personality text to improve' });
+
+    const msg = await pClient().messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: `You are a system prompt engineer. Based on the following description of a person, write a detailed, natural AI system prompt that makes an AI chat assistant fully embody this person — their personality, communication style, expertise, and tone. The prompt should feel authentic, first-person where appropriate, warm and engaging.
+
+Person name: ${persona.name}
+${persona.description ? `Role/description: ${persona.description}\n` : ''}
+Personality description:
+${persona.personality}
+${persona.content ? `\nAdditional knowledge/facts:\n${persona.content}` : ''}
+
+Write ONLY the system prompt, nothing else. Start directly with "You are ${persona.name}..." or similar.`,
+      }],
+    });
+
+    const systemPrompt = msg.content[0]?.text?.trim() || '';
+    const updated = await personaStore.savePersona({ ...persona, systemPrompt });
+    res.json({ success: true, data: updated, systemPrompt });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;

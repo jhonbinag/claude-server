@@ -1685,6 +1685,14 @@ export default function Admin() {
   const [sharedBrains,       setSharedBrains]       = useState([]);
   const [brainLoading,       setBrainLoading]        = useState(false);
   const [selectedBrain,      setSelectedBrain]       = useState(null); // full brain object
+
+  // Chat Personas state
+  const [personas,           setPersonas]           = useState([]);
+  const [personasLoading,    setPersonasLoading]    = useState(false);
+  const [personaModal,       setPersonaModal]       = useState(null); // null | 'create' | persona object (edit)
+  const [personaForm,        setPersonaForm]        = useState({ name:'', description:'', avatar:'🧑‍💼', personality:'', content:'', assignedTo:'__all__', assignedLocations:[], status:'draft' });
+  const [personaImproving,   setPersonaImproving]   = useState(false);
+  const [personaSaving,      setPersonaSaving]      = useState(false);
   const [brainDetailTab,     setBrainDetailTab]      = useState('progress'); // 'progress'|'channels'|'videos'|'settings'
   const [showCreateBrain,    setShowCreateBrain]     = useState(false);
   const [brainForm,          setBrainForm]           = useState({ name: '', description: '', primaryChannel: '' });
@@ -1881,6 +1889,13 @@ export default function Admin() {
     setSelectedBrain(b);
   }, []);
 
+  const loadPersonas = useCallback(async () => {
+    setPersonasLoading(true);
+    const data = await adminFetch('/admin/personas', { adminKey });
+    if (data.success) setPersonas(data.data || []);
+    setPersonasLoading(false);
+  }, [adminKey]);
+
   useEffect(() => {
     if (!authed) return;
     if (tab === 'overview')     { loadStats(); loadBilling(); }
@@ -1890,6 +1905,7 @@ export default function Admin() {
     if (tab === 'billing')      loadBilling();
     if (tab === 'plan-tiers')   loadTiers();
     if (tab === 'brain')        loadSharedBrains();
+    if (tab === 'personas')     loadPersonas();
     // Users & Roles tab: ensure locations list is loaded for the dropdown
     if (tab === 'users-roles' && locations.length === 0) loadLocations();
     // Tool Access tab: ensure locations list is loaded for the dropdown
@@ -2097,6 +2113,7 @@ export default function Admin() {
     { key: 'users-roles',  label: 'Users & Roles',icon: '👥' },
     { key: 'tool-access',  label: 'Tool Access',  icon: '🔧' },
     { key: 'brain',        label: 'Brain',        icon: '🧠' },
+    { key: 'personas',     label: 'Chat Personas',icon: '🎭' },
     { key: 'logs',         label: 'Activity Logs',icon: '📋' },
     { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
   ];
@@ -2104,7 +2121,7 @@ export default function Admin() {
   const PAGE_TITLE = {
     overview: 'Dashboard', locations: 'Locations', billing: 'Billing',
     'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles', 'tool-access': 'Tool Access',
-    brain: 'Brain', logs: 'Activity Logs', 'app-settings': 'App Settings',
+    brain: 'Brain', personas: 'Chat Personas', logs: 'Activity Logs', 'app-settings': 'App Settings',
   };
 
   const navItemStyle = (active) => ({
@@ -2539,6 +2556,231 @@ export default function Admin() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* ── Chat Personas Tab ────────────────────────────────────────── */}
+        {tab === 'personas' && (
+          <div>
+            {/* Header */}
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24 }}>
+              <div>
+                <h2 style={{ margin:0, fontSize:15, fontWeight:700, color:'#f1f5f9' }}>Chat Personas</h2>
+                <p style={{ margin:'4px 0 0', fontSize:12, color:'#6b7280' }}>Create AI personas users chat with. Each persona gets a personality, knowledge content, and an AI-polished system prompt.</p>
+              </div>
+              <button
+                onClick={() => { setPersonaForm({ name:'', description:'', avatar:'🧑‍💼', personality:'', content:'', assignedTo:'__all__', assignedLocations:[], status:'draft' }); setPersonaModal('create'); }}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:8, background:'rgba(124,58,237,0.2)', border:'1px solid rgba(124,58,237,0.4)', color:'#a78bfa', cursor:'pointer', fontSize:13, fontWeight:600 }}
+              >+ New Persona</button>
+            </div>
+
+            {personasLoading ? (
+              <div style={{ textAlign:'center', padding:40, color:'#6b7280' }}>Loading…</div>
+            ) : personas.length === 0 ? (
+              <div style={{ textAlign:'center', padding:60, color:'#4b5563' }}>
+                <div style={{ fontSize:40, marginBottom:12 }}>🎭</div>
+                <p style={{ margin:0, fontSize:14 }}>No personas yet.</p>
+                <p style={{ margin:'6px 0 0', fontSize:12 }}>Create one to give your users a custom AI personality to chat with.</p>
+              </div>
+            ) : (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))', gap:16 }}>
+                {personas.map(p => (
+                  <div key={p.personaId} style={{ background:'#0e1623', border:'1px solid #1e2a3a', borderRadius:12, padding:20, display:'flex', flexDirection:'column', gap:12 }}>
+                    {/* Top row */}
+                    <div style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
+                      <div style={{ fontSize:32, flexShrink:0 }}>{p.avatar || '🧑‍💼'}</div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                          <span style={{ fontWeight:700, fontSize:14, color:'#f1f5f9' }}>{p.name}</span>
+                          <span style={{
+                            fontSize:10, padding:'2px 8px', borderRadius:10, fontWeight:600,
+                            background: p.status === 'active' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)',
+                            border: p.status === 'active' ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(255,255,255,0.1)',
+                            color: p.status === 'active' ? '#34d399' : '#6b7280',
+                          }}>{p.status === 'active' ? 'Active' : 'Draft'}</span>
+                          <span style={{ fontSize:10, color:'#4b5563', marginLeft:'auto' }}>
+                            {p.assignedTo === '__all__' ? 'All locations' : `${(p.assignedLocations||[]).length} location(s)`}
+                          </span>
+                        </div>
+                        {p.description && <p style={{ margin:'4px 0 0', fontSize:12, color:'#9ca3af' }}>{p.description}</p>}
+                      </div>
+                    </div>
+
+                    {/* Personality preview */}
+                    {p.systemPrompt ? (
+                      <div style={{ background:'rgba(99,102,241,0.07)', border:'1px solid rgba(99,102,241,0.2)', borderRadius:8, padding:'8px 10px' }}>
+                        <p style={{ margin:'0 0 3px', fontSize:10, color:'#6366f1', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em' }}>AI-Improved Prompt</p>
+                        <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical' }}>{p.systemPrompt}</p>
+                      </div>
+                    ) : p.personality ? (
+                      <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:8, padding:'8px 10px' }}>
+                        <p style={{ margin:'0 0 3px', fontSize:10, color:'#6b7280', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em' }}>Personality</p>
+                        <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.5, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>{p.personality}</p>
+                      </div>
+                    ) : null}
+
+                    {/* Actions */}
+                    <div style={{ display:'flex', gap:8, marginTop:'auto' }}>
+                      <button
+                        onClick={() => { setPersonaForm({ ...p, assignedLocations: p.assignedLocations || [] }); setPersonaModal(p); }}
+                        style={{ flex:1, padding:'7px 0', borderRadius:7, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#d1d5db', cursor:'pointer', fontSize:12 }}
+                      >Edit</button>
+                      <button
+                        onClick={async () => {
+                          setPersonaImproving(p.personaId);
+                          const d = await adminFetch(`/admin/personas/${p.personaId}/improve`, { method:'POST', adminKey });
+                          setPersonaImproving(null);
+                          if (d.success) { loadPersonas(); } else alert(d.error || 'Improve failed');
+                        }}
+                        disabled={personaImproving === p.personaId || !p.personality}
+                        style={{ flex:1, padding:'7px 0', borderRadius:7, background:'rgba(99,102,241,0.12)', border:'1px solid rgba(99,102,241,0.3)', color: p.personality ? '#a5b4fc' : '#4b5563', cursor: p.personality ? 'pointer' : 'not-allowed', fontSize:12 }}
+                      >{personaImproving === p.personaId ? 'Improving…' : '✨ Improve'}</button>
+                      <button
+                        onClick={async () => {
+                          const newStatus = p.status === 'active' ? 'draft' : 'active';
+                          await adminFetch(`/admin/personas/${p.personaId}`, { method:'PUT', adminKey, body:{ status: newStatus } });
+                          loadPersonas();
+                        }}
+                        style={{ padding:'7px 10px', borderRadius:7, background: p.status === 'active' ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)', border: p.status === 'active' ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.08)', color: p.status === 'active' ? '#34d399' : '#6b7280', cursor:'pointer', fontSize:12 }}
+                        title={p.status === 'active' ? 'Deactivate' : 'Activate'}
+                      >{p.status === 'active' ? '⏸' : '▶'}</button>
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm(`Delete persona "${p.name}"?`)) return;
+                          await adminFetch(`/admin/personas/${p.personaId}`, { method:'DELETE', adminKey });
+                          loadPersonas();
+                        }}
+                        style={{ padding:'7px 10px', borderRadius:7, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.2)', color:'#f87171', cursor:'pointer', fontSize:12 }}
+                        title="Delete"
+                      >✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Create / Edit Modal */}
+            {personaModal && (
+              <div onClick={() => setPersonaModal(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+                <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:560, maxHeight:'90vh', overflowY:'auto', background:'#0e1623', border:'1px solid #1e2a3a', borderRadius:16, boxShadow:'0 24px 64px rgba(0,0,0,0.6)' }}>
+                  {/* Modal header */}
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid #1e2a3a' }}>
+                    <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:'#f1f5f9' }}>{personaModal === 'create' ? 'New Persona' : `Edit — ${personaModal.name}`}</h3>
+                    <button onClick={() => setPersonaModal(null)} style={{ background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:16 }}>✕</button>
+                  </div>
+
+                  {/* Form */}
+                  <div style={{ padding:20, display:'flex', flexDirection:'column', gap:14 }}>
+                    {/* Avatar + Name row */}
+                    <div style={{ display:'flex', gap:10, alignItems:'flex-end' }}>
+                      <div style={{ flexShrink:0 }}>
+                        <label style={bdLabel}>Avatar</label>
+                        <input value={personaForm.avatar} onChange={e => setPersonaForm(f => ({ ...f, avatar: e.target.value }))}
+                          style={{ ...bdInput, width:60, textAlign:'center', fontSize:20, marginBottom:0 }} placeholder="🧑" />
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <label style={bdLabel}>Name *</label>
+                        <input value={personaForm.name} onChange={e => setPersonaForm(f => ({ ...f, name: e.target.value }))}
+                          style={{ ...bdInput, marginBottom:0 }} placeholder="e.g. Alex Johnson" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={bdLabel}>Description</label>
+                      <input value={personaForm.description} onChange={e => setPersonaForm(f => ({ ...f, description: e.target.value }))}
+                        style={{ ...bdInput, marginBottom:0 }} placeholder="Sales coach, customer support expert…" />
+                    </div>
+
+                    <div>
+                      <label style={bdLabel}>Personality / Background</label>
+                      <p style={{ margin:'0 0 6px', fontSize:11, color:'#4b5563' }}>Describe this person — their tone, style, expertise, and how they speak. Click "Improve with AI" to turn this into a polished system prompt.</p>
+                      <textarea value={personaForm.personality} onChange={e => setPersonaForm(f => ({ ...f, personality: e.target.value }))}
+                        rows={4} style={{ ...bdInput, resize:'vertical', marginBottom:0 }}
+                        placeholder="Alex is a warm, direct sales coach who has closed hundreds of deals. He speaks in short sentences, uses analogies, and always ends with a clear call to action…" />
+                    </div>
+
+                    <div>
+                      <label style={bdLabel}>Knowledge Content</label>
+                      <p style={{ margin:'0 0 6px', fontSize:11, color:'#4b5563' }}>Facts, expertise areas, product knowledge, or scripts the persona should know. Injected before brain context.</p>
+                      <textarea value={personaForm.content} onChange={e => setPersonaForm(f => ({ ...f, content: e.target.value }))}
+                        rows={4} style={{ ...bdInput, resize:'vertical', marginBottom:0 }}
+                        placeholder="Our flagship product is X. Common objections: price (response: ROI pays back in 60 days), timing (response: every day you wait costs you…)" />
+                    </div>
+
+                    {/* AI-improved prompt preview */}
+                    {(personaModal !== 'create' && personaModal.systemPrompt) && (
+                      <div style={{ background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.2)', borderRadius:8, padding:12 }}>
+                        <p style={{ margin:'0 0 6px', fontSize:11, color:'#6366f1', fontWeight:600 }}>AI-Improved System Prompt (read-only preview)</p>
+                        <p style={{ margin:0, fontSize:11, color:'#9ca3af', lineHeight:1.6, whiteSpace:'pre-wrap' }}>{personaModal.systemPrompt}</p>
+                      </div>
+                    )}
+
+                    {/* Assignment */}
+                    <div>
+                      <label style={bdLabel}>Assign To</label>
+                      <div style={{ display:'flex', gap:8 }}>
+                        {[['__all__','All Locations'],['specific','Specific Locations']].map(([v, label]) => (
+                          <button key={v} onClick={() => setPersonaForm(f => ({ ...f, assignedTo: v }))}
+                            style={{ flex:1, padding:'8px 0', borderRadius:7, border:'1px solid', cursor:'pointer', fontSize:12, fontWeight:500,
+                              background: personaForm.assignedTo === v ? 'rgba(124,58,237,0.2)' : 'transparent',
+                              borderColor: personaForm.assignedTo === v ? 'rgba(124,58,237,0.5)' : '#1e2a3a',
+                              color: personaForm.assignedTo === v ? '#a78bfa' : '#6b7280',
+                            }}
+                          >{label}</button>
+                        ))}
+                      </div>
+                      {personaForm.assignedTo === 'specific' && (
+                        <div style={{ marginTop:8 }}>
+                          <input
+                            placeholder="Paste location IDs, comma-separated"
+                            value={(personaForm.assignedLocations || []).join(', ')}
+                            onChange={e => setPersonaForm(f => ({ ...f, assignedLocations: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))}
+                            style={{ ...bdInput, marginBottom:0 }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Status */}
+                    <div>
+                      <label style={bdLabel}>Status</label>
+                      <div style={{ display:'flex', gap:8 }}>
+                        {[['draft','Draft'],['active','Active']].map(([v, label]) => (
+                          <button key={v} onClick={() => setPersonaForm(f => ({ ...f, status: v }))}
+                            style={{ flex:1, padding:'8px 0', borderRadius:7, border:'1px solid', cursor:'pointer', fontSize:12, fontWeight:500,
+                              background: personaForm.status === v ? (v === 'active' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)') : 'transparent',
+                              borderColor: personaForm.status === v ? (v === 'active' ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.15)') : '#1e2a3a',
+                              color: personaForm.status === v ? (v === 'active' ? '#34d399' : '#9ca3af') : '#6b7280',
+                            }}
+                          >{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Modal footer */}
+                  <div style={{ display:'flex', gap:8, padding:'12px 20px 20px', justifyContent:'flex-end' }}>
+                    <button onClick={() => setPersonaModal(null)} style={bdBtnS}>Cancel</button>
+                    <button
+                      disabled={personaSaving}
+                      onClick={async () => {
+                        if (!personaForm.name.trim()) return alert('Name is required');
+                        setPersonaSaving(true);
+                        if (personaModal === 'create') {
+                          await adminFetch('/admin/personas', { method:'POST', adminKey, body: personaForm });
+                        } else {
+                          await adminFetch(`/admin/personas/${personaModal.personaId}`, { method:'PUT', adminKey, body: personaForm });
+                        }
+                        setPersonaSaving(false);
+                        setPersonaModal(null);
+                        loadPersonas();
+                      }}
+                      style={{ ...bdBtnP, opacity: personaSaving ? 0.6 : 1 }}
+                    >{personaSaving ? 'Saving…' : personaModal === 'create' ? 'Create Persona' : 'Save Changes'}</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
