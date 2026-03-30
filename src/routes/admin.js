@@ -1280,4 +1280,14 @@ router.post('/integrations/:id/test', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ─── GET /admin/tools/meta — static GHL built-in tool metadata ───────────────
+
+router.get('/tools/meta', (req, res) => {
+  try {
+    res.json({ success: true, data: toolRegistry.getAllIntegrationsMeta() });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

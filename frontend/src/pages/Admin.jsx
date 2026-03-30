@@ -1696,6 +1696,7 @@ export default function Admin() {
   const [personaSaving,      setPersonaSaving]      = useState(false);
 
   // 3rd-party Integrations state
+  const [builtinTools,       setBuiltinTools]       = useState([]); // GHL built-in tool metadata
   const [integrations,       setIntegrations]       = useState([]);
   const [intLoading,         setIntLoading]         = useState(false);
   const [intModal,           setIntModal]           = useState(null); // null | 'create' | integration obj
@@ -1911,7 +1912,10 @@ export default function Admin() {
 
   const loadIntegrations = useCallback(async () => {
     setIntLoading(true);
-    const data = await adminFetch('/admin/integrations', { adminKey });
+    const [data, metaData] = await Promise.all([
+      adminFetch('/admin/integrations', { adminKey }),
+      adminFetch('/admin/tools/meta', { adminKey }),
+    ]);
     if (data.success) {
       setIntegrations(data.data || []);
       // Auto-open all folders
@@ -1919,6 +1923,7 @@ export default function Admin() {
       (data.data || []).forEach(i => { folders[i.clientName] = true; });
       setIntOpenFolders(folders);
     }
+    if (metaData.success) setBuiltinTools(metaData.data || []);
     setIntLoading(false);
   }, [adminKey]);
 
@@ -2852,13 +2857,47 @@ export default function Admin() {
               {/* Header */}
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24 }}>
                 <div>
-                  <h2 style={{ margin:0, fontSize:15, fontWeight:700, color:'#f1f5f9' }}>3rd-Party Integrations</h2>
-                  <p style={{ margin:'4px 0 0', fontSize:12, color:'#6b7280' }}>Connect external tools via webhook, API key, or generate your own API endpoint. Organized by client. Data syncs to user chats automatically.</p>
+                  <h2 style={{ margin:0, fontSize:15, fontWeight:700, color:'#f1f5f9' }}>All Integrations</h2>
+                  <p style={{ margin:'4px 0 0', fontSize:12, color:'#6b7280' }}>All tools in one place — GHL built-ins and 3rd-party connections. Use Tool Access to control what each location can see.</p>
                 </div>
                 <button onClick={() => { setIntForm({ ...INT_FORM_BLANK }); setIntModal('create'); }}
                   style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:8, background:'rgba(124,58,237,0.2)', border:'1px solid rgba(124,58,237,0.4)', color:'#a78bfa', cursor:'pointer', fontSize:13, fontWeight:600 }}>
                   + New Integration
                 </button>
+              </div>
+
+              {/* ── Built-in GHL Tools section ── */}
+              {builtinTools.length > 0 && (
+                <div style={{ marginBottom: 28 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                    <span style={{ color:'#9ca3af', fontSize:12, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em' }}>GHL Built-in Tools</span>
+                    <div style={{ flex:1, height:1, background:'#1e1e1e' }} />
+                    <span style={{ fontSize:11, color:'#4b5563' }}>Visibility controlled in Tool Access</span>
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:8 }}>
+                    {builtinTools.map(tool => (
+                      <div key={tool.key} style={{ background:'#111', border:'1px solid #1e1e1e', borderRadius:8, padding:'10px 14px', display:'flex', alignItems:'flex-start', gap:10 }}>
+                        <span style={{ fontSize:20, lineHeight:1, flexShrink:0 }}>{tool.icon || '🔧'}</span>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ color:'#e5e7eb', fontWeight:600, fontSize:13, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{tool.label || tool.key}</div>
+                          {tool.description && <div style={{ color:'#4b5563', fontSize:11, marginTop:2, lineHeight:1.4 }}>{tool.description}</div>}
+                          <div style={{ marginTop:6, display:'flex', gap:4, flexWrap:'wrap' }}>
+                            {(tool.toolNames || []).slice(0, 4).map(t => (
+                              <span key={t} style={{ background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:3, padding:'1px 6px', fontSize:10, color:'#60a5fa', fontFamily:'monospace' }}>{t}</span>
+                            ))}
+                            {(tool.toolCount || 0) > 4 && <span style={{ color:'#4b5563', fontSize:10 }}>+{tool.toolCount - 4}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── 3rd-Party section header ── */}
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
+                <span style={{ color:'#9ca3af', fontSize:12, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em' }}>3rd-Party Connections</span>
+                <div style={{ flex:1, height:1, background:'#1e1e1e' }} />
               </div>
 
               {/* Type legend */}
