@@ -11,20 +11,46 @@ import SelfImprovementPanel from '../components/SelfImprovementPanel';
 
 // ── Voice input hook (Web Speech API) ────────────────────────────────────────
 function useVoice(onTranscript) {
-  const [listening, setListening]     = useState(false);
-  const [supported, setSupported]     = useState(false);
-  const [elapsed, setElapsed]         = useState(0);       // seconds
-  const [liveText, setLiveText]       = useState('');      // interim preview
-  const recognitionRef                = useRef(null);
-  const finalTextRef                  = useRef('');        // accumulated finals
-  const timerRef                      = useRef(null);
+  const [listening, setListening] = useState(false);
+  const [supported, setSupported] = useState(false);
+  const [elapsed,   setElapsed]   = useState(0);
+  const [liveText,  setLiveText]  = useState('');
+
+  const srRef        = useRef(null);   // SpeechRecognition constructor
+  const activeRef    = useRef(null);   // current recognition instance
+  const keepGoingRef = useRef(false);  // whether user wants to keep recording
+  const finalTextRef = useRef('');
+  const timerRef     = useRef(null);
+  const onTranscriptRef = useRef(onTranscript);
+  onTranscriptRef.current = onTranscript;
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
+    srRef.current = SR;
     setSupported(true);
+    return () => {
+      keepGoingRef.current = false;
+      try { activeRef.current?.abort(); } catch (_) {}
+      clearInterval(timerRef.current);
+    };
+  }, []);
+
+  function commit() {
+    clearInterval(timerRef.current);
+    setListening(false);
+    setElapsed(0);
+    setLiveText('');
+    const text = finalTextRef.current.trim();
+    finalTextRef.current = '';
+    if (text) onTranscriptRef.current(text);
+  }
+
+  function spawnRecognition() {
+    const SR = srRef.current;
+    if (!SR) return;
     const r = new SR();
-    r.continuous     = true;   // keep recording until user stops
+    r.continuous     = true;
     r.interimResults = true;
     r.lang           = 'en-US';
 
@@ -38,48 +64,45 @@ function useVoice(onTranscript) {
       setLiveText(interim);
     };
 
-    r.onerror = () => stopRecording(r);
-    r.onend   = () => {
-      // auto-restart if still listening (browser cuts off after ~60s silence)
-      if (recognitionRef.current?._keepGoing) {
-        try { r.start(); } catch (_) { stopRecording(r); }
+    r.onerror = (e) => {
+      // no-speech = silence pause, aborted = we restarted it — both are recoverable
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      // real error: stop everything
+      keepGoingRef.current = false;
+      commit();
+    };
+
+    r.onend = () => {
+      if (keepGoingRef.current) {
+        // browser ended the session (silence timeout, ~60s cap) — restart seamlessly
+        try { spawnRecognition(); } catch (_) { keepGoingRef.current = false; commit(); }
+      } else {
+        commit();
       }
     };
 
-    recognitionRef.current = r;
-    return () => { r._keepGoing = false; r.abort(); clearInterval(timerRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function stopRecording(r) {
-    if (!r) return;
-    r._keepGoing = false;
-    r.stop();
-    clearInterval(timerRef.current);
-    setListening(false);
-    setElapsed(0);
-    setLiveText('');
-    const text = finalTextRef.current.trim();
-    finalTextRef.current = '';
-    if (text) onTranscript(text);
+    activeRef.current = r;
+    try { r.start(); } catch (_) { keepGoingRef.current = false; commit(); }
   }
 
   const toggle = useCallback(() => {
-    const r = recognitionRef.current;
-    if (!r) return;
-    if (listening) {
-      stopRecording(r);
+    if (keepGoingRef.current) {
+      // user clicked stop
+      keepGoingRef.current = false;
+      try { activeRef.current?.stop(); } catch (_) { commit(); }
     } else {
+      // user clicked start
+      if (!srRef.current) return;
       finalTextRef.current = '';
       setElapsed(0);
       setLiveText('');
-      r._keepGoing = true;
-      r.start();
+      keepGoingRef.current = true;
       setListening(true);
       timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+      spawnRecognition();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listening]);
+  }, []);
 
   return { listening, supported, toggle, elapsed, liveText };
 }
