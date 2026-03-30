@@ -8,7 +8,8 @@ const NAV = [
   { to: '/agents',         label: 'Agents',             icon: '🤖' },
   { to: '/workflows',      label: 'Workflows',          icon: '⟳',  feature: 'workflows' },
   { to: '/ads',            label: 'Ads',                icon: '⚡' },
-  { to: '/social',         label: 'ManyChat & Socials', icon: '💬' },
+  { to: '/social',         label: 'ManyChat & Socials', icon: '📱' },
+  { to: '/chats',          label: 'Chats',              icon: '💬' },
   { to: '/settings',       label: 'Settings',           icon: '⚙' },
 ];
 

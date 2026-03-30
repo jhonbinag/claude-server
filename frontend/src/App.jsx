@@ -10,6 +10,7 @@ import FunnelBuilder   from './pages/FunnelBuilder';
 import AgentsHub       from './pages/AgentsHub';
 import AdsHub          from './pages/AdsHub';
 import SocialHub       from './pages/SocialHub';
+import Chats           from './pages/Chats';
 
 // ── Route wrapper: redirects to dashboard if user lacks the required feature ──
 function Gated({ feature, element }) {
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="/workflows"       element={<Gated feature="workflows"      element={<Workflows />} />} />
           <Route path="/ads"             element={<AdsHub />} />
           <Route path="/social"          element={<SocialHub />} />
+          <Route path="/chats"           element={<Chats />} />
           <Route path="/settings"        element={<Settings />} />
 
           {/* Legacy redirects — keep old bookmarks/links working */}
