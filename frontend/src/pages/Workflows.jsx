@@ -168,9 +168,9 @@ const TOOL_FIELDS = {
 // ─── Run modes & trigger events ───────────────────────────────────────────────
 
 const RUN_MODES = [
-  { key: 'once',     label: 'Run Once',         icon: '⚡', desc: 'Triggers on a single GHL event — new contact, form, payment, tag, etc.' },
-  { key: 'batch',    label: 'Run Per Batch',     icon: '📦', desc: 'Processes a group of records at once — contacts, leads, or custom queries.' },
-  { key: 'schedule', label: 'Run Per Schedule',  icon: '⏰', desc: 'Runs automatically on a recurring time schedule.' },
+  { key: 'once',     label: 'Event Trigger',  icon: '⚡', desc: 'Fires when something happens — new contact, form submission, payment, tag added, etc.' },
+  { key: 'batch',    label: 'Bulk Run',        icon: '📦', desc: 'Processes a group of records at once — contacts, leads, or custom queries.' },
+  { key: 'schedule', label: 'Scheduled',       icon: '⏰', desc: 'Runs automatically on a recurring time schedule — daily, weekly, monthly, or interval.' },
 ];
 
 const TRIGGER_EVENTS = {
@@ -1290,6 +1290,7 @@ export default function Workflows() {
             {selectedNode && !selectedEdge && (
               <NodeConfigPanel
                 node={selectedNode}
+                webhookUrl={webhookUrl}
                 onClose={() => setSelectedNode(null)}
                 onChange={(patch) => updateNode(selectedNode.id, patch)}
                 onConfigChange={(cfg) => updateNodeConfig(selectedNode.id, cfg)}
@@ -1592,7 +1593,7 @@ export default function Workflows() {
                     </div>
                   )}
 
-                  {tsEvent && (
+                  {tsEvent && tsEvent !== 'webhook' && (
                     <div className="rounded-xl p-3 mt-2" style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' }}>
                       <p className="text-xs font-semibold text-yellow-400 mb-1">⚡ Trigger fields available to all nodes:</p>
                       <div className="flex flex-wrap gap-1">
@@ -1603,6 +1604,13 @@ export default function Workflows() {
                         ))}
                       </div>
                       <p className="text-xs text-gray-500 mt-2">Map these to any node input in the field mapping panel.</p>
+                    </div>
+                  )}
+                  {tsEvent === 'webhook' && (
+                    <div className="rounded-xl p-3 mt-2 space-y-2" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)' }}>
+                      <p className="text-xs font-semibold text-indigo-400">🔗 Custom Webhook / GHL Automation</p>
+                      <p className="text-xs text-gray-400">After saving the workflow, a unique webhook URL will be generated. Paste it into a <span className="text-white">GHL Automation → Webhook</span> action. When GHL fires the webhook, this workflow runs automatically with the contact payload.</p>
+                      <p className="text-xs text-gray-500">Available fields from payload: <span className="font-mono text-gray-400">trigger.payload</span>, <span className="font-mono text-gray-400">trigger.contactId</span>, <span className="font-mono text-gray-400">trigger.email</span>, <span className="font-mono text-gray-400">trigger.data</span></p>
                     </div>
                   )}
 
@@ -1758,9 +1766,9 @@ function CanvasNode({ node, selected, connecting, onHeaderMouseDown, onOutPort, 
 
 // ─── Node Config Panel ────────────────────────────────────────────────────────
 
-function NodeConfigPanel({ node, onClose, onChange, onConfigChange, onDelete }) {
+function NodeConfigPanel({ node, webhookUrl, onClose, onChange, onConfigChange, onDelete }) {
   if (node._isTrigger || node.tool === '__trigger__') {
-    return <TriggerConfigPanel node={node} onClose={onClose} onChange={onChange} />;
+    return <TriggerConfigPanel node={node} webhookUrl={webhookUrl} onClose={onClose} onChange={onChange} />;
   }
   const color = TOOL_COLOR[node.tool] || '#6366f1';
   return (
@@ -2255,16 +2263,23 @@ function TPLConfigInPanel({ config, onChange, color }) {
 
 // ─── Trigger Config Panel ─────────────────────────────────────────────────────
 
-function TriggerConfigPanel({ node, onClose, onChange }) {
+function TriggerConfigPanel({ node, webhookUrl, onClose, onChange }) {
   const trigColor = '#f59e0b';
-  const [runMode, setRunMode] = useState(node.config?.runMode || 'once');
-  const [event,   setEvent]   = useState(node.config?.event   || '');
-  const [config,  setConfig]  = useState(node.config || {});
+  const [runMode,   setRunMode]   = useState(node.config?.runMode || 'once');
+  const [event,     setEvent]     = useState(node.config?.event   || '');
+  const [config,    setConfig]    = useState(node.config || {});
+  const [whCopied,  setWhCopied]  = useState(false);
   const def = getTriggerDef(runMode, event);
 
   function apply() {
     const newTrigNode = mkTriggerNode(runMode, event, config);
     onChange({ label: newTrigNode.label, icon: newTrigNode.icon, config: { runMode, event, ...config }, _isTrigger: true });
+  }
+
+  function copyWebhook() {
+    navigator.clipboard.writeText(webhookUrl);
+    setWhCopied(true);
+    setTimeout(() => setWhCopied(false), 2000);
   }
 
   return (
@@ -2310,8 +2325,38 @@ function TriggerConfigPanel({ node, onClose, onChange }) {
           </div>
         </div>
 
+        {/* Webhook URL block — shown when webhook event is selected */}
+        {event === 'webhook' && (
+          <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)' }}>
+            <p className="text-xs font-semibold text-indigo-400">🔗 Webhook Endpoint</p>
+            {webhookUrl ? (
+              <>
+                <div className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <input readOnly value={webhookUrl} className="flex-1 bg-transparent text-xs text-gray-300 outline-none min-w-0" onClick={e => e.target.select()} />
+                  <button onClick={copyWebhook} className="text-xs flex-shrink-0 font-medium" style={{ color: whCopied ? '#4ade80' : '#818cf8' }}>
+                    {whCopied ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
+                <div className="text-xs text-gray-500 space-y-1.5">
+                  <p className="font-semibold text-gray-400">How to connect in GoHighLevel:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-gray-500">
+                    <li>Go to <span className="text-gray-300">Automation → Workflows</span> in GHL</li>
+                    <li>Add a <span className="text-gray-300">Webhook</span> action step</li>
+                    <li>Set method to <span className="text-gray-300">POST</span>, paste the URL above</li>
+                    <li>Map any contact fields you want in the request body (e.g. <span className="font-mono text-gray-300">email</span>, <span className="font-mono text-gray-300">contactId</span>)</li>
+                    <li>When GHL fires the webhook, this workflow runs automatically with that payload</li>
+                  </ol>
+                </div>
+                <p className="text-xs text-gray-600">The full JSON payload sent by GHL is available as <span className="font-mono text-gray-400">trigger.payload</span> and individual fields like <span className="font-mono text-gray-400">trigger.email</span>, <span className="font-mono text-gray-400">trigger.contactId</span>, etc.</p>
+              </>
+            ) : (
+              <p className="text-xs text-yellow-500">⚠ Save the workflow first to generate the webhook URL.</p>
+            )}
+          </div>
+        )}
+
         {/* Available fields */}
-        {def && (
+        {def && event !== 'webhook' && (
           <div className="rounded-xl p-3" style={{ background: `${trigColor}08`, border: `1px solid ${trigColor}25` }}>
             <p className="text-xs font-semibold mb-2" style={{ color: trigColor }}>Available trigger fields</p>
             <div className="flex flex-wrap gap-1">

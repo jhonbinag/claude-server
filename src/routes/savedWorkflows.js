@@ -21,15 +21,29 @@ const toolRegistry     = require('../tools/toolRegistry');
 
 // ── Build structured prompt from workflow steps ───────────────────────────────
 
-function buildPrompt(steps, context, webhookPayload) {
-  const stepLines = steps
-    .map((s, i) => `STEP ${i + 1} [${s.label || s.tool.toUpperCase()}]:\n${s.instruction}`)
-    .join('\n\n');
-  const ctxNote     = context ? `\n\nContext: ${context}` : '';
-  const payloadNote = webhookPayload && Object.keys(webhookPayload).length
-    ? `\n\nWebhook payload received: ${JSON.stringify(webhookPayload)}`
-    : '';
-  return `Execute this multi-step workflow:\n\n${stepLines}${ctxNote}${payloadNote}\n\nComplete all steps in order and summarize results at the end.`;
+function buildPrompt(steps, context, webhookPayload, edges) {
+  // Inject field mappings per step from edges
+  const workSteps = steps.filter(s => s.tool !== '__trigger__' && !s._isTrigger);
+  const stepLines = workSteps.map((s, i) => {
+    const inEdges  = (edges || []).filter(e => e.toNodeId === s.id);
+    const mappings = inEdges.flatMap(e => (e.mappings || []).map(m => `"${m.from}" → "${m.to}"`));
+    const mapNote  = mappings.length ? `\n  Field mappings: ${mappings.join(', ')}` : '';
+    const instr    = s.instruction || `Execute ${s.label || s.tool}`;
+    return `STEP ${i + 1} [${s.label || s.tool.toUpperCase()}]:\n${instr}${mapNote}`;
+  }).join('\n\n');
+
+  const ctxNote = context ? `\nContext: ${context}\n` : '';
+
+  // Build trigger block from webhook payload
+  let triggerBlock = '';
+  if (webhookPayload && Object.keys(webhookPayload).length) {
+    const fields = Object.entries(webhookPayload)
+      .map(([k, v]) => `  ${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
+      .join('\n');
+    triggerBlock = `TRIGGER DATA (from webhook):\n${fields}\nResolve trigger.fieldName references using the values above.\n\n`;
+  }
+
+  return `Execute this multi-step workflow in order. Complete every step before moving to the next.\n${triggerBlock}${ctxNote}\n${stepLines}\n\nAfter all steps: full summary of everything created or updated, with GHL IDs and URLs.`;
 }
 
 // ── GET /workflows ────────────────────────────────────────────────────────────
@@ -46,12 +60,12 @@ router.get('/', authenticate, async (req, res) => {
 // ── POST /workflows ───────────────────────────────────────────────────────────
 
 router.post('/', authenticate, async (req, res) => {
-  const { id, name, steps, context } = req.body;
+  const { id, name, steps, context, edges } = req.body;
   if (!name || !Array.isArray(steps) || !steps.length) {
     return res.status(400).json({ success: false, error: '"name" and at least one step are required.' });
   }
   try {
-    const wf = await workflowStore.saveWorkflow(req.locationId, { id, name, steps, context });
+    const wf = await workflowStore.saveWorkflow(req.locationId, { id, name, steps, context, edges: edges || [] });
     activityLogger.log({
       locationId: req.locationId,
       event:      'workflow_save',
@@ -144,7 +158,7 @@ router.post('/trigger/:token', async (req, res) => {
     if (!found) return res.status(404).json({ success: false, error: 'Workflow not found or token invalid.' });
 
     const { locationId, workflow } = found;
-    const prompt    = buildPrompt(workflow.steps, workflow.context, req.body);
+    const prompt    = buildPrompt(workflow.steps, workflow.context, req.body, workflow.edges);
     const requested = [...new Set(workflow.steps.map((s) => s.tool).filter((t) => t !== 'ghl'))];
     const shared    = await toolRegistry.getSharedIntegrations(locationId);
     const allowed   = requested.filter((category) => shared.includes(category));
