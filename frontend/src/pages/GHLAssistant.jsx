@@ -65,31 +65,34 @@ function useVoice(onTranscript) {
     };
 
     r.onerror = (e) => {
-      // no-speech = silence pause, aborted = we restarted it — both are recoverable
-      if (e.error === 'no-speech' || e.error === 'aborted') return;
-      // real error: stop everything
+      // These are all recoverable — browser fires them on silence or internal restarts
+      if (e.error === 'no-speech' || e.error === 'aborted' || e.error === 'network') return;
+      // Only stop on real unrecoverable errors (not-allowed, service-not-allowed)
       keepGoingRef.current = false;
       commit();
     };
 
     r.onend = () => {
       if (keepGoingRef.current) {
-        // browser ended the session (silence timeout, ~60s cap) — restart seamlessly
-        try { spawnRecognition(); } catch (_) { keepGoingRef.current = false; commit(); }
+        // Browser ended session (silence, ~7s no-speech, or ~60s cap) — restart after short delay
+        // Delay is critical: browser needs ~150ms to fully release before a new start() works
+        setTimeout(() => {
+          if (keepGoingRef.current) spawnRecognition();
+        }, 150);
       } else {
         commit();
       }
     };
 
     activeRef.current = r;
-    try { r.start(); } catch (_) { keepGoingRef.current = false; commit(); }
+    r.start();
   }
 
   const toggle = useCallback(() => {
     if (keepGoingRef.current) {
-      // user clicked stop
+      // user clicked stop — set flag first, then stop (onend will call commit)
       keepGoingRef.current = false;
-      try { activeRef.current?.stop(); } catch (_) { commit(); }
+      try { activeRef.current?.stop(); } catch (_) {}
     } else {
       // user clicked start
       if (!srRef.current) return;
