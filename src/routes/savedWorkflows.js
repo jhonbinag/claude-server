@@ -19,6 +19,9 @@ const claudeService    = require('../services/claudeService');
 const activityLogger   = require('../services/activityLogger');
 const toolRegistry     = require('../tools/toolRegistry');
 
+// Stores last webhook payload per token for Zapier-style "Test Trigger" (30min TTL)
+const sampleStore = new Map(); // token → { payload, receivedAt }
+
 // ── Build structured prompt from workflow steps ───────────────────────────────
 
 function buildPrompt(steps, context, webhookPayload, edges) {
@@ -148,6 +151,18 @@ router.delete('/:id', authenticate, async (req, res) => {
   }
 });
 
+// ── GET /workflows/trigger/:token/sample — returns last received webhook payload (no auth) ──
+
+router.get('/trigger/:token/sample', (req, res) => {
+  const sample = sampleStore.get(req.params.token);
+  if (!sample) return res.json({ success: true, data: null });
+  if (Date.now() - sample.receivedAt > 30 * 60 * 1000) {
+    sampleStore.delete(req.params.token);
+    return res.json({ success: true, data: null });
+  }
+  res.json({ success: true, data: sample });
+});
+
 // ── POST /workflows/trigger/:token — Webhook (no auth, uses token) ────────────
 // Useful for triggering from external systems (GHL automations, Zapier, etc.)
 // Optional JSON body is forwarded to Claude as webhook payload context.
@@ -156,6 +171,9 @@ router.post('/trigger/:token', async (req, res) => {
   try {
     const found = await workflowStore.getByWebhookToken(req.params.token);
     if (!found) return res.status(404).json({ success: false, error: 'Workflow not found or token invalid.' });
+
+    // Store last payload for Zapier-style "Test Trigger" (30min TTL)
+    sampleStore.set(req.params.token, { payload: req.body, receivedAt: Date.now() });
 
     const { locationId, workflow } = found;
     const prompt    = buildPrompt(workflow.steps, workflow.context, req.body, workflow.edges);

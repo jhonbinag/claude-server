@@ -175,13 +175,13 @@ const RUN_MODES = [
 
 const TRIGGER_EVENTS = {
   once: [
-    { key: 'contact_created',    label: 'New Contact Created',     icon: '👤', outputs: ['contactId','email','firstName','lastName','phone','tags','source'] },
-    { key: 'contact_updated',    label: 'Contact Updated',         icon: '✏️', outputs: ['contactId','email','firstName','lastName','phone','tags','updatedField','oldValue','newValue'] },
-    { key: 'form_submitted',     label: 'Form Submitted',          icon: '📋', outputs: ['contactId','email','firstName','lastName','formId','submissionId','answers'] },
-    { key: 'appointment_booked', label: 'Appointment Booked',      icon: '📅', outputs: ['contactId','email','firstName','appointmentId','calendarId','startTime','endTime'] },
-    { key: 'payment_made',       label: 'Payment / Purchase',      icon: '💳', outputs: ['contactId','email','paymentId','amount','currency','productId','invoiceId'] },
-    { key: 'pipeline_changed',   label: 'Pipeline Stage Changed',  icon: '📊', outputs: ['contactId','email','opportunityId','pipelineId','fromStage','toStage','dealValue'] },
-    { key: 'tag_added',          label: 'Tag Added to Contact',    icon: '🏷️', outputs: ['contactId','email','firstName','lastName','phone','tag'] },
+    { key: 'contact_created',    label: 'New Contact Created',     icon: '👤', outputs: ['contactId','firstName','lastName','email','phone','tags','source','locationId','dateAdded'] },
+    { key: 'contact_updated',    label: 'Contact Updated',         icon: '✏️', outputs: ['contactId','firstName','lastName','email','phone','tags','locationId','updatedAt'] },
+    { key: 'form_submitted',     label: 'Form Submitted',          icon: '📋', outputs: ['contactId','firstName','lastName','email','phone','formId','locationId'] },
+    { key: 'appointment_booked', label: 'Appointment Booked',      icon: '📅', outputs: ['appointmentId','contactId','calendarId','startTime','endTime','status','locationId'] },
+    { key: 'payment_made',       label: 'Payment / Purchase',      icon: '💳', outputs: ['contactId','transactionId','amount','currency','productId','locationId'] },
+    { key: 'pipeline_changed',   label: 'Pipeline Stage Changed',  icon: '📊', outputs: ['opportunityId','contactId','pipelineId','pipelineStageId','pipelineStageName','monetaryValue','status','locationId'] },
+    { key: 'tag_added',          label: 'Tag Added to Contact',    icon: '🏷️', outputs: ['contactId','firstName','lastName','email','phone','tag','tags','locationId'] },
     { key: 'webhook',            label: 'Custom Webhook / API',    icon: '🔗', outputs: ['payload','contactId','email','data','timestamp'] },
   ],
   batch: [
@@ -2265,15 +2265,20 @@ function TPLConfigInPanel({ config, onChange, color }) {
 
 function TriggerConfigPanel({ node, webhookUrl, onClose, onChange }) {
   const trigColor = '#f59e0b';
-  const [runMode,   setRunMode]   = useState(node.config?.runMode || 'once');
-  const [event,     setEvent]     = useState(node.config?.event   || '');
-  const [config,    setConfig]    = useState(node.config || {});
-  const [whCopied,  setWhCopied]  = useState(false);
+  const [runMode,      setRunMode]      = useState(node.config?.runMode || 'once');
+  const [event,        setEvent]        = useState(node.config?.event   || '');
+  const [config,       setConfig]       = useState(node.config || {});
+  const [whCopied,     setWhCopied]     = useState(false);
+  // Test Trigger state
+  const [testListening, setTestListening] = useState(false);
+  const [testStatus,    setTestStatus]    = useState(null); // null | 'listening' | 'success' | 'timeout'
+  const [sampleFields,  setSampleFields]  = useState(node.config?.sampleFields || []);
+  const pollRef = useRef(null);
   const def = getTriggerDef(runMode, event);
 
   function apply() {
     const newTrigNode = mkTriggerNode(runMode, event, config);
-    onChange({ label: newTrigNode.label, icon: newTrigNode.icon, config: { runMode, event, ...config }, _isTrigger: true });
+    onChange({ label: newTrigNode.label, icon: newTrigNode.icon, config: { runMode, event, ...config, sampleFields }, _isTrigger: true });
   }
 
   function copyWebhook() {
@@ -2281,6 +2286,64 @@ function TriggerConfigPanel({ node, webhookUrl, onClose, onChange }) {
     setWhCopied(true);
     setTimeout(() => setWhCopied(false), 2000);
   }
+
+  function flattenPayload(payload, prefix) {
+    const keys = [];
+    for (const [k, v] of Object.entries(payload || {})) {
+      const fullKey = prefix ? `${prefix}.${k}` : k;
+      if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+        // Flatten one level deep
+        for (const [k2] of Object.entries(v)) {
+          keys.push(`${fullKey}.${k2}`);
+        }
+      } else {
+        keys.push(fullKey);
+      }
+    }
+    return keys;
+  }
+
+  function startListening() {
+    const token = webhookUrl?.split('/trigger/')[1];
+    if (!token) return;
+    setTestListening(true);
+    setTestStatus('listening');
+    let elapsed = 0;
+    pollRef.current = setInterval(async () => {
+      elapsed += 3;
+      try {
+        const res  = await fetch(`/workflows/trigger/${token}/sample`);
+        const data = await res.json();
+        if (data.success && data.data) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          const fields = flattenPayload(data.data.payload);
+          setSampleFields(fields);
+          setConfig(prev => ({ ...prev, sampleFields: fields }));
+          setTestStatus('success');
+          setTestListening(false);
+        }
+      } catch { /* ignore poll errors */ }
+      if (elapsed >= 90) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        setTestStatus('timeout');
+        setTestListening(false);
+      }
+    }, 3000);
+  }
+
+  function stopListening() {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    setTestListening(false);
+    setTestStatus(null);
+  }
+
+  // Clean up on unmount
+  const pollRefCleanup = useRef(pollRef);
+  pollRefCleanup.current = pollRef;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => { if (pollRefCleanup.current.current) clearInterval(pollRefCleanup.current.current); }, []);
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -2347,7 +2410,61 @@ function TriggerConfigPanel({ node, webhookUrl, onClose, onChange }) {
                     <li>When GHL fires the webhook, this workflow runs automatically with that payload</li>
                   </ol>
                 </div>
-                <p className="text-xs text-gray-600">The full JSON payload sent by GHL is available as <span className="font-mono text-gray-400">trigger.payload</span> and individual fields like <span className="font-mono text-gray-400">trigger.email</span>, <span className="font-mono text-gray-400">trigger.contactId</span>, etc.</p>
+
+                {/* Test Trigger section */}
+                <div className="rounded-lg p-3 space-y-2" style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(99,102,241,0.2)' }}>
+                  <p className="text-xs font-semibold text-gray-300">Test Trigger</p>
+                  <p className="text-xs text-gray-500">Fire a real GHL event to capture the exact field names from your webhook payload.</p>
+
+                  {testStatus === null && !testListening && (
+                    <button onClick={startListening} disabled={!webhookUrl}
+                      className="btn-primary w-full py-1.5 text-xs mt-1">
+                      Start Listening
+                    </button>
+                  )}
+
+                  {testStatus === 'listening' && (
+                    <div className="flex items-center gap-2 py-1">
+                      <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />
+                      <span className="text-xs text-indigo-300">Waiting for GHL to send data... Trigger an event in GHL now</span>
+                      <button onClick={stopListening} className="ml-auto text-xs text-gray-600 hover:text-gray-300 flex-shrink-0">Cancel</button>
+                    </div>
+                  )}
+
+                  {testStatus === 'success' && sampleFields.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-green-400 font-medium">✓ Got it! {sampleFields.length} fields captured from GHL</p>
+                      <div className="flex flex-wrap gap-1">
+                        {sampleFields.map(f => (
+                          <span key={f} className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', fontFamily: 'monospace' }}>{f}</span>
+                        ))}
+                      </div>
+                      <button onClick={() => { setSampleFields([]); setTestStatus(null); setConfig(prev => ({ ...prev, sampleFields: [] })); }}
+                        className="text-xs text-gray-600 hover:text-gray-400">
+                        Clear &amp; re-test
+                      </button>
+                    </div>
+                  )}
+
+                  {testStatus === 'timeout' && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-yellow-500">⚠ No payload received in 90 seconds.</p>
+                      <button onClick={() => setTestStatus(null)} className="text-xs text-indigo-400 hover:text-indigo-300">Try again</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Show previously saved sample fields if available and not in success state */}
+                {testStatus !== 'success' && sampleFields.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-gray-500 font-medium">Captured fields (from last test):</p>
+                    <div className="flex flex-wrap gap-1">
+                      {sampleFields.map(f => (
+                        <span key={f} className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', fontFamily: 'monospace' }}>{f}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <p className="text-xs text-yellow-500">⚠ Save the workflow first to generate the webhook URL.</p>
@@ -2386,7 +2503,10 @@ function FieldMappingPanel({ edge, nodes, onClose, onDelete, onSave }) {
 
   const triggerNode   = nodes.find(n => n._isTrigger || n.tool === '__trigger__');
   const triggerDef    = triggerNode ? getTriggerDef(triggerNode.config?.runMode, triggerNode.config?.event) : null;
-  const triggerFields = triggerDef?.outputs || [];
+  const triggerSampleFields = triggerNode?.config?.sampleFields || [];
+  const triggerFields = triggerSampleFields.length > 0
+    ? triggerSampleFields
+    : (triggerDef?.outputs || []);
   const trigColor     = '#f59e0b';
 
   const fromFields = TOOL_FIELDS[fromNode.tool]?.outputs || [];
