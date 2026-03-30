@@ -1021,7 +1021,7 @@ try { personaStore = require('../services/personaStore'); } catch (e) { console.
 const Anthropic = require('@anthropic-ai/sdk');
 let _pAnthropicClient = null;
 function pClient() {
-  if (!_pAnthropicClient) _pAnthropicClient = new Anthropic();
+  if (!_pAnthropicClient) _pAnthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   return _pAnthropicClient;
 }
 

@@ -19,7 +19,7 @@ const brainStore    = require('../services/brainStore');
 const personaStore  = require('../services/personaStore');
 const Anthropic     = require('@anthropic-ai/sdk');
 
-const client = new Anthropic();
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SHARED_LOC = '__shared__';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
