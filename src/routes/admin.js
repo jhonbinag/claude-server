@@ -1118,4 +1118,100 @@ Write ONLY the system prompt, nothing else. Start directly with "You are ${perso
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3RD-PARTY INTEGRATIONS
+// Admin connects external tools via webhook, API key, or generates our own API.
+// Organized into client folders. Synced to user chats automatically.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let integrationStore;
+try { integrationStore = require('../services/integrationStore'); } catch (e) { console.warn('[Admin] integrationStore:', e.message); }
+
+// ─── GET /admin/integrations ──────────────────────────────────────────────────
+
+router.get('/integrations', async (req, res) => {
+  try {
+    if (!integrationStore) return res.status(503).json({ success: false, error: 'Integration store unavailable' });
+    const data = await integrationStore.listIntegrations();
+    res.json({ success: true, data });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── POST /admin/integrations — create ────────────────────────────────────────
+
+router.post('/integrations', async (req, res) => {
+  try {
+    if (!integrationStore) return res.status(503).json({ success: false, error: 'Integration store unavailable' });
+    const { clientName, name, type, apiKey, endpoint, method, headers, allowQuery, assignedTo, assignedLocations, status } = req.body;
+    if (!clientName?.trim()) return res.status(400).json({ success: false, error: 'clientName required' });
+    if (!name?.trim())       return res.status(400).json({ success: false, error: 'name required' });
+    if (!['webhook','api_key','our_api'].includes(type)) return res.status(400).json({ success: false, error: 'type must be webhook, api_key, or our_api' });
+
+    const integration = await integrationStore.saveIntegration({
+      clientName: clientName.trim(), name: name.trim(), type,
+      ...(type === 'api_key' ? { apiKey: apiKey || '', endpoint: endpoint || '', method: method || 'GET', headers: headers || '' } : {}),
+      ...(type === 'our_api' ? { allowQuery: !!allowQuery } : {}),
+      assignedTo: assignedTo || '__all__',
+      assignedLocations: Array.isArray(assignedLocations) ? assignedLocations : [],
+      status: status || 'inactive',
+    });
+    activityLogger.log({ locationId: 'admin', event: 'integration_create', detail: { integrationId: integration.integrationId, name, type }, success: true, adminId: req.adminId });
+    res.json({ success: true, data: integration });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── PUT /admin/integrations/:id — update ─────────────────────────────────────
+
+router.put('/integrations/:id', async (req, res) => {
+  try {
+    if (!integrationStore) return res.status(503).json({ success: false, error: 'Integration store unavailable' });
+    const existing = await integrationStore.getIntegration(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, error: 'Integration not found' });
+    const ALLOWED = ['clientName','name','type','apiKey','endpoint','method','headers','allowQuery','assignedTo','assignedLocations','status'];
+    const updates = {};
+    ALLOWED.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+    const integration = await integrationStore.saveIntegration({ ...existing, ...updates });
+    res.json({ success: true, data: integration });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── DELETE /admin/integrations/:id ──────────────────────────────────────────
+
+router.delete('/integrations/:id', async (req, res) => {
+  try {
+    if (!integrationStore) return res.status(503).json({ success: false, error: 'Integration store unavailable' });
+    await integrationStore.deleteIntegration(req.params.id);
+    activityLogger.log({ locationId: 'admin', event: 'integration_delete', detail: { integrationId: req.params.id }, success: true, adminId: req.adminId });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── POST /admin/integrations/:id/test — test an api_key integration ──────────
+
+router.post('/integrations/:id/test', async (req, res) => {
+  try {
+    if (!integrationStore) return res.status(503).json({ success: false, error: 'Integration store unavailable' });
+    const integ = await integrationStore.getIntegration(req.params.id);
+    if (!integ) return res.status(404).json({ success: false, error: 'Integration not found' });
+    if (integ.type !== 'api_key') return res.status(400).json({ success: false, error: 'Only api_key integrations can be tested' });
+    if (!integ.endpoint) return res.status(400).json({ success: false, error: 'No endpoint configured' });
+
+    let extraHeaders = {};
+    try { if (integ.headers) extraHeaders = JSON.parse(integ.headers); } catch {}
+
+    const fetchRes = await fetch(integ.endpoint, {
+      method: integ.method || 'GET',
+      headers: {
+        ...(integ.apiKey ? { Authorization: `Bearer ${integ.apiKey}` } : {}),
+        'Content-Type': 'application/json',
+        ...extraHeaders,
+      },
+    });
+    const text = await fetchRes.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch {}
+    res.json({ success: fetchRes.ok, status: fetchRes.status, response: json || text.slice(0, 500) });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;

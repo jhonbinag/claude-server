@@ -1693,6 +1693,16 @@ export default function Admin() {
   const [personaForm,        setPersonaForm]        = useState({ name:'', description:'', avatar:'🧑‍💼', personality:'', content:'', assignedTo:'__all__', assignedLocations:[], status:'draft' });
   const [personaImproving,   setPersonaImproving]   = useState(false);
   const [personaSaving,      setPersonaSaving]      = useState(false);
+
+  // 3rd-party Integrations state
+  const [integrations,       setIntegrations]       = useState([]);
+  const [intLoading,         setIntLoading]         = useState(false);
+  const [intModal,           setIntModal]           = useState(null); // null | 'create' | integration obj
+  const [intForm,            setIntForm]            = useState({ clientName:'', name:'', type:'webhook', apiKey:'', endpoint:'', method:'GET', headers:'', allowQuery:false, assignedTo:'__all__', assignedLocations:[], status:'inactive' });
+  const [intSaving,          setIntSaving]          = useState(false);
+  const [intTesting,         setIntTesting]         = useState(null); // integrationId being tested
+  const [intTestResult,      setIntTestResult]      = useState({}); // { [id]: result }
+  const [intOpenFolders,     setIntOpenFolders]     = useState({}); // { [clientName]: bool }
   const [brainDetailTab,     setBrainDetailTab]      = useState('progress'); // 'progress'|'channels'|'videos'|'settings'
   const [showCreateBrain,    setShowCreateBrain]     = useState(false);
   const [brainForm,          setBrainForm]           = useState({ name: '', description: '', primaryChannel: '' });
@@ -1896,6 +1906,19 @@ export default function Admin() {
     setPersonasLoading(false);
   }, [adminKey]);
 
+  const loadIntegrations = useCallback(async () => {
+    setIntLoading(true);
+    const data = await adminFetch('/admin/integrations', { adminKey });
+    if (data.success) {
+      setIntegrations(data.data || []);
+      // Auto-open all folders
+      const folders = {};
+      (data.data || []).forEach(i => { folders[i.clientName] = true; });
+      setIntOpenFolders(folders);
+    }
+    setIntLoading(false);
+  }, [adminKey]);
+
   useEffect(() => {
     if (!authed) return;
     if (tab === 'overview')     { loadStats(); loadBilling(); }
@@ -1906,6 +1929,7 @@ export default function Admin() {
     if (tab === 'plan-tiers')   loadTiers();
     if (tab === 'brain')        loadSharedBrains();
     if (tab === 'personas')     loadPersonas();
+    if (tab === 'integrations') loadIntegrations();
     // Users & Roles tab: ensure locations list is loaded for the dropdown
     if (tab === 'users-roles' && locations.length === 0) loadLocations();
     // Tool Access tab: ensure locations list is loaded for the dropdown
@@ -2113,15 +2137,16 @@ export default function Admin() {
     { key: 'users-roles',  label: 'Users & Roles',icon: '👥' },
     { key: 'tool-access',  label: 'Tool Access',  icon: '🔧' },
     { key: 'brain',        label: 'Brain',        icon: '🧠' },
-    { key: 'personas',     label: 'Chat Personas',icon: '🎭' },
-    { key: 'logs',         label: 'Activity Logs',icon: '📋' },
+    { key: 'personas',     label: 'Chat Personas', icon: '🎭' },
+    { key: 'integrations', label: 'Integrations',  icon: '🔌' },
+    { key: 'logs',         label: 'Activity Logs', icon: '📋' },
     { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
   ];
 
   const PAGE_TITLE = {
     overview: 'Dashboard', locations: 'Locations', billing: 'Billing',
     'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles', 'tool-access': 'Tool Access',
-    brain: 'Brain', personas: 'Chat Personas', logs: 'Activity Logs', 'app-settings': 'App Settings',
+    brain: 'Brain', personas: 'Chat Personas', integrations: 'Integrations', logs: 'Activity Logs', 'app-settings': 'App Settings',
   };
 
   const navItemStyle = (active) => ({
@@ -2783,6 +2808,324 @@ export default function Admin() {
             )}
           </div>
         )}
+
+        {/* ── Integrations Tab ─────────────────────────────────────────── */}
+        {tab === 'integrations' && (() => {
+          const host = typeof window !== 'undefined' ? window.location.origin : '';
+          const TYPE_COLORS = { webhook: { bg:'rgba(16,185,129,0.12)', border:'rgba(16,185,129,0.3)', color:'#34d399' }, api_key: { bg:'rgba(99,102,241,0.12)', border:'rgba(99,102,241,0.3)', color:'#a5b4fc' }, our_api: { bg:'rgba(245,158,11,0.12)', border:'rgba(245,158,11,0.3)', color:'#fbbf24' } };
+          const TYPE_LABELS = { webhook:'Webhook', api_key:'API Key', our_api:'Our API' };
+          const TYPE_ICONS  = { webhook:'🪝', api_key:'🔑', our_api:'⚡' };
+
+          // Group by clientName
+          const folders = {};
+          integrations.forEach(i => { if (!folders[i.clientName]) folders[i.clientName] = []; folders[i.clientName].push(i); });
+          const clientNames = Object.keys(folders).sort();
+
+          const copyBtn = (text, label) => (
+            <button onClick={() => navigator.clipboard.writeText(text)}
+              style={{ fontSize:10, padding:'2px 8px', borderRadius:5, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', color:'#9ca3af', cursor:'pointer' }}
+              title="Copy">{label || 'Copy'}</button>
+          );
+
+          const INT_FORM_BLANK = { clientName:'', name:'', type:'webhook', apiKey:'', endpoint:'', method:'GET', headers:'', allowQuery:false, assignedTo:'__all__', assignedLocations:[], status:'inactive' };
+
+          return (
+            <div>
+              {/* Header */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24 }}>
+                <div>
+                  <h2 style={{ margin:0, fontSize:15, fontWeight:700, color:'#f1f5f9' }}>3rd-Party Integrations</h2>
+                  <p style={{ margin:'4px 0 0', fontSize:12, color:'#6b7280' }}>Connect external tools via webhook, API key, or generate your own API endpoint. Organized by client. Data syncs to user chats automatically.</p>
+                </div>
+                <button onClick={() => { setIntForm({ ...INT_FORM_BLANK }); setIntModal('create'); }}
+                  style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:8, background:'rgba(124,58,237,0.2)', border:'1px solid rgba(124,58,237,0.4)', color:'#a78bfa', cursor:'pointer', fontSize:13, fontWeight:600 }}>
+                  + New Integration
+                </button>
+              </div>
+
+              {/* Type legend */}
+              <div style={{ display:'flex', gap:8, marginBottom:20, flexWrap:'wrap' }}>
+                {Object.entries(TYPE_LABELS).map(([k, v]) => {
+                  const c = TYPE_COLORS[k];
+                  return <span key={k} style={{ fontSize:11, padding:'3px 10px', borderRadius:10, background:c.bg, border:`1px solid ${c.border}`, color:c.color }}>{TYPE_ICONS[k]} {v}</span>;
+                })}
+                <span style={{ fontSize:11, color:'#4b5563', alignSelf:'center', marginLeft:4 }}>· Webhook & Our API: 3rd party pushes data to you · API Key: you call their endpoint</span>
+              </div>
+
+              {intLoading ? (
+                <div style={{ textAlign:'center', padding:40, color:'#6b7280' }}>Loading…</div>
+              ) : integrations.length === 0 ? (
+                <div style={{ textAlign:'center', padding:60, color:'#4b5563' }}>
+                  <div style={{ fontSize:40, marginBottom:12 }}>🔌</div>
+                  <p style={{ margin:0, fontSize:14 }}>No integrations yet.</p>
+                  <p style={{ margin:'6px 0 0', fontSize:12 }}>Create one to connect a 3rd-party tool to your user chats.</p>
+                </div>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  {clientNames.map(clientName => {
+                    const items = folders[clientName];
+                    const open  = intOpenFolders[clientName] !== false;
+                    return (
+                      <div key={clientName} style={{ background:'#0e1623', border:'1px solid #1e2a3a', borderRadius:12, overflow:'hidden' }}>
+                        {/* Folder header */}
+                        <div onClick={() => setIntOpenFolders(f => ({ ...f, [clientName]: !open }))}
+                          style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px', cursor:'pointer', background: open ? 'rgba(255,255,255,0.03)' : 'transparent' }}>
+                          <span style={{ fontSize:14 }}>{open ? '📂' : '📁'}</span>
+                          <span style={{ fontWeight:700, fontSize:13, color:'#f1f5f9', flex:1 }}>{clientName}</span>
+                          <span style={{ fontSize:11, color:'#4b5563' }}>{items.length} integration{items.length !== 1 ? 's' : ''}</span>
+                          <span style={{ fontSize:12, color:'#4b5563' }}>{open ? '▲' : '▼'}</span>
+                        </div>
+
+                        {/* Integrations in this folder */}
+                        {open && (
+                          <div style={{ borderTop:'1px solid #1e2a3a' }}>
+                            {items.map((integ, idx) => {
+                              const tc = TYPE_COLORS[integ.type] || TYPE_COLORS.webhook;
+                              const testR = intTestResult[integ.integrationId];
+                              return (
+                                <div key={integ.integrationId} style={{ padding:'14px 16px', borderBottom: idx < items.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                                  <div style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
+                                    <div style={{ flex:1, minWidth:0 }}>
+                                      {/* Title row */}
+                                      <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
+                                        <span style={{ fontSize:13, fontWeight:700, color:'#f1f5f9' }}>{integ.name}</span>
+                                        <span style={{ fontSize:10, padding:'2px 8px', borderRadius:10, background:tc.bg, border:`1px solid ${tc.border}`, color:tc.color }}>{TYPE_ICONS[integ.type]} {TYPE_LABELS[integ.type]}</span>
+                                        <span style={{ fontSize:10, padding:'2px 8px', borderRadius:10, background: integ.status === 'active' ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)', border: integ.status === 'active' ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.08)', color: integ.status === 'active' ? '#34d399' : '#6b7280' }}>{integ.status === 'active' ? 'Active' : 'Inactive'}</span>
+                                        {integ.lastReceivedAt && <span style={{ fontSize:10, color:'#4b5563' }}>Last data: {Math.round((Date.now() - integ.lastReceivedAt) / 60000)}m ago</span>}
+                                      </div>
+
+                                      {/* Webhook URL */}
+                                      {integ.type === 'webhook' && integ.webhookToken && (
+                                        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                                          <span style={{ fontSize:11, color:'#6b7280', flexShrink:0 }}>Webhook URL:</span>
+                                          <code style={{ fontSize:11, color:'#a5b4fc', background:'rgba(0,0,0,0.3)', padding:'2px 8px', borderRadius:5, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{host}/integrations/webhook/{integ.webhookToken}</code>
+                                          {copyBtn(`${host}/integrations/webhook/${integ.webhookToken}`, 'Copy URL')}
+                                        </div>
+                                      )}
+
+                                      {/* Our API */}
+                                      {integ.type === 'our_api' && integ.ourApiKey && (
+                                        <div style={{ display:'flex', flexDirection:'column', gap:4, marginBottom:6 }}>
+                                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                                            <span style={{ fontSize:11, color:'#6b7280', flexShrink:0 }}>POST data:</span>
+                                            <code style={{ fontSize:11, color:'#fbbf24', background:'rgba(0,0,0,0.3)', padding:'2px 8px', borderRadius:5, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{host}/integrations/api/{integ.ourApiKey}</code>
+                                            {copyBtn(`${host}/integrations/api/${integ.ourApiKey}`, 'Copy')}
+                                          </div>
+                                          {integ.allowQuery && (
+                                            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                                              <span style={{ fontSize:11, color:'#6b7280', flexShrink:0 }}>Query AI:</span>
+                                              <code style={{ fontSize:11, color:'#fbbf24', background:'rgba(0,0,0,0.3)', padding:'2px 8px', borderRadius:5, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{host}/integrations/api/{integ.ourApiKey}?q=your+question</code>
+                                              {copyBtn(`${host}/integrations/api/${integ.ourApiKey}?q=`, 'Copy')}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      {/* API Key type — endpoint */}
+                                      {integ.type === 'api_key' && integ.endpoint && (
+                                        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                                          <span style={{ fontSize:11, color:'#6b7280', flexShrink:0 }}>{integ.method || 'GET'}</span>
+                                          <code style={{ fontSize:11, color:'#a5b4fc', background:'rgba(0,0,0,0.3)', padding:'2px 8px', borderRadius:5, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{integ.endpoint}</code>
+                                        </div>
+                                      )}
+
+                                      {/* Last payload preview */}
+                                      {integ.lastPayload && (
+                                        <details style={{ marginTop:4 }}>
+                                          <summary style={{ fontSize:11, color:'#4b5563', cursor:'pointer' }}>Last received payload ▸</summary>
+                                          <pre style={{ fontSize:10, color:'#6b7280', background:'rgba(0,0,0,0.3)', borderRadius:6, padding:'8px 10px', marginTop:6, overflow:'auto', maxHeight:120 }}>
+                                            {typeof integ.lastPayload === 'string' ? integ.lastPayload : JSON.stringify(JSON.parse(integ.lastPayload || '{}'), null, 2)}
+                                          </pre>
+                                        </details>
+                                      )}
+
+                                      {/* Test result */}
+                                      {testR && (
+                                        <div style={{ marginTop:6, padding:'6px 10px', borderRadius:6, background: testR.success ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)', border: testR.success ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(239,68,68,0.25)' }}>
+                                          <span style={{ fontSize:11, color: testR.success ? '#34d399' : '#f87171' }}>{testR.success ? '✓' : '✗'} HTTP {testR.status}</span>
+                                          {testR.response && <pre style={{ margin:'4px 0 0', fontSize:10, color:'#6b7280', overflow:'auto', maxHeight:80 }}>{typeof testR.response === 'object' ? JSON.stringify(testR.response, null, 2) : testR.response}</pre>}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Action buttons */}
+                                    <div style={{ display:'flex', flexDirection:'column', gap:6, flexShrink:0 }}>
+                                      <button onClick={() => { setIntForm({ clientName:integ.clientName, name:integ.name, type:integ.type, apiKey:integ.apiKey||'', endpoint:integ.endpoint||'', method:integ.method||'GET', headers:integ.headers||'', allowQuery:!!integ.allowQuery, assignedTo:integ.assignedTo||'__all__', assignedLocations:integ.assignedLocations||[], status:integ.status }); setIntModal(integ); }}
+                                        style={{ padding:'5px 10px', borderRadius:6, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#d1d5db', cursor:'pointer', fontSize:11 }}>Edit</button>
+                                      {integ.type === 'api_key' && (
+                                        <button onClick={async () => { setIntTesting(integ.integrationId); const r = await adminFetch(`/admin/integrations/${integ.integrationId}/test`, { method:'POST', adminKey }); setIntTestResult(p => ({ ...p, [integ.integrationId]: r })); setIntTesting(null); }}
+                                          disabled={intTesting === integ.integrationId}
+                                          style={{ padding:'5px 10px', borderRadius:6, background:'rgba(99,102,241,0.1)', border:'1px solid rgba(99,102,241,0.25)', color:'#a5b4fc', cursor:'pointer', fontSize:11 }}>{intTesting === integ.integrationId ? '…' : 'Test'}</button>
+                                      )}
+                                      <button onClick={async () => { const ns = integ.status === 'active' ? 'inactive' : 'active'; await adminFetch(`/admin/integrations/${integ.integrationId}`, { method:'PUT', adminKey, body:{ status:ns } }); loadIntegrations(); }}
+                                        style={{ padding:'5px 10px', borderRadius:6, background: integ.status === 'active' ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.04)', border: integ.status === 'active' ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(255,255,255,0.08)', color: integ.status === 'active' ? '#34d399' : '#6b7280', cursor:'pointer', fontSize:11 }}>{integ.status === 'active' ? 'Deactivate' : 'Activate'}</button>
+                                      <button onClick={async () => { if (!window.confirm(`Delete "${integ.name}"?`)) return; await adminFetch(`/admin/integrations/${integ.integrationId}`, { method:'DELETE', adminKey }); loadIntegrations(); }}
+                                        style={{ padding:'5px 10px', borderRadius:6, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.2)', color:'#f87171', cursor:'pointer', fontSize:11 }}>Delete</button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Create / Edit Modal */}
+              {intModal && (
+                <div onClick={() => setIntModal(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+                  <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:520, maxHeight:'92vh', overflowY:'auto', background:'#0e1623', border:'1px solid #1e2a3a', borderRadius:16, boxShadow:'0 24px 64px rgba(0,0,0,0.7)' }}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid #1e2a3a' }}>
+                      <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:'#f1f5f9' }}>{intModal === 'create' ? 'New Integration' : `Edit — ${intModal.name}`}</h3>
+                      <button onClick={() => setIntModal(null)} style={{ background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:16 }}>✕</button>
+                    </div>
+
+                    <div style={{ padding:20, display:'flex', flexDirection:'column', gap:14 }}>
+                      {/* Client / Folder */}
+                      <div>
+                        <label style={bdLabel}>Client Name (Folder) *</label>
+                        <input value={intForm.clientName} onChange={e => setIntForm(f => ({ ...f, clientName: e.target.value }))}
+                          style={{ ...bdInput, marginBottom:0 }} placeholder="e.g. Acme Corp" list="existing-clients" />
+                        <datalist id="existing-clients">{[...new Set(integrations.map(i => i.clientName))].map(c => <option key={c} value={c} />)}</datalist>
+                        <p style={{ margin:'4px 0 0', fontSize:11, color:'#4b5563' }}>Integrations under the same client name share a folder.</p>
+                      </div>
+
+                      <div>
+                        <label style={bdLabel}>Integration Name *</label>
+                        <input value={intForm.name} onChange={e => setIntForm(f => ({ ...f, name: e.target.value }))}
+                          style={{ ...bdInput, marginBottom:0 }} placeholder="e.g. HubSpot, Zapier, Salesforce" />
+                      </div>
+
+                      {/* Type selector */}
+                      <div>
+                        <label style={bdLabel}>Connection Type</label>
+                        <div style={{ display:'flex', gap:8 }}>
+                          {[['webhook','🪝 Webhook','3rd party pushes to you'],['api_key','🔑 API Key','You call their API'],['our_api','⚡ Our API','3rd party calls your endpoint']].map(([v, label, hint]) => (
+                            <button key={v} onClick={() => setIntForm(f => ({ ...f, type: v }))}
+                              style={{ flex:1, padding:'8px 4px', borderRadius:7, border:'1px solid', cursor:'pointer', fontSize:11, fontWeight:500, textAlign:'center', transition:'all .12s',
+                                background: intForm.type === v ? TYPE_COLORS[v].bg : 'transparent',
+                                borderColor: intForm.type === v ? TYPE_COLORS[v].border : '#1e2a3a',
+                                color: intForm.type === v ? TYPE_COLORS[v].color : '#6b7280',
+                              }}>
+                              <div>{label}</div><div style={{ fontSize:9, marginTop:2, opacity:0.7 }}>{hint}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Type-specific fields */}
+                      {intForm.type === 'api_key' && (
+                        <>
+                          <div>
+                            <label style={bdLabel}>API Key</label>
+                            <input value={intForm.apiKey} onChange={e => setIntForm(f => ({ ...f, apiKey: e.target.value }))}
+                              type="password" style={{ ...bdInput, marginBottom:0 }} placeholder="their-api-key-here" />
+                          </div>
+                          <div>
+                            <label style={bdLabel}>Endpoint URL</label>
+                            <input value={intForm.endpoint} onChange={e => setIntForm(f => ({ ...f, endpoint: e.target.value }))}
+                              style={{ ...bdInput, marginBottom:0 }} placeholder="https://api.example.com/data" />
+                          </div>
+                          <div style={{ display:'flex', gap:10 }}>
+                            <div style={{ flex:1 }}>
+                              <label style={bdLabel}>Method</label>
+                              <select value={intForm.method} onChange={e => setIntForm(f => ({ ...f, method: e.target.value }))}
+                                style={{ ...bdInput, marginBottom:0 }}>
+                                <option>GET</option><option>POST</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label style={bdLabel}>Extra Headers (JSON)</label>
+                            <textarea value={intForm.headers} onChange={e => setIntForm(f => ({ ...f, headers: e.target.value }))}
+                              rows={2} style={{ ...bdInput, resize:'vertical', marginBottom:0 }} placeholder='{"X-Custom-Header": "value"}' />
+                          </div>
+                        </>
+                      )}
+
+                      {intForm.type === 'webhook' && (
+                        <div style={{ padding:'10px 14px', borderRadius:8, background:'rgba(16,185,129,0.06)', border:'1px solid rgba(16,185,129,0.2)' }}>
+                          <p style={{ margin:0, fontSize:12, color:'#6b7280', lineHeight:1.6 }}>After saving, a unique webhook URL will be generated. Paste it into Zapier, GHL, or any 3rd party tool. When data is received, it automatically becomes available in user chats.</p>
+                        </div>
+                      )}
+
+                      {intForm.type === 'our_api' && (
+                        <>
+                          <div style={{ padding:'10px 14px', borderRadius:8, background:'rgba(245,158,11,0.06)', border:'1px solid rgba(245,158,11,0.2)' }}>
+                            <p style={{ margin:0, fontSize:12, color:'#6b7280', lineHeight:1.6 }}>A unique API key and endpoint will be generated for you to share with the 3rd party. They can POST data to it or GET AI responses.</p>
+                          </div>
+                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <input type="checkbox" id="allowQuery" checked={intForm.allowQuery} onChange={e => setIntForm(f => ({ ...f, allowQuery: e.target.checked }))} />
+                            <label htmlFor="allowQuery" style={{ fontSize:12, color:'#9ca3af', cursor:'pointer' }}>Allow AI queries via <code style={{ color:'#fbbf24', fontSize:11 }}>?q=question</code> (GET endpoint returns AI response)</label>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Assignment */}
+                      <div>
+                        <label style={bdLabel}>Assign To</label>
+                        <div style={{ display:'flex', gap:8 }}>
+                          {[['__all__','All Locations'],['specific','Specific Locations']].map(([v, label]) => (
+                            <button key={v} onClick={() => setIntForm(f => ({ ...f, assignedTo: v }))}
+                              style={{ flex:1, padding:'8px 0', borderRadius:7, border:'1px solid', cursor:'pointer', fontSize:12, fontWeight:500,
+                                background: intForm.assignedTo === v ? 'rgba(124,58,237,0.2)' : 'transparent',
+                                borderColor: intForm.assignedTo === v ? 'rgba(124,58,237,0.5)' : '#1e2a3a',
+                                color: intForm.assignedTo === v ? '#a78bfa' : '#6b7280',
+                              }}>{label}</button>
+                          ))}
+                        </div>
+                        {intForm.assignedTo === 'specific' && (
+                          <input style={{ ...bdInput, marginTop:8, marginBottom:0 }}
+                            placeholder="Location IDs, comma-separated"
+                            value={(intForm.assignedLocations || []).join(', ')}
+                            onChange={e => setIntForm(f => ({ ...f, assignedLocations: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))} />
+                        )}
+                      </div>
+
+                      {/* Status */}
+                      <div>
+                        <label style={bdLabel}>Status</label>
+                        <div style={{ display:'flex', gap:8 }}>
+                          {[['inactive','Inactive'],['active','Active']].map(([v, label]) => (
+                            <button key={v} onClick={() => setIntForm(f => ({ ...f, status: v }))}
+                              style={{ flex:1, padding:'8px 0', borderRadius:7, border:'1px solid', cursor:'pointer', fontSize:12, fontWeight:500,
+                                background: intForm.status === v ? (v === 'active' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)') : 'transparent',
+                                borderColor: intForm.status === v ? (v === 'active' ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.15)') : '#1e2a3a',
+                                color: intForm.status === v ? (v === 'active' ? '#34d399' : '#9ca3af') : '#6b7280',
+                              }}>{label}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display:'flex', gap:8, padding:'12px 20px 20px', justifyContent:'flex-end' }}>
+                      <button onClick={() => setIntModal(null)} style={bdBtnS}>Cancel</button>
+                      <button disabled={intSaving}
+                        onClick={async () => {
+                          if (!intForm.clientName.trim()) return alert('Client name required');
+                          if (!intForm.name.trim()) return alert('Integration name required');
+                          setIntSaving(true);
+                          if (intModal === 'create') {
+                            await adminFetch('/admin/integrations', { method:'POST', adminKey, body: intForm });
+                          } else {
+                            await adminFetch(`/admin/integrations/${intModal.integrationId}`, { method:'PUT', adminKey, body: intForm });
+                          }
+                          setIntSaving(false);
+                          setIntModal(null);
+                          loadIntegrations();
+                        }}
+                        style={{ ...bdBtnP, opacity: intSaving ? 0.6 : 1 }}
+                      >{intSaving ? 'Saving…' : intModal === 'create' ? 'Create Integration' : 'Save Changes'}</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── Logs Tab ─────────────────────────────────────────────────── */}
         {tab === 'logs' && (

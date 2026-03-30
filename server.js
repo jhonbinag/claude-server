@@ -34,8 +34,9 @@ let improveRoutes;    try { improveRoutes    = require('./src/routes/improve'); 
 let convRoutes;       try { convRoutes       = require('./src/routes/conversations'); } catch (e) { _errors.conversations = e.message; }
 let chatsRoutes;      try { chatsRoutes      = require('./src/routes/chats');        } catch (e) { _errors.chats        = e.message; }
 let vibeAiRoutes;     try { vibeAiRoutes     = require('./src/routes/vibeAi');       } catch (e) { _errors.vibeAi       = e.message; }
-let threePlRoutes;    try { threePlRoutes    = require('./src/routes/3pl');          } catch (e) { _errors.threePl      = e.message; }
-let uiRoute;        try { uiRoute        = require('./src/routes/ui');            } catch (e) { _errors.ui          = e.message; }
+let threePlRoutes;         try { threePlRoutes         = require('./src/routes/3pl');          } catch (e) { _errors.threePl         = e.message; }
+let integrationsRoutes;   try { integrationsRoutes   = require('./src/routes/integrations'); } catch (e) { _errors.integrations   = e.message; }
+let uiRoute;              try { uiRoute              = require('./src/routes/ui');            } catch (e) { _errors.ui             = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
 const app = express();
@@ -128,7 +129,8 @@ if (convRoutes)           app.use('/conversations',   convRoutes);
 if (chatsRoutes)          app.use('/chats',           chatsRoutes);
 if (vibeAiRoutes)         app.use('/vibe-ai',         vibeAiRoutes);
 if (threePlRoutes)        app.use('/3pl',             threePlRoutes);
-if (uiRoute)         app.use('/',           uiRoute);
+if (integrationsRoutes)   app.use('/integrations',   integrationsRoutes);
+if (uiRoute)              app.use('/',               uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path }));

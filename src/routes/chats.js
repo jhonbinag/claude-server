@@ -20,8 +20,9 @@ const router        = express.Router();
 const authenticate  = require('../middleware/authenticate');
 const store         = require('../services/conversationStore');
 const brainStore    = require('../services/brainStore');
-const personaStore  = require('../services/personaStore');
-const Anthropic     = require('@anthropic-ai/sdk');
+const personaStore       = require('../services/personaStore');
+const integrationStore   = require('../services/integrationStore');
+const Anthropic          = require('@anthropic-ai/sdk');
 
 const client     = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SHARED_LOC = '__shared__';
@@ -167,7 +168,23 @@ router.post('/:id/message', async (req, res) => {
       { role: 'user', content: message.trim() },
     ];
 
-    // 3. Pass 1 — fast draft via Haiku (silent, not streamed)
+    // 3. Load active 3rd-party integrations and inject any recent data
+    try {
+      const integrations = await integrationStore.getIntegrationsForLocation(req.locationId);
+      const intParts = integrations
+        .filter(i => i.lastPayload)
+        .map(i => {
+          let payload = i.lastPayload;
+          try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch {}
+          const ago = i.lastReceivedAt ? `(received ${Math.round((Date.now() - i.lastReceivedAt) / 60000)}m ago)` : '';
+          return `[${i.clientName} — ${i.name}] ${ago}:\n${typeof payload === 'object' ? JSON.stringify(payload, null, 2) : payload}`;
+        });
+      if (intParts.length > 0) {
+        brainContext += `\n\n3RD-PARTY INTEGRATION DATA:\n${intParts.join('\n\n---\n\n')}\n\nUse the above data to provide more accurate and context-aware answers.\n\n`;
+      }
+    } catch (_) {}
+
+    // 4. Pass 1 — fast draft via Haiku (silent, not streamed)
     send('status', { text: 'Thinking…' });
     const draft = await client.messages.create({
       model:      'claude-haiku-4-5-20251001',
@@ -177,7 +194,7 @@ router.post('/:id/message', async (req, res) => {
     });
     const draftText = draft.content[0]?.text?.trim() || '';
 
-    // 4. Pass 2 — improve the draft and stream the result via Sonnet
+    // 5. Pass 2 — improve the draft and stream the result via Sonnet
     send('status', { text: '✨ Improving…' });
 
     const improveMessages = [
@@ -206,7 +223,7 @@ router.post('/:id/message', async (req, res) => {
 
     await stream.finalMessage();
 
-    // 5. Persist updated conversation
+    // 6. Persist updated conversation
     const conv     = await store.getConversation(req.locationId + ':chats', req.params.id).catch(() => null);
     const existing = conv?.messages || [];
     const updated  = [
