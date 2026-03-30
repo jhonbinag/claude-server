@@ -85,8 +85,6 @@ function useVoice(onTranscript) {
 }
 
 const QUICK_ACTIONS = [
-  { label: 'Search contacts',       prompt: 'List the 10 most recently added contacts in GHL.' },
-  { label: 'Active opportunities',  prompt: 'Show all open opportunities and their pipeline stages.' },
   { label: 'Pending appointments',  prompt: 'List all upcoming appointments for the next 7 days.' },
   { label: 'List workflows',        prompt: 'List all available GHL workflows and their status.' },
   { label: 'Bulk SMS draft',        prompt: 'Draft an SMS to all contacts tagged "lead". Show me the message before sending.' },
@@ -841,38 +839,13 @@ export default function GHLAssistant() {
             </div>
           )}
 
-          {/* Quick action chips — horizontal carousel */}
-          <div
-            className="chips-row flex-shrink-0 gap-2 px-3 py-2.5"
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.15)' }}
-          >
-            {QUICK_ACTIONS.map(({ label, prompt }) => (
-              <button
-                key={label}
-                onClick={() => handleChip(prompt)}
-                disabled={isRunning}
-                className="text-xs px-3 py-1.5 rounded-full border transition-all flex-shrink-0"
-                style={{
-                  background: 'rgba(255,255,255,0.04)',
-                  borderColor: 'rgba(255,255,255,0.08)',
-                  color: '#9ca3af',
-                  whiteSpace: 'nowrap',
-                }}
-                onMouseOver={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#a5b4fc'; }}
-                onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#9ca3af'; }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
           {/* Stream output */}
           <StreamOutput
             messages={messages}
             isRunning={isRunning}
             placeholder={{
               icon: '🤖',
-              text: 'Type a task below or click a quick action\nClaude will use all your connected tools automatically',
+              text: 'Type / to see available commands, or type any task freely\nThe agent will use all your connected tools automatically',
             }}
             voice={{ listening, supported: voiceSupported, toggle: toggleVoice, elapsed, liveText }}
           />
