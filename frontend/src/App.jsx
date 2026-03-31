@@ -25,17 +25,11 @@ function Gated({ feature, element }) {
   return <Navigate to={fallback} replace />;
 }
 
-export default function App() {
+// ── AppProvider wrapper for routes that need it ───────────────────────────────
+function AppRoutes() {
   return (
     <AppProvider>
       <Routes>
-        {/* Admin uses its own full-screen layout (separate auth) */}
-        <Route path="/admin" element={<Admin />} />
-
-        {/* Admin Dashboard — location-scoped management panel */}
-        <Route path="/admin-dashboard" element={<AdminDashboard />} />
-
-        {/* All other routes share the AppShell (sidebar + topbar) */}
         <Route element={<AppShell />}>
           <Route path="/"                element={<Gated feature="dashboard"      element={<Dashboard />} />} />
           <Route path="/chats"           element={<Gated feature="chats"          element={<Chats />} />} />
@@ -46,17 +40,30 @@ export default function App() {
           <Route path="/social"          element={<Gated feature="social_planner" element={<SocialHub />} />} />
           <Route path="/settings"        element={<Gated feature="settings"       element={<Settings />} />} />
 
-          {/* Legacy redirects — keep old bookmarks/links working */}
-          <Route path="/brain"           element={<Navigate to="/agents"   replace />} />
-          <Route path="/ads-generator"   element={<Navigate to="/ads"      replace />} />
-          <Route path="/ad-library"      element={<Navigate to="/ads"      replace />} />
-          <Route path="/manychat"        element={<Navigate to="/social"   replace />} />
-          <Route path="/billing"         element={<Navigate to="/settings" replace />} />
+          {/* Legacy redirects */}
+          <Route path="/brain"           element={<Navigate to="/agents"        replace />} />
+          <Route path="/ads-generator"   element={<Navigate to="/ads"           replace />} />
+          <Route path="/ad-library"      element={<Navigate to="/ads"           replace />} />
+          <Route path="/manychat"        element={<Navigate to="/social"        replace />} />
+          <Route path="/billing"         element={<Navigate to="/settings"      replace />} />
           <Route path="/builder"         element={<Navigate to="/funnel-builder" replace />} />
 
           <Route path="*"                element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </AppProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      {/* Standalone — no AppProvider, no GHL session needed */}
+      <Route path="/admin"           element={<Admin />} />
+      <Route path="/admin-dashboard" element={<AdminDashboard />} />
+
+      {/* All other routes use AppProvider + AppShell */}
+      <Route path="/*" element={<AppRoutes />} />
+    </Routes>
   );
 }

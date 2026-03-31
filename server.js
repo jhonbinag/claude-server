@@ -37,6 +37,7 @@ let vibeAiRoutes;     try { vibeAiRoutes     = require('./src/routes/vibeAi');  
 let threePlRoutes;         try { threePlRoutes         = require('./src/routes/3pl');          } catch (e) { _errors.threePl         = e.message; }
 let integrationsRoutes;   try { integrationsRoutes   = require('./src/routes/integrations'); } catch (e) { _errors.integrations   = e.message; }
 let betaLabRoutes;        try { betaLabRoutes        = require('./src/routes/betaLab');      } catch (e) { _errors.betaLab        = e.message; }
+let dashboardRoutes;      try { dashboardRoutes      = require('./src/routes/dashboard');    } catch (e) { _errors.dashboard      = e.message; }
 let uiRoute;              try { uiRoute              = require('./src/routes/ui');            } catch (e) { _errors.ui             = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
@@ -132,6 +133,7 @@ if (vibeAiRoutes)         app.use('/vibe-ai',         vibeAiRoutes);
 if (threePlRoutes)        app.use('/3pl',             threePlRoutes);
 if (integrationsRoutes)   app.use('/integrations',   integrationsRoutes);
 if (betaLabRoutes)        app.use('/beta',            betaLabRoutes);
+if (dashboardRoutes)      app.use('/dashboard',       dashboardRoutes);
 if (uiRoute)              app.use('/',               uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────

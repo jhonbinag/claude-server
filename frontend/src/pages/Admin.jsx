@@ -1707,6 +1707,11 @@ export default function Admin() {
   const [personaWebhookTest, setPersonaWebhookTest] = useState(null); // { loading, result }
   const [personaSaving,      setPersonaSaving]      = useState(false);
 
+  // Admin Dashboard config state
+  const [dashCfg,            setDashCfg]            = useState(null);  // { enabledTabs, allTabs }
+  const [dashCfgSaving,      setDashCfgSaving]      = useState(false);
+  const [dashCfgTabs,        setDashCfgTabs]        = useState([]);    // local edit copy
+
   // Beta Lab state
   const [betaFeatures,       setBetaFeatures]       = useState([]);
   const [betaLoading,        setBetaLoading]        = useState(false);
@@ -1954,6 +1959,14 @@ export default function Admin() {
     setBetaLoading(false);
   }, [adminKey]);
 
+  const loadDashCfg = useCallback(async () => {
+    const data = await adminFetch('/admin/dashboard-config', { adminKey });
+    if (data.success) {
+      setDashCfg(data);
+      setDashCfgTabs(data.data?.enabledTabs || []);
+    }
+  }, [adminKey]);
+
   useEffect(() => {
     if (!authed) return;
     if (tab === 'overview')     { loadStats(); loadBilling(); }
@@ -1965,7 +1978,8 @@ export default function Admin() {
     if (tab === 'brain')        loadSharedBrains();
     if (tab === 'personas')     loadPersonas();
     if (tab === 'integrations') loadIntegrations();
-    if (tab === 'beta-lab')     loadBetaFeatures();
+    if (tab === 'beta-lab')        loadBetaFeatures();
+    if (tab === 'dashboard-cfg')   loadDashCfg();
     // Users & Roles tab: ensure locations list + default role loaded
     if (tab === 'users-roles') {
       if (locations.length === 0) loadLocations();
@@ -2193,8 +2207,9 @@ export default function Admin() {
     { key: 'brain',        label: 'Brain',        icon: '🧠' },
     { key: 'personas',     label: 'Chat Personas', icon: '🎭' },
     { key: 'integrations', label: 'Integrations',  icon: '🔌' },
-    { key: 'beta-lab',     label: 'Beta Lab',      icon: '🧪' },
-    { key: 'logs',         label: 'Activity Logs', icon: '📋' },
+    { key: 'beta-lab',        label: 'Beta Lab',        icon: '🧪' },
+    { key: 'dashboard-cfg',  label: 'Admin Dashboard', icon: '🛡️' },
+    { key: 'logs',            label: 'Activity Logs',   icon: '📋' },
     { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
   ];
 
@@ -4591,6 +4606,100 @@ export default function Admin() {
             </div>
           );
         })()}
+
+        {/* ── Admin Dashboard Config Tab ───────────────────────────────── */}
+        {tab === 'dashboard-cfg' && (
+          <div>
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ color: '#fff', margin: '0 0 6px', fontSize: 16 }}>🛡️ Admin Dashboard</h3>
+              <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
+                Configure what sections are visible on the Admin Dashboard (
+                <code style={{ color: '#a5b4fc', fontSize: 12 }}>/ui/admin-dashboard</code>
+                ). Share that link with your location admins.
+              </p>
+            </div>
+
+            {/* Shareable link */}
+            <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#9ca3af', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shareable Link</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <code style={{ flex: 1, background: '#0a0f1a', border: '1px solid #1f2937', borderRadius: 6, padding: '8px 12px', fontSize: 13, color: '#a5b4fc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {window.location.origin}/ui/admin-dashboard
+                </code>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/ui/admin-dashboard`); toast.success('Link copied'); }}
+                  style={{ flexShrink: 0, background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, color: '#a5b4fc', padding: '7px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                >Copy</button>
+              </div>
+              <p style={{ margin: '10px 0 0', fontSize: 12, color: '#4b5563' }}>
+                Location admins enter their Location ID + User ID on the login screen. No separate credentials required.
+              </p>
+            </div>
+
+            {/* Tab toggles */}
+            {dashCfg ? (
+              <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: '20px' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#e5e7eb', marginBottom: 16 }}>Enabled Sections</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+                  {(dashCfg.allTabs || []).map(t => {
+                    const on = dashCfgTabs.includes(t.id);
+                    return (
+                      <div key={t.id} style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        background: '#0f1117', border: `1px solid ${on ? 'rgba(99,102,241,0.3)' : '#1f2937'}`,
+                        borderRadius: 8, padding: '12px 16px',
+                      }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#e5e7eb' }}>{t.label}</div>
+                          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{t.desc}</div>
+                        </div>
+                        <button
+                          onClick={() => setDashCfgTabs(prev => on ? prev.filter(x => x !== t.id) : [...prev, t.id])}
+                          style={{
+                            flexShrink: 0, position: 'relative',
+                            width: 46, height: 25, borderRadius: 99,
+                            background: on ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.06)',
+                            border: `1px solid ${on ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.12)'}`,
+                            cursor: 'pointer', padding: '0 3px',
+                            display: 'flex', alignItems: 'center', transition: 'all .2s',
+                          }}
+                        >
+                          <span style={{
+                            width: 17, height: 17, borderRadius: '50%',
+                            background: on ? '#6366f1' : '#4b5563',
+                            transform: on ? 'translateX(21px)' : 'translateX(0)',
+                            transition: 'all .2s', display: 'block',
+                          }} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  disabled={dashCfgSaving}
+                  onClick={async () => {
+                    setDashCfgSaving(true);
+                    const data = await adminFetch('/admin/dashboard-config', { method: 'PUT', adminKey, body: { enabledTabs: dashCfgTabs } });
+                    if (data.success) {
+                      setDashCfg(d => ({ ...d, data: data.data }));
+                      toast.success('Dashboard config saved');
+                    } else {
+                      toast.error(data.error || 'Save failed');
+                    }
+                    setDashCfgSaving(false);
+                  }}
+                  style={{
+                    background: '#6366f1', border: 'none', borderRadius: 8,
+                    color: '#fff', padding: '9px 22px', cursor: dashCfgSaving ? 'not-allowed' : 'pointer',
+                    fontSize: 13, fontWeight: 600, opacity: dashCfgSaving ? 0.6 : 1,
+                  }}
+                >{dashCfgSaving ? 'Saving…' : 'Save Config'}</button>
+              </div>
+            ) : (
+              <p style={{ color: '#4b5563', textAlign: 'center', padding: 40 }}>Loading…</p>
+            )}
+          </div>
+        )}
 
         {/* ── Brain Tab ────────────────────────────────────────────────── */}
         {tab === 'brain' && (

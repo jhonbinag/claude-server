@@ -1339,6 +1339,32 @@ router.post('/integrations/:id/test', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADMIN DASHBOARD CONFIG — controls what tabs show in /ui/admin-dashboard
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let dashboardConfigStore;
+try { dashboardConfigStore = require('../services/dashboardConfigStore'); } catch (e) { console.warn('[Admin] dashboardConfigStore:', e.message); }
+
+router.get('/dashboard-config', async (req, res) => {
+  try {
+    if (!dashboardConfigStore) return res.status(503).json({ success: false, error: 'Dashboard config store unavailable' });
+    const cfg = await dashboardConfigStore.getConfig();
+    res.json({ success: true, data: cfg, allTabs: dashboardConfigStore.ALL_TABS });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.put('/dashboard-config', async (req, res) => {
+  try {
+    if (!dashboardConfigStore) return res.status(503).json({ success: false, error: 'Dashboard config store unavailable' });
+    const { enabledTabs } = req.body;
+    if (!Array.isArray(enabledTabs)) return res.status(400).json({ success: false, error: 'enabledTabs array required' });
+    const cfg = await dashboardConfigStore.saveConfig({ enabledTabs });
+    activityLogger.log({ locationId: 'system', event: 'dashboard_config_update', detail: { enabledTabs }, success: true, adminId: req.adminId });
+    res.json({ success: true, data: cfg });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // ─── GET /admin/tools/meta — static GHL built-in tool metadata ───────────────
 
 router.get('/tools/meta', (req, res) => {
