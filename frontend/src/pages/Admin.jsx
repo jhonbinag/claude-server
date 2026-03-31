@@ -1719,6 +1719,14 @@ export default function Admin() {
   const [betaForm,           setBetaForm]           = useState({ title:'', description:'', version:'', status:'not_shared' });
   const [betaSaving,         setBetaSaving]         = useState(false);
 
+  // Credentials management state
+  const [credentials,        setCredentials]        = useState([]);
+  const [credLoading,        setCredLoading]        = useState(false);
+  const [credModal,          setCredModal]          = useState(null); // null | 'create' | cred obj (edit)
+  const [credForm,           setCredForm]           = useState({ name:'', username:'', password:'', locationId:'', locationName:'', role:'mini_admin', status:'active', notes:'' });
+  const [credSaving,         setCredSaving]         = useState(false);
+  const [credShowPass,       setCredShowPass]       = useState(false);
+
   // 3rd-party Integrations state
   const [builtinTools,       setBuiltinTools]       = useState([]); // GHL built-in tool metadata
   const [integrations,       setIntegrations]       = useState([]);
@@ -1967,6 +1975,13 @@ export default function Admin() {
     }
   }, [adminKey]);
 
+  const loadCredentials = useCallback(async () => {
+    setCredLoading(true);
+    const data = await adminFetch('/admin/dashboard-credentials', { adminKey });
+    if (data.success) setCredentials(data.credentials || []);
+    setCredLoading(false);
+  }, [adminKey]);
+
   useEffect(() => {
     if (!authed) return;
     if (tab === 'overview')     { loadStats(); loadBilling(); }
@@ -1980,6 +1995,7 @@ export default function Admin() {
     if (tab === 'integrations') loadIntegrations();
     if (tab === 'beta-lab')        loadBetaFeatures();
     if (tab === 'dashboard-cfg')   loadDashCfg();
+    if (tab === 'credentials')     { loadCredentials(); if (locations.length === 0) loadLocations(); }
     // Users & Roles tab: ensure locations list + default role loaded
     if (tab === 'users-roles') {
       if (locations.length === 0) loadLocations();
@@ -2209,6 +2225,7 @@ export default function Admin() {
     { key: 'integrations', label: 'Integrations',  icon: '🔌' },
     { key: 'beta-lab',        label: 'Beta Lab',        icon: '🧪' },
     { key: 'dashboard-cfg',  label: 'Admin Dashboard', icon: '🛡️' },
+    { key: 'credentials',    label: 'Credentials',     icon: '🔑' },
     { key: 'logs',            label: 'Activity Logs',   icon: '📋' },
     { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
   ];
@@ -2216,7 +2233,7 @@ export default function Admin() {
   const PAGE_TITLE = {
     overview: 'Dashboard', locations: 'Locations', billing: 'Billing',
     'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles', 'tool-access': 'Tool Access',
-    brain: 'Brain', personas: 'Chat Personas', integrations: 'Integrations', logs: 'Activity Logs', 'app-settings': 'App Settings',
+    brain: 'Brain', personas: 'Chat Personas', integrations: 'Integrations', credentials: 'Credentials', logs: 'Activity Logs', 'app-settings': 'App Settings',
   };
 
   const navItemStyle = (active) => ({
@@ -4700,6 +4717,204 @@ export default function Admin() {
             )}
           </div>
         )}
+
+        {/* ── Credentials Tab ──────────────────────────────────────────── */}
+        {tab === 'credentials' && (() => {
+          const credRoleBadge = (role) => {
+            const colors = { admin: { bg: 'rgba(239,68,68,0.12)', color: '#f87171', border: 'rgba(239,68,68,0.25)' }, mini_admin: { bg: 'rgba(124,58,237,0.12)', color: '#a78bfa', border: 'rgba(124,58,237,0.25)' } };
+            const c = colors[role] || colors.mini_admin;
+            return <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: c.bg, color: c.color, border: `1px solid ${c.border}`, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{role === 'admin' ? 'Admin' : 'Mini Admin'}</span>;
+          };
+          const credStatusBadge = (status) => {
+            const on = status === 'active';
+            return <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: on ? 'rgba(74,222,128,0.1)' : 'rgba(107,114,128,0.12)', color: on ? '#4ade80' : '#6b7280', border: `1px solid ${on ? 'rgba(74,222,128,0.2)' : 'rgba(107,114,128,0.2)'}` }}>{on ? 'Active' : 'Inactive'}</span>;
+          };
+          const openCreate = () => {
+            setCredForm({ name:'', username:'', password:'', locationId:'', locationName:'', role:'mini_admin', status:'active', notes:'' });
+            setCredShowPass(false);
+            setCredModal('create');
+          };
+          const openEdit = (cred) => {
+            setCredForm({ name: cred.name, username: cred.username, password:'', locationId: cred.locationId, locationName: cred.locationName || '', role: cred.role || 'mini_admin', status: cred.status || 'active', notes: cred.notes || '' });
+            setCredShowPass(false);
+            setCredModal(cred);
+          };
+          const deleteCred = (cred) => {
+            confirmToast(`Delete credential for "${cred.name}" (@${cred.username})?`, async () => {
+              const r = await adminFetch(`/admin/dashboard-credentials/${cred.credentialId}`, { method: 'DELETE', adminKey });
+              if (r.success) { toast.success('Credential deleted'); loadCredentials(); }
+              else toast.error(r.error || 'Delete failed');
+            }, 'Delete', '#dc2626');
+          };
+          const saveCred = async () => {
+            setCredSaving(true);
+            try {
+              const isCreate = credModal === 'create';
+              const body = { name: credForm.name, username: credForm.username, locationId: credForm.locationId, locationName: credForm.locationName, role: credForm.role, status: credForm.status, notes: credForm.notes };
+              if (isCreate) body.password = credForm.password;
+              else if (credForm.password) body.newPassword = credForm.password;
+              const url = isCreate ? '/admin/dashboard-credentials' : `/admin/dashboard-credentials/${credModal.credentialId}`;
+              const r = await adminFetch(url, { method: isCreate ? 'POST' : 'PUT', adminKey, body });
+              if (r.success) { toast.success(isCreate ? 'Credential created' : 'Credential updated'); setCredModal(null); loadCredentials(); }
+              else toast.error(r.error || 'Save failed');
+            } finally { setCredSaving(false); }
+          };
+          const inpStyle = { width:'100%', boxSizing:'border-box', background:'#0d1117', border:'1px solid #2a2a2a', borderRadius:8, color:'#e5e7eb', padding:'9px 12px', fontSize:14, outline:'none', marginBottom:14 };
+          const lblStyle = { display:'block', color:'#9ca3af', fontSize:12, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:5 };
+          return (
+            <div>
+              {/* Header row */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+                <div>
+                  <h2 style={{ margin:0, fontSize:16, fontWeight:700, color:'#f1f5f9' }}>Admin Dashboard Credentials</h2>
+                  <p style={{ margin:'4px 0 0', fontSize:13, color:'#6b7280' }}>Manage login accounts for the Admin Dashboard (/ui/admin-dashboard).</p>
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button onClick={loadCredentials} style={{ background:'transparent', border:'1px solid #2a2a2a', borderRadius:8, color:'#9ca3af', padding:'8px 14px', cursor:'pointer', fontSize:13 }}>↻ Reload</button>
+                  <button onClick={openCreate} style={{ background:'#7c3aed', border:'none', borderRadius:8, color:'#fff', padding:'8px 16px', cursor:'pointer', fontSize:13, fontWeight:600 }}>+ New Credential</button>
+                </div>
+              </div>
+
+              {/* Table */}
+              {credLoading ? (
+                <p style={{ color:'#4b5563', textAlign:'center', padding:40 }}>Loading…</p>
+              ) : credentials.length === 0 ? (
+                <div style={{ background:'#0e0e16', border:'1px dashed #2a2a2a', borderRadius:16, padding:'50px 20px', textAlign:'center' }}>
+                  <div style={{ fontSize:40, marginBottom:12 }}>🔑</div>
+                  <p style={{ color:'#4b5563', margin:0, fontSize:14 }}>No credentials yet. Create one to allow access to the Admin Dashboard.</p>
+                </div>
+              ) : (
+                <div style={{ background:'#0e0e16', border:'1px solid #1e1e2e', borderRadius:12, overflow:'hidden', overflowX:'auto' }}>
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:700 }}>
+                    <thead>
+                      <tr style={{ borderBottom:'1px solid #1e1e2e' }}>
+                        {['Name / Username','Location','Role','Status','Last Login','Logins','Created','Actions'].map(h => (
+                          <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:'#4b5563' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {credentials.map(cred => (
+                        <tr key={cred.credentialId} style={{ borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+                          <td style={{ padding:'12px 14px' }}>
+                            <div style={{ fontWeight:600, color:'#e5e7eb' }}>{cred.name}</div>
+                            <div style={{ fontFamily:'monospace', fontSize:12, color:'#6b7280', marginTop:2 }}>@{cred.username}</div>
+                          </td>
+                          <td style={{ padding:'12px 14px' }}>
+                            <LocationIdentity locationId={cred.locationId} name={cred.locationName} fallbackName="Unknown" shortId idFontSize={11} nameWeight={500} />
+                          </td>
+                          <td style={{ padding:'12px 14px' }}>{credRoleBadge(cred.role)}</td>
+                          <td style={{ padding:'12px 14px' }}>
+                            <button
+                              title="Click to toggle"
+                              onClick={async () => {
+                                const r = await adminFetch(`/admin/dashboard-credentials/${cred.credentialId}`, { method:'PUT', adminKey, body: { status: cred.status === 'active' ? 'inactive' : 'active' } });
+                                if (r.success) loadCredentials();
+                                else toast.error(r.error || 'Update failed');
+                              }}
+                              style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}
+                            >{credStatusBadge(cred.status)}</button>
+                          </td>
+                          <td style={{ padding:'12px 14px', color:'#6b7280', fontSize:12, whiteSpace:'nowrap' }}>
+                            {cred.lastLoginAt ? relTime(cred.lastLoginAt) : <span style={{ color:'#374151' }}>Never</span>}
+                            {cred.lastLoginIp && <div style={{ fontSize:11, color:'#374151', marginTop:2 }}>{cred.lastLoginIp}</div>}
+                          </td>
+                          <td style={{ padding:'12px 14px', color:'#6b7280', textAlign:'center' }}>{cred.loginCount || 0}</td>
+                          <td style={{ padding:'12px 14px', color:'#4b5563', fontSize:12, whiteSpace:'nowrap' }}>{cred.createdAt ? new Date(cred.createdAt).toLocaleDateString() : '—'}</td>
+                          <td style={{ padding:'12px 14px' }}>
+                            <div style={{ display:'flex', gap:6 }}>
+                              <button onClick={() => openEdit(cred)} style={{ background:'rgba(124,58,237,0.1)', border:'1px solid rgba(124,58,237,0.2)', borderRadius:6, color:'#a78bfa', padding:'4px 10px', cursor:'pointer', fontSize:12 }}>Edit</button>
+                              <button onClick={() => deleteCred(cred)} style={{ background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.18)', borderRadius:6, color:'#f87171', padding:'4px 10px', cursor:'pointer', fontSize:12 }}>Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Create / Edit Modal */}
+              {credModal && (
+                <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20, backdropFilter:'blur(4px)' }}>
+                  <div style={{ background:'#0e0e16', border:'1px solid #1e2a3a', borderRadius:16, padding:28, width:'100%', maxWidth:480, maxHeight:'90vh', overflowY:'auto' }}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+                      <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:'#f1f5f9' }}>{credModal === 'create' ? 'New Credential' : `Edit — ${credModal.name}`}</h3>
+                      <button onClick={() => setCredModal(null)} style={{ background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:18, lineHeight:1 }}>×</button>
+                    </div>
+
+                    <label style={lblStyle}>Display Name</label>
+                    <input style={inpStyle} placeholder="e.g. John Smith" value={credForm.name} onChange={e => setCredForm(f => ({ ...f, name: e.target.value }))} />
+
+                    <label style={lblStyle}>Username</label>
+                    <input style={inpStyle} placeholder="e.g. jsmith" value={credForm.username} onChange={e => setCredForm(f => ({ ...f, username: e.target.value }))} autoComplete="off" />
+
+                    <label style={lblStyle}>{credModal === 'create' ? 'Password' : 'New Password (leave blank to keep current)'}</label>
+                    <div style={{ position:'relative', marginBottom:14 }}>
+                      <input
+                        type={credShowPass ? 'text' : 'password'}
+                        style={{ ...inpStyle, marginBottom:0, paddingRight:44 }}
+                        placeholder={credModal === 'create' ? 'Password' : 'Leave blank to keep current'}
+                        value={credForm.password}
+                        onChange={e => setCredForm(f => ({ ...f, password: e.target.value }))}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setCredShowPass(v => !v)}
+                        style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:13, padding:0 }}
+                      >{credShowPass ? 'Hide' : 'Show'}</button>
+                    </div>
+
+                    <label style={lblStyle}>Location</label>
+                    <select
+                      style={{ ...inpStyle, cursor:'pointer' }}
+                      value={credForm.locationId}
+                      onChange={e => {
+                        const loc = locations.find(l => l.locationId === e.target.value);
+                        setCredForm(f => ({ ...f, locationId: e.target.value, locationName: loc?.name || '' }));
+                      }}
+                    >
+                      <option value="">— Select location —</option>
+                      {locations.map(loc => (
+                        <option key={loc.locationId} value={loc.locationId}>{loc.name ? `${loc.name} · ${loc.locationId}` : loc.locationId}</option>
+                      ))}
+                    </select>
+
+                    <label style={lblStyle}>Role</label>
+                    <select style={{ ...inpStyle, cursor:'pointer' }} value={credForm.role} onChange={e => setCredForm(f => ({ ...f, role: e.target.value }))}>
+                      <option value="mini_admin">Mini Admin</option>
+                      <option value="admin">Admin</option>
+                    </select>
+
+                    <label style={lblStyle}>Status</label>
+                    <select style={{ ...inpStyle, cursor:'pointer' }} value={credForm.status} onChange={e => setCredForm(f => ({ ...f, status: e.target.value }))}>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+
+                    <label style={lblStyle}>Notes (optional)</label>
+                    <textarea
+                      style={{ ...inpStyle, minHeight:72, resize:'vertical' }}
+                      placeholder="Internal notes about this credential…"
+                      value={credForm.notes}
+                      onChange={e => setCredForm(f => ({ ...f, notes: e.target.value }))}
+                    />
+
+                    <div style={{ display:'flex', gap:10, marginTop:4 }}>
+                      <button
+                        onClick={saveCred}
+                        disabled={credSaving}
+                        style={{ flex:1, background:'#7c3aed', border:'none', borderRadius:8, color:'#fff', padding:'10px', fontSize:14, fontWeight:600, cursor: credSaving ? 'not-allowed' : 'pointer', opacity: credSaving ? 0.6 : 1 }}
+                      >{credSaving ? 'Saving…' : (credModal === 'create' ? 'Create Credential' : 'Save Changes')}</button>
+                      <button onClick={() => setCredModal(null)} style={{ padding:'10px 18px', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, color:'#9ca3af', fontSize:14, cursor:'pointer' }}>Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── Brain Tab ────────────────────────────────────────────────── */}
         {tab === 'brain' && (
