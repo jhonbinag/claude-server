@@ -2635,10 +2635,9 @@ export default function Admin() {
                         <input style={inp} type="number" placeholder="587" value={smtpForm.port} onChange={e => setSmtpForm(f => ({ ...f, port: parseInt(e.target.value) || 587 }))} />
                       </div>
                     </div>
-                    <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', marginBottom:14 }}>
-                      <input type="checkbox" checked={smtpForm.secure} onChange={e => setSmtpForm(f => ({ ...f, secure: e.target.checked }))} style={{ width:16, height:16, accentColor:'#6366f1', cursor:'pointer' }} />
-                      <span style={{ fontSize:13, color:'#9ca3af' }}>Use TLS/SSL (port 465 typically)</span>
-                    </label>
+                    <p style={{ fontSize:12, color:'#4b5563', margin:'0 0 14px', padding:'8px 12px', background:'rgba(255,255,255,0.03)', borderRadius:6, border:'1px solid #1f2937' }}>
+                      SSL mode is auto-detected from port — port <strong style={{color:'#9ca3af'}}>465</strong> uses SSL, port <strong style={{color:'#9ca3af'}}>587</strong> uses STARTTLS.
+                    </p>
                     <label style={lbl}>SMTP Username / Email</label>
                     <input style={inp} type="email" placeholder="you@gmail.com" value={smtpForm.user} onChange={e => setSmtpForm(f => ({ ...f, user: e.target.value }))} autoComplete="off" />
                     <label style={lbl}>{smtpCfg?.hasPassword ? 'Password (leave blank to keep current)' : 'Password'}</label>

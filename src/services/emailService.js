@@ -38,18 +38,27 @@ async function resolveSmtpConfig() {
   return null; // not configured
 }
 
+/**
+ * Build a nodemailer transport from a config object.
+ * Port 465 → SSL (secure:true). All others → STARTTLS (secure:false).
+ * This prevents the "wrong version number" SSL error when secure:true is used with port 587.
+ */
+function buildTransport(cfg) {
+  const secure = cfg.port === 465;
+  return nodemailer.createTransport({
+    host:   cfg.host,
+    port:   cfg.port,
+    secure,
+    ...(secure ? {} : { requireTLS: false }),
+    auth:   { user: cfg.user, pass: cfg.pass },
+    tls:    { rejectUnauthorized: false },
+  });
+}
+
 async function getTransporter() {
   const cfg = await resolveSmtpConfig();
   if (!cfg) return null;
-  return {
-    transport: nodemailer.createTransport({
-      host:   cfg.host,
-      port:   cfg.port,
-      secure: cfg.secure,
-      auth:   { user: cfg.user, pass: cfg.pass },
-    }),
-    from: cfg.from,
-  };
+  return { transport: buildTransport(cfg), from: cfg.from };
 }
 
 /**
@@ -144,12 +153,7 @@ async function sendTestEmail(to) {
 
   if (!dbCfg) return { sent: false, error: 'SMTP not configured. Save your SMTP settings first.' };
 
-  const transport = nodemailer.createTransport({
-    host:   dbCfg.host,
-    port:   dbCfg.port,
-    secure: dbCfg.secure,
-    auth:   { user: dbCfg.user, pass: dbCfg.pass },
-  });
+  const transport = buildTransport(dbCfg);
   await transport.sendMail({
     from: dbCfg.from || dbCfg.user,
     to,
