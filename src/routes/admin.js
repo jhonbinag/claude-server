@@ -1463,6 +1463,29 @@ router.post('/dashboard-credentials/:id/resend-activation', async (req, res) => 
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// BUSINESS PROFILE — branding name/logo synced across all interfaces
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let businessProfileStore;
+try { businessProfileStore = require('../services/businessProfileStore'); } catch (e) { console.warn('[Admin] businessProfileStore:', e.message); }
+
+router.get('/business-profile', async (req, res) => {
+  try {
+    if (!businessProfileStore) return res.status(503).json({ success: false, error: 'Business profile store unavailable' });
+    const profile = await businessProfileStore.getProfile();
+    res.json({ success: true, profile });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.put('/business-profile', async (req, res) => {
+  try {
+    if (!businessProfileStore) return res.status(503).json({ success: false, error: 'Business profile store unavailable' });
+    const profile = await businessProfileStore.saveProfile(req.body);
+    res.json({ success: true, profile });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // SMTP CONFIG — email settings for Admin Dashboard credential activation
 // ═══════════════════════════════════════════════════════════════════════════════
 

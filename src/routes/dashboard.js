@@ -31,6 +31,9 @@ const credStore            = require('../services/dashboardCredentialStore');
 const tokenStore           = require('../services/tokenStore');
 const ghlClient            = require('../services/ghlClient');
 
+let businessProfileStore;
+try { businessProfileStore = require('../services/businessProfileStore'); } catch { /* optional */ }
+
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
 async function dashAuth(req, res, next) {
@@ -75,8 +78,15 @@ async function dashAuth(req, res, next) {
 
 router.get('/public-config', async (req, res) => {
   try {
-    const cfg = await dashboardConfigStore.getConfig();
-    res.json({ success: true, enabledTabs: cfg.enabledTabs || [] });
+    const [cfg, profile] = await Promise.all([
+      dashboardConfigStore.getConfig(),
+      businessProfileStore ? businessProfileStore.getProfile() : null,
+    ]);
+    res.json({
+      success:         true,
+      enabledTabs:     cfg.enabledTabs || [],
+      businessProfile: profile || { name: 'HL Pro Tools', tagline: '', logoEmoji: '🧩', logoUrl: '' },
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
