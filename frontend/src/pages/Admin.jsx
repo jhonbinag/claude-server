@@ -2030,7 +2030,8 @@ export default function Admin() {
     if (tab === 'overview')     { loadStats(); loadBilling(); }
     if (tab === 'locations')    loadLocations();
     if (tab === 'logs')         loadLogs();
-    if (tab === 'app-settings') { loadAppSettings(); loadBizProfile(); loadSmtpConfig(); }
+    if (tab === 'app-settings') { loadAppSettings(); loadBizProfile(); }
+    if (tab === 'email-config') loadSmtpConfig();
     if (tab === 'billing')      loadBilling();
     if (tab === 'plan-tiers')   loadTiers();
     if (tab === 'brain')        loadSharedBrains();
@@ -2269,6 +2270,7 @@ export default function Admin() {
     { key: 'beta-lab',        label: 'Beta Lab',        icon: '🧪' },
     { key: 'dashboard-cfg',  label: 'Admin Dashboard', icon: '🛡️' },
     { key: 'credentials',    label: 'Credentials',     icon: '🔑' },
+    { key: 'email-config',   label: 'Email Config',    icon: '✉️' },
     { key: 'logs',            label: 'Activity Logs',   icon: '📋' },
     { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
   ];
@@ -2276,7 +2278,7 @@ export default function Admin() {
   const PAGE_TITLE = {
     overview: 'Dashboard', locations: 'Locations', billing: 'Billing',
     'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles', 'tool-access': 'Tool Access',
-    brain: 'Brain', personas: 'Chat Personas', integrations: 'Integrations', credentials: 'Credentials', logs: 'Activity Logs', 'app-settings': 'App Settings',
+    brain: 'Brain', personas: 'Chat Personas', integrations: 'Integrations', credentials: 'Credentials', 'email-config': 'Email Config', logs: 'Activity Logs', 'app-settings': 'App Settings',
   };
 
   const navItemStyle = (active) => ({
@@ -2515,103 +2517,6 @@ export default function Admin() {
               </p>
             </div>
 
-            {/* ── SMTP Email Configuration ── */}
-            <div style={{ marginTop: 32 }}>
-              <h3 style={{ color: '#fff', margin: '0 0 6px', fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
-                ✉️ Email Configuration
-                {smtpCfg && (
-                  <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:99, background: smtpCfg.enabled ? 'rgba(74,222,128,0.1)' : 'rgba(107,114,128,0.1)', color: smtpCfg.enabled ? '#4ade80' : '#6b7280', border: `1px solid ${smtpCfg.enabled ? 'rgba(74,222,128,0.2)' : 'rgba(107,114,128,0.2)'}` }}>
-                    {smtpCfg.enabled ? 'Enabled' : 'Disabled'}
-                  </span>
-                )}
-              </h3>
-              <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 16px' }}>
-                SMTP settings for sending credential activation emails. Leave disabled to fall back to server environment variables.
-              </p>
-
-              <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: 20 }}>
-                {(() => {
-                  const inp = { width:'100%', boxSizing:'border-box', background:'#0a0f1a', border:'1px solid #1f2937', borderRadius:8, color:'#e5e7eb', padding:'9px 12px', fontSize:14, outline:'none', marginBottom:14 };
-                  const lbl = { display:'block', color:'#9ca3af', fontSize:12, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:5 };
-                  const row2 = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 };
-                  return (
-                    <>
-                      <label style={{ display:'flex', alignItems:'center', gap:12, cursor:'pointer', marginBottom:20, padding:'12px 16px', background:'#0f1117', border:'1px solid #1f2937', borderRadius:8 }}>
-                        <input type="checkbox" checked={smtpForm.enabled} onChange={e => setSmtpForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width:17, height:17, accentColor:'#6366f1', cursor:'pointer' }} />
-                        <div>
-                          <div style={{ fontSize:14, fontWeight:600, color:'#e5e7eb' }}>Enable SMTP Email</div>
-                          <div style={{ fontSize:12, color:'#4b5563', marginTop:2 }}>Use this configuration for activation emails. If disabled, falls back to SMTP_* env vars.</div>
-                        </div>
-                      </label>
-                      <div style={row2}>
-                        <div>
-                          <label style={lbl}>SMTP Host</label>
-                          <input style={inp} placeholder="smtp.gmail.com" value={smtpForm.host} onChange={e => setSmtpForm(f => ({ ...f, host: e.target.value }))} />
-                        </div>
-                        <div>
-                          <label style={lbl}>Port</label>
-                          <input style={inp} type="number" placeholder="587" value={smtpForm.port} onChange={e => setSmtpForm(f => ({ ...f, port: parseInt(e.target.value) || 587 }))} />
-                        </div>
-                      </div>
-                      <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', marginBottom:14 }}>
-                        <input type="checkbox" checked={smtpForm.secure} onChange={e => setSmtpForm(f => ({ ...f, secure: e.target.checked }))} style={{ width:16, height:16, accentColor:'#6366f1', cursor:'pointer' }} />
-                        <span style={{ fontSize:13, color:'#9ca3af' }}>Use TLS/SSL (port 465 typically)</span>
-                      </label>
-                      <label style={lbl}>SMTP Username / Email</label>
-                      <input style={inp} type="email" placeholder="you@gmail.com" value={smtpForm.user} onChange={e => setSmtpForm(f => ({ ...f, user: e.target.value }))} autoComplete="off" />
-                      <label style={lbl}>{smtpCfg?.hasPassword ? 'Password (leave blank to keep current)' : 'Password'}</label>
-                      <div style={{ position:'relative', marginBottom:14 }}>
-                        <input
-                          type={smtpShowPass ? 'text' : 'password'}
-                          style={{ ...inp, marginBottom:0, paddingRight:44 }}
-                          placeholder={smtpCfg?.hasPassword ? '••••••••' : 'Enter SMTP password'}
-                          value={smtpForm.pass}
-                          onChange={e => setSmtpForm(f => ({ ...f, pass: e.target.value }))}
-                          autoComplete="new-password"
-                        />
-                        <button type="button" onClick={() => setSmtpShowPass(v => !v)} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:13, padding:0 }}>
-                          {smtpShowPass ? 'Hide' : 'Show'}
-                        </button>
-                      </div>
-                      <label style={lbl}>From Address</label>
-                      <input style={inp} placeholder={'"HL Pro Tools" <noreply@example.com>'} value={smtpForm.from} onChange={e => setSmtpForm(f => ({ ...f, from: e.target.value }))} />
-                      <button
-                        disabled={smtpSaving}
-                        onClick={async () => {
-                          setSmtpSaving(true);
-                          const data = await adminFetch('/admin/smtp-config', { method:'PUT', adminKey, body: smtpForm });
-                          if (data.success) { setSmtpCfg(data.config); toast.success('Email config saved'); }
-                          else toast.error(data.error || 'Save failed');
-                          setSmtpSaving(false);
-                        }}
-                        style={{ background:'#6366f1', border:'none', borderRadius:8, color:'#fff', padding:'9px 22px', cursor: smtpSaving ? 'not-allowed' : 'pointer', fontSize:13, fontWeight:600, opacity: smtpSaving ? 0.6 : 1, marginBottom:20 }}
-                      >{smtpSaving ? 'Saving…' : 'Save Email Config'}</button>
-                      <div style={{ borderTop:'1px solid #1f2937', paddingTop:16 }}>
-                        <div style={{ fontSize:12, fontWeight:600, color:'#9ca3af', marginBottom:10, textTransform:'uppercase', letterSpacing:'0.04em' }}>Send Test Email</div>
-                        <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-                          <input type="email" placeholder="test@example.com" value={smtpTestTo} onChange={e => { setSmtpTestTo(e.target.value); setSmtpTestResult(null); }} style={{ ...inp, marginBottom:0, flex:1 }} />
-                          <button
-                            disabled={smtpTesting || !smtpTestTo.trim()}
-                            onClick={async () => {
-                              setSmtpTesting(true); setSmtpTestResult(null);
-                              const data = await adminFetch('/admin/smtp-config/test', { method:'POST', adminKey, body: { to: smtpTestTo } });
-                              setSmtpTestResult(data.success ? { ok:true, msg:'Test email sent successfully!' } : { ok:false, msg: data.error || 'Send failed' });
-                              setSmtpTesting(false);
-                            }}
-                            style={{ flexShrink:0, background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.3)', borderRadius:8, color:'#a5b4fc', padding:'9px 16px', cursor: (smtpTesting || !smtpTestTo.trim()) ? 'not-allowed' : 'pointer', fontSize:13, fontWeight:600, opacity: (smtpTesting || !smtpTestTo.trim()) ? 0.5 : 1 }}
-                          >{smtpTesting ? 'Sending…' : 'Send Test'}</button>
-                        </div>
-                        {smtpTestResult && (
-                          <div style={{ marginTop:10, padding:'8px 12px', borderRadius:7, fontSize:13, background: smtpTestResult.ok ? 'rgba(74,222,128,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${smtpTestResult.ok ? 'rgba(74,222,128,0.2)' : 'rgba(239,68,68,0.2)'}`, color: smtpTestResult.ok ? '#4ade80' : '#f87171' }}>
-                            {smtpTestResult.ok ? '✓ ' : '✗ '}{smtpTestResult.msg}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
             </>}
 
             {/* ── Business Profile sub-tab ── */}
@@ -4963,6 +4868,108 @@ export default function Admin() {
               <p style={{ color: '#4b5563', textAlign: 'center', padding: 40 }}>Loading…</p>
             )}
 
+          </div>
+        )}
+
+        {/* ── Email Config Tab ─────────────────────────────────────────── */}
+        {tab === 'email-config' && (
+          <div style={{ maxWidth: 560 }}>
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ color: '#fff', margin: '0 0 6px', fontSize: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+                ✉️ Email Configuration
+                {smtpCfg && (
+                  <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:99, background: smtpCfg.enabled ? 'rgba(74,222,128,0.1)' : 'rgba(107,114,128,0.1)', color: smtpCfg.enabled ? '#4ade80' : '#6b7280', border: `1px solid ${smtpCfg.enabled ? 'rgba(74,222,128,0.2)' : 'rgba(107,114,128,0.2)'}` }}>
+                    {smtpCfg.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                )}
+              </h3>
+              <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
+                SMTP settings for sending credential activation emails. Leave disabled to fall back to server environment variables.
+              </p>
+            </div>
+
+            <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: 20 }}>
+              {(() => {
+                const inp = { width:'100%', boxSizing:'border-box', background:'#0a0f1a', border:'1px solid #1f2937', borderRadius:8, color:'#e5e7eb', padding:'9px 12px', fontSize:14, outline:'none', marginBottom:14 };
+                const lbl = { display:'block', color:'#9ca3af', fontSize:12, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:5 };
+                const row2 = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 };
+                return (
+                  <>
+                    <label style={{ display:'flex', alignItems:'center', gap:12, cursor:'pointer', marginBottom:20, padding:'12px 16px', background:'#0f1117', border:'1px solid #1f2937', borderRadius:8 }}>
+                      <input type="checkbox" checked={smtpForm.enabled} onChange={e => setSmtpForm(f => ({ ...f, enabled: e.target.checked }))} style={{ width:17, height:17, accentColor:'#6366f1', cursor:'pointer' }} />
+                      <div>
+                        <div style={{ fontSize:14, fontWeight:600, color:'#e5e7eb' }}>Enable SMTP Email</div>
+                        <div style={{ fontSize:12, color:'#4b5563', marginTop:2 }}>Use this configuration for activation emails. If disabled, falls back to SMTP_* env vars.</div>
+                      </div>
+                    </label>
+                    <div style={row2}>
+                      <div>
+                        <label style={lbl}>SMTP Host</label>
+                        <input style={inp} placeholder="smtp.gmail.com" value={smtpForm.host} onChange={e => setSmtpForm(f => ({ ...f, host: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Port</label>
+                        <input style={inp} type="number" placeholder="587" value={smtpForm.port} onChange={e => setSmtpForm(f => ({ ...f, port: parseInt(e.target.value) || 587 }))} />
+                      </div>
+                    </div>
+                    <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', marginBottom:14 }}>
+                      <input type="checkbox" checked={smtpForm.secure} onChange={e => setSmtpForm(f => ({ ...f, secure: e.target.checked }))} style={{ width:16, height:16, accentColor:'#6366f1', cursor:'pointer' }} />
+                      <span style={{ fontSize:13, color:'#9ca3af' }}>Use TLS/SSL (port 465 typically)</span>
+                    </label>
+                    <label style={lbl}>SMTP Username / Email</label>
+                    <input style={inp} type="email" placeholder="you@gmail.com" value={smtpForm.user} onChange={e => setSmtpForm(f => ({ ...f, user: e.target.value }))} autoComplete="off" />
+                    <label style={lbl}>{smtpCfg?.hasPassword ? 'Password (leave blank to keep current)' : 'Password'}</label>
+                    <div style={{ position:'relative', marginBottom:14 }}>
+                      <input
+                        type={smtpShowPass ? 'text' : 'password'}
+                        style={{ ...inp, marginBottom:0, paddingRight:44 }}
+                        placeholder={smtpCfg?.hasPassword ? '••••••••' : 'Enter SMTP password'}
+                        value={smtpForm.pass}
+                        onChange={e => setSmtpForm(f => ({ ...f, pass: e.target.value }))}
+                        autoComplete="new-password"
+                      />
+                      <button type="button" onClick={() => setSmtpShowPass(v => !v)} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:13, padding:0 }}>
+                        {smtpShowPass ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    <label style={lbl}>From Address</label>
+                    <input style={inp} placeholder={'"HL Pro Tools" <noreply@example.com>'} value={smtpForm.from} onChange={e => setSmtpForm(f => ({ ...f, from: e.target.value }))} />
+                    <button
+                      disabled={smtpSaving}
+                      onClick={async () => {
+                        setSmtpSaving(true);
+                        const data = await adminFetch('/admin/smtp-config', { method:'PUT', adminKey, body: smtpForm });
+                        if (data.success) { setSmtpCfg(data.config); toast.success('Email config saved'); }
+                        else toast.error(data.error || 'Save failed');
+                        setSmtpSaving(false);
+                      }}
+                      style={{ background:'#6366f1', border:'none', borderRadius:8, color:'#fff', padding:'9px 22px', cursor: smtpSaving ? 'not-allowed' : 'pointer', fontSize:13, fontWeight:600, opacity: smtpSaving ? 0.6 : 1, marginBottom:20 }}
+                    >{smtpSaving ? 'Saving…' : 'Save Email Config'}</button>
+                    <div style={{ borderTop:'1px solid #1f2937', paddingTop:16 }}>
+                      <div style={{ fontSize:12, fontWeight:600, color:'#9ca3af', marginBottom:10, textTransform:'uppercase', letterSpacing:'0.04em' }}>Send Test Email</div>
+                      <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+                        <input type="email" placeholder="test@example.com" value={smtpTestTo} onChange={e => { setSmtpTestTo(e.target.value); setSmtpTestResult(null); }} style={{ ...inp, marginBottom:0, flex:1 }} />
+                        <button
+                          disabled={smtpTesting || !smtpTestTo.trim()}
+                          onClick={async () => {
+                            setSmtpTesting(true); setSmtpTestResult(null);
+                            const data = await adminFetch('/admin/smtp-config/test', { method:'POST', adminKey, body: { to: smtpTestTo } });
+                            setSmtpTestResult(data.success ? { ok:true, msg:'Test email sent successfully!' } : { ok:false, msg: data.error || 'Send failed' });
+                            setSmtpTesting(false);
+                          }}
+                          style={{ flexShrink:0, background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.3)', borderRadius:8, color:'#a5b4fc', padding:'9px 16px', cursor: (smtpTesting || !smtpTestTo.trim()) ? 'not-allowed' : 'pointer', fontSize:13, fontWeight:600, opacity: (smtpTesting || !smtpTestTo.trim()) ? 0.5 : 1 }}
+                        >{smtpTesting ? 'Sending…' : 'Send Test'}</button>
+                      </div>
+                      {smtpTestResult && (
+                        <div style={{ marginTop:10, padding:'8px 12px', borderRadius:7, fontSize:13, background: smtpTestResult.ok ? 'rgba(74,222,128,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${smtpTestResult.ok ? 'rgba(74,222,128,0.2)' : 'rgba(239,68,68,0.2)'}`, color: smtpTestResult.ok ? '#4ade80' : '#f87171' }}>
+                          {smtpTestResult.ok ? '✓ ' : '✗ '}{smtpTestResult.msg}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
           </div>
         )}
 
