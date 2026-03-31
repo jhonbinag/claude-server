@@ -855,6 +855,31 @@ router.put('/billing/:locationId/tier', async (req, res) => {
   }
 });
 
+// ─── GET /admin/default-role — get the global default role ───────────────────
+
+router.get('/default-role', async (req, res) => {
+  try {
+    const roleId = await roleService.getDefaultRole();
+    res.json({ success: true, roleId, role: roleService.BUILTIN_ROLES[roleId] || null });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── PUT /admin/default-role — set the global default role ───────────────────
+
+router.put('/default-role', async (req, res) => {
+  const { roleId } = req.body || {};
+  if (!roleId) return res.status(400).json({ success: false, error: 'roleId required' });
+  try {
+    await roleService.setDefaultRole(roleId);
+    activityLogger.log({ event: 'default_role_update', detail: { roleId }, success: true, adminId: req.adminId });
+    res.json({ success: true, roleId, role: roleService.BUILTIN_ROLES[roleId] || null });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 // ─── GET /admin/locations/:id/custom-roles — list custom roles ───────────────
 
 router.get('/locations/:id/custom-roles', async (req, res) => {
@@ -871,13 +896,17 @@ router.get('/locations/:id/custom-roles', async (req, res) => {
       r => !roleService.BUILTIN_ROLE_KEYS.includes(r.id)
     );
     const planTierStore = require('../services/planTierStore');
-    const tiers = await planTierStore.getTiers();
+    const [tiers, defaultRoleId] = await Promise.all([
+      planTierStore.getTiers(),
+      roleService.getDefaultRole(),
+    ]);
     res.json({
       success: true,
       builtinRoles,
       customRoles: customOnly,
       allFeatures: roleService.ALL_FEATURES,
       tiers,
+      defaultRoleId,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

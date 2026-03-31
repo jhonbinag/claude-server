@@ -33,6 +33,7 @@ function confirmToast(message, onConfirm, confirmLabel = 'Confirm', confirmColor
 
 // ── Static feature/role defaults (mirrors roleService.js) ─────────────────────
 const ALL_FEATURES_DEFAULT = [
+  { key: 'chats',            label: 'Chats',                 icon: '💬' },
   { key: 'funnel_builder',   label: 'Funnel Builder',        icon: '🏗️' },
   { key: 'website_builder',  label: 'Website Builder',       icon: '🌐' },
   { key: 'ads_generator',    label: 'Bulk Ads Generator',    icon: '🎯' },
@@ -43,7 +44,7 @@ const ALL_FEATURES_DEFAULT = [
   { key: 'agents',           label: 'AI Agents',             icon: '🤖' },
   { key: 'ghl_agent',        label: 'GHL Agent',             icon: '⚡' },
   { key: 'workflows',        label: 'Workflow Builder',      icon: '🔀' },
-  { key: 'manychat',         label: 'ManyChat Integration',  icon: '💬' },
+  { key: 'manychat',         label: 'ManyChat Integration',  icon: '📩' },
   { key: 'settings',         label: 'Integration Settings',  icon: '⚙️' },
   { key: 'brain',            label: 'Brain (Knowledge Base)', icon: '🧠' },
 ];
@@ -77,10 +78,11 @@ const FEATURE_INTEGRATION_MAP = {
 };
 
 const BUILTIN_ROLES_DEFAULT = [
-  { id: 'owner',   name: 'Owner',   features: ALL_FEATURE_KEYS, builtin: true },
-  { id: 'admin',   name: 'Admin',   features: ALL_FEATURE_KEYS, builtin: true },
-  { id: 'manager', name: 'Manager', features: ['funnel_builder','website_builder','ads_generator','social_planner','email_builder','ad_library','campaign_builder'], builtin: true },
-  { id: 'member',  name: 'Member',  features: ['ads_generator','social_planner','ad_library'], builtin: true },
+  { id: 'owner',      name: 'Owner',     features: ALL_FEATURE_KEYS, builtin: true },
+  { id: 'admin',      name: 'Admin',     features: ALL_FEATURE_KEYS, builtin: true },
+  { id: 'manager',    name: 'Manager',   features: ['funnel_builder','website_builder','ads_generator','social_planner','email_builder','ad_library','campaign_builder'], builtin: true },
+  { id: 'member',     name: 'Member',    features: ['ads_generator','social_planner','ad_library'], builtin: true },
+  { id: 'chats_only', name: 'Chat User', features: ['chats'], builtin: true, description: 'Default — Chats access only' },
 ];
 
 function useIsMobile() {
@@ -1666,6 +1668,8 @@ export default function Admin() {
   const [rolesSubTab,        setRolesSubTab]        = useState('users'); // 'users' | 'roles'
   const [roleModal,          setRoleModal]          = useState(null);   // null | { mode:'create'|'edit', role? }
   const [roleTiers,          setRoleTiers]          = useState({});
+  const [defaultRoleId,      setDefaultRoleId]      = useState('chats_only');
+  const [defaultRoleSaving,  setDefaultRoleSaving]  = useState(false);
 
   // Tool Access tab state
   const [toolAccessLocationId, setToolAccessLocationId] = useState('');
@@ -1873,6 +1877,7 @@ export default function Admin() {
         setBuiltinRoles(rolesData.builtinRoles || []);
         setCustomRoles(rolesData.customRoles || []);
         if (rolesData.tiers) setRoleTiers(rolesData.tiers);
+        if (rolesData.defaultRoleId) setDefaultRoleId(rolesData.defaultRoleId);
       }
       setLocationEnabledIntegrations(intData.success ? (intData.enabled || []) : []);
     } catch { toast.error('Failed to load users/roles'); }
@@ -1939,8 +1944,11 @@ export default function Admin() {
     if (tab === 'brain')        loadSharedBrains();
     if (tab === 'personas')     loadPersonas();
     if (tab === 'integrations') loadIntegrations();
-    // Users & Roles tab: ensure locations list is loaded for the dropdown
-    if (tab === 'users-roles' && locations.length === 0) loadLocations();
+    // Users & Roles tab: ensure locations list + default role loaded
+    if (tab === 'users-roles') {
+      if (locations.length === 0) loadLocations();
+      adminFetch('/admin/default-role', { adminKey }).then(r => { if (r.success) setDefaultRoleId(r.roleId); }).catch(() => {});
+    }
     // Tool Access tab: ensure locations list is loaded for the dropdown
     if (tab === 'tool-access' && locations.length === 0) loadLocations();
   }, [authed, tab]); // eslint-disable-line
@@ -3812,6 +3820,36 @@ export default function Admin() {
               <div>
                 <h3 style={{ color: '#fff', margin: '0 0 4px', fontSize: 16 }}>👥 Users &amp; Roles</h3>
                 <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>Create custom roles with fine-grained feature access, then assign them to users per location.</p>
+              </div>
+            </div>
+
+            {/* ── Default User Role banner ── */}
+            <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 10, padding: '14px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ color: '#a5b4fc', fontWeight: 700, fontSize: 13, marginBottom: 3 }}>Default User Role — All Locations</div>
+                <div style={{ color: '#6b7280', fontSize: 12 }}>Applied to every new user across all sub-locations. Controls what they can access in the app. You can override per-user below.</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <select
+                  value={defaultRoleId}
+                  onChange={e => setDefaultRoleId(e.target.value)}
+                  style={{ background: '#111', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 7, color: '#e5e7eb', padding: '7px 12px', fontSize: 13, minWidth: 160 }}
+                >
+                  {[...BUILTIN_ROLES_DEFAULT, ...customRoles].map(r => (
+                    <option key={r.id} value={r.id}>{r.name}{r.id === 'chats_only' ? ' (default)' : ''}</option>
+                  ))}
+                </select>
+                <button
+                  disabled={defaultRoleSaving}
+                  onClick={async () => {
+                    setDefaultRoleSaving(true);
+                    const r = await adminFetch('/admin/default-role', { method: 'PUT', adminKey, body: { roleId: defaultRoleId } });
+                    setDefaultRoleSaving(false);
+                    if (r.success) toast.success(`Default role set to "${r.role?.name || defaultRoleId}" for all locations`);
+                    else toast.error(r.error || 'Failed to save');
+                  }}
+                  style={{ background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 7, color: '#a5b4fc', padding: '7px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600, opacity: defaultRoleSaving ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                >{defaultRoleSaving ? 'Saving…' : 'Save Default'}</button>
               </div>
             </div>
 

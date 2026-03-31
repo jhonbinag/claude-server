@@ -27,6 +27,7 @@ const config = require('../config');
 // ── All available features (shown as checkboxes in role editor) ───────────────
 
 const ALL_FEATURES = [
+  { key: 'chats',            label: 'Chats',                 icon: '💬' },
   { key: 'funnel_builder',   label: 'Funnel Builder',        icon: '🏗️' },
   { key: 'website_builder',  label: 'Website Builder',       icon: '🌐' },
   { key: 'ads_generator',    label: 'Bulk Ads Generator',    icon: '🎯' },
@@ -37,7 +38,7 @@ const ALL_FEATURES = [
   { key: 'agents',           label: 'AI Agents',             icon: '🤖' },
   { key: 'ghl_agent',        label: 'GHL Agent',             icon: '⚡' },
   { key: 'workflows',        label: 'Workflow Builder',      icon: '🔀' },
-  { key: 'manychat',         label: 'ManyChat Integration',  icon: '💬' },
+  { key: 'manychat',         label: 'ManyChat Integration',  icon: '📩' },
   { key: 'settings',         label: 'Integration Settings',  icon: '⚙️' },
   { key: 'brain',            label: 'Brain (Knowledge Base)', icon: '🧠' },
 ];
@@ -45,11 +46,15 @@ const ALL_FEATURES = [
 // ── Built-in role definitions (cannot be edited/deleted) ─────────────────────
 
 const BUILTIN_ROLES = {
-  owner:   { id: 'owner',   name: 'Owner',   features: ['*'],                        builtin: true },
-  admin:   { id: 'admin',   name: 'Admin',   features: ALL_FEATURES.map(f => f.key).filter(k => k !== 'brain'), builtin: true },
-  manager: { id: 'manager', name: 'Manager', features: ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner', 'email_builder', 'ad_library', 'campaign_builder'], builtin: true },
-  member:  { id: 'member',  name: 'Member',  features: ['ads_generator', 'social_planner', 'ad_library'], builtin: true },
+  owner:      { id: 'owner',      name: 'Owner',        features: ['*'],                        builtin: true },
+  admin:      { id: 'admin',      name: 'Admin',        features: ALL_FEATURES.map(f => f.key).filter(k => k !== 'brain'), builtin: true },
+  manager:    { id: 'manager',    name: 'Manager',      features: ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner', 'email_builder', 'ad_library', 'campaign_builder'], builtin: true },
+  member:     { id: 'member',     name: 'Member',       features: ['ads_generator', 'social_planner', 'ad_library'], builtin: true },
+  chats_only: { id: 'chats_only', name: 'Chat User',    features: ['chats'],                    builtin: true, description: 'Default role — access to Chats only' },
 };
+
+// Default role applied to all new / unassigned users across all locations
+const DEFAULT_ROLE_ID = 'chats_only';
 
 const BUILTIN_ROLE_KEYS = Object.keys(BUILTIN_ROLES);
 
@@ -69,15 +74,45 @@ function getDb() {
   }
 }
 
+// ── Global default role (applies to all locations) ────────────────────────────
+
+const _globalMem = {};
+
+async function getDefaultRole() {
+  if (config.isFirebaseEnabled) {
+    const db = getDb();
+    if (db) {
+      const snap = await db.collection('appSettings').doc('defaultRole').get();
+      if (snap.exists) return snap.data().roleId || DEFAULT_ROLE_ID;
+    }
+  }
+  return _globalMem.defaultRole || DEFAULT_ROLE_ID;
+}
+
+async function setDefaultRole(roleId) {
+  // Validate — must be a built-in role (custom roles vary per location)
+  if (!BUILTIN_ROLE_KEYS.includes(roleId) && roleId !== DEFAULT_ROLE_ID) {
+    throw new Error(`Default role must be a built-in role. Got: ${roleId}`);
+  }
+  if (config.isFirebaseEnabled) {
+    const db = getDb();
+    if (db) {
+      await db.collection('appSettings').doc('defaultRole').set({ roleId, updatedAt: Date.now() });
+    }
+  }
+  _globalMem.defaultRole = roleId;
+  return roleId;
+}
+
 // ── Map GHL built-in role to our app role ─────────────────────────────────────
 
 function mapGhlRole(ghlRole) {
-  if (!ghlRole) return 'member';
+  if (!ghlRole) return DEFAULT_ROLE_ID;
   const r = String(ghlRole).toLowerCase();
   if (r === 'admin')   return 'admin';
   if (r === 'owner')   return 'owner';
   if (r === 'manager') return 'manager';
-  return 'member';
+  return DEFAULT_ROLE_ID;
 }
 
 // ── Firestore / memory helpers ────────────────────────────────────────────────
@@ -262,16 +297,17 @@ function canAccess(role, feature) {
 
 async function syncUsers(locationId, ghlRequest, ownerUserId) {
   try {
-    const resp     = await ghlRequest('GET', '/users/', null, { locationId });
-    const ghlUsers = resp?.users || [];
-    const existing = await getUsersForLocation(locationId);
+    const resp       = await ghlRequest('GET', '/users/', null, { locationId });
+    const ghlUsers   = resp?.users || [];
+    const existing   = await getUsersForLocation(locationId);
+    const defRole    = await getDefaultRole();
 
     const merged = {};
     for (const u of ghlUsers) {
       const id = u.id || u.userId;
       if (!id) continue;
       const ghlRole    = u.roles?.type || u.role || 'user';
-      const defaultRole = id === ownerUserId ? 'owner' : mapGhlRole(ghlRole);
+      const defaultRole = id === ownerUserId ? 'owner' : mapGhlRole(ghlRole) === DEFAULT_ROLE_ID ? defRole : mapGhlRole(ghlRole);
       merged[id] = {
         userId:   id,
         name:     u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown',
@@ -295,6 +331,10 @@ module.exports = {
   ALL_FEATURES,
   BUILTIN_ROLES,
   BUILTIN_ROLE_KEYS,
+  DEFAULT_ROLE_ID,
+  // Default role
+  getDefaultRole,
+  setDefaultRole,
   // Custom roles
   getCustomRoles,
   getAllRoles,
