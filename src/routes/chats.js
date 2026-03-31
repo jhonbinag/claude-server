@@ -62,7 +62,6 @@ async function callPersonaWebhook(persona, message, locationId, conversationId, 
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 8000);
     const headers = { 'Content-Type': 'application/json' };
-    if (persona.webhookSecret) headers['X-Persona-Secret'] = persona.webhookSecret;
     const body = JSON.stringify({
       personaId:      persona.personaId,
       personaName:    persona.name,

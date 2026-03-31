@@ -1130,7 +1130,6 @@ router.post('/personas/:id/test-webhook', async (req, res) => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 8000);
     const headers = { 'Content-Type': 'application/json' };
-    if (persona.webhookSecret) headers['X-Persona-Secret'] = persona.webhookSecret;
     try {
       const fetchRes = await fetch(persona.webhookUrl, {
         method: 'POST',

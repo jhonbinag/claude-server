@@ -1691,7 +1691,7 @@ export default function Admin() {
   const [personas,           setPersonas]           = useState([]);
   const [personasLoading,    setPersonasLoading]    = useState(false);
   const [personaModal,       setPersonaModal]       = useState(null); // null | 'create' | persona object (edit)
-  const [personaForm,        setPersonaForm]        = useState({ name:'', description:'', avatar:'🧑‍💼', personality:'', content:'', assignedTo:'__all__', assignedLocations:[], status:'draft', webhookEnabled:false, webhookUrl:'', webhookSecret:'' });
+  const [personaForm,        setPersonaForm]        = useState({ name:'', description:'', avatar:'🧑‍💼', personality:'', content:'', assignedTo:'__all__', assignedLocations:[], status:'draft', webhookEnabled:false, webhookUrl:'' });
   const [personaImproving,   setPersonaImproving]   = useState(false);
   const [personaWebhookTest, setPersonaWebhookTest] = useState(null); // { loading, result }
   const [personaSaving,      setPersonaSaving]      = useState(false);
@@ -2618,7 +2618,7 @@ export default function Admin() {
                 <p style={{ margin:'4px 0 0', fontSize:12, color:'#6b7280' }}>Create AI personas users chat with. Each persona gets a personality, knowledge content, and an AI-polished system prompt.</p>
               </div>
               <button
-                onClick={() => { setPersonaForm({ name:'', description:'', avatar:'🧑‍💼', personality:'', content:'', assignedTo:'__all__', assignedLocations:[], status:'draft', webhookEnabled:false, webhookUrl:'', webhookSecret:'' }); setPersonaWebhookTest(null); setPersonaModal('create'); }}
+                onClick={() => { setPersonaForm({ name:'', description:'', avatar:'🧑‍💼', personality:'', content:'', assignedTo:'__all__', assignedLocations:[], status:'draft', webhookEnabled:false, webhookUrl:'' }); setPersonaWebhookTest(null); setPersonaModal('create'); }}
                 style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:8, background:'rgba(124,58,237,0.2)', border:'1px solid rgba(124,58,237,0.4)', color:'#a78bfa', cursor:'pointer', fontSize:13, fontWeight:600 }}
               >+ New Persona</button>
             </div>
@@ -2671,7 +2671,7 @@ export default function Admin() {
                     {/* Actions */}
                     <div style={{ display:'flex', gap:8, marginTop:'auto' }}>
                       <button
-                        onClick={() => { setPersonaForm({ ...p, assignedLocations: p.assignedLocations || [], webhookEnabled: p.webhookEnabled || false, webhookUrl: p.webhookUrl || '', webhookSecret: p.webhookSecret || '' }); setPersonaWebhookTest(null); setPersonaModal(p); }}
+                        onClick={() => { setPersonaForm({ ...p, assignedLocations: p.assignedLocations || [], webhookEnabled: p.webhookEnabled || false, webhookUrl: p.webhookUrl || '' }); setPersonaWebhookTest(null); setPersonaModal(p); }}
                         style={{ flex:1, padding:'7px 0', borderRadius:7, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#d1d5db', cursor:'pointer', fontSize:12 }}
                       >Edit</button>
                       <button
@@ -2807,43 +2807,46 @@ export default function Admin() {
                     </div>
                   </div>
 
-                  {/* ── Webhook / Endpoint section ── */}
+                  {/* ── External Data Connection section ── */}
                   <div style={{ padding:'0 20px 4px' }}>
                     <div style={{ borderTop:'1px solid #1e2a3a', paddingTop:16, marginTop:4 }}>
-                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-                        <label style={{ ...bdLabel, margin:0 }}>🪝 Webhook / Endpoint</label>
+                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                        <label style={{ ...bdLabel, margin:0 }}>🔗 External Data Connection</label>
                         <label style={{ display:'flex', alignItems:'center', gap:7, cursor:'pointer' }}>
                           <input type="checkbox" checked={!!personaForm.webhookEnabled}
                             onChange={e => setPersonaForm(f => ({ ...f, webhookEnabled: e.target.checked }))} />
-                          <span style={{ fontSize:12, color:'#9ca3af' }}>Enable outbound hook</span>
+                          <span style={{ fontSize:12, color: personaForm.webhookEnabled ? '#34d399' : '#6b7280' }}>
+                            {personaForm.webhookEnabled ? 'Enabled' : 'Disabled'}
+                          </span>
                         </label>
                       </div>
-                      <p style={{ margin:'0 0 10px', fontSize:11, color:'#4b5563', lineHeight:1.5 }}>
-                        When enabled, every user message is POSTed to your URL. The response is injected as context for the AI reply. You can also push data to this persona's inbound endpoint at any time.
-                      </p>
 
-                      {/* Outbound URL */}
-                      <div style={{ marginBottom:10 }}>
-                        <label style={{ ...bdLabel, fontSize:11 }}>Outbound URL (POST)</label>
-                        <input value={personaForm.webhookUrl}
-                          onChange={e => setPersonaForm(f => ({ ...f, webhookUrl: e.target.value }))}
-                          placeholder="https://your-tool.com/webhook"
-                          style={{ width:'100%', background:'#0d1117', border:'1px solid #1e2a3a', borderRadius:6, color:'#e5e7eb', padding:'7px 10px', fontSize:12, boxSizing:'border-box' }} />
+                      {/* Flow diagram */}
+                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14, padding:'8px 10px', background:'rgba(0,0,0,0.2)', borderRadius:6, flexWrap:'wrap' }}>
+                        <span style={{ fontSize:11, color:'#4b5563' }}>User message</span>
+                        <span style={{ fontSize:11, color:'#374151' }}>→</span>
+                        <span style={{ fontSize:11, color:'#a5b4fc' }}>POST to your URL</span>
+                        <span style={{ fontSize:11, color:'#374151' }}>→</span>
+                        <span style={{ fontSize:11, color:'#4b5563' }}>your tool returns data</span>
+                        <span style={{ fontSize:11, color:'#374151' }}>→</span>
+                        <span style={{ fontSize:11, color:'#34d399' }}>AI uses it to reply</span>
                       </div>
 
-                      {/* Secret */}
-                      <div style={{ marginBottom:10 }}>
-                        <label style={{ ...bdLabel, fontSize:11 }}>Signing Secret (optional)</label>
-                        <input value={personaForm.webhookSecret}
-                          onChange={e => setPersonaForm(f => ({ ...f, webhookSecret: e.target.value }))}
-                          placeholder="Sent as X-Persona-Secret header"
-                          type="password"
+                      {/* Outbound URL */}
+                      <div style={{ marginBottom:12 }}>
+                        <label style={{ ...bdLabel, fontSize:11 }}>Your endpoint URL</label>
+                        <p style={{ margin:'0 0 6px', fontSize:11, color:'#4b5563' }}>
+                          When a user sends a message, we POST <code style={{ color:'#a5b4fc' }}>{"{ message, personaId, locationId, conversationId, history }"}</code> here. Return any JSON and it becomes context for the AI reply.
+                        </p>
+                        <input value={personaForm.webhookUrl}
+                          onChange={e => setPersonaForm(f => ({ ...f, webhookUrl: e.target.value }))}
+                          placeholder="https://your-tool.com/endpoint"
                           style={{ width:'100%', background:'#0d1117', border:'1px solid #1e2a3a', borderRadius:6, color:'#e5e7eb', padding:'7px 10px', fontSize:12, boxSizing:'border-box' }} />
                       </div>
 
                       {/* Test button */}
                       {personaModal !== 'create' && personaForm.webhookUrl && (
-                        <div style={{ marginBottom:10 }}>
+                        <div style={{ marginBottom:14 }}>
                           <button
                             disabled={personaWebhookTest?.loading}
                             onClick={async () => {
@@ -2852,32 +2855,39 @@ export default function Admin() {
                               setPersonaWebhookTest({ loading: false, result: r });
                             }}
                             style={{ background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.35)', borderRadius:6, color:'#a5b4fc', padding:'6px 14px', cursor:'pointer', fontSize:12 }}
-                          >{personaWebhookTest?.loading ? 'Testing…' : '⚡ Test Outbound Hook'}</button>
+                          >{personaWebhookTest?.loading ? 'Testing…' : '⚡ Send Test'}</button>
                           {personaWebhookTest?.result && (
                             <div style={{ marginTop:8, padding:'8px 10px', borderRadius:6, background: personaWebhookTest.result.success ? 'rgba(16,185,129,0.08)' : 'rgba(220,38,38,0.08)', border:`1px solid ${personaWebhookTest.result.success ? 'rgba(16,185,129,0.2)' : 'rgba(220,38,38,0.2)'}`, fontSize:11, color: personaWebhookTest.result.success ? '#34d399' : '#f87171' }}>
-                              {personaWebhookTest.result.success ? `✓ HTTP ${personaWebhookTest.result.status}` : `✗ ${personaWebhookTest.result.error || 'Failed'}`}
+                              {personaWebhookTest.result.success ? `✓ HTTP ${personaWebhookTest.result.status} — your endpoint received the message` : `✗ ${personaWebhookTest.result.error || 'Failed to reach endpoint'}`}
                               {personaWebhookTest.result.response && (
-                                <pre style={{ margin:'6px 0 0', fontSize:10, color:'#6b7280', whiteSpace:'pre-wrap', maxHeight:80, overflow:'auto' }}>{typeof personaWebhookTest.result.response === 'object' ? JSON.stringify(personaWebhookTest.result.response, null, 2) : String(personaWebhookTest.result.response)}</pre>
+                                <pre style={{ margin:'6px 0 0', fontSize:10, color:'#9ca3af', whiteSpace:'pre-wrap', maxHeight:80, overflow:'auto' }}>{typeof personaWebhookTest.result.response === 'object' ? JSON.stringify(personaWebhookTest.result.response, null, 2) : String(personaWebhookTest.result.response)}</pre>
                               )}
                             </div>
                           )}
                         </div>
                       )}
 
-                      {/* Inbound endpoint (read-only, show only when editing) */}
+                      {/* Inbound endpoint */}
                       {personaModal !== 'create' && personaModal.inboundToken && (
-                        <div style={{ background:'rgba(0,0,0,0.3)', border:'1px solid #1e2a3a', borderRadius:6, padding:'10px 12px' }}>
-                          <div style={{ fontSize:11, color:'#6b7280', marginBottom:6 }}>Inbound endpoint — external tools POST here to push context to this persona:</div>
-                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                            <code style={{ fontSize:11, color:'#34d399', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                              {(typeof window !== 'undefined' ? window.location.origin : '')}/integrations/persona/{personaModal.inboundToken}
-                            </code>
-                            <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/integrations/persona/${personaModal.inboundToken}`)}
-                              style={{ fontSize:10, padding:'2px 8px', borderRadius:5, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', color:'#9ca3af', cursor:'pointer', flexShrink:0 }}>Copy</button>
+                        <div>
+                          <label style={{ ...bdLabel, fontSize:11 }}>Push data to this persona</label>
+                          <p style={{ margin:'0 0 6px', fontSize:11, color:'#4b5563' }}>
+                            External tools can POST any JSON here at any time. The data is stored and injected as context in every chat with this persona until replaced.
+                          </p>
+                          <div style={{ background:'rgba(0,0,0,0.3)', border:'1px solid #1e2a3a', borderRadius:6, padding:'10px 12px' }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                              <span style={{ fontSize:10, color:'#4b5563', flexShrink:0 }}>POST</span>
+                              <code style={{ fontSize:11, color:'#34d399', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                {(typeof window !== 'undefined' ? window.location.origin : '')}/integrations/persona/{personaModal.inboundToken}
+                              </code>
+                              <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/integrations/persona/${personaModal.inboundToken}`)}
+                                style={{ fontSize:10, padding:'2px 8px', borderRadius:5, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', color:'#9ca3af', cursor:'pointer', flexShrink:0 }}>Copy</button>
+                            </div>
+                            <div style={{ fontSize:10, color:'#374151' }}>Body: any JSON — e.g. <code style={{ color:'#6b7280' }}>{"{ \"order\": \"ORD-123\", \"status\": \"shipped\" }"}</code></div>
+                            {personaModal.lastInboundAt && (
+                              <div style={{ fontSize:10, color:'#4b5563', marginTop:4 }}>Last received: {new Date(personaModal.lastInboundAt).toLocaleString()}</div>
+                            )}
                           </div>
-                          {personaModal.lastInboundAt && (
-                            <div style={{ fontSize:10, color:'#4b5563', marginTop:4 }}>Last received: {new Date(personaModal.lastInboundAt).toLocaleString()}</div>
-                          )}
                         </div>
                       )}
                     </div>
