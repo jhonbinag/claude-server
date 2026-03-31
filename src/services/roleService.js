@@ -27,30 +27,38 @@ const config = require('../config');
 // ── All available features (shown as checkboxes in role editor) ───────────────
 
 const ALL_FEATURES = [
-  { key: 'chats',            label: 'Chats',                 icon: '💬' },
-  { key: 'funnel_builder',   label: 'Funnel Builder',        icon: '🏗️' },
-  { key: 'website_builder',  label: 'Website Builder',       icon: '🌐' },
-  { key: 'ads_generator',    label: 'Bulk Ads Generator',    icon: '🎯' },
-  { key: 'social_planner',   label: 'Social Planner',        icon: '📱' },
-  { key: 'email_builder',    label: 'Email Builder',         icon: '📧' },
-  { key: 'ad_library',       label: 'Ad Library Intel',      icon: '📊' },
-  { key: 'campaign_builder', label: 'Campaign Builder',      icon: '📣' },
-  { key: 'agents',           label: 'AI Agents',             icon: '🤖' },
-  { key: 'ghl_agent',        label: 'GHL Agent',             icon: '⚡' },
-  { key: 'workflows',        label: 'Workflow Builder',      icon: '🔀' },
-  { key: 'manychat',         label: 'ManyChat Integration',  icon: '📩' },
-  { key: 'settings',         label: 'Integration Settings',  icon: '⚙️' },
-  { key: 'brain',            label: 'Brain (Knowledge Base)', icon: '🧠' },
+  // ── Core pages ───────────────────────────────────────────────────────────────
+  { key: 'dashboard',        label: 'Dashboard',             icon: '⊞',  group: 'Pages' },
+  { key: 'chats',            label: 'Chats',                 icon: '💬', group: 'Pages' },
+  { key: 'settings',         label: 'Settings',              icon: '⚙️', group: 'Pages' },
+  // ── Agents & Automation ───────────────────────────────────────────────────────
+  { key: 'agents',           label: 'AI Agents',             icon: '🤖', group: 'Agents & Automation' },
+  { key: 'ghl_agent',        label: 'GHL Agent',             icon: '⚡', group: 'Agents & Automation' },
+  { key: 'workflows',        label: 'Workflow Builder',      icon: '🔀', group: 'Agents & Automation' },
+  { key: 'brain',            label: 'Brain (Knowledge Base)', icon: '🧠', group: 'Agents & Automation' },
+  // ── Builders ─────────────────────────────────────────────────────────────────
+  { key: 'funnel_builder',   label: 'Funnel Builder',        icon: '🏗️', group: 'Builders' },
+  { key: 'website_builder',  label: 'Website Builder',       icon: '🌐', group: 'Builders' },
+  { key: 'email_builder',    label: 'Email Builder',         icon: '📧', group: 'Builders' },
+  { key: 'campaign_builder', label: 'Campaign Builder',      icon: '📣', group: 'Builders' },
+  // ── Ads ──────────────────────────────────────────────────────────────────────
+  { key: 'ads_generator',    label: 'Bulk Ads Generator',    icon: '🎯', group: 'Ads' },
+  { key: 'ad_library',       label: 'Ad Library Intel',      icon: '📊', group: 'Ads' },
+  // ── Social ───────────────────────────────────────────────────────────────────
+  { key: 'social_planner',   label: 'Social Planner',        icon: '📱', group: 'Social' },
+  { key: 'manychat',         label: 'ManyChat Integration',  icon: '📩', group: 'Social' },
 ];
 
 // ── Built-in role definitions (cannot be edited/deleted) ─────────────────────
 
+const _ALL_KEYS = () => ALL_FEATURES.map(f => f.key);
+
 const BUILTIN_ROLES = {
-  owner:      { id: 'owner',      name: 'Owner',        features: ['*'],                        builtin: true },
-  admin:      { id: 'admin',      name: 'Admin',        features: ALL_FEATURES.map(f => f.key).filter(k => k !== 'brain'), builtin: true },
-  manager:    { id: 'manager',    name: 'Manager',      features: ['funnel_builder', 'website_builder', 'ads_generator', 'social_planner', 'email_builder', 'ad_library', 'campaign_builder'], builtin: true },
-  member:     { id: 'member',     name: 'Member',       features: ['ads_generator', 'social_planner', 'ad_library'], builtin: true },
-  chats_only: { id: 'chats_only', name: 'Chat User',    features: ['chats'],                    builtin: true, description: 'Default role — access to Chats only' },
+  owner:      { id: 'owner',      name: 'Owner',     features: ['*'],             builtin: true },
+  admin:      { id: 'admin',      name: 'Admin',     features: _ALL_KEYS(),        builtin: true },
+  manager:    { id: 'manager',    name: 'Manager',   features: ['dashboard', 'funnel_builder', 'website_builder', 'email_builder', 'campaign_builder', 'ads_generator', 'ad_library', 'social_planner', 'manychat', 'settings'], builtin: true },
+  member:     { id: 'member',     name: 'Member',    features: ['dashboard', 'ads_generator', 'ad_library', 'social_planner'], builtin: true },
+  chats_only: { id: 'chats_only', name: 'Chat User', features: ['dashboard', 'chats'], builtin: true, description: 'Default role — Chats access only' },
 };
 
 // Default role applied to all new / unassigned users across all locations

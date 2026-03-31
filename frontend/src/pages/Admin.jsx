@@ -33,20 +33,26 @@ function confirmToast(message, onConfirm, confirmLabel = 'Confirm', confirmColor
 
 // ── Static feature/role defaults (mirrors roleService.js) ─────────────────────
 const ALL_FEATURES_DEFAULT = [
-  { key: 'chats',            label: 'Chats',                 icon: '💬' },
-  { key: 'funnel_builder',   label: 'Funnel Builder',        icon: '🏗️' },
-  { key: 'website_builder',  label: 'Website Builder',       icon: '🌐' },
-  { key: 'ads_generator',    label: 'Bulk Ads Generator',    icon: '🎯' },
-  { key: 'social_planner',   label: 'Social Planner',        icon: '📱' },
-  { key: 'email_builder',    label: 'Email Builder',         icon: '📧' },
-  { key: 'ad_library',       label: 'Ad Library Intel',      icon: '📊' },
-  { key: 'campaign_builder', label: 'Campaign Builder',      icon: '📣' },
-  { key: 'agents',           label: 'AI Agents',             icon: '🤖' },
-  { key: 'ghl_agent',        label: 'GHL Agent',             icon: '⚡' },
-  { key: 'workflows',        label: 'Workflow Builder',      icon: '🔀' },
-  { key: 'manychat',         label: 'ManyChat Integration',  icon: '📩' },
-  { key: 'settings',         label: 'Integration Settings',  icon: '⚙️' },
-  { key: 'brain',            label: 'Brain (Knowledge Base)', icon: '🧠' },
+  // Pages
+  { key: 'dashboard',        label: 'Dashboard',             icon: '⊞',  group: 'Pages' },
+  { key: 'chats',            label: 'Chats',                 icon: '💬', group: 'Pages' },
+  { key: 'settings',         label: 'Settings',              icon: '⚙️', group: 'Pages' },
+  // Agents & Automation
+  { key: 'agents',           label: 'AI Agents',             icon: '🤖', group: 'Agents & Automation' },
+  { key: 'ghl_agent',        label: 'GHL Agent',             icon: '⚡', group: 'Agents & Automation' },
+  { key: 'workflows',        label: 'Workflow Builder',      icon: '🔀', group: 'Agents & Automation' },
+  { key: 'brain',            label: 'Brain (Knowledge Base)', icon: '🧠', group: 'Agents & Automation' },
+  // Builders
+  { key: 'funnel_builder',   label: 'Funnel Builder',        icon: '🏗️', group: 'Builders' },
+  { key: 'website_builder',  label: 'Website Builder',       icon: '🌐', group: 'Builders' },
+  { key: 'email_builder',    label: 'Email Builder',         icon: '📧', group: 'Builders' },
+  { key: 'campaign_builder', label: 'Campaign Builder',      icon: '📣', group: 'Builders' },
+  // Ads
+  { key: 'ads_generator',    label: 'Bulk Ads Generator',    icon: '🎯', group: 'Ads' },
+  { key: 'ad_library',       label: 'Ad Library Intel',      icon: '📊', group: 'Ads' },
+  // Social
+  { key: 'social_planner',   label: 'Social Planner',        icon: '📱', group: 'Social' },
+  { key: 'manychat',         label: 'ManyChat Integration',  icon: '📩', group: 'Social' },
 ];
 
 const ALL_FEATURE_KEYS = ALL_FEATURES_DEFAULT.map(f => f.key);
@@ -78,11 +84,11 @@ const FEATURE_INTEGRATION_MAP = {
 };
 
 const BUILTIN_ROLES_DEFAULT = [
-  { id: 'owner',      name: 'Owner',     features: ALL_FEATURE_KEYS, builtin: true },
+  { id: 'owner',      name: 'Owner',     features: ['*'],            builtin: true },
   { id: 'admin',      name: 'Admin',     features: ALL_FEATURE_KEYS, builtin: true },
-  { id: 'manager',    name: 'Manager',   features: ['funnel_builder','website_builder','ads_generator','social_planner','email_builder','ad_library','campaign_builder'], builtin: true },
-  { id: 'member',     name: 'Member',    features: ['ads_generator','social_planner','ad_library'], builtin: true },
-  { id: 'chats_only', name: 'Chat User', features: ['chats'], builtin: true, description: 'Default — Chats access only' },
+  { id: 'manager',    name: 'Manager',   features: ['dashboard','funnel_builder','website_builder','email_builder','campaign_builder','ads_generator','ad_library','social_planner','manychat','settings'], builtin: true },
+  { id: 'member',     name: 'Member',    features: ['dashboard','ads_generator','ad_library','social_planner'], builtin: true },
+  { id: 'chats_only', name: 'Chat User', features: ['dashboard','chats'], builtin: true, description: 'Default — Chats access only' },
 ];
 
 function useIsMobile() {
@@ -5607,24 +5613,51 @@ function RoleEditorModal({ mode, role, isBuiltin, allFeatures, adminKey, locatio
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {allFeatures.map(f => {
-                  const checked    = features.has(f.key);
-                  const missingInt = needsIntegration(f.key);
-                  return (
-                    <label key={f.key} onClick={() => toggle(f.key)}
-                      title={missingInt ? `Integration not connected — user won't be able to use this until it's set up` : ''}
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '10px 14px', cursor: 'pointer', transition: 'all .15s' }}>
-                      <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? '#6366f1' : '#444'}`, background: checked ? '#6366f1' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
-                        {checked && <span style={{ color: '#fff', fontSize: 11, lineHeight: 1, fontWeight: 700 }}>✓</span>}
-                      </div>
-                      <span style={{ fontSize: 14, marginRight: 4 }}>{f.icon}</span>
-                      <span style={{ color: checked ? '#e5e7eb' : '#9ca3af', fontSize: 13, fontWeight: checked ? 500 : 400, flex: 1 }}>{f.label}</span>
-                      {missingInt && <span style={{ fontSize: 10, color: '#78350f', background: '#451a03', padding: '1px 5px', borderRadius: 4 }}>🔗</span>}
-                    </label>
-                  );
-                })}
-              </div>
+              {(() => {
+                // Group features by their group field
+                const groups = {};
+                allFeatures.forEach(f => {
+                  const g = f.group || 'Other';
+                  if (!groups[g]) groups[g] = [];
+                  groups[g].push(f);
+                });
+                return Object.entries(groups).map(([groupName, groupFeatures]) => (
+                  <div key={groupName} style={{ marginBottom: 18 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <span style={{ color: '#4b5563', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{groupName}</span>
+                      <div style={{ flex: 1, height: 1, background: '#1e1e1e' }} />
+                      <button onClick={() => {
+                        const allChecked = groupFeatures.every(f => features.has(f.key));
+                        setFeatures(prev => {
+                          const next = new Set(prev);
+                          groupFeatures.forEach(f => allChecked ? next.delete(f.key) : next.add(f.key));
+                          return next;
+                        });
+                      }} style={{ background: 'none', border: '1px solid #222', borderRadius: 5, color: '#4b5563', padding: '1px 8px', cursor: 'pointer', fontSize: 11 }}>
+                        {groupFeatures.every(f => features.has(f.key)) ? 'Deselect' : 'Select all'}
+                      </button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                      {groupFeatures.map(f => {
+                        const checked    = features.has(f.key);
+                        const missingInt = needsIntegration(f.key);
+                        return (
+                          <label key={f.key} onClick={() => toggle(f.key)}
+                            title={missingInt ? `Integration not connected` : ''}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, background: checked ? '#6366f115' : '#111', border: `1px solid ${checked ? '#6366f1' : '#2a2a2a'}`, borderRadius: 8, padding: '9px 12px', cursor: 'pointer', transition: 'all .15s' }}>
+                            <div style={{ width: 15, height: 15, borderRadius: 3, border: `2px solid ${checked ? '#6366f1' : '#444'}`, background: checked ? '#6366f1' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              {checked && <span style={{ color: '#fff', fontSize: 10, lineHeight: 1, fontWeight: 700 }}>✓</span>}
+                            </div>
+                            <span style={{ fontSize: 13 }}>{f.icon}</span>
+                            <span style={{ color: checked ? '#e5e7eb' : '#9ca3af', fontSize: 12, fontWeight: checked ? 500 : 400, flex: 1 }}>{f.label}</span>
+                            {missingInt && <span style={{ fontSize: 10, color: '#78350f', background: '#451a03', padding: '1px 5px', borderRadius: 4 }}>🔗</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ));
+              })()}
             </>
           )}
 

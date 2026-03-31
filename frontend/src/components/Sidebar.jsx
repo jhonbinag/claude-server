@@ -3,14 +3,14 @@ import { Link, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 
 const NAV = [
-  { to: '/',               label: 'Dashboard',         icon: '⊞' },
+  { to: '/',               label: 'Dashboard',         icon: '⊞', feature: 'dashboard'      },
+  { to: '/chats',          label: 'Chats',              icon: '💬', feature: 'chats'          },
   { to: '/funnel-builder', label: 'Builder',            icon: '🏗', feature: 'funnel_builder' },
-  { to: '/agents',         label: 'Agents',             icon: '🤖' },
-  { to: '/workflows',      label: 'Workflows',          icon: '⟳',  feature: 'workflows' },
-  { to: '/ads',            label: 'Ads',                icon: '⚡' },
-  { to: '/social',         label: 'ManyChat & Socials', icon: '📱' },
-  { to: '/chats',          label: 'Chats',              icon: '💬' },
-  { to: '/settings',       label: 'Settings',           icon: '⚙' },
+  { to: '/agents',         label: 'Agents',             icon: '🤖', feature: 'agents'         },
+  { to: '/workflows',      label: 'Workflows',          icon: '⟳',  feature: 'workflows'      },
+  { to: '/ads',            label: 'Ads',                icon: '⚡', feature: 'ads_generator'  },
+  { to: '/social',         label: 'ManyChat & Socials', icon: '📱', feature: 'social_planner' },
+  { to: '/settings',       label: 'Settings',           icon: '⚙', feature: 'settings'       },
 ];
 
 const CHANGELOG = [

@@ -12,12 +12,16 @@ import AdsHub          from './pages/AdsHub';
 import SocialHub       from './pages/SocialHub';
 import Chats           from './pages/Chats';
 
-// ── Route wrapper: redirects to dashboard if user lacks the required feature ──
+// ── Route wrapper: redirects to first accessible page if feature is blocked ───
+const FALLBACK_ORDER = ['/chats', '/agents', '/ads', '/social', '/workflows', '/funnel-builder', '/settings'];
 function Gated({ feature, element }) {
   const { canAccess, isAuthenticated } = useApp();
   if (!isAuthenticated) return element; // let the page's own AuthGate handle it
-  if (!canAccess(feature)) return <Navigate to="/" replace />;
-  return element;
+  if (canAccess(feature)) return element;
+  // Find first page the user CAN access
+  const featureMap = { '/chats': 'chats', '/agents': 'agents', '/ads': 'ads_generator', '/social': 'social_planner', '/workflows': 'workflows', '/funnel-builder': 'funnel_builder', '/settings': 'settings' };
+  const fallback = FALLBACK_ORDER.find(p => canAccess(featureMap[p])) || '/chats';
+  return <Navigate to={fallback} replace />;
 }
 
 export default function App() {
@@ -29,14 +33,14 @@ export default function App() {
 
         {/* All other routes share the AppShell (sidebar + topbar) */}
         <Route element={<AppShell />}>
-          <Route path="/"                element={<Dashboard />} />
+          <Route path="/"                element={<Gated feature="dashboard"      element={<Dashboard />} />} />
+          <Route path="/chats"           element={<Gated feature="chats"          element={<Chats />} />} />
           <Route path="/funnel-builder"  element={<Gated feature="funnel_builder" element={<FunnelBuilder />} />} />
-          <Route path="/agents"          element={<AgentsHub />} />
+          <Route path="/agents"          element={<Gated feature="agents"         element={<AgentsHub />} />} />
           <Route path="/workflows"       element={<Gated feature="workflows"      element={<Workflows />} />} />
-          <Route path="/ads"             element={<AdsHub />} />
-          <Route path="/social"          element={<SocialHub />} />
-          <Route path="/chats"           element={<Chats />} />
-          <Route path="/settings"        element={<Settings />} />
+          <Route path="/ads"             element={<Gated feature="ads_generator"  element={<AdsHub />} />} />
+          <Route path="/social"          element={<Gated feature="social_planner" element={<SocialHub />} />} />
+          <Route path="/settings"        element={<Gated feature="settings"       element={<Settings />} />} />
 
           {/* Legacy redirects — keep old bookmarks/links working */}
           <Route path="/brain"           element={<Navigate to="/agents"   replace />} />
