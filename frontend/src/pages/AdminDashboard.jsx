@@ -91,6 +91,7 @@ export default function AdminDashboard() {
   const [tab,             setTab]             = useState('beta');
   const [enabledTabs,     setEnabledTabs]     = useState([]);
   const [configLoaded,    setConfigLoaded]    = useState(false);
+  const [bizProfile,      setBizProfile]      = useState(null);
 
   // Beta Lab
   const [betaFeatures,    setBetaFeatures]    = useState([]);
@@ -212,6 +213,7 @@ export default function AdminDashboard() {
     const data = await fetch('/dashboard/public-config').then(r => r.json());
     if (data.success) {
       setEnabledTabs(data.enabledTabs || []);
+      if (data.businessProfile) setBizProfile(data.businessProfile);
       setConfigLoaded(true);
     }
   }, []);
@@ -308,9 +310,13 @@ export default function AdminDashboard() {
 
           <div style={{ background: '#0f1117', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '36px 32px', boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}>
             <div style={{ textAlign: 'center', marginBottom: 32 }}>
-              <div style={{ fontSize: 38, marginBottom: 12 }}>🧩</div>
+              <div style={{ fontSize: 38, marginBottom: 12 }}>
+                {bizProfile?.logoUrl
+                  ? <img src={bizProfile.logoUrl} alt="" style={{ width: 48, height: 48, borderRadius: 10, objectFit: 'cover' }} onError={e => { e.target.style.display='none'; }} />
+                  : bizProfile?.logoEmoji || '🧩'}
+              </div>
               <h1 style={{ margin: '0 0 6px', fontSize: 21, fontWeight: 700, color: '#f1f5f9' }}>Admin Dashboard</h1>
-              <p style={{ margin: 0, fontSize: 13, color: '#4b5563' }}>HL Pro Tools</p>
+              <p style={{ margin: 0, fontSize: 13, color: '#4b5563' }}>{bizProfile?.name || 'HL Pro Tools'}</p>
             </div>
 
             <div style={{ marginBottom: 14 }}>
@@ -419,9 +425,13 @@ export default function AdminDashboard() {
 
       {/* Top bar */}
       <div style={{ background: '#0f1117', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '0 24px', display: 'flex', alignItems: 'center', gap: 14, height: 56 }}>
-        <span style={{ fontSize: 20 }}>🧩</span>
+        <span style={{ fontSize: 20 }}>
+          {bizProfile?.logoUrl
+            ? <img src={bizProfile.logoUrl} alt="" style={{ width: 24, height: 24, borderRadius: 5, objectFit: 'cover', verticalAlign: 'middle' }} onError={e => { e.target.style.display='none'; }} />
+            : bizProfile?.logoEmoji || '🧩'}
+        </span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9' }}>Admin Dashboard</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9' }}>{bizProfile?.name || 'Admin Dashboard'}</div>
           <div style={{ fontSize: 11, color: '#4b5563', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {activeLocationName || activeLocationId || '—'}
           </div>

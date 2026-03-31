@@ -111,7 +111,7 @@ const LABEL_COLORS = {
 };
 
 export default function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose }) {
-  const { logout, canAccess, isAuthenticated } = useApp();
+  const { logout, canAccess, isAuthenticated, bizProfile } = useApp();
   const { pathname } = useLocation();
   const [changelogOpen, setChangelogOpen] = useState(false);
 
@@ -146,12 +146,16 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose
         }}>
           {!collapsed && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-              <span style={{ fontSize: 18, flexShrink: 0 }}>🧩</span>
+              <span style={{ fontSize: 18, flexShrink: 0 }}>
+                {bizProfile?.logoUrl
+                  ? <img src={bizProfile.logoUrl} alt="" style={{ width: 20, height: 20, borderRadius: 4, objectFit: 'cover', verticalAlign: 'middle' }} onError={e => { e.target.style.display='none'; }} />
+                  : bizProfile?.logoEmoji || '🧩'}
+              </span>
               <span style={{
                 fontSize: 13, fontWeight: 700, color: 'var(--text-primary)',
                 letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
-                HL Pro Tools
+                {bizProfile?.name || 'HL Pro Tools'}
               </span>
             </div>
           )}
@@ -293,7 +297,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose
             }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>📋 What's New</h2>
-                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>HL Pro Tools — release history</p>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>{bizProfile?.name || 'HL Pro Tools'} — release history</p>
               </div>
               <button
                 onClick={() => setChangelogOpen(false)}

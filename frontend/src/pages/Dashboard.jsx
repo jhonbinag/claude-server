@@ -45,7 +45,7 @@ function StatCard({ icon, label, value, color, loading, sub }) {
 }
 
 export default function Dashboard() {
-  const { isAuthenticated, isAuthLoading, apiKey, locationId, integrations } = useApp();
+  const { isAuthenticated, isAuthLoading, apiKey, locationId, integrations, bizProfile } = useApp();
 
   const [metrics, setMetrics] = useState({
     tools: null, workflows: null, brains: null, agents: null,
@@ -140,7 +140,7 @@ export default function Dashboard() {
         {/* ── Header ── */}
         <div className="mb-6">
           <h1 className="text-xl font-bold text-white">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Overview of your HL Pro Tools activity</p>
+          <p className="text-sm text-gray-500 mt-0.5">Overview of your {bizProfile?.name || 'HL Pro Tools'} activity</p>
         </div>
 
         {/* ── 3-column stat cards ── */}

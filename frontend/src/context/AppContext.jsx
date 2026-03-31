@@ -105,6 +105,9 @@ export function AppProvider({ children }) {
   // ── Beta Lab state ────────────────────────────────────────────────────────
   const [betaFeatures,     setBetaFeatures]     = useState([]);
 
+  // ── Business profile ──────────────────────────────────────────────────────
+  const [bizProfile,       setBizProfile]       = useState(null);
+
   // ── Load integrations ─────────────────────────────────────────────────────
   const loadIntegrations = useCallback(async (locId) => {
     const id = locId || locationId;
@@ -196,6 +199,14 @@ export function AppProvider({ children }) {
       // wipe a previously-confirmed ready state — only an explicit logout() does that.
       // We intentionally never call localStorage.removeItem here.
     } catch {}
+  }, []);
+
+  // ── On mount: load business profile from public config ───────────────────
+  useEffect(() => {
+    fetch('/dashboard/public-config')
+      .then(r => r.json())
+      .then(d => { if (d.success && d.businessProfile) setBizProfile(d.businessProfile); })
+      .catch(() => {});
   }, []);
 
   // ── On mount: clean URL params and persist locationId/userId ─────────────
@@ -397,6 +408,8 @@ export function AppProvider({ children }) {
       unreadBetaCount: betaFeatures.filter(f => f.visible && !f.panelOnly && !f.acknowledged).length,
       acknowledgeBeta,
       toggleBeta,
+      // Business branding
+      bizProfile,
       // Theme
       theme,
       toggleTheme,

@@ -1654,6 +1654,12 @@ export default function Admin() {
   const [appSettingsForm,   setAppSettingsForm]   = useState({ clientId: '', clientSecret: '', redirectUri: 'https://claudeserver.vercel.app/oauth/callback' });
   const [appSettingsEdit,   setAppSettingsEdit]   = useState({ clientId: false, clientSecret: false, redirectUri: false });
   const [appSettingsSaving, setAppSettingsSaving] = useState(false);
+  const [appSettingsSubTab, setAppSettingsSubTab] = useState('ghl'); // 'ghl' | 'business'
+
+  // Business profile state
+  const [bizProfile,     setBizProfile]     = useState(null); // loaded from backend
+  const [bizForm,        setBizForm]        = useState({ name:'', tagline:'', logoUrl:'', logoEmoji:'🧩' });
+  const [bizSaving,      setBizSaving]      = useState(false);
 
   // Billing state
   const [billingRecords,  setBillingRecords]  = useState([]);
@@ -1883,6 +1889,14 @@ export default function Admin() {
     if (data.success) setAppSettingsData(data.data);
   }, [adminKey]);
 
+  const loadBizProfile = useCallback(async () => {
+    const data = await adminFetch('/admin/business-profile', { adminKey });
+    if (data.success) {
+      setBizProfile(data.profile);
+      setBizForm({ name: data.profile.name || '', tagline: data.profile.tagline || '', logoUrl: data.profile.logoUrl || '', logoEmoji: data.profile.logoEmoji || '🧩' });
+    }
+  }, [adminKey]);
+
   const loadBilling = useCallback(async () => {
     setBillingLoading(true);
     const data = await adminFetch('/admin/billing', { adminKey });
@@ -2008,12 +2022,15 @@ export default function Admin() {
     setCredLoading(false);
   }, [adminKey]);
 
+  // Load business profile once on auth so sidebar shows correct name immediately
+  useEffect(() => { if (authed) loadBizProfile(); }, [authed]); // eslint-disable-line
+
   useEffect(() => {
     if (!authed) return;
     if (tab === 'overview')     { loadStats(); loadBilling(); }
     if (tab === 'locations')    loadLocations();
     if (tab === 'logs')         loadLogs();
-    if (tab === 'app-settings') loadAppSettings();
+    if (tab === 'app-settings') { loadAppSettings(); loadBizProfile(); }
     if (tab === 'billing')      loadBilling();
     if (tab === 'plan-tiers')   loadTiers();
     if (tab === 'brain')        loadSharedBrains();
@@ -2292,8 +2309,8 @@ export default function Admin() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 34, height: 34, borderRadius: 9, background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>🛡️</div>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: '#f1f5f9', letterSpacing: '-0.01em' }}>HL Pro Tools</div>
-                  <div style={{ fontSize: 11, color: '#374151', marginTop: 1 }}>Admin Console</div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: '#f1f5f9', letterSpacing: '-0.01em' }}>{bizProfile?.name || 'HL Pro Tools'}</div>
+                  <div style={{ fontSize: 11, color: '#374151', marginTop: 1 }}>{bizProfile?.tagline || 'Admin Console'}</div>
                 </div>
               </div>
             </div>
@@ -2375,7 +2392,23 @@ export default function Admin() {
 
         {/* ── App Settings Tab ─────────────────────────────────────────── */}
         {tab === 'app-settings' && (
-          <div style={{ maxWidth: 560 }}>
+          <div style={{ maxWidth: 580 }}>
+
+            {/* Sub-tab bar */}
+            <div style={{ display:'flex', gap:0, borderBottom:'1px solid #1f2937', marginBottom:28 }}>
+              {[{ id:'ghl', label:'GHL Credentials' }, { id:'business', label:'Business Profile' }].map(t => (
+                <button key={t.id} onClick={() => setAppSettingsSubTab(t.id)} style={{
+                  background:'none', border:'none',
+                  borderBottom: appSettingsSubTab === t.id ? '2px solid #7c3aed' : '2px solid transparent',
+                  color: appSettingsSubTab === t.id ? '#a78bfa' : '#6b7280',
+                  padding:'10px 20px', fontSize:14, fontWeight: appSettingsSubTab === t.id ? 600 : 400,
+                  cursor:'pointer', marginBottom:-1,
+                }}>{t.label}</button>
+              ))}
+            </div>
+
+            {/* ── GHL Credentials sub-tab ── */}
+            {appSettingsSubTab === 'ghl' && <>
             <h3 style={{ color: '#fff', margin: '0 0 6px', fontSize: 16 }}>GHL App Credentials</h3>
             <p style={{ color: '#9ca3af', fontSize: 13, margin: '0 0 24px' }}>
               Set your GoHighLevel Marketplace App credentials. These are used for the OAuth install flow and token exchange.
@@ -2481,6 +2514,96 @@ export default function Admin() {
                 <code style={{ color: '#a5b4fc' }}>https://claudeserver.vercel.app/webhooks/ghl</code>
               </p>
             </div>
+            </>}
+
+            {/* ── Business Profile sub-tab ── */}
+            {appSettingsSubTab === 'business' && <>
+            <h3 style={{ color: '#fff', margin: '0 0 6px', fontSize: 16 }}>Business Profile</h3>
+            <p style={{ color: '#9ca3af', fontSize: 13, margin: '0 0 24px' }}>
+              Customise the app name, logo, and tagline shown across the Admin Console, Admin Dashboard login, and user-facing app.
+            </p>
+
+            {/* Preview card */}
+            <div style={{ background: '#0f1117', border: '1px solid #1f2937', borderRadius: 12, padding: '20px 24px', marginBottom: 28, display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ width: 52, height: 52, borderRadius: 12, background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                {bizForm.logoUrl
+                  ? <img src={bizForm.logoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10 }} onError={(e) => { e.target.style.display = 'none'; }} />
+                  : <span style={{ fontSize: 26 }}>{bizForm.logoEmoji || '🧩'}</span>}
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 16, color: '#f1f5f9' }}>{bizForm.name || 'HL Pro Tools'}</div>
+                {bizForm.tagline && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>{bizForm.tagline}</div>}
+              </div>
+              <div style={{ marginLeft: 'auto', fontSize: 11, color: '#374151', background: 'rgba(255,255,255,0.04)', border: '1px solid #1f2937', borderRadius: 6, padding: '4px 10px' }}>Preview</div>
+            </div>
+
+            {/* App Name */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>App Name</label>
+              <input
+                type="text"
+                value={bizForm.name}
+                onChange={e => setBizForm(p => ({ ...p, name: e.target.value }))}
+                placeholder="e.g. Acme Agency"
+                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13 }}
+              />
+            </div>
+
+            {/* Tagline */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tagline <span style={{ textTransform: 'none', fontWeight: 400, color: '#4b5563' }}>(optional)</span></label>
+              <input
+                type="text"
+                value={bizForm.tagline}
+                onChange={e => setBizForm(p => ({ ...p, tagline: e.target.value }))}
+                placeholder="e.g. Powered by AI"
+                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13 }}
+              />
+            </div>
+
+            {/* Logo Emoji */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Logo Emoji <span style={{ textTransform: 'none', fontWeight: 400, color: '#4b5563' }}>(fallback when no image URL)</span></label>
+              <input
+                type="text"
+                value={bizForm.logoEmoji}
+                onChange={e => setBizForm(p => ({ ...p, logoEmoji: e.target.value }))}
+                placeholder="🧩"
+                style={{ width: 80, padding: '10px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 22, textAlign: 'center' }}
+              />
+            </div>
+
+            {/* Logo URL */}
+            <div style={{ marginBottom: 28 }}>
+              <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Logo Image URL <span style={{ textTransform: 'none', fontWeight: 400, color: '#4b5563' }}>(optional, overrides emoji)</span></label>
+              <input
+                type="text"
+                value={bizForm.logoUrl}
+                onChange={e => setBizForm(p => ({ ...p, logoUrl: e.target.value }))}
+                placeholder="https://example.com/logo.png"
+                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13 }}
+              />
+            </div>
+
+            <button
+              disabled={bizSaving}
+              onClick={async () => {
+                setBizSaving(true);
+                const data = await adminFetch('/admin/business-profile', { method: 'PUT', adminKey, body: bizForm });
+                setBizSaving(false);
+                if (data.success) {
+                  setBizProfile(data.profile);
+                  toast.success('Business profile saved.');
+                } else {
+                  toast.error(data.error || 'Failed to save.');
+                }
+              }}
+              style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff', padding: '10px 24px', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: bizSaving ? 0.6 : 1 }}
+            >
+              {bizSaving ? 'Saving…' : 'Save Profile'}
+            </button>
+            </>}
+
           </div>
         )}
 
