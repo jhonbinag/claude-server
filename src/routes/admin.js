@@ -1462,6 +1462,44 @@ router.post('/dashboard-credentials/:id/resend-activation', async (req, res) => 
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMTP CONFIG — email settings for Admin Dashboard credential activation
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let smtpConfigStore;
+try { smtpConfigStore = require('../services/smtpConfigStore'); } catch (e) { console.warn('[Admin] smtpConfigStore:', e.message); }
+
+// GET /admin/smtp-config — return config (password masked)
+router.get('/smtp-config', async (req, res) => {
+  try {
+    if (!smtpConfigStore) return res.status(503).json({ success: false, error: 'SMTP config store unavailable' });
+    const cfg = await smtpConfigStore.getSmtpConfig();
+    const { pass: _p, ...safe } = cfg;
+    res.json({ success: true, config: { ...safe, hasPassword: !!cfg.pass } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PUT /admin/smtp-config — save (pass only updated if non-empty)
+router.put('/smtp-config', async (req, res) => {
+  try {
+    if (!smtpConfigStore) return res.status(503).json({ success: false, error: 'SMTP config store unavailable' });
+    const cfg = await smtpConfigStore.saveSmtpConfig(req.body);
+    const { pass: _p, ...safe } = cfg;
+    res.json({ success: true, config: { ...safe, hasPassword: !!cfg.pass } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /admin/smtp-config/test — send test email
+router.post('/smtp-config/test', async (req, res) => {
+  try {
+    const { to } = req.body || {};
+    if (!to?.trim()) return res.status(400).json({ success: false, error: 'to email required' });
+    const emailService = require('../services/emailService');
+    const result = await emailService.sendTestEmail(to.trim());
+    res.json({ success: result.sent, error: result.error || null });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // ─── GET /admin/tools/meta — static GHL built-in tool metadata ───────────────
 
 router.get('/tools/meta', (req, res) => {

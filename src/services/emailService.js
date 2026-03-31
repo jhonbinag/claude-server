@@ -9,17 +9,47 @@
 
 const nodemailer = require('nodemailer');
 
-function getTransporter() {
-  if (!process.env.SMTP_HOST) return null;
-  return nodemailer.createTransport({
-    host:   process.env.SMTP_HOST,
-    port:   parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+/**
+ * Resolve SMTP config: DB config (if enabled) → env vars → null (dev/log mode).
+ * Returns null when neither is configured.
+ */
+async function resolveSmtpConfig() {
+  // Try DB config first
+  try {
+    const store = require('./smtpConfigStore');
+    const cfg = await store.getSmtpConfig();
+    if (cfg.enabled && cfg.host && cfg.user && cfg.pass) {
+      return { host: cfg.host, port: cfg.port, secure: cfg.secure, user: cfg.user, pass: cfg.pass, from: cfg.from };
+    }
+  } catch { /* ignore — store may not be available */ }
+
+  // Fall back to env vars
+  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    return {
+      host:   process.env.SMTP_HOST,
+      port:   parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_SECURE === 'true',
+      user:   process.env.SMTP_USER,
+      pass:   process.env.SMTP_PASS,
+      from:   process.env.SMTP_FROM || '"HL Pro Tools" <noreply@hlprotools.com>',
+    };
+  }
+
+  return null; // not configured
+}
+
+async function getTransporter() {
+  const cfg = await resolveSmtpConfig();
+  if (!cfg) return null;
+  return {
+    transport: nodemailer.createTransport({
+      host:   cfg.host,
+      port:   cfg.port,
+      secure: cfg.secure,
+      auth:   { user: cfg.user, pass: cfg.pass },
+    }),
+    from: cfg.from,
+  };
 }
 
 /**
@@ -27,9 +57,9 @@ function getTransporter() {
  * @param {{ to, name, username, password, activationUrl }} opts
  */
 async function sendActivationEmail({ to, name, username, password, activationUrl }) {
-  const transporter = getTransporter();
+  const cfg = await getTransporter();
 
-  if (!transporter) {
+  if (!cfg) {
     console.log('[emailService] SMTP not configured — printing activation email to console:');
     console.log(`  To: ${to}`);
     console.log(`  Username: ${username}`);
@@ -38,7 +68,7 @@ async function sendActivationEmail({ to, name, username, password, activationUrl
     return { sent: false, skipped: true };
   }
 
-  const from = process.env.SMTP_FROM || '"HL Pro Tools" <noreply@hlprotools.com>';
+  const { transport: transporter, from } = cfg;
 
   const html = `<!DOCTYPE html>
 <html>
@@ -106,4 +136,20 @@ async function sendActivationEmail({ to, name, username, password, activationUrl
   return { sent: true };
 }
 
-module.exports = { sendActivationEmail };
+/**
+ * Send a test email to verify SMTP configuration.
+ */
+async function sendTestEmail(to) {
+  const cfg = await getTransporter();
+  if (!cfg) return { sent: false, error: 'SMTP not configured (neither DB config nor env vars).' };
+  await cfg.transport.sendMail({
+    from: cfg.from,
+    to,
+    subject: 'HL Pro Tools — SMTP Test',
+    html: '<p>Your SMTP configuration is working correctly.</p>',
+    text: 'Your SMTP configuration is working correctly.',
+  });
+  return { sent: true };
+}
+
+module.exports = { sendActivationEmail, sendTestEmail, resolveSmtpConfig };
