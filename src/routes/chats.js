@@ -52,6 +52,34 @@ async function queryBrain(locId, brainId, query, k = 5) {
   } catch (_) { return null; }
 }
 
+// ── Outbound webhook call for persona ────────────────────────────────────────
+// POSTs user message + conversation context to persona.webhookUrl.
+// Returns the response body (object or string) to use as context, or null.
+
+async function callPersonaWebhook(persona, message, locationId, conversationId, history) {
+  if (!persona.webhookEnabled || !persona.webhookUrl) return null;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const headers = { 'Content-Type': 'application/json' };
+    if (persona.webhookSecret) headers['X-Persona-Secret'] = persona.webhookSecret;
+    const body = JSON.stringify({
+      personaId:      persona.personaId,
+      personaName:    persona.name,
+      message,
+      locationId,
+      conversationId,
+      history:        (history || []).slice(-5).map(m => ({ role: m.role, content: m.content })),
+      timestamp:      Date.now(),
+    });
+    try {
+      const res = await fetch(persona.webhookUrl, { method: 'POST', headers, body, signal: ctrl.signal });
+      const text = await res.text();
+      try { return JSON.parse(text); } catch { return text.slice(0, 2000) || null; }
+    } finally { clearTimeout(t); }
+  } catch { return null; }
+}
+
 // ── Live API call helper (used for api_key simple fetch) ──────────────────────
 
 async function liveFetch(integ, message) {
@@ -220,9 +248,28 @@ router.post('/:id/message', async (req, res) => {
     } catch (_) {}
 
     let basePrompt = 'You are a helpful AI assistant. Be concise, clear, and friendly. Use markdown formatting where helpful.';
+    let personaWebhookContext = '';
     if (persona) {
       basePrompt = persona.systemPrompt?.trim() || persona.personality?.trim() || basePrompt;
       if (persona.content?.trim()) brainContext = `PERSONA KNOWLEDGE:\n${persona.content}\n\n---\n\n` + brainContext;
+
+      // Inject last inbound payload (data pushed by external tool to /integrations/persona/:token)
+      if (persona.lastInboundPayload) {
+        let payload = persona.lastInboundPayload;
+        try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch {}
+        const ago = persona.lastInboundAt ? ` (${Math.round((Date.now() - persona.lastInboundAt) / 60000)}m ago)` : '';
+        personaWebhookContext += `[Inbound data${ago}]:\n${typeof payload === 'object' ? JSON.stringify(payload, null, 2) : payload}\n\n`;
+      }
+
+      // Call outbound webhook — POST message to external URL and use response as context
+      if (persona.webhookEnabled && persona.webhookUrl) {
+        send('status', { text: `Fetching from ${persona.name} hook…` });
+        const hookResponse = await callPersonaWebhook(persona, message, req.locationId, req.params.id, history);
+        if (hookResponse) {
+          const hookText = typeof hookResponse === 'object' ? JSON.stringify(hookResponse, null, 2) : String(hookResponse);
+          personaWebhookContext += `[Hook response]:\n${hookText.slice(0, 2000)}\n\n`;
+        }
+      }
     }
 
     // ── 3. Integrations: separate into data context + MCP tools ──────────────
@@ -280,8 +327,9 @@ router.post('/:id/message', async (req, res) => {
 
     // Build final system prompt
     let systemPrompt = basePrompt;
-    if (brainContext)       systemPrompt += `\n\n${brainContext}`;
-    if (integrationContext) systemPrompt += `\n\nINTEGRATION DATA (use this to answer accurately):\n${integrationContext}`;
+    if (brainContext)            systemPrompt += `\n\n${brainContext}`;
+    if (personaWebhookContext)   systemPrompt += `\n\nPERSONA HOOK DATA (use this to answer accurately):\n${personaWebhookContext}`;
+    if (integrationContext)      systemPrompt += `\n\nINTEGRATION DATA (use this to answer accurately):\n${integrationContext}`;
     systemPrompt = systemPrompt.trim();
 
     const claudeMessages = [

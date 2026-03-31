@@ -11,6 +11,7 @@
 const express          = require('express');
 const router           = express.Router();
 const integrationStore = require('../services/integrationStore');
+const personaStore     = require('../services/personaStore');
 const Anthropic        = require('@anthropic-ai/sdk');
 
 let _client = null;
@@ -99,6 +100,43 @@ router.post('/api/:key', async (req, res) => {
     }
 
     res.json({ success: true, stored: true, integration: integration.name });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /integrations/persona/:token — inbound push to a persona ─────────────
+// External tools push data here; stored as lastInboundPayload, injected as
+// context the next time any user chats with this persona.
+
+router.post('/persona/:token', async (req, res) => {
+  try {
+    const persona = await personaStore.getByInboundToken(req.params.token);
+    if (!persona) return res.status(404).json({ success: false, error: 'Unknown persona token' });
+    if (persona.status !== 'active') return res.status(403).json({ success: false, error: 'Persona inactive' });
+
+    await personaStore.updateInboundPayload(persona.personaId, req.body);
+    console.log(`[Integrations] Inbound data received for persona "${persona.name}"`);
+    res.json({ success: true, received: true, persona: persona.name });
+  } catch (err) {
+    console.error('[Integrations] Persona inbound error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── GET /integrations/persona/:token — check persona inbound endpoint status ──
+
+router.get('/persona/:token', async (req, res) => {
+  try {
+    const persona = await personaStore.getByInboundToken(req.params.token);
+    if (!persona) return res.status(404).json({ success: false, error: 'Unknown persona token' });
+    res.json({
+      success: true,
+      persona: persona.name,
+      status: persona.status,
+      lastReceivedAt: persona.lastInboundAt || null,
+      hint: 'POST JSON data to this endpoint to push context to the persona',
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

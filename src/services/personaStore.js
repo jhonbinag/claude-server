@@ -12,7 +12,8 @@
  * Document ID: personaId
  */
 
-const config = require('../config');
+const crypto = require('crypto');
+const config  = require('../config');
 
 let _db = null;
 function db() {
@@ -27,6 +28,8 @@ function db() {
 
 const COL = 'chatPersonas';
 const mem = {}; // in-memory fallback keyed by personaId
+
+function genInboundToken() { return 'pih_' + crypto.randomBytes(20).toString('hex'); }
 
 // ── List all personas (newest first) ──────────────────────────────────────────
 
@@ -58,6 +61,8 @@ async function savePersona(persona) {
   const now  = Date.now();
   const save = { ...data, updatedAt: now };
   if (!data.createdAt) save.createdAt = now;
+  // Auto-generate inbound token on first save
+  if (!data.inboundToken) save.inboundToken = genInboundToken();
 
   const d = db();
   if (d) {
@@ -100,4 +105,23 @@ async function getPersonaForLocation(locationId) {
   }
 }
 
-module.exports = { listPersonas, getPersona, savePersona, deletePersona, getPersonaForLocation };
+// ── Lookup by inbound token (for external pushes) ─────────────────────────────
+
+async function getByInboundToken(token) {
+  const all = await listPersonas();
+  return all.find(p => p.inboundToken === token) || null;
+}
+
+// ── Update last inbound payload ───────────────────────────────────────────────
+
+async function updateInboundPayload(personaId, payload) {
+  const d = db();
+  const patch = { lastInboundPayload: JSON.stringify(payload), lastInboundAt: Date.now(), updatedAt: Date.now() };
+  if (d) {
+    await d.collection(COL).doc(personaId).set(patch, { merge: true });
+  } else if (mem[personaId]) {
+    Object.assign(mem[personaId], patch);
+  }
+}
+
+module.exports = { listPersonas, getPersona, savePersona, deletePersona, getPersonaForLocation, getByInboundToken, updateInboundPayload };

@@ -1118,6 +1118,33 @@ Write ONLY the system prompt, nothing else. Start directly with "You are ${perso
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ─── POST /admin/personas/:id/test-webhook — fire a test POST to webhookUrl ───
+
+router.post('/personas/:id/test-webhook', async (req, res) => {
+  try {
+    if (!personaStore) return res.status(503).json({ success: false, error: 'Persona store unavailable' });
+    const persona = await personaStore.getPersona(req.params.id);
+    if (!persona) return res.status(404).json({ success: false, error: 'Persona not found' });
+    if (!persona.webhookUrl) return res.status(400).json({ success: false, error: 'No webhook URL configured' });
+
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const headers = { 'Content-Type': 'application/json' };
+    if (persona.webhookSecret) headers['X-Persona-Secret'] = persona.webhookSecret;
+    try {
+      const fetchRes = await fetch(persona.webhookUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ test: true, personaId: persona.personaId, personaName: persona.name, message: 'Test message from GTM AI Toolkit', timestamp: Date.now() }),
+        signal: ctrl.signal,
+      });
+      const text = await fetchRes.text();
+      let json; try { json = JSON.parse(text); } catch {}
+      res.json({ success: fetchRes.ok, status: fetchRes.status, response: json || text.slice(0, 500) });
+    } finally { clearTimeout(t); }
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // 3RD-PARTY INTEGRATIONS
 // Admin connects external tools via webhook, API key, or generates our own API.
