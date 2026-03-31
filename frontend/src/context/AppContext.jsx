@@ -102,6 +102,9 @@ export function AppProvider({ children }) {
   const [userRole,         setUserRole]         = useState('owner');   // default: full access
   const [allowedFeatures,  setAllowedFeatures]  = useState(['*']);
 
+  // ── Beta Lab state ────────────────────────────────────────────────────────
+  const [betaFeatures,     setBetaFeatures]     = useState([]);
+
   // ── Load integrations ─────────────────────────────────────────────────────
   const loadIntegrations = useCallback(async (locId) => {
     const id = locId || locationId;
@@ -126,6 +129,36 @@ export function AppProvider({ children }) {
       }
     } catch {}
   }, []);
+
+  // ── Fetch Beta Lab features ───────────────────────────────────────────────
+  const fetchBetaFeatures = useCallback(async (locId, uid) => {
+    if (!locId) return;
+    try {
+      const data = await apiFetch('/beta/features', locId, {}, uid || null);
+      if (data.success) setBetaFeatures(data.data || []);
+    } catch {}
+  }, []);
+
+  const acknowledgeBeta = useCallback(async (featureId) => {
+    if (!locationId) return;
+    try {
+      await apiFetch(`/beta/features/${featureId}/acknowledge`, locationId, { method: 'POST' }, userId || null);
+      setBetaFeatures(prev => prev.map(f => f.featureId === featureId ? { ...f, acknowledged: true } : f));
+    } catch {}
+  }, [locationId, userId]);
+
+  const toggleBeta = useCallback(async (featureId, enabled) => {
+    if (!locationId) return;
+    try {
+      const data = await apiFetch(`/beta/features/${featureId}/toggle`, locationId, {
+        method: 'POST',
+        body: JSON.stringify({ enabled }),
+      }, userId || null);
+      if (data.success) {
+        setBetaFeatures(prev => prev.map(f => f.featureId === featureId ? { ...f, myEnabled: enabled } : f));
+      }
+    } catch {}
+  }, [locationId, userId]);
 
   const fetchLocationMeta = useCallback(async (locId) => {
     if (!locId) return;
@@ -266,12 +299,14 @@ export function AppProvider({ children }) {
     setIntegrationsLoaded(false);
     setUserRole('owner');
     setAllowedFeatures(['*']);
+    setBetaFeatures([]);
 
     // Fetch fresh data for this location
     fetchLocationMeta(locationId);
     fetchStatus(locationId);
     loadIntegrations(locationId);
     fetchRole(locationId, userId);
+    fetchBetaFeatures(locationId, userId);
 
     // Poll integrations every 20s so admin-shared tools appear without a page refresh
     const poll = setInterval(() => loadIntegrations(locationId), 20000);
@@ -328,6 +363,7 @@ export function AppProvider({ children }) {
     setIntegrationsLoaded(false);
     setUserRole('owner');
     setAllowedFeatures(['*']);
+    setBetaFeatures([]);
   };
 
   // ── Refresh status + integrations ────────────────────────────────────────
@@ -356,6 +392,11 @@ export function AppProvider({ children }) {
       userRole,
       allowedFeatures,
       canAccess,
+      // Beta Lab
+      betaFeatures,
+      unreadBetaCount: betaFeatures.filter(f => f.visible && !f.panelOnly && !f.acknowledged).length,
+      acknowledgeBeta,
+      toggleBeta,
       // Theme
       theme,
       toggleTheme,

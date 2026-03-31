@@ -84,11 +84,12 @@ const FEATURE_INTEGRATION_MAP = {
 };
 
 const BUILTIN_ROLES_DEFAULT = [
-  { id: 'owner',      name: 'Owner',     features: ['*'],            builtin: true },
-  { id: 'admin',      name: 'Admin',     features: ALL_FEATURE_KEYS, builtin: true },
-  { id: 'manager',    name: 'Manager',   features: ['dashboard','funnel_builder','website_builder','email_builder','campaign_builder','ads_generator','ad_library','social_planner','manychat','settings'], builtin: true },
-  { id: 'member',     name: 'Member',    features: ['dashboard','ads_generator','ad_library','social_planner'], builtin: true },
-  { id: 'chats_only', name: 'Chat User', features: ['dashboard','chats'], builtin: true, description: 'Default — Chats access only' },
+  { id: 'owner',      name: 'Owner',      features: ['*'],            builtin: true },
+  { id: 'admin',      name: 'Admin',      features: ALL_FEATURE_KEYS, builtin: true },
+  { id: 'mini_admin', name: 'Mini Admin', features: ['*'],            builtin: true, description: 'Full access + can toggle beta features per location' },
+  { id: 'manager',    name: 'Manager',    features: ['dashboard','funnel_builder','website_builder','email_builder','campaign_builder','ads_generator','ad_library','social_planner','manychat','settings'], builtin: true },
+  { id: 'member',     name: 'Member',     features: ['dashboard','ads_generator','ad_library','social_planner'], builtin: true },
+  { id: 'chats_only', name: 'Chat User',  features: ['dashboard','chats'], builtin: true, description: 'Default — Chats access only' },
 ];
 
 function useIsMobile() {
@@ -1706,6 +1707,13 @@ export default function Admin() {
   const [personaWebhookTest, setPersonaWebhookTest] = useState(null); // { loading, result }
   const [personaSaving,      setPersonaSaving]      = useState(false);
 
+  // Beta Lab state
+  const [betaFeatures,       setBetaFeatures]       = useState([]);
+  const [betaLoading,        setBetaLoading]        = useState(false);
+  const [betaModal,          setBetaModal]          = useState(null); // null | 'create' | feature obj (edit)
+  const [betaForm,           setBetaForm]           = useState({ title:'', description:'', version:'', status:'not_shared' });
+  const [betaSaving,         setBetaSaving]         = useState(false);
+
   // 3rd-party Integrations state
   const [builtinTools,       setBuiltinTools]       = useState([]); // GHL built-in tool metadata
   const [integrations,       setIntegrations]       = useState([]);
@@ -1939,6 +1947,13 @@ export default function Admin() {
     setIntLoading(false);
   }, [adminKey]);
 
+  const loadBetaFeatures = useCallback(async () => {
+    setBetaLoading(true);
+    const data = await adminFetch('/admin/beta-lab', { adminKey });
+    if (data.success) setBetaFeatures(data.data || []);
+    setBetaLoading(false);
+  }, [adminKey]);
+
   useEffect(() => {
     if (!authed) return;
     if (tab === 'overview')     { loadStats(); loadBilling(); }
@@ -1950,6 +1965,7 @@ export default function Admin() {
     if (tab === 'brain')        loadSharedBrains();
     if (tab === 'personas')     loadPersonas();
     if (tab === 'integrations') loadIntegrations();
+    if (tab === 'beta-lab')     loadBetaFeatures();
     // Users & Roles tab: ensure locations list + default role loaded
     if (tab === 'users-roles') {
       if (locations.length === 0) loadLocations();
@@ -2177,6 +2193,7 @@ export default function Admin() {
     { key: 'brain',        label: 'Brain',        icon: '🧠' },
     { key: 'personas',     label: 'Chat Personas', icon: '🎭' },
     { key: 'integrations', label: 'Integrations',  icon: '🔌' },
+    { key: 'beta-lab',     label: 'Beta Lab',      icon: '🧪' },
     { key: 'logs',         label: 'Activity Logs', icon: '📋' },
     { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
   ];
@@ -4359,6 +4376,221 @@ export default function Admin() {
             )}
           </div>
         )}
+
+        {/* ── Beta Lab Tab ─────────────────────────────────────────────── */}
+        {tab === 'beta-lab' && (() => {
+          const VALID_STATUS = ['permanent', 'beta', 'not_shared'];
+          const STATUS_META = {
+            permanent:  { label: 'Permanent',  color: '#34d399', bg: 'rgba(16,185,129,0.15)',  border: 'rgba(16,185,129,0.35)',  desc: 'Pushed to all locations automatically. Banner shown once.' },
+            beta:       { label: 'Beta',       color: '#fbbf24', bg: 'rgba(251,191,36,0.12)',   border: 'rgba(251,191,36,0.3)',   desc: 'Mini admin enables per-location first; users see it only if enabled.' },
+            not_shared: { label: 'Not Shared', color: '#9ca3af', bg: 'rgba(156,163,175,0.1)',   border: 'rgba(156,163,175,0.2)', desc: 'Visible in admin/mini-admin panel only. Never shown to regular users.' },
+          };
+
+          const openCreate = () => {
+            setBetaForm({ title: '', description: '', version: '', status: 'not_shared' });
+            setBetaModal('create');
+          };
+          const openEdit = (f) => {
+            setBetaForm({ title: f.title || '', description: f.description || '', version: f.version || '', status: f.status || 'not_shared' });
+            setBetaModal(f);
+          };
+          const saveFeature = async () => {
+            if (!betaForm.title.trim()) return toast.error('Title is required');
+            setBetaSaving(true);
+            const isCreate = betaModal === 'create';
+            const method   = isCreate ? 'POST' : 'PUT';
+            const path     = isCreate ? '/admin/beta-lab' : `/admin/beta-lab/${betaModal.featureId}`;
+            const data     = await adminFetch(path, { method, adminKey, body: betaForm });
+            if (data.success) {
+              if (isCreate) setBetaFeatures(prev => [data.data, ...prev]);
+              else setBetaFeatures(prev => prev.map(f => f.featureId === data.data.featureId ? data.data : f));
+              toast.success(isCreate ? 'Feature created' : 'Feature updated');
+              setBetaModal(null);
+            } else {
+              toast.error(data.error || 'Save failed');
+            }
+            setBetaSaving(false);
+          };
+          const deleteFeature = async (featureId, title) => {
+            confirmToast(`Delete "${title}"? This cannot be undone.`, async () => {
+              const data = await adminFetch(`/admin/beta-lab/${featureId}`, { method: 'DELETE', adminKey });
+              if (data.success) {
+                setBetaFeatures(prev => prev.filter(f => f.featureId !== featureId));
+                toast.success('Feature deleted');
+              } else {
+                toast.error(data.error || 'Delete failed');
+              }
+            });
+          };
+
+          return (
+            <div>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <div>
+                  <h3 style={{ color: '#fff', margin: '0 0 4px', fontSize: 16 }}>🧪 Beta Lab</h3>
+                  <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
+                    Manage feature announcements. Set status to control who sees each update.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={loadBetaFeatures} style={{ background: 'transparent', border: '1px solid #333', borderRadius: 8, color: '#9ca3af', padding: '8px 14px', cursor: 'pointer', fontSize: 13 }}>↻ Reload</button>
+                  <button onClick={openCreate} style={{ background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>+ New Feature</button>
+                </div>
+              </div>
+
+              {/* Status legend */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+                {VALID_STATUS.map(s => {
+                  const m = STATUS_META[s];
+                  return (
+                    <div key={s} style={{ background: m.bg, border: `1px solid ${m.border}`, borderRadius: 8, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
+                      <span style={{ color: m.color, fontSize: 12, fontWeight: 600 }}>{m.label}</span>
+                      <span style={{ color: '#6b7280', fontSize: 11 }}>— {m.desc}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Feature list */}
+              {betaLoading ? (
+                <p style={{ color: '#6b7280', textAlign: 'center', padding: 40 }}>Loading…</p>
+              ) : betaFeatures.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 60, color: '#4b5563' }}>
+                  <p style={{ fontSize: 36, marginBottom: 12 }}>🧪</p>
+                  <p style={{ fontSize: 14 }}>No features yet. Create your first one.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {betaFeatures.map(f => {
+                    const sm = STATUS_META[f.status] || STATUS_META.not_shared;
+                    return (
+                      <div key={f.featureId} style={{
+                        background: '#111827', border: '1px solid #1f2937',
+                        borderRadius: 12, padding: '14px 18px',
+                        display: 'flex', alignItems: 'center', gap: 14,
+                      }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                            <span style={{ color: '#e5e7eb', fontWeight: 600, fontSize: 14 }}>{f.title}</span>
+                            {f.version && (
+                              <span style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc', padding: '1px 8px', borderRadius: 99, fontSize: 11 }}>{f.version}</span>
+                            )}
+                            <span style={{ background: sm.bg, border: `1px solid ${sm.border}`, color: sm.color, padding: '1px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600 }}>{sm.label}</span>
+                          </div>
+                          {f.description && (
+                            <p style={{ color: '#6b7280', fontSize: 12, margin: '0 0 4px', lineHeight: 1.5 }}>{f.description}</p>
+                          )}
+                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 11, color: '#4b5563' }}>
+                              {f.enabledLocations?.length || 0} enabled · {f.acknowledgedBy?.length || 0} acknowledged
+                            </span>
+                            <span style={{ fontSize: 11, color: '#374151' }}>
+                              {f.publishedAt ? new Date(f.publishedAt).toLocaleDateString() : '—'}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                          {/* Quick status cycle */}
+                          <select
+                            value={f.status}
+                            onChange={async (e) => {
+                              const newStatus = e.target.value;
+                              const data = await adminFetch(`/admin/beta-lab/${f.featureId}`, {
+                                method: 'PUT', adminKey, body: { status: newStatus },
+                              });
+                              if (data.success) {
+                                setBetaFeatures(prev => prev.map(x => x.featureId === f.featureId ? data.data : x));
+                                toast.success('Status updated');
+                              } else {
+                                toast.error(data.error || 'Failed to update status');
+                              }
+                            }}
+                            style={{ background: sm.bg, border: `1px solid ${sm.border}`, borderRadius: 6, color: sm.color, padding: '5px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            {VALID_STATUS.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+                          </select>
+                          <button
+                            onClick={() => openEdit(f)}
+                            style={{ background: 'transparent', border: '1px solid #374151', borderRadius: 6, color: '#9ca3af', padding: '5px 12px', cursor: 'pointer', fontSize: 12 }}
+                          >Edit</button>
+                          <button
+                            onClick={() => deleteFeature(f.featureId, f.title)}
+                            style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, color: '#ef4444', padding: '5px 10px', cursor: 'pointer', fontSize: 12 }}
+                          >✕</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Create / Edit modal */}
+              {betaModal && (
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+                  onClick={() => setBetaModal(null)}
+                >
+                  <div onClick={e => e.stopPropagation()} style={{
+                    width: '100%', maxWidth: 480, background: '#13131a',
+                    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16,
+                    padding: 24, boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
+                  }}>
+                    <h3 style={{ margin: '0 0 18px', fontSize: 15, color: '#f1f5f9', fontWeight: 700 }}>
+                      {betaModal === 'create' ? '+ New Feature' : `Edit: ${betaModal.title}`}
+                    </h3>
+                    {[
+                      { key: 'title', label: 'Title *', placeholder: 'e.g. AI Auto-Improve' },
+                      { key: 'version', label: 'Version', placeholder: 'e.g. v2.8' },
+                      { key: 'description', label: 'Description', placeholder: 'What does this feature do?', multiline: true },
+                    ].map(({ key, label, placeholder, multiline }) => (
+                      <div key={key} style={{ marginBottom: 14 }}>
+                        <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, marginBottom: 5, fontWeight: 600 }}>{label}</label>
+                        {multiline ? (
+                          <textarea
+                            value={betaForm[key]}
+                            onChange={e => setBetaForm(p => ({ ...p, [key]: e.target.value }))}
+                            placeholder={placeholder}
+                            rows={3}
+                            style={{ width: '100%', boxSizing: 'border-box', background: '#0a0f1a', border: '1px solid #1f2937', borderRadius: 8, color: '#f1f5f9', padding: '9px 12px', fontSize: 13, resize: 'vertical', outline: 'none' }}
+                          />
+                        ) : (
+                          <input
+                            value={betaForm[key]}
+                            onChange={e => setBetaForm(p => ({ ...p, [key]: e.target.value }))}
+                            placeholder={placeholder}
+                            style={{ width: '100%', boxSizing: 'border-box', background: '#0a0f1a', border: '1px solid #1f2937', borderRadius: 8, color: '#f1f5f9', padding: '9px 12px', fontSize: 13, outline: 'none' }}
+                          />
+                        )}
+                      </div>
+                    ))}
+                    <div style={{ marginBottom: 20 }}>
+                      <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, marginBottom: 5, fontWeight: 600 }}>Status</label>
+                      <select
+                        value={betaForm.status}
+                        onChange={e => setBetaForm(p => ({ ...p, status: e.target.value }))}
+                        style={{ width: '100%', background: '#0a0f1a', border: '1px solid #1f2937', borderRadius: 8, color: '#f1f5f9', padding: '9px 12px', fontSize: 13, outline: 'none' }}
+                      >
+                        {VALID_STATUS.map(s => (
+                          <option key={s} value={s}>{STATUS_META[s].label} — {STATUS_META[s].desc}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                      <button onClick={() => setBetaModal(null)} style={{ background: 'none', border: '1px solid #374151', borderRadius: 8, color: '#9ca3af', padding: '8px 18px', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+                      <button
+                        onClick={saveFeature}
+                        disabled={betaSaving}
+                        style={{ background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 22px', cursor: betaSaving ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: betaSaving ? 0.6 : 1 }}
+                      >{betaSaving ? 'Saving…' : 'Save Feature'}</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── Brain Tab ────────────────────────────────────────────────── */}
         {tab === 'brain' && (

@@ -1349,4 +1349,77 @@ router.get('/tools/meta', (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// BETA LAB — owner/admin can manage features; push to permanent, beta, or not_shared
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let betaLabStore;
+try { betaLabStore = require('../services/betaLabStore'); } catch (e) { console.warn('[Admin] betaLabStore:', e.message); }
+
+// ─── GET /admin/beta-lab — list all features ──────────────────────────────────
+
+router.get('/beta-lab', async (req, res) => {
+  try {
+    if (!betaLabStore) return res.status(503).json({ success: false, error: 'Beta Lab store unavailable' });
+    const data = await betaLabStore.listFeatures();
+    res.json({ success: true, data });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── POST /admin/beta-lab — create a feature ─────────────────────────────────
+
+router.post('/beta-lab', async (req, res) => {
+  try {
+    if (!betaLabStore) return res.status(503).json({ success: false, error: 'Beta Lab store unavailable' });
+    const { title, description, version, status } = req.body;
+    if (!title?.trim()) return res.status(400).json({ success: false, error: 'title required' });
+    const VALID_STATUS = ['permanent', 'beta', 'not_shared'];
+    if (status && !VALID_STATUS.includes(status)) {
+      return res.status(400).json({ success: false, error: `status must be one of: ${VALID_STATUS.join(', ')}` });
+    }
+    const feature = await betaLabStore.saveFeature({
+      title: title.trim(),
+      description: description || '',
+      version: version || '',
+      status: status || 'not_shared',
+    });
+    activityLogger.log({ locationId: 'system', event: 'beta_feature_create', detail: { featureId: feature.featureId, title }, success: true, adminId: req.adminId });
+    res.json({ success: true, data: feature });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── PUT /admin/beta-lab/:id — update a feature ───────────────────────────────
+
+router.put('/beta-lab/:id', async (req, res) => {
+  try {
+    if (!betaLabStore) return res.status(503).json({ success: false, error: 'Beta Lab store unavailable' });
+    const existing = await betaLabStore.getFeature(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, error: 'Feature not found' });
+    const VALID_STATUS = ['permanent', 'beta', 'not_shared'];
+    const { title, description, version, status } = req.body;
+    if (status && !VALID_STATUS.includes(status)) {
+      return res.status(400).json({ success: false, error: `status must be one of: ${VALID_STATUS.join(', ')}` });
+    }
+    const updates = {};
+    if (title       !== undefined) updates.title       = title.trim();
+    if (description !== undefined) updates.description = description;
+    if (version     !== undefined) updates.version     = version;
+    if (status      !== undefined) updates.status      = status;
+    const feature = await betaLabStore.saveFeature({ ...existing, ...updates });
+    activityLogger.log({ locationId: 'system', event: 'beta_feature_update', detail: { featureId: req.params.id, status }, success: true, adminId: req.adminId });
+    res.json({ success: true, data: feature });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── DELETE /admin/beta-lab/:id — delete a feature ───────────────────────────
+
+router.delete('/beta-lab/:id', async (req, res) => {
+  try {
+    if (!betaLabStore) return res.status(503).json({ success: false, error: 'Beta Lab store unavailable' });
+    await betaLabStore.deleteFeature(req.params.id);
+    activityLogger.log({ locationId: 'system', event: 'beta_feature_delete', detail: { featureId: req.params.id }, success: true, adminId: req.adminId });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;

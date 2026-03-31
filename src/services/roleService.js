@@ -59,6 +59,7 @@ const BUILTIN_ROLES = {
   manager:    { id: 'manager',    name: 'Manager',   features: ['dashboard', 'funnel_builder', 'website_builder', 'email_builder', 'campaign_builder', 'ads_generator', 'ad_library', 'social_planner', 'manychat', 'settings'], builtin: true },
   member:     { id: 'member',     name: 'Member',    features: ['dashboard', 'ads_generator', 'ad_library', 'social_planner'], builtin: true },
   chats_only: { id: 'chats_only', name: 'Chat User', features: ['dashboard', 'chats'], builtin: true, description: 'Default role — Chats access only' },
+  mini_admin: { id: 'mini_admin', name: 'Mini Admin', features: ['*'],                builtin: true, description: 'Full feature access; can enable beta features per location' },
 };
 
 // Default role applied to all new / unassigned users across all locations
