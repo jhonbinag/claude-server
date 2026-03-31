@@ -1555,7 +1555,7 @@ router.get('/beta-lab', async (req, res) => {
 router.post('/beta-lab', async (req, res) => {
   try {
     if (!betaLabStore) return res.status(503).json({ success: false, error: 'Beta Lab store unavailable' });
-    const { title, description, version, status } = req.body;
+    const { title, description, version, status, linkedFeatures } = req.body;
     if (!title?.trim()) return res.status(400).json({ success: false, error: 'title required' });
     const VALID_STATUS = ['permanent', 'beta', 'not_shared'];
     if (status && !VALID_STATUS.includes(status)) {
@@ -1566,6 +1566,7 @@ router.post('/beta-lab', async (req, res) => {
       description: description || '',
       version: version || '',
       status: status || 'not_shared',
+      linkedFeatures: Array.isArray(linkedFeatures) ? linkedFeatures : [],
     });
     activityLogger.log({ locationId: 'system', event: 'beta_feature_create', detail: { featureId: feature.featureId, title }, success: true, adminId: req.adminId });
     res.json({ success: true, data: feature });
@@ -1580,15 +1581,16 @@ router.put('/beta-lab/:id', async (req, res) => {
     const existing = await betaLabStore.getFeature(req.params.id);
     if (!existing) return res.status(404).json({ success: false, error: 'Feature not found' });
     const VALID_STATUS = ['permanent', 'beta', 'not_shared'];
-    const { title, description, version, status } = req.body;
+    const { title, description, version, status, linkedFeatures } = req.body;
     if (status && !VALID_STATUS.includes(status)) {
       return res.status(400).json({ success: false, error: `status must be one of: ${VALID_STATUS.join(', ')}` });
     }
     const updates = {};
-    if (title       !== undefined) updates.title       = title.trim();
-    if (description !== undefined) updates.description = description;
-    if (version     !== undefined) updates.version     = version;
-    if (status      !== undefined) updates.status      = status;
+    if (title          !== undefined) updates.title          = title.trim();
+    if (description    !== undefined) updates.description    = description;
+    if (version        !== undefined) updates.version        = version;
+    if (status         !== undefined) updates.status         = status;
+    if (linkedFeatures !== undefined) updates.linkedFeatures = Array.isArray(linkedFeatures) ? linkedFeatures : [];
     const feature = await betaLabStore.saveFeature({ ...existing, ...updates });
     activityLogger.log({ locationId: 'system', event: 'beta_feature_update', detail: { featureId: req.params.id, status }, success: true, adminId: req.adminId });
     res.json({ success: true, data: feature });

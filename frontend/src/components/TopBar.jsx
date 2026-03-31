@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { toast } from 'react-toastify';
 import { useApp } from '../context/AppContext';
 
 export default function TopBar({ onMenuClick }) {
@@ -329,14 +330,27 @@ export default function TopBar({ onMenuClick }) {
                           )}
                         </div>
                         {f.description && (
-                          <p style={{ margin: 0, fontSize: 12, color: '#9ca3af', lineHeight: 1.6 }}>{f.description}</p>
+                          <p style={{ margin: '0 0 6px', fontSize: 12, color: '#9ca3af', lineHeight: 1.6 }}>{f.description}</p>
+                        )}
+                        {(f.linkedFeatures || []).length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {(f.linkedFeatures || []).map((tag, i) => (
+                              <span key={i} style={{
+                                background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)',
+                                borderRadius: 99, padding: '1px 8px', color: '#818cf8', fontSize: 11,
+                              }}>{tag}</span>
+                            ))}
+                          </div>
                         )}
                       </div>
 
                       {/* mini_admin toggle for beta features */}
                       {isMiniAdmin && f.toggleable && (
                         <button
-                          onClick={() => toggleBeta(f.featureId, !f.myEnabled)}
+                          onClick={async () => {
+                            await toggleBeta(f.featureId, !f.myEnabled);
+                            toast.success(f.myEnabled ? 'Feature disabled for your location' : 'Feature enabled for your location');
+                          }}
                           style={{
                             flexShrink: 0,
                             position: 'relative',
@@ -365,7 +379,10 @@ export default function TopBar({ onMenuClick }) {
                     {/* Acknowledge button for unread features */}
                     {!f.acknowledged && (
                       <button
-                        onClick={() => acknowledgeBeta(f.featureId)}
+                        onClick={async () => {
+                          await acknowledgeBeta(f.featureId);
+                          toast.success("Got it! You're all caught up on this update.");
+                        }}
                         style={{
                           marginTop: 10, width: '100%',
                           background: 'rgba(99,102,241,0.12)',

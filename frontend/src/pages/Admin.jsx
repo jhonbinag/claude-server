@@ -1735,7 +1735,8 @@ export default function Admin() {
   const [betaFeatures,       setBetaFeatures]       = useState([]);
   const [betaLoading,        setBetaLoading]        = useState(false);
   const [betaModal,          setBetaModal]          = useState(null); // null | 'create' | feature obj (edit)
-  const [betaForm,           setBetaForm]           = useState({ title:'', description:'', version:'', status:'not_shared' });
+  const [betaForm,           setBetaForm]           = useState({ title:'', description:'', version:'', status:'not_shared', linkedFeatures:[] });
+  const [betaTagInput,       setBetaTagInput]       = useState('');
   const [betaSaving,         setBetaSaving]         = useState(false);
 
   // Credentials management state
@@ -4722,11 +4723,13 @@ export default function Admin() {
           };
 
           const openCreate = () => {
-            setBetaForm({ title: '', description: '', version: '', status: 'not_shared' });
+            setBetaForm({ title: '', description: '', version: '', status: 'not_shared', linkedFeatures: [] });
+            setBetaTagInput('');
             setBetaModal('create');
           };
           const openEdit = (f) => {
-            setBetaForm({ title: f.title || '', description: f.description || '', version: f.version || '', status: f.status || 'not_shared' });
+            setBetaForm({ title: f.title || '', description: f.description || '', version: f.version || '', status: f.status || 'not_shared', linkedFeatures: f.linkedFeatures || [] });
+            setBetaTagInput('');
             setBetaModal(f);
           };
           const saveFeature = async () => {
@@ -4816,6 +4819,16 @@ export default function Admin() {
                           </div>
                           {f.description && (
                             <p style={{ color: '#6b7280', fontSize: 12, margin: '0 0 4px', lineHeight: 1.5 }}>{f.description}</p>
+                          )}
+                          {(f.linkedFeatures || []).length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+                              {(f.linkedFeatures || []).map((tag, i) => (
+                                <span key={i} style={{
+                                  background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)',
+                                  borderRadius: 99, padding: '1px 8px', color: '#818cf8', fontSize: 11,
+                                }}>{tag}</span>
+                              ))}
+                            </div>
                           )}
                           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                             <span style={{ fontSize: 11, color: '#4b5563' }}>
@@ -4912,6 +4925,63 @@ export default function Admin() {
                         ))}
                       </select>
                     </div>
+                    {/* Linked Features tags */}
+                    <div style={{ marginBottom: 20 }}>
+                      <label style={{ display: 'block', color: '#9ca3af', fontSize: 12, marginBottom: 5, fontWeight: 600 }}>Linked Features / Tags</label>
+                      <p style={{ margin: '0 0 8px', fontSize: 11, color: '#4b5563', lineHeight: 1.5 }}>
+                        Tag which tools or pages this update relates to. Shown as pills in the user-facing panel.
+                      </p>
+                      {/* Tag pills */}
+                      {(betaForm.linkedFeatures || []).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                          {(betaForm.linkedFeatures || []).map((tag, i) => (
+                            <span key={i} style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 5,
+                              background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)',
+                              borderRadius: 99, padding: '3px 10px',
+                              color: '#a5b4fc', fontSize: 12, fontWeight: 500,
+                            }}>
+                              {tag}
+                              <button
+                                type="button"
+                                onClick={() => setBetaForm(p => ({ ...p, linkedFeatures: p.linkedFeatures.filter((_, j) => j !== i) }))}
+                                style={{ background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer', fontSize: 11, padding: 0, lineHeight: 1 }}
+                              >✕</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          value={betaTagInput}
+                          onChange={e => setBetaTagInput(e.target.value)}
+                          onKeyDown={e => {
+                            if ((e.key === 'Enter' || e.key === ',') && betaTagInput.trim()) {
+                              e.preventDefault();
+                              const tag = betaTagInput.trim().replace(/,$/, '');
+                              if (tag && !(betaForm.linkedFeatures || []).includes(tag)) {
+                                setBetaForm(p => ({ ...p, linkedFeatures: [...(p.linkedFeatures || []), tag] }));
+                              }
+                              setBetaTagInput('');
+                            }
+                          }}
+                          placeholder="e.g. AI Assistant, Brain, Workflows — press Enter to add"
+                          style={{ flex: 1, background: '#0a0f1a', border: '1px solid #1f2937', borderRadius: 8, color: '#f1f5f9', padding: '8px 12px', fontSize: 12, outline: 'none' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const tag = betaTagInput.trim().replace(/,$/, '');
+                            if (tag && !(betaForm.linkedFeatures || []).includes(tag)) {
+                              setBetaForm(p => ({ ...p, linkedFeatures: [...(p.linkedFeatures || []), tag] }));
+                            }
+                            setBetaTagInput('');
+                          }}
+                          style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 8, color: '#a5b4fc', padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 600, flexShrink: 0 }}
+                        >Add</button>
+                      </div>
+                    </div>
+
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                       <button onClick={() => setBetaModal(null)} style={{ background: 'none', border: '1px solid #374151', borderRadius: 8, color: '#9ca3af', padding: '8px 18px', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
                       <button
