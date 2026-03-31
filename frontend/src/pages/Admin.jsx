@@ -1747,6 +1747,8 @@ export default function Admin() {
   const [credShowPass,       setCredShowPass]       = useState(false);
   const [credActivateNow,    setCredActivateNow]    = useState(false);
   const [credPasswordModal,  setCredPasswordModal]  = useState(null); // null | { username, password }
+  const [credNewPassword,    setCredNewPassword]    = useState('');
+  const [credShowNewPass,    setCredShowNewPass]    = useState(false);
 
   // 3rd-party Integrations state
   const [builtinTools,       setBuiltinTools]       = useState([]); // GHL built-in tool metadata
@@ -5125,7 +5127,17 @@ export default function Admin() {
           };
           const openEdit = (cred) => {
             setCredForm({ name:cred.name, email:cred.email||'', username:cred.username, locationIds:cred.locationIds||(cred.locationId?[cred.locationId]:[]), role:cred.role||'mini_admin', status:cred.status||'active', notes:cred.notes||'' });
+            setCredNewPassword('');
+            setCredShowNewPass(false);
             setCredModal(cred);
+          };
+          const closeCredModal = () => { setCredModal(null); setCredNewPassword(''); setCredShowNewPass(false); };
+          const genPassword = () => {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+            let pwd = '';
+            for (let i = 0; i < 12; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+            setCredNewPassword(pwd);
+            setCredShowNewPass(true);
           };
           const deleteCred = (cred) => {
             confirmToast(`Delete credential for "${cred.name}" (@${cred.username})?`, async () => {
@@ -5148,6 +5160,7 @@ export default function Admin() {
               const isCreate = credModal === 'create';
               const body = { name:credForm.name, email:credForm.email, username:credForm.username, locationIds:credForm.locationIds, role:credForm.role, status:credForm.status, notes:credForm.notes };
               if (isCreate && credActivateNow) body.activateNow = true;
+              if (!isCreate && credNewPassword.trim()) body.newPassword = credNewPassword.trim();
               const url = isCreate ? '/admin/dashboard-credentials' : `/admin/dashboard-credentials/${credModal.credentialId}`;
               const r = await adminFetch(url, { method: isCreate ? 'POST' : 'PUT', adminKey, body });
               if (r.success) {
@@ -5157,9 +5170,13 @@ export default function Admin() {
                   if (r.emailSent) toast.success('Credential created — activation email sent!');
                   else toast.error(`Credential created but email failed: ${r.emailError || 'SMTP not configured'}`);
                 } else {
-                  toast.success('Credential updated');
+                  if (credNewPassword.trim()) {
+                    setCredPasswordModal({ username: credModal.username, password: credNewPassword.trim(), isChange: true });
+                  } else {
+                    toast.success('Credential updated');
+                  }
                 }
-                setCredModal(null); loadCredentials();
+                closeCredModal(); loadCredentials();
               } else toast.error(r.error || 'Save failed');
             } finally { setCredSaving(false); }
           };
@@ -5270,7 +5287,7 @@ export default function Admin() {
                 <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding:20, backdropFilter:'blur(6px)' }}>
                   <div style={{ background:'#0e0e16', border:'1px solid rgba(74,222,128,0.35)', borderRadius:16, padding:28, width:'100%', maxWidth:420 }}>
                     <div style={{ fontSize:32, textAlign:'center', marginBottom:10 }}>🔑</div>
-                    <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700, color:'#f1f5f9', textAlign:'center' }}>Credential Created & Activated</h3>
+                    <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700, color:'#f1f5f9', textAlign:'center' }}>{credPasswordModal?.isChange ? 'Password Updated' : 'Credential Created & Activated'}</h3>
                     <p style={{ margin:'0 0 20px', fontSize:12, color:'#6b7280', textAlign:'center', lineHeight:1.6 }}>
                       Copy these credentials now — the password will <strong style={{ color:'#f87171' }}>not</strong> be shown again.
                     </p>
@@ -5302,7 +5319,7 @@ export default function Admin() {
                   <div style={{ background:'#0e0e16', border:'1px solid #1e2a3a', borderRadius:16, padding:28, width:'100%', maxWidth:500, maxHeight:'90vh', overflowY:'auto' }}>
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
                       <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:'#f1f5f9' }}>{credModal === 'create' ? 'New Credential' : `Edit — ${credModal.name}`}</h3>
-                      <button onClick={() => setCredModal(null)} style={{ background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:18, lineHeight:1 }}>×</button>
+                      <button onClick={closeCredModal} style={{ background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:18, lineHeight:1 }}>×</button>
                     </div>
 
                     {credModal === 'create' && (
@@ -5410,13 +5427,47 @@ export default function Admin() {
                       onChange={e => setCredForm(f => ({ ...f, notes: e.target.value }))}
                     />
 
+                    {/* Change Password — only shown when editing an existing credential */}
+                    {credModal !== 'create' && (
+                      <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid #1e2a3a', borderRadius:10, padding:'14px 16px', marginBottom:16 }}>
+                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                          <label style={{ ...lblStyle, margin:0 }}>Change Password</label>
+                          <button
+                            type="button"
+                            onClick={genPassword}
+                            style={{ background:'rgba(99,102,241,0.12)', border:'1px solid rgba(99,102,241,0.25)', borderRadius:6, color:'#a5b4fc', padding:'4px 12px', cursor:'pointer', fontSize:12, fontWeight:600 }}
+                          >Auto-generate</button>
+                        </div>
+                        <div style={{ position:'relative' }}>
+                          <input
+                            type={credShowNewPass ? 'text' : 'password'}
+                            value={credNewPassword}
+                            onChange={e => setCredNewPassword(e.target.value)}
+                            placeholder="Leave blank to keep current password"
+                            style={{ ...inpStyle, marginBottom:0, paddingRight:44, fontFamily: credNewPassword ? 'monospace' : 'inherit' }}
+                            autoComplete="new-password"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setCredShowNewPass(v => !v)}
+                            style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:13, padding:'2px 4px' }}
+                          >{credShowNewPass ? '🙈' : '👁'}</button>
+                        </div>
+                        {credNewPassword && (
+                          <p style={{ margin:'6px 0 0', fontSize:11, color:'#4ade80' }}>
+                            ✓ New password set — will update on save and be shown once.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     <div style={{ display:'flex', gap:10, marginTop:4 }}>
                       <button
                         onClick={saveCred}
                         disabled={credSaving}
                         style={{ flex:1, background:'#7c3aed', border:'none', borderRadius:8, color:'#fff', padding:'10px', fontSize:14, fontWeight:600, cursor: credSaving ? 'not-allowed' : 'pointer', opacity: credSaving ? 0.6 : 1 }}
-                      >{credSaving ? 'Saving…' : (credModal === 'create' ? 'Create & Send Email' : 'Save Changes')}</button>
-                      <button onClick={() => setCredModal(null)} style={{ padding:'10px 18px', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, color:'#9ca3af', fontSize:14, cursor:'pointer' }}>Cancel</button>
+                      >{credSaving ? 'Saving…' : credModal === 'create' ? (credActivateNow ? 'Create & Activate Now' : 'Create & Send Email') : (credNewPassword.trim() ? 'Save & Update Password' : 'Save Changes')}</button>
+                      <button onClick={closeCredModal} style={{ padding:'10px 18px', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, color:'#9ca3af', fontSize:14, cursor:'pointer' }}>Cancel</button>
                     </div>
                   </div>
                 </div>
