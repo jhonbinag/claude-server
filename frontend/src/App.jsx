@@ -11,6 +11,7 @@ import AgentsHub       from './pages/AgentsHub';
 import AdsHub          from './pages/AdsHub';
 import SocialHub       from './pages/SocialHub';
 import Chats           from './pages/Chats';
+import MiniAdmin       from './pages/MiniAdmin';
 
 // ── Route wrapper: redirects to first accessible page if feature is blocked ───
 const FALLBACK_ORDER = ['/chats', '/agents', '/ads', '/social', '/workflows', '/funnel-builder', '/settings'];
@@ -30,6 +31,9 @@ export default function App() {
       <Routes>
         {/* Admin uses its own full-screen layout (separate auth) */}
         <Route path="/admin" element={<Admin />} />
+
+        {/* Mini Admin — location-scoped management panel */}
+        <Route path="/mini-admin" element={<MiniAdmin />} />
 
         {/* All other routes share the AppShell (sidebar + topbar) */}
         <Route element={<AppShell />}>
