@@ -137,13 +137,26 @@ async function sendActivationEmail({ to, name, username, password, activationUrl
 }
 
 /**
- * Send a test email to verify SMTP configuration.
+ * Send a test email using only the DB-stored SMTP config (never env vars).
  */
 async function sendTestEmail(to) {
-  const cfg = await getTransporter();
-  if (!cfg) return { sent: false, error: 'SMTP not configured (neither DB config nor env vars).' };
-  await cfg.transport.sendMail({
-    from: cfg.from,
+  let dbCfg = null;
+  try {
+    const store = require('./smtpConfigStore');
+    const cfg = await store.getSmtpConfig();
+    if (cfg.host && cfg.user && cfg.pass) dbCfg = cfg;
+  } catch { /* ignore */ }
+
+  if (!dbCfg) return { sent: false, error: 'SMTP not configured. Save your SMTP settings first.' };
+
+  const transport = nodemailer.createTransport({
+    host:   dbCfg.host,
+    port:   dbCfg.port,
+    secure: dbCfg.secure,
+    auth:   { user: dbCfg.user, pass: dbCfg.pass },
+  });
+  await transport.sendMail({
+    from: dbCfg.from || dbCfg.user,
     to,
     subject: 'HL Pro Tools — SMTP Test',
     html: '<p>Your SMTP configuration is working correctly.</p>',
