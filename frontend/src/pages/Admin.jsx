@@ -1657,6 +1657,8 @@ export default function Admin() {
   const [appSettingsSubTab, setAppSettingsSubTab] = useState('ghl'); // 'ghl' | 'business'
   const [integrationsSubTab, setIntegrationsSubTab] = useState('integrations'); // 'integrations' | 'tool-access' | 'beta-lab'
   const [adminSubTab, setAdminSubTab] = useState('users-roles'); // 'users-roles' | 'dashboard-cfg' | 'credentials'
+  const [personasSubTab, setPersonasSubTab] = useState('brain'); // 'brain' | 'personas'
+  const [plansSubTab, setPlansSubTab] = useState('billing'); // 'billing' | 'plan-tiers'
 
   // Business profile state
   const [bizProfile,     setBizProfile]     = useState(null); // loaded from backend
@@ -2033,10 +2035,8 @@ export default function Admin() {
     if (tab === 'locations')    loadLocations();
     if (tab === 'logs')         loadLogs();
     if (tab === 'app-settings') { loadAppSettings(); loadBizProfile(); loadSmtpConfig(); }
-    if (tab === 'billing')      loadBilling();
-    if (tab === 'plan-tiers')   loadTiers();
-    if (tab === 'brain')        loadSharedBrains();
-    if (tab === 'personas')     loadPersonas();
+    if (tab === 'billing')   { loadBilling(); loadTiers(); }
+    if (tab === 'personas')  { loadSharedBrains(); loadPersonas(); }
     if (tab === 'integrations') { loadIntegrations(); loadBetaFeatures(); loadDashCfg(); loadCredentials(); if (locations.length === 0) loadLocations(); }
     // Users & Roles tab: ensure locations list + default role loaded
     if (tab === 'users-roles') {
@@ -2256,22 +2256,20 @@ export default function Admin() {
   });
 
   const SIDEBAR_NAV = [
-    { key: 'overview',     label: 'Dashboard',    icon: '⊞' },
-    { key: 'locations',    label: 'Locations',    icon: '📍' },
-    { key: 'billing',      label: 'Billing',      icon: '💳' },
-    { key: 'plan-tiers',   label: 'Plan Tiers',   icon: '🏅' },
-    { key: 'users-roles',  label: 'Users & Roles',icon: '👥' },
-    { key: 'brain',        label: 'Brain',        icon: '🧠' },
-    { key: 'personas',     label: 'Chat Personas', icon: '🎭' },
+    { key: 'overview',     label: 'Dashboard',     icon: '⊞' },
+    { key: 'locations',    label: 'Locations',     icon: '📍' },
+    { key: 'users-roles',  label: 'Users & Roles', icon: '👥' },
+    { key: 'personas',     label: 'Personas',      icon: '🧠' },
     { key: 'integrations', label: 'Integrations',  icon: '🔌' },
-    { key: 'logs',            label: 'Activity Logs',   icon: '📋' },
-    { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
+    { key: 'billing',      label: 'Plans',         icon: '💳' },
+    { key: 'logs',         label: 'Activity Logs', icon: '📋' },
+    { key: 'app-settings', label: 'App Settings',  icon: '⚙️' },
   ];
 
   const PAGE_TITLE = {
-    overview: 'Dashboard', locations: 'Locations', billing: 'Billing',
-    'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles',
-    brain: 'Brain', personas: 'Chat Personas', integrations: 'Integrations', logs: 'Activity Logs', 'app-settings': 'App Settings',
+    overview: 'Dashboard', locations: 'Locations',
+    'users-roles': 'Users & Roles', personas: 'Personas', integrations: 'Integrations',
+    billing: 'Plans', logs: 'Activity Logs', 'app-settings': 'App Settings',
   };
 
   const navItemStyle = (active) => ({
@@ -2916,6 +2914,19 @@ export default function Admin() {
         {/* ── Chat Personas Tab ────────────────────────────────────────── */}
         {tab === 'personas' && (
           <div>
+            {/* Sub-tab bar */}
+            <div style={{ display:'flex', gap:0, borderBottom:'1px solid #1f2937', marginBottom:28 }}>
+              {[{ id:'brain', label:'Brain' }, { id:'personas', label:'Chat Personas' }].map(t => (
+                <button key={t.id} onClick={() => setPersonasSubTab(t.id)} style={{
+                  background:'none', border:'none',
+                  borderBottom: personasSubTab === t.id ? '2px solid #7c3aed' : '2px solid transparent',
+                  color: personasSubTab === t.id ? '#a78bfa' : '#6b7280',
+                  padding:'10px 20px', fontSize:14, fontWeight: personasSubTab === t.id ? 600 : 400,
+                  cursor:'pointer', marginBottom:-1,
+                }}>{t.label}</button>
+              ))}
+            </div>
+            {personasSubTab === 'personas' && <div>
             {/* Header */}
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24 }}>
               <div>
@@ -3221,6 +3232,7 @@ export default function Admin() {
                 </div>
               </div>
             )}
+          </div>}
           </div>
         )}
 
@@ -3696,6 +3708,19 @@ export default function Admin() {
         {/* ── Billing Tab ──────────────────────────────────────────────── */}
         {tab === 'billing' && (
           <div>
+            {/* Sub-tab bar */}
+            <div style={{ display:'flex', gap:0, borderBottom:'1px solid #1f2937', marginBottom:28 }}>
+              {[{ id:'billing', label:'Billing' }, { id:'plan-tiers', label:'Plan Tiers' }].map(t => (
+                <button key={t.id} onClick={() => setPlansSubTab(t.id)} style={{
+                  background:'none', border:'none',
+                  borderBottom: plansSubTab === t.id ? '2px solid #7c3aed' : '2px solid transparent',
+                  color: plansSubTab === t.id ? '#a78bfa' : '#6b7280',
+                  padding:'10px 20px', fontSize:14, fontWeight: plansSubTab === t.id ? 600 : 400,
+                  cursor:'pointer', marginBottom:-1,
+                }}>{t.label}</button>
+              ))}
+            </div>
+            {plansSubTab === 'billing' && <div>
             {/* Summary cards */}
             {billingSummary && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10, marginBottom: 20 }}>
@@ -3884,11 +3909,9 @@ export default function Admin() {
                 onFlash={(msg) => msg.startsWith('✗') ? toast.error(msg.replace(/^✗\s*/, '')) : toast.info(msg.replace(/^✓\s*/, ''))}
               />
             )}
-          </div>
-        )}
+          </div>}
 
-        {/* ── Plan Tiers Tab ────────────────────────────────────────── */}
-        {tab === 'plan-tiers' && (
+        {tab === 'billing' && plansSubTab === 'plan-tiers' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
@@ -4128,7 +4151,8 @@ export default function Admin() {
             )}
           </div>
         )}
-
+          </div>
+        )}
         {/* ── Users & Roles Tab ─────────────────────────────────────── */}
         {tab === 'users-roles' && (
           <div>
@@ -5250,7 +5274,7 @@ export default function Admin() {
         })()}
 
         {/* ── Brain Tab ────────────────────────────────────────────────── */}
-        {tab === 'brain' && (
+        {tab === 'personas' && personasSubTab === 'brain' && (
           <div>
             {/* View switcher — underline tab bar */}
             <div style={{ background: BD.card, border: `1px solid ${BD.border}`, borderRadius: 10, display: 'flex', alignItems: 'center', padding: '0 4px', marginBottom: 20, flexWrap: 'wrap', gap: 0, justifyContent: 'space-between' }}>
