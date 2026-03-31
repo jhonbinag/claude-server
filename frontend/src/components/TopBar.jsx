@@ -2,6 +2,24 @@ import { useState, useRef, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { useApp } from '../context/AppContext';
 
+const FEATURE_META = {
+  dashboard:        { label: 'Dashboard',           icon: '⊞'  },
+  chats:            { label: 'Chats',               icon: '💬' },
+  settings:         { label: 'Settings',            icon: '⚙️' },
+  agents:           { label: 'AI Agents',           icon: '🤖' },
+  ghl_agent:        { label: 'GHL Agent',           icon: '⚡' },
+  workflows:        { label: 'Workflow Builder',    icon: '🔀' },
+  brain:            { label: 'Brain',               icon: '🧠' },
+  funnel_builder:   { label: 'Funnel Builder',      icon: '🏗️' },
+  website_builder:  { label: 'Website Builder',     icon: '🌐' },
+  email_builder:    { label: 'Email Builder',       icon: '📧' },
+  campaign_builder: { label: 'Campaign Builder',    icon: '📣' },
+  ads_generator:    { label: 'Bulk Ads Generator',  icon: '🎯' },
+  ad_library:       { label: 'Ad Library Intel',    icon: '📊' },
+  social_planner:   { label: 'Social Planner',      icon: '📱' },
+  manychat:         { label: 'ManyChat',            icon: '📩' },
+};
+
 export default function TopBar({ onMenuClick }) {
   const {
     theme, toggleTheme, claudeReady, locationId, locationName,
@@ -333,13 +351,20 @@ export default function TopBar({ onMenuClick }) {
                           <p style={{ margin: '0 0 6px', fontSize: 12, color: '#9ca3af', lineHeight: 1.6 }}>{f.description}</p>
                         )}
                         {(f.linkedFeatures || []).length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                            {(f.linkedFeatures || []).map((tag, i) => (
-                              <span key={i} style={{
-                                background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)',
-                                borderRadius: 99, padding: '1px 8px', color: '#818cf8', fontSize: 11,
-                              }}>{tag}</span>
-                            ))}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                            {(f.linkedFeatures || []).map((key, i) => {
+                              const meta = FEATURE_META[key];
+                              return (
+                                <span key={i} style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                                  background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)',
+                                  borderRadius: 99, padding: '2px 8px', color: '#818cf8', fontSize: 11,
+                                }}>
+                                  {meta ? <span>{meta.icon}</span> : null}
+                                  {meta ? meta.label : key}
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
