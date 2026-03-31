@@ -1,8 +1,8 @@
 /**
- * frontend/src/pages/MiniAdmin.jsx
+ * frontend/src/pages/AdminDashboard.jsx
  *
- * Mini Admin Panel — scoped to the current location.
- * URL: /mini-admin  (full: /ui/mini-admin)
+ * Admin Dashboard — location-scoped management panel.
+ * URL: /admin-dashboard  (full: /ui/admin-dashboard)
  *
  * Auth: same locationId-based session as user app.
  * Access: mini_admin, admin, or owner roles only.
@@ -45,7 +45,7 @@ const ASSIGNABLE_ROLES = [
 
 // ── component ─────────────────────────────────────────────────────────────────
 
-export default function MiniAdmin() {
+export default function AdminDashboard() {
   const { locationId, locationName, userId, userRole, isAuthenticated } = useApp();
 
   const [tab,         setTab]         = useState('beta');
@@ -182,7 +182,7 @@ export default function MiniAdmin() {
       }}>
         <span style={{ fontSize: 18 }}>🧩</span>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9' }}>Mini Admin</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9' }}>Admin Dashboard</div>
           <div style={{ fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }}>
             {locationName || locationId}
           </div>
