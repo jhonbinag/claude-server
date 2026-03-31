@@ -1745,6 +1745,8 @@ export default function Admin() {
   const [credForm,           setCredForm]           = useState({ name:'', email:'', username:'', locationIds:[], role:'mini_admin', status:'active', notes:'' });
   const [credSaving,         setCredSaving]         = useState(false);
   const [credShowPass,       setCredShowPass]       = useState(false);
+  const [credActivateNow,    setCredActivateNow]    = useState(false);
+  const [credPasswordModal,  setCredPasswordModal]  = useState(null); // null | { username, password }
 
   // 3rd-party Integrations state
   const [builtinTools,       setBuiltinTools]       = useState([]); // GHL built-in tool metadata
@@ -5118,6 +5120,7 @@ export default function Admin() {
           };
           const openCreate = () => {
             setCredForm({ name:'', email:'', username:'', locationIds:[], role:'mini_admin', status:'active', notes:'' });
+            setCredActivateNow(false);
             setCredModal('create');
           };
           const openEdit = (cred) => {
@@ -5144,17 +5147,26 @@ export default function Admin() {
             try {
               const isCreate = credModal === 'create';
               const body = { name:credForm.name, email:credForm.email, username:credForm.username, locationIds:credForm.locationIds, role:credForm.role, status:credForm.status, notes:credForm.notes };
+              if (isCreate && credActivateNow) body.activateNow = true;
               const url = isCreate ? '/admin/dashboard-credentials' : `/admin/dashboard-credentials/${credModal.credentialId}`;
               const r = await adminFetch(url, { method: isCreate ? 'POST' : 'PUT', adminKey, body });
               if (r.success) {
-                if (isCreate) {
+                if (isCreate && r.activatedNow) {
+                  setCredPasswordModal({ username: r.username, password: r.plainPassword });
+                } else if (isCreate) {
                   if (r.emailSent) toast.success('Credential created — activation email sent!');
                   else toast.error(`Credential created but email failed: ${r.emailError || 'SMTP not configured'}`);
+                } else {
+                  toast.success('Credential updated');
                 }
-                else toast.success('Credential updated');
                 setCredModal(null); loadCredentials();
               } else toast.error(r.error || 'Save failed');
             } finally { setCredSaving(false); }
+          };
+          const forceActivateCred = async (cred) => {
+            const r = await adminFetch(`/admin/dashboard-credentials/${cred.credentialId}/force-activate`, { method:'POST', adminKey });
+            if (r.success) { toast.success(`${cred.name} activated`); loadCredentials(); }
+            else toast.error(r.error || 'Force activate failed');
           };
           const toggleLocId = (id) => {
             setCredForm(f => {
@@ -5221,10 +5233,17 @@ export default function Admin() {
                                 style={{ background:'none', border:'none', cursor: cred.activated ? 'pointer' : 'default', padding:0 }}
                               >{credStatusBadge(cred)}</button>
                               {!cred.activated && (
-                                <button
-                                  onClick={() => resendActivation(cred)}
-                                  style={{ background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:5, color:'#fbbf24', padding:'2px 8px', cursor:'pointer', fontSize:10, fontWeight:600 }}
-                                >↻ Resend</button>
+                                <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                                  <button
+                                    onClick={() => resendActivation(cred)}
+                                    style={{ background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:5, color:'#fbbf24', padding:'2px 8px', cursor:'pointer', fontSize:10, fontWeight:600 }}
+                                  >↻ Resend</button>
+                                  <button
+                                    onClick={() => forceActivateCred(cred)}
+                                    title="Activate immediately — bypass email verification"
+                                    style={{ background:'rgba(74,222,128,0.08)', border:'1px solid rgba(74,222,128,0.2)', borderRadius:5, color:'#4ade80', padding:'2px 8px', cursor:'pointer', fontSize:10, fontWeight:600 }}
+                                  >✓ Activate Now</button>
+                                </div>
                               )}
                             </div>
                           </td>
@@ -5246,6 +5265,37 @@ export default function Admin() {
                 </div>
               )}
 
+              {/* Password reveal modal — shown after "Activate immediately" create */}
+              {credPasswordModal && (
+                <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding:20, backdropFilter:'blur(6px)' }}>
+                  <div style={{ background:'#0e0e16', border:'1px solid rgba(74,222,128,0.35)', borderRadius:16, padding:28, width:'100%', maxWidth:420 }}>
+                    <div style={{ fontSize:32, textAlign:'center', marginBottom:10 }}>🔑</div>
+                    <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700, color:'#f1f5f9', textAlign:'center' }}>Credential Created & Activated</h3>
+                    <p style={{ margin:'0 0 20px', fontSize:12, color:'#6b7280', textAlign:'center', lineHeight:1.6 }}>
+                      Copy these credentials now — the password will <strong style={{ color:'#f87171' }}>not</strong> be shown again.
+                    </p>
+                    <div style={{ background:'#0a0f1a', border:'1px solid #1f2937', borderRadius:10, padding:'12px 16px', marginBottom:10 }}>
+                      <div style={{ fontSize:11, color:'#4b5563', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>Username</div>
+                      <div style={{ fontFamily:'monospace', fontSize:15, color:'#a5b4fc', letterSpacing:'0.03em' }}>{credPasswordModal.username}</div>
+                    </div>
+                    <div style={{ background:'#0a0f1a', border:'1px solid #1f2937', borderRadius:10, padding:'12px 16px', marginBottom:20 }}>
+                      <div style={{ fontSize:11, color:'#4b5563', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>Password</div>
+                      <div style={{ fontFamily:'monospace', fontSize:15, color:'#4ade80', letterSpacing:'0.05em' }}>{credPasswordModal.password}</div>
+                    </div>
+                    <div style={{ display:'flex', gap:10 }}>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(`Username: ${credPasswordModal.username}\nPassword: ${credPasswordModal.password}`); toast.success('Copied to clipboard!'); }}
+                        style={{ flex:1, background:'rgba(74,222,128,0.12)', border:'1px solid rgba(74,222,128,0.3)', borderRadius:8, color:'#4ade80', padding:'10px', fontSize:13, fontWeight:600, cursor:'pointer' }}
+                      >📋 Copy Credentials</button>
+                      <button
+                        onClick={() => setCredPasswordModal(null)}
+                        style={{ padding:'10px 18px', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, color:'#9ca3af', fontSize:13, cursor:'pointer' }}
+                      >Done</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Create / Edit Modal */}
               {credModal && (
                 <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20, backdropFilter:'blur(4px)' }}>
@@ -5256,9 +5306,33 @@ export default function Admin() {
                     </div>
 
                     {credModal === 'create' && (
-                      <div style={{ background:'rgba(99,102,241,0.08)', border:'1px solid rgba(99,102,241,0.2)', borderRadius:8, padding:'10px 14px', marginBottom:18, fontSize:13, color:'#a5b4fc', lineHeight:1.6 }}>
-                        A password will be auto-generated and emailed to the user with an activation link.
-                      </div>
+                      <>
+                        <label
+                          style={{ display:'flex', alignItems:'flex-start', gap:12, cursor:'pointer', background: credActivateNow ? 'rgba(74,222,128,0.08)' : 'rgba(99,102,241,0.06)', border: `1px solid ${credActivateNow ? 'rgba(74,222,128,0.3)' : 'rgba(99,102,241,0.2)'}`, borderRadius:8, padding:'12px 14px', marginBottom:16, transition:'all .15s' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={credActivateNow}
+                            onChange={e => setCredActivateNow(e.target.checked)}
+                            style={{ marginTop:2, width:16, height:16, accentColor:'#4ade80', cursor:'pointer', flexShrink:0 }}
+                          />
+                          <div>
+                            <div style={{ fontSize:13, fontWeight:600, color: credActivateNow ? '#4ade80' : '#a5b4fc' }}>
+                              {credActivateNow ? '✓ Activate immediately (skip email)' : 'Activate immediately (skip email)'}
+                            </div>
+                            <div style={{ fontSize:11, color:'#6b7280', marginTop:3, lineHeight:1.5 }}>
+                              {credActivateNow
+                                ? 'Account will be ready to log in now. The password will be shown once — copy it.'
+                                : 'Leave unchecked to send an activation email instead (requires SMTP configured).'}
+                            </div>
+                          </div>
+                        </label>
+                        {!credActivateNow && (
+                          <div style={{ background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.15)', borderRadius:8, padding:'10px 14px', marginBottom:16, fontSize:12, color:'#818cf8', lineHeight:1.6 }}>
+                            A password will be auto-generated and emailed to the user with an activation link.
+                          </div>
+                        )}
+                      </>
                     )}
 
                     <label style={lblStyle}>Display Name</label>

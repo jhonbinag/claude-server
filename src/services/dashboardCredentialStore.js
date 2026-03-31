@@ -152,7 +152,7 @@ async function getByUsername(username) {
  * @returns {{ cred, plainPassword }}
  */
 async function createCredential(data) {
-  const { name, email, username, locationIds, role, status, notes } = data;
+  const { name, email, username, locationIds, role, status, notes, activated: activateNow } = data;
   if (!name?.trim())     throw new Error('name is required');
   if (!email?.trim())    throw new Error('email is required');
   if (!username?.trim()) throw new Error('username is required');
@@ -169,8 +169,9 @@ async function createCredential(data) {
   const hash           = hashPassword(plainPassword, salt);
   const id             = genId();
   const now            = Date.now();
-  const activationToken   = generateActivationToken();
-  const activationExpires = now + 72 * 3600 * 1000; // 72h
+  const skipActivation = activateNow === true;
+  const activationToken   = skipActivation ? null : generateActivationToken();
+  const activationExpires = skipActivation ? null : now + 72 * 3600 * 1000; // 72h
 
   const cred = {
     name:             name.trim(),
@@ -181,7 +182,7 @@ async function createCredential(data) {
     locationIds:      locationIds,
     role:             role || 'mini_admin',
     status:           status || 'active',
-    activated:        false,
+    activated:        skipActivation,
     activationToken,
     activationExpires,
     notes:            notes || '',
@@ -309,6 +310,27 @@ async function generateNewActivationToken(credentialId) {
   return { activationToken, activationExpires, cred: { ...cred, ...patch } };
 }
 
+// ── Force-activate (admin override) ──────────────────────────────────────────
+
+async function forceActivate(credentialId) {
+  const cred = await getCredential(credentialId);
+  if (!cred) return null;
+  const patch = {
+    activated:         true,
+    activationToken:   null,
+    activationExpires: null,
+    status:            'active',
+    updatedAt:         Date.now(),
+  };
+  const d = db();
+  if (d) {
+    await d.collection(COL).doc(credentialId).set(patch, { merge: true });
+  } else if (mem[credentialId]) {
+    Object.assign(mem[credentialId], patch);
+  }
+  return { ...cred, ...patch };
+}
+
 // ── Login ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -342,6 +364,7 @@ module.exports = {
   deleteCredential,
   activateByToken,
   generateNewActivationToken,
+  forceActivate,
   login,
   verifyToken,
   generatePassword,

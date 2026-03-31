@@ -1396,7 +1396,7 @@ router.get('/dashboard-credentials', async (req, res) => {
 router.post('/dashboard-credentials', async (req, res) => {
   try {
     if (!credentialStore) return res.status(503).json({ success: false, error: 'Credential store unavailable' });
-    const { name, email, username, locationIds, role, status, notes } = req.body;
+    const { name, email, username, locationIds, role, status, notes, activateNow } = req.body;
     if (!name?.trim())     return res.status(400).json({ success: false, error: 'name required' });
     if (!email?.trim())    return res.status(400).json({ success: false, error: 'email required' });
     if (!username?.trim()) return res.status(400).json({ success: false, error: 'username required' });
@@ -1404,7 +1404,14 @@ router.post('/dashboard-credentials', async (req, res) => {
       return res.status(400).json({ success: false, error: 'locationIds required (["all"] or specific IDs)' });
     }
 
-    const { cred, plainPassword } = await credentialStore.createCredential({ name, email, username, locationIds, role, status, notes });
+    const skipEmail = activateNow === true;
+    const { cred, plainPassword } = await credentialStore.createCredential({ name, email, username, locationIds, role, status, notes, activated: skipEmail });
+
+    // If activateNow: skip email, return plainPassword directly to admin
+    if (skipEmail) {
+      activityLogger.log({ locationId: 'system', event: 'dashboard_credential_create', detail: { username: cred.username, email: cred.email, activateNow: true }, success: true, adminId: req.adminId });
+      return res.json({ success: true, credential: safeStrip(cred), activatedNow: true, plainPassword, username: cred.username });
+    }
 
     // Send activation email
     const activationUrl = `${getAppBaseUrl(req)}/dashboard/activate/${cred.activationToken}`;
@@ -1459,6 +1466,17 @@ router.post('/dashboard-credentials/:id/resend-activation', async (req, res) => 
     }
     activityLogger.log({ locationId: 'system', event: 'dashboard_credential_resend_activation', detail: { credentialId: req.params.id }, success: true, adminId: req.adminId });
     res.json({ success: true, emailSent: emailResult.sent, emailError: emailResult.error || null });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /admin/dashboard-credentials/:id/force-activate — activate without email
+router.post('/dashboard-credentials/:id/force-activate', async (req, res) => {
+  try {
+    if (!credentialStore) return res.status(503).json({ success: false, error: 'Credential store unavailable' });
+    const updated = await credentialStore.forceActivate(req.params.id);
+    if (!updated) return res.status(404).json({ success: false, error: 'Credential not found' });
+    activityLogger.log({ locationId: 'system', event: 'dashboard_credential_force_activate', detail: { credentialId: req.params.id }, success: true, adminId: req.adminId });
+    res.json({ success: true, credential: safeStrip(updated) });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
