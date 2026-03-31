@@ -29,10 +29,23 @@ const store              = require('../services/conversationStore');
 const brainStore         = require('../services/brainStore');
 const personaStore       = require('../services/personaStore');
 const integrationStore   = require('../services/integrationStore');
+const toolRegistry       = require('../tools/toolRegistry');
+const config             = require('../config');
 const Anthropic          = require('@anthropic-ai/sdk');
 
-const client     = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SHARED_LOC = '__shared__';
+
+// Per-location client — uses location's own Anthropic key, falls back to server env key
+async function getClient(locationId) {
+  try {
+    const configs = await toolRegistry.loadToolConfigs(locationId);
+    const apiKey  = configs.anthropic?.apiKey || config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY;
+    if (apiKey) return new Anthropic({ apiKey });
+  } catch (_) {}
+  const apiKey = config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('Anthropic API key not configured. Go to Settings → Claude AI to add your key.');
+  return new Anthropic({ apiKey });
+}
 
 // ── Brain helpers ─────────────────────────────────────────────────────────────
 
@@ -230,6 +243,9 @@ router.post('/:id/message', async (req, res) => {
   const send = (evt, data) => res.write(`event: ${evt}\ndata: ${JSON.stringify(data)}\n\n`);
 
   try {
+    // Resolve Anthropic client using location key → server env fallback
+    const client = await getClient(req.locationId);
+
     // ── 1. Brains ─────────────────────────────────────────────────────────────
     const brains = await getAllBrains(req.locationId);
     let brainContext = '';

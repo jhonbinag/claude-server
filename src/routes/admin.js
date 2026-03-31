@@ -1021,7 +1021,11 @@ try { personaStore = require('../services/personaStore'); } catch (e) { console.
 const Anthropic = require('@anthropic-ai/sdk');
 let _pAnthropicClient = null;
 function pClient() {
-  if (!_pAnthropicClient) _pAnthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (!_pAnthropicClient) {
+    const apiKey = process.env.ANTHROPIC_API_KEY || (config && config.anthropic && config.anthropic.apiKey);
+    if (!apiKey) throw new Error('Anthropic API key not configured on this server.');
+    _pAnthropicClient = new Anthropic({ apiKey });
+  }
   return _pAnthropicClient;
 }
 
