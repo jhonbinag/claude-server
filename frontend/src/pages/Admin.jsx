@@ -5061,7 +5061,10 @@ export default function Admin() {
           };
           const resendActivation = async (cred) => {
             const r = await adminFetch(`/admin/dashboard-credentials/${cred.credentialId}/resend-activation`, { method:'POST', adminKey });
-            if (r.success) toast.success(r.emailSent ? 'Activation email resent' : 'Token regenerated (SMTP not configured — check server logs)');
+            if (r.success) {
+              if (r.emailSent) toast.success('Activation email resent');
+              else toast.error(r.emailError || 'Email not sent — SMTP not configured');
+            }
             else toast.error(r.error || 'Failed');
           };
           const saveCred = async () => {
@@ -5072,7 +5075,10 @@ export default function Admin() {
               const url = isCreate ? '/admin/dashboard-credentials' : `/admin/dashboard-credentials/${credModal.credentialId}`;
               const r = await adminFetch(url, { method: isCreate ? 'POST' : 'PUT', adminKey, body });
               if (r.success) {
-                if (isCreate) toast.success(r.emailSent ? 'Credential created — activation email sent!' : 'Credential created (SMTP not configured — check server logs for password)');
+                if (isCreate) {
+                  if (r.emailSent) toast.success('Credential created — activation email sent!');
+                  else toast.error(`Credential created but email failed: ${r.emailError || 'SMTP not configured'}`);
+                }
                 else toast.success('Credential updated');
                 setCredModal(null); loadCredentials();
               } else toast.error(r.error || 'Save failed');

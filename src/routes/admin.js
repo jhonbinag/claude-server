@@ -1417,7 +1417,7 @@ router.post('/dashboard-credentials', async (req, res) => {
     }
 
     activityLogger.log({ locationId: 'system', event: 'dashboard_credential_create', detail: { username: cred.username, email: cred.email, locationIds }, success: true, adminId: req.adminId });
-    res.json({ success: true, credential: safeStrip(cred), emailSent: emailResult.sent });
+    res.json({ success: true, credential: safeStrip(cred), emailSent: emailResult.sent, emailError: emailResult.error || null });
   } catch (err) { res.status(400).json({ success: false, error: err.message }); }
 });
 
@@ -1458,7 +1458,7 @@ router.post('/dashboard-credentials/:id/resend-activation', async (req, res) => 
       });
     }
     activityLogger.log({ locationId: 'system', event: 'dashboard_credential_resend_activation', detail: { credentialId: req.params.id }, success: true, adminId: req.adminId });
-    res.json({ success: true, emailSent: emailResult.sent });
+    res.json({ success: true, emailSent: emailResult.sent, emailError: emailResult.error || null });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 

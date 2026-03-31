@@ -60,12 +60,7 @@ async function sendActivationEmail({ to, name, username, password, activationUrl
   const cfg = await getTransporter();
 
   if (!cfg) {
-    console.log('[emailService] SMTP not configured — printing activation email to console:');
-    console.log(`  To: ${to}`);
-    console.log(`  Username: ${username}`);
-    console.log(`  Password: ${password}`);
-    console.log(`  Activation URL: ${activationUrl}`);
-    return { sent: false, skipped: true };
+    return { sent: false, error: 'SMTP not configured. Go to App Settings → Email Config and save your SMTP details.' };
   }
 
   const { transport: transporter, from } = cfg;
