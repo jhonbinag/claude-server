@@ -1655,6 +1655,8 @@ export default function Admin() {
   const [appSettingsEdit,   setAppSettingsEdit]   = useState({ clientId: false, clientSecret: false, redirectUri: false });
   const [appSettingsSaving, setAppSettingsSaving] = useState(false);
   const [appSettingsSubTab, setAppSettingsSubTab] = useState('ghl'); // 'ghl' | 'business'
+  const [integrationsSubTab, setIntegrationsSubTab] = useState('integrations'); // 'integrations' | 'tool-access' | 'beta-lab'
+  const [adminSubTab, setAdminSubTab] = useState('users-roles'); // 'users-roles' | 'dashboard-cfg' | 'credentials'
 
   // Business profile state
   const [bizProfile,     setBizProfile]     = useState(null); // loaded from backend
@@ -2035,17 +2037,14 @@ export default function Admin() {
     if (tab === 'plan-tiers')   loadTiers();
     if (tab === 'brain')        loadSharedBrains();
     if (tab === 'personas')     loadPersonas();
-    if (tab === 'integrations') loadIntegrations();
-    if (tab === 'beta-lab')        loadBetaFeatures();
-    if (tab === 'dashboard-cfg')   { loadDashCfg(); loadSmtpConfig(); }
-    if (tab === 'credentials')     { loadCredentials(); if (locations.length === 0) loadLocations(); }
+    if (tab === 'integrations') { loadIntegrations(); loadBetaFeatures(); loadDashCfg(); loadCredentials(); if (locations.length === 0) loadLocations(); }
     // Users & Roles tab: ensure locations list + default role loaded
     if (tab === 'users-roles') {
       if (locations.length === 0) loadLocations();
       adminFetch('/admin/default-role', { adminKey }).then(r => { if (r.success) setDefaultRoleId(r.roleId); }).catch(() => {});
     }
     // Tool Access tab: ensure locations list is loaded for the dropdown
-    if (tab === 'tool-access' && locations.length === 0) loadLocations();
+    if (tab === 'users-roles' && locations.length === 0) loadLocations();
   }, [authed, tab]); // eslint-disable-line
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -2262,21 +2261,17 @@ export default function Admin() {
     { key: 'billing',      label: 'Billing',      icon: '💳' },
     { key: 'plan-tiers',   label: 'Plan Tiers',   icon: '🏅' },
     { key: 'users-roles',  label: 'Users & Roles',icon: '👥' },
-    { key: 'tool-access',  label: 'Tool Access',  icon: '🔧' },
     { key: 'brain',        label: 'Brain',        icon: '🧠' },
     { key: 'personas',     label: 'Chat Personas', icon: '🎭' },
     { key: 'integrations', label: 'Integrations',  icon: '🔌' },
-    { key: 'beta-lab',        label: 'Beta Lab',        icon: '🧪' },
-    { key: 'dashboard-cfg',  label: 'Admin Dashboard', icon: '🛡️' },
-    { key: 'credentials',    label: 'Credentials',     icon: '🔑' },
     { key: 'logs',            label: 'Activity Logs',   icon: '📋' },
     { key: 'app-settings', label: 'App Settings', icon: '⚙️' },
   ];
 
   const PAGE_TITLE = {
     overview: 'Dashboard', locations: 'Locations', billing: 'Billing',
-    'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles', 'tool-access': 'Tool Access',
-    brain: 'Brain', personas: 'Chat Personas', integrations: 'Integrations', credentials: 'Credentials', logs: 'Activity Logs', 'app-settings': 'App Settings',
+    'plan-tiers': 'Plan Tiers', 'users-roles': 'Users & Roles',
+    brain: 'Brain', personas: 'Chat Personas', integrations: 'Integrations', logs: 'Activity Logs', 'app-settings': 'App Settings',
   };
 
   const navItemStyle = (active) => ({
@@ -3251,6 +3246,24 @@ export default function Admin() {
 
           return (
             <div>
+              {/* Sub-tab bar */}
+              <div style={{ display:'flex', gap:0, borderBottom:'1px solid #1f2937', marginBottom:28 }}>
+                {[
+                  { id:'integrations', label:'Integrations' },
+                  { id:'tool-access',  label:'Tool Access'  },
+                  { id:'beta-lab',     label:'Beta Lab'     },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setIntegrationsSubTab(t.id)} style={{
+                    background:'none', border:'none',
+                    borderBottom: integrationsSubTab === t.id ? '2px solid #7c3aed' : '2px solid transparent',
+                    color: integrationsSubTab === t.id ? '#a78bfa' : '#6b7280',
+                    padding:'10px 20px', fontSize:14, fontWeight: integrationsSubTab === t.id ? 600 : 400,
+                    cursor:'pointer', marginBottom:-1,
+                  }}>{t.label}</button>
+                ))}
+              </div>
+
+              {integrationsSubTab === 'integrations' && <>
               {/* Header */}
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24 }}>
                 <div>
@@ -3634,6 +3647,7 @@ export default function Admin() {
                   </div>
                 </div>
               )}
+              </>}
             </div>
           );
         })()}
@@ -4118,6 +4132,24 @@ export default function Admin() {
         {/* ── Users & Roles Tab ─────────────────────────────────────── */}
         {tab === 'users-roles' && (
           <div>
+            {/* Sub-tab bar */}
+            <div style={{ display:'flex', gap:0, borderBottom:'1px solid #1f2937', marginBottom:28 }}>
+              {[
+                { id:'users-roles',   label:'Users & Roles'   },
+                { id:'dashboard-cfg', label:'Admin Dashboard' },
+                { id:'credentials',   label:'Credentials'     },
+              ].map(t => (
+                <button key={t.id} onClick={() => setAdminSubTab(t.id)} style={{
+                  background:'none', border:'none',
+                  borderBottom: adminSubTab === t.id ? '2px solid #7c3aed' : '2px solid transparent',
+                  color: adminSubTab === t.id ? '#a78bfa' : '#6b7280',
+                  padding:'10px 20px', fontSize:14, fontWeight: adminSubTab === t.id ? 600 : 400,
+                  cursor:'pointer', marginBottom:-1,
+                }}>{t.label}</button>
+              ))}
+            </div>
+
+            {adminSubTab === 'users-roles' && <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ color: '#fff', margin: '0 0 4px', fontSize: 16 }}>👥 Users &amp; Roles</h3>
@@ -4402,11 +4434,12 @@ export default function Admin() {
                 onFlash={(msg) => msg.startsWith('✗') ? toast.error(msg.replace(/^✗\s*/, '')) : toast.success(msg.replace(/^✓\s*/, ''))}
               />
             )}
+            </>}
           </div>
         )}
 
         {/* ── Tool Access Tab ──────────────────────────────────────────── */}
-        {tab === 'tool-access' && (
+        {tab === 'integrations' && integrationsSubTab === 'tool-access' && (
           <div>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 24 }}>
@@ -4657,7 +4690,7 @@ export default function Admin() {
         )}
 
         {/* ── Beta Lab Tab ─────────────────────────────────────────────── */}
-        {tab === 'beta-lab' && (() => {
+        {tab === 'integrations' && integrationsSubTab === 'beta-lab' && (() => {
           const VALID_STATUS = ['permanent', 'beta', 'not_shared'];
           const STATUS_META = {
             permanent:  { label: 'Permanent',  color: '#34d399', bg: 'rgba(16,185,129,0.15)',  border: 'rgba(16,185,129,0.35)',  desc: 'Pushed to all locations automatically. Banner shown once.' },
@@ -4872,7 +4905,7 @@ export default function Admin() {
         })()}
 
         {/* ── Admin Dashboard Config Tab ───────────────────────────────── */}
-        {tab === 'dashboard-cfg' && (
+        {tab === 'users-roles' && adminSubTab === 'dashboard-cfg' && (
           <div>
             <div style={{ marginBottom: 24 }}>
               <h3 style={{ color: '#fff', margin: '0 0 6px', fontSize: 16 }}>🛡️ Admin Dashboard</h3>
@@ -4967,7 +5000,7 @@ export default function Admin() {
         )}
 
         {/* ── Credentials Tab ──────────────────────────────────────────── */}
-        {tab === 'credentials' && (() => {
+        {tab === 'users-roles' && adminSubTab === 'credentials' && (() => {
           const credRoleBadge = (role) => {
             const colors = { admin: { bg: 'rgba(239,68,68,0.12)', color: '#f87171', border: 'rgba(239,68,68,0.25)' }, mini_admin: { bg: 'rgba(124,58,237,0.12)', color: '#a78bfa', border: 'rgba(124,58,237,0.25)' } };
             const c = colors[role] || colors.mini_admin;
