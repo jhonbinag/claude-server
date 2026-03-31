@@ -1365,6 +1365,103 @@ router.put('/dashboard-config', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD CREDENTIALS — manage login accounts for /ui/admin-dashboard
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let credentialStore;
+try { credentialStore = require('../services/dashboardCredentialStore'); } catch (e) { console.warn('[Admin] credentialStore:', e.message); }
+let emailService;
+try { emailService = require('../services/emailService'); } catch (e) { console.warn('[Admin] emailService:', e.message); }
+
+function safeStrip(cred) {
+  const { passwordHash: _h, passwordSalt: _s, activationToken: _at, ...safe } = cred;
+  return safe;
+}
+
+function getAppBaseUrl(req) {
+  return process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+// GET /admin/dashboard-credentials
+router.get('/dashboard-credentials', async (req, res) => {
+  try {
+    if (!credentialStore) return res.status(503).json({ success: false, error: 'Credential store unavailable' });
+    const list = await credentialStore.listCredentials();
+    res.json({ success: true, credentials: list.map(safeStrip) });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /admin/dashboard-credentials — create (password auto-generated + emailed)
+router.post('/dashboard-credentials', async (req, res) => {
+  try {
+    if (!credentialStore) return res.status(503).json({ success: false, error: 'Credential store unavailable' });
+    const { name, email, username, locationIds, role, status, notes } = req.body;
+    if (!name?.trim())     return res.status(400).json({ success: false, error: 'name required' });
+    if (!email?.trim())    return res.status(400).json({ success: false, error: 'email required' });
+    if (!username?.trim()) return res.status(400).json({ success: false, error: 'username required' });
+    if (!locationIds || !Array.isArray(locationIds) || locationIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'locationIds required (["all"] or specific IDs)' });
+    }
+
+    const { cred, plainPassword } = await credentialStore.createCredential({ name, email, username, locationIds, role, status, notes });
+
+    // Send activation email
+    const activationUrl = `${getAppBaseUrl(req)}/dashboard/activate/${cred.activationToken}`;
+    let emailResult = { sent: false, skipped: true };
+    if (emailService) {
+      emailResult = await emailService.sendActivationEmail({
+        to: cred.email, name: cred.name, username: cred.username,
+        password: plainPassword, activationUrl,
+      });
+    }
+
+    activityLogger.log({ locationId: 'system', event: 'dashboard_credential_create', detail: { username: cred.username, email: cred.email, locationIds }, success: true, adminId: req.adminId });
+    res.json({ success: true, credential: safeStrip(cred), emailSent: emailResult.sent });
+  } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+});
+
+// PUT /admin/dashboard-credentials/:id — update
+router.put('/dashboard-credentials/:id', async (req, res) => {
+  try {
+    if (!credentialStore) return res.status(503).json({ success: false, error: 'Credential store unavailable' });
+    const cred = await credentialStore.updateCredential(req.params.id, req.body);
+    activityLogger.log({ locationId: 'system', event: 'dashboard_credential_update', detail: { credentialId: req.params.id }, success: true, adminId: req.adminId });
+    res.json({ success: true, credential: safeStrip(cred) });
+  } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+});
+
+// DELETE /admin/dashboard-credentials/:id
+router.delete('/dashboard-credentials/:id', async (req, res) => {
+  try {
+    if (!credentialStore) return res.status(503).json({ success: false, error: 'Credential store unavailable' });
+    await credentialStore.deleteCredential(req.params.id);
+    activityLogger.log({ locationId: 'system', event: 'dashboard_credential_delete', detail: { credentialId: req.params.id }, success: true, adminId: req.adminId });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /admin/dashboard-credentials/:id/resend-activation — regenerate token + resend email
+router.post('/dashboard-credentials/:id/resend-activation', async (req, res) => {
+  try {
+    if (!credentialStore) return res.status(503).json({ success: false, error: 'Credential store unavailable' });
+    const { activationToken, cred } = await credentialStore.generateNewActivationToken(req.params.id);
+    const activationUrl = `${getAppBaseUrl(req)}/dashboard/activate/${activationToken}`;
+    let emailResult = { sent: false, skipped: true };
+    if (emailService && cred.email) {
+      // We need the plaintext password to resend it. Since we don't store it, generate a new one.
+      const newPassword = credentialStore.generatePassword();
+      const updated = await credentialStore.updateCredential(req.params.id, { newPassword });
+      emailResult = await emailService.sendActivationEmail({
+        to: cred.email, name: cred.name, username: cred.username,
+        password: newPassword, activationUrl,
+      });
+    }
+    activityLogger.log({ locationId: 'system', event: 'dashboard_credential_resend_activation', detail: { credentialId: req.params.id }, success: true, adminId: req.adminId });
+    res.json({ success: true, emailSent: emailResult.sent });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // ─── GET /admin/tools/meta — static GHL built-in tool metadata ───────────────
 
 router.get('/tools/meta', (req, res) => {

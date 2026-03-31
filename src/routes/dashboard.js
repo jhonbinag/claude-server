@@ -1,16 +1,25 @@
 /**
  * src/routes/dashboard.js
  *
- * Standalone Admin Dashboard API — no GHL token required.
- * Uses x-location-id header for scoping. No adminAuth.
+ * Standalone Admin Dashboard API — credential-based auth (no GHL token needed).
  * Mounts at /dashboard.
  *
- * GET  /dashboard/config                — enabled tabs + location name
- * GET  /dashboard/beta                  — beta features for this location + role
- * POST /dashboard/beta/:id/toggle       — toggle beta feature (mini_admin+)
- * GET  /dashboard/users                 — users at this location
- * PUT  /dashboard/users/:userId         — change a user's role
- * POST /dashboard/users/sync            — sync GHL users
+ * Public:
+ *   GET  /dashboard/public-config          — enabled tabs (no auth needed for login screen)
+ *   POST /dashboard/login                  — verify username + password → session token
+ *   GET  /dashboard/activate/:token        — email activation link → sets account active
+ *
+ * Authenticated (requires x-dash-token header):
+ *   GET  /dashboard/me                     — current credential info
+ *   GET  /dashboard/locations              — locations this credential can access
+ *   GET  /dashboard/beta                   — beta features for active location
+ *   POST /dashboard/beta/:id/toggle        — toggle beta feature
+ *   GET  /dashboard/users                  — users at active location
+ *   PUT  /dashboard/users/:userId          — change a user's role
+ *   POST /dashboard/users/sync             — sync GHL users
+ *
+ * Multi-location: when credential.locationIds has more than one entry (or ['all']),
+ * pass x-dash-location header to specify which location you're operating on.
  */
 
 const express              = require('express');
@@ -18,45 +27,130 @@ const router               = express.Router();
 const roleService          = require('../services/roleService');
 const betaLabStore         = require('../services/betaLabStore');
 const dashboardConfigStore = require('../services/dashboardConfigStore');
+const credStore            = require('../services/dashboardCredentialStore');
 const tokenStore           = require('../services/tokenStore');
 const ghlClient            = require('../services/ghlClient');
 
-// ── Lightweight auth: just needs x-location-id ────────────────────────────────
-// Also resolves the caller's role from x-user-id if provided.
+// ── Auth middleware ───────────────────────────────────────────────────────────
+
 async function dashAuth(req, res, next) {
-  const locationId = req.headers['x-location-id'];
-  if (!locationId) return res.status(401).json({ success: false, error: 'Missing x-location-id header.' });
-  req.locationId = locationId;
+  const token = req.headers['x-dash-token'];
+  if (!token) return res.status(401).json({ success: false, error: 'Missing x-dash-token header. Please log in.' });
 
-  const userId = req.headers['x-user-id'] || null;
-  req.dashUserId = userId;
+  const credentialId = credStore.verifyToken(token);
+  if (!credentialId) return res.status(401).json({ success: false, error: 'Invalid or expired session. Please log in again.' });
 
-  if (userId) {
-    try {
-      const rec = await roleService.getUserRole(locationId, userId);
-      req.dashRole = rec?.role || 'member';
-    } catch { req.dashRole = 'member'; }
+  const cred = await credStore.getCredential(credentialId);
+  if (!cred)                    return res.status(401).json({ success: false, error: 'Credential not found.' });
+  if (cred.status !== 'active') return res.status(403).json({ success: false, error: 'This account is inactive.' });
+  if (!cred.activated)          return res.status(403).json({ success: false, error: 'Account not yet activated.' });
+
+  // Resolve active location
+  // Support both old schema (locationId) and new (locationIds)
+  const locationIds = cred.locationIds || (cred.locationId ? [cred.locationId] : []);
+  const isSingleLocation = locationIds.length === 1 && !locationIds.includes('all');
+
+  let activeLocationId = null;
+  if (isSingleLocation) {
+    activeLocationId = locationIds[0];
   } else {
-    req.dashRole = 'owner'; // no userId = location-level auth = owner
+    // Multi-location or 'all' — client must specify x-dash-location
+    activeLocationId = req.headers['x-dash-location'] || null;
+    if (locationIds.includes('all')) {
+      // Allow any location; activeLocationId may be null for non-location-specific endpoints
+    } else if (activeLocationId && !locationIds.includes(activeLocationId)) {
+      return res.status(403).json({ success: false, error: 'Access to this location not permitted.' });
+    }
   }
 
+  req.locationId       = activeLocationId;
+  req.locationIds      = locationIds;
+  req.dashRole         = cred.role || 'mini_admin';
+  req.dashCredentialId = credentialId;
+  req.dashCred         = cred;
   next();
 }
 
-router.use(dashAuth);
+// ── GET /dashboard/public-config — enabled tabs only (pre-login) ──────────────
 
-// ── GET /dashboard/config ─────────────────────────────────────────────────────
-
-router.get('/config', async (req, res) => {
+router.get('/public-config', async (req, res) => {
   try {
     const cfg = await dashboardConfigStore.getConfig();
-    // Try to get location name from token store
-    let locationName = null;
-    try {
-      const rec = await tokenStore.getTokenRecord(req.locationId);
-      locationName = rec?.locationName || rec?.name || null;
-    } catch {}
-    res.json({ success: true, data: cfg, locationId: req.locationId, locationName, role: req.dashRole });
+    res.json({ success: true, enabledTabs: cfg.enabledTabs || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /dashboard/login ─────────────────────────────────────────────────────
+
+router.post('/login', async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username?.trim() || !password?.trim()) {
+    return res.status(400).json({ success: false, error: 'username and password are required.' });
+  }
+  const ip = req.ip || req.headers['x-forwarded-for'] || null;
+  const result = await credStore.login(username.trim(), password, ip);
+  if (!result.success) return res.status(401).json(result);
+  res.json(result);
+});
+
+// ── GET /dashboard/activate/:token ───────────────────────────────────────────
+
+router.get('/activate/:token', async (req, res) => {
+  try {
+    const result = await credStore.activateByToken(req.params.token);
+    if (!result.success) {
+      // Redirect to login with error param
+      return res.redirect(`/ui/admin-dashboard?activation_error=${encodeURIComponent(result.error)}`);
+    }
+    // Redirect to login page with success flag
+    res.redirect('/ui/admin-dashboard?activated=1');
+  } catch (err) {
+    res.redirect(`/ui/admin-dashboard?activation_error=${encodeURIComponent(err.message)}`);
+  }
+});
+
+// ── All routes below require a valid session token ────────────────────────────
+
+router.use(dashAuth);
+
+// ── GET /dashboard/me ─────────────────────────────────────────────────────────
+
+router.get('/me', (req, res) => {
+  const { passwordHash: _h, passwordSalt: _s, activationToken: _at, ...safe } = req.dashCred;
+  res.json({ success: true, credential: safe, role: req.dashRole, locationId: req.locationId, locationIds: req.locationIds });
+});
+
+// ── GET /dashboard/locations — returns locations this credential can access ───
+
+router.get('/locations', async (req, res) => {
+  try {
+    const locationIds = req.locationIds;
+
+    let locations;
+    if (locationIds.includes('all')) {
+      const allIds = tokenStore.listLocations();
+      locations = allIds.map(id => {
+        const r = tokenStore.getTokenRecord(id);
+        return {
+          locationId:   id,
+          locationName: r?.locationName || r?.name || '',
+          status:       r?.status || 'active',
+        };
+      });
+    } else {
+      locations = locationIds.map(id => {
+        const r = tokenStore.getTokenRecord(id);
+        return {
+          locationId:   id,
+          locationName: r?.locationName || r?.name || '',
+          status:       r?.status || 'unknown',
+        };
+      });
+    }
+
+    res.json({ success: true, locations });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -65,6 +159,7 @@ router.get('/config', async (req, res) => {
 // ── GET /dashboard/beta ───────────────────────────────────────────────────────
 
 router.get('/beta', async (req, res) => {
+  if (!req.locationId) return res.status(400).json({ success: false, error: 'No active location. Pass x-dash-location header.' });
   try {
     const features = await betaLabStore.getFeaturesForLocation(req.locationId, req.dashRole);
     res.json({ success: true, data: features });
@@ -76,8 +171,7 @@ router.get('/beta', async (req, res) => {
 // ── POST /dashboard/beta/:id/toggle ──────────────────────────────────────────
 
 router.post('/beta/:id/toggle', async (req, res) => {
-  const isMiniAdmin = ['mini_admin', 'owner', 'admin'].includes(req.dashRole);
-  if (!isMiniAdmin) return res.status(403).json({ success: false, error: 'Insufficient permissions.' });
+  if (!req.locationId) return res.status(400).json({ success: false, error: 'No active location. Pass x-dash-location header.' });
   const { enabled } = req.body;
   if (typeof enabled !== 'boolean') return res.status(400).json({ success: false, error: '"enabled" boolean required.' });
   try {
@@ -91,8 +185,7 @@ router.post('/beta/:id/toggle', async (req, res) => {
 // ── GET /dashboard/users ──────────────────────────────────────────────────────
 
 router.get('/users', async (req, res) => {
-  const isMiniAdmin = ['mini_admin', 'owner', 'admin'].includes(req.dashRole);
-  if (!isMiniAdmin) return res.status(403).json({ success: false, error: 'Insufficient permissions.' });
+  if (!req.locationId) return res.status(400).json({ success: false, error: 'No active location. Pass x-dash-location header.' });
   try {
     const users = await roleService.getUsersForLocation(req.locationId);
     res.json({ success: true, users: Object.values(users) });
@@ -104,11 +197,9 @@ router.get('/users', async (req, res) => {
 // ── PUT /dashboard/users/:userId ──────────────────────────────────────────────
 
 router.put('/users/:targetUserId', async (req, res) => {
-  const isMiniAdmin = ['mini_admin', 'owner', 'admin'].includes(req.dashRole);
-  if (!isMiniAdmin) return res.status(403).json({ success: false, error: 'Insufficient permissions.' });
+  if (!req.locationId) return res.status(400).json({ success: false, error: 'No active location. Pass x-dash-location header.' });
   const { role } = req.body;
   if (!role) return res.status(400).json({ success: false, error: 'role required.' });
-  // Prevent privilege escalation: mini_admin cannot assign owner/admin
   if (req.dashRole === 'mini_admin' && ['owner', 'admin'].includes(role)) {
     return res.status(403).json({ success: false, error: 'mini_admin cannot assign owner or admin roles.' });
   }
@@ -123,8 +214,7 @@ router.put('/users/:targetUserId', async (req, res) => {
 // ── POST /dashboard/users/sync ────────────────────────────────────────────────
 
 router.post('/users/sync', async (req, res) => {
-  const isMiniAdmin = ['mini_admin', 'owner', 'admin'].includes(req.dashRole);
-  if (!isMiniAdmin) return res.status(403).json({ success: false, error: 'Insufficient permissions.' });
+  if (!req.locationId) return res.status(400).json({ success: false, error: 'No active location. Pass x-dash-location header.' });
   try {
     const record = await tokenStore.getTokenRecord(req.locationId);
     if (!record || !record.accessToken) {
