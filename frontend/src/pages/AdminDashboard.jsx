@@ -206,7 +206,10 @@ export default function AdminDashboard() {
   }, [authed, token]); // eslint-disable-line
 
   const selectLocation = (locId) => {
+    if (locId === activeLocationId) return;
     localStorage.setItem(LS_LOCATION, locId);
+    setBetaFeatures([]);   // clear stale data immediately
+    setUsers([]);
     setActiveLocationId(locId);
     setLocationPicker(false);
   };
@@ -388,7 +391,7 @@ export default function AdminDashboard() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#07080f', color: '#e5e7eb', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:.9} }`}</style>
 
       {/* Backdrop — closes location dropdown on outside click */}
       {locDropOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 98 }} onClick={() => setLocDropOpen(false)} />}
@@ -591,7 +594,17 @@ export default function AdminDashboard() {
             </div>
 
             {betaLoading ? (
-              <p style={{ color: '#4b5563', textAlign: 'center', padding: 60 }}>Loading…</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[1,2,3].map(i => (
+                  <div key={i} style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: '16px 18px', display: 'flex', gap: 16, alignItems: 'center' }}>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ height: 14, width: `${50 + i * 10}%`, background: 'rgba(255,255,255,0.06)', borderRadius: 6, animation: 'pulse 1.4s ease-in-out infinite' }} />
+                      <div style={{ height: 11, width: '70%', background: 'rgba(255,255,255,0.04)', borderRadius: 6, animation: 'pulse 1.4s ease-in-out infinite' }} />
+                    </div>
+                    <div style={{ width: 50, height: 27, background: 'rgba(255,255,255,0.05)', borderRadius: 99, animation: 'pulse 1.4s ease-in-out infinite', flexShrink: 0 }} />
+                  </div>
+                ))}
+              </div>
             ) : betaFeatures.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 72, color: '#374151' }}>
                 <p style={{ fontSize: 36, margin: '0 0 12px' }}>🧪</p>
