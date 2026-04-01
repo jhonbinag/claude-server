@@ -109,7 +109,8 @@ export default function AdminDashboard() {
   const [activationMsg,   setActivationMsg]   = useState(null); // { type: 'success'|'error', text }
 
   // Dashboard
-  const [tab,             setTab]             = useState('updates');
+  const [tab,             setTab]             = useState('settings');
+  const [settingsSubTab,  setSettingsSubTab]  = useState('beta');
   const [enabledTabs,     setEnabledTabs]     = useState([]);
   const [configLoaded,    setConfigLoaded]    = useState(false);
   const [bizProfile,      setBizProfile]      = useState(null);
@@ -292,18 +293,18 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!authed || !configLoaded) return;
-    // 'updates' is always valid; don't override it unless it's truly not in visibleTabs
-    const firstTab = enabledTabs[0] || 'beta';
-    setTab(t => (t === 'updates' || enabledTabs.includes(t)) ? t : firstTab);
+    setTab('settings');
   }, [configLoaded]); // eslint-disable-line
 
-  // Re-load data whenever active location OR tab changes — loadBeta/loadUsers in deps
-  // ensures we always call the latest version that captures the current locationId
+  // Re-load data whenever active location OR sub-tab changes
   useEffect(() => {
     if (!authed || !activeLocationId) return;
-    if (tab === 'beta' || tab === 'updates') loadBeta();
-    if (tab === 'users') loadUsers();
-  }, [tab, authed, activeLocationId, loadBeta, loadUsers]); // eslint-disable-line
+    if (tab === 'settings') {
+      if (settingsSubTab === 'beta') loadBeta();
+      if (settingsSubTab === 'users') loadUsers();
+    }
+    if (tab === 'updates') loadBeta();
+  }, [tab, settingsSubTab, authed, activeLocationId, loadBeta, loadUsers]); // eslint-disable-line
 
   // ── actions ───────────────────────────────────────────────────────────────
   const toggleFeature = async (featureId, enabled) => {
@@ -346,15 +347,8 @@ export default function AdminDashboard() {
   const unreadFeatures  = visibleFeatures.filter(f => !f.acknowledged);
   const unreadCount     = unreadFeatures.length;
 
-  const ALL_TABS_META = [
-    { id: 'updates', label: '🆕 Updates',  icon: '🆕' },
-    { id: 'beta',    label: '🧪 Beta Lab',  icon: '🧪' },
-    { id: 'users',   label: '👥 Users',     icon: '👥' },
-  ];
-  // Updates always visible; Beta/Users controlled by enabledTabs
-  const visibleTabs = ALL_TABS_META.filter(t =>
-    t.id === 'updates' || enabledTabs.includes(t.id)
-  );
+  // Sidebar: only Settings (contains Beta Lab + Users sub-tabs)
+  const showSettings = enabledTabs.includes('beta') || enabledTabs.includes('users');
 
   // ── active location display name ──────────────────────────────────────────
   const activeLocationName = locationsList.find(l => l.locationId === activeLocationId)?.locationName || activeLocationId || '';
@@ -478,20 +472,16 @@ export default function AdminDashboard() {
 
         {/* Nav items */}
         <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
-          {visibleTabs.map(t => {
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                style={navBtnStyle(active)}
-                onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#e5e7eb'; } }}
-                onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ca3af'; } }}
-              >
-                {t.label}
-              </button>
-            );
-          })}
+          {showSettings && (
+            <button
+              onClick={() => setTab('settings')}
+              style={navBtnStyle(tab === 'settings')}
+              onMouseEnter={e => { if (tab !== 'settings') { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#e5e7eb'; } }}
+              onMouseLeave={e => { if (tab !== 'settings') { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ca3af'; } }}
+            >
+              ⚙️ Settings
+            </button>
+          )}
         </nav>
 
         {/* Permanent features in sidebar */}
@@ -612,6 +602,26 @@ export default function AdminDashboard() {
             </span>
           </div>
 
+          {/* Updates — above sign out */}
+          <button
+            onClick={() => setTab('updates')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 10px',
+              background: tab === 'updates' ? 'rgba(99,102,241,0.12)' : 'transparent',
+              border: tab === 'updates' ? '1px solid rgba(99,102,241,0.2)' : '1px solid transparent',
+              borderRadius: 8, color: tab === 'updates' ? '#a5b4fc' : '#6b7280', fontSize: 13,
+              fontWeight: tab === 'updates' ? 600 : 400, cursor: 'pointer', textAlign: 'left', transition: 'all .15s',
+            }}
+            onMouseEnter={e => { if (tab !== 'updates') { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#e5e7eb'; } }}
+            onMouseLeave={e => { if (tab !== 'updates') { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#6b7280'; } }}
+          >
+            <span>🆕</span>
+            <span style={{ flex: 1 }}>Updates</span>
+            {unreadCount > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, background: '#6366f1', color: '#fff', borderRadius: 99, padding: '1px 6px', flexShrink: 0 }}>{unreadCount}</span>
+            )}
+          </button>
+
           {/* Logout */}
           <button
             onClick={handleLogout}
@@ -631,7 +641,7 @@ export default function AdminDashboard() {
         {/* Top bar */}
         <div style={{ height: 56, flexShrink: 0, background: '#0f1117', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 14 }}>
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {visibleTabs.find(t => t.id === tab)?.label || 'Dashboard'}
+            {tab === 'updates' ? '🆕 Updates' : tab === 'settings' ? (settingsSubTab === 'users' ? '👥 Users' : '🧪 Beta Lab') : 'Dashboard'}
           </h2>
           {activeLocationName && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#4b5563', flexShrink: 0 }}>
@@ -765,8 +775,31 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ── Beta Lab ── */}
-        {tab === 'beta' && enabledTabs.includes('beta') && (
+        {/* ── Settings (Beta Lab + Users sub-tabs) ── */}
+        {tab === 'settings' && (
+          <div>
+            {/* Sub-tab bar */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid #1f2937', paddingBottom: 0 }}>
+              {enabledTabs.includes('beta') && (
+                <button
+                  onClick={() => setSettingsSubTab('beta')}
+                  style={{ padding: '8px 16px', background: 'transparent', border: 'none', borderBottom: `2px solid ${settingsSubTab === 'beta' ? '#6366f1' : 'transparent'}`, color: settingsSubTab === 'beta' ? '#a5b4fc' : '#6b7280', fontSize: 13, fontWeight: settingsSubTab === 'beta' ? 600 : 400, cursor: 'pointer', transition: 'all .15s', marginBottom: -1 }}
+                >
+                  🧪 Beta Lab
+                </button>
+              )}
+              {enabledTabs.includes('users') && (
+                <button
+                  onClick={() => setSettingsSubTab('users')}
+                  style={{ padding: '8px 16px', background: 'transparent', border: 'none', borderBottom: `2px solid ${settingsSubTab === 'users' ? '#6366f1' : 'transparent'}`, color: settingsSubTab === 'users' ? '#a5b4fc' : '#6b7280', fontSize: 13, fontWeight: settingsSubTab === 'users' ? 600 : 400, cursor: 'pointer', transition: 'all .15s', marginBottom: -1 }}
+                >
+                  👥 Users
+                </button>
+              )}
+            </div>
+
+            {/* Beta Lab sub-tab */}
+            {settingsSubTab === 'beta' && enabledTabs.includes('beta') && (
           <div>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 12, flexWrap: 'wrap' }}>
               <div>
@@ -852,8 +885,8 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ── Users ── */}
-        {tab === 'users' && enabledTabs.includes('users') && (
+            {/* Users sub-tab */}
+            {settingsSubTab === 'users' && enabledTabs.includes('users') && (
           <div>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 12, flexWrap: 'wrap' }}>
               <div>
@@ -920,10 +953,13 @@ export default function AdminDashboard() {
                 </table>
               </div>
             )}
+            </div>
+            )}
           </div>
         )}
         </div>
         )}
+
       </div>
 
       {/* ── Floating "Click to Update" popup ── */}
