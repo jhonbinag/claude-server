@@ -1738,6 +1738,11 @@ export default function Admin() {
   const [betaForm,           setBetaForm]           = useState({ title:'', description:'', version:'', status:'not_shared', linkedFeatures:[] });
   const [betaSaving,         setBetaSaving]         = useState(false);
 
+  // System Agents state
+  const [agentsData,         setAgentsData]         = useState([]);
+  const [agentsLoading,      setAgentsLoading]      = useState(false);
+  const [agentsSaving,       setAgentsSaving]       = useState({}); // { agentId: true }
+
   // Credentials management state
   const [credentials,        setCredentials]        = useState([]);
   const [credLoading,        setCredLoading]        = useState(false);
@@ -1890,6 +1895,22 @@ export default function Admin() {
   const loadStats = useCallback(async () => {
     const data = await adminFetch('/admin/stats', { adminKey });
     if (data.success) { setStats(data.stats); setLogs(data.recentActivity || []); }
+  }, [adminKey]);
+
+  const loadAgents = useCallback(async () => {
+    setAgentsLoading(true);
+    const data = await adminFetch('/admin/agents', { adminKey });
+    if (data.success) setAgentsData(data.data || []);
+    setAgentsLoading(false);
+  }, [adminKey]);
+
+  const toggleAgentShare = useCallback(async (agentId, shared) => {
+    setAgentsSaving(s => ({ ...s, [agentId]: true }));
+    const data = await adminFetch(`/admin/agents/${agentId}`, { method: 'PUT', adminKey, body: { shared } });
+    if (data.success) {
+      setAgentsData(prev => prev.map(a => a.id === agentId ? { ...a, shared } : a));
+    }
+    setAgentsSaving(s => ({ ...s, [agentId]: false }));
   }, [adminKey]);
 
   const loadAppSettings = useCallback(async () => {
@@ -3671,240 +3692,143 @@ export default function Admin() {
 
         {/* ── Agents Tab ───────────────────────────────────────────────── */}
         {tab === 'agents' && (() => {
-          const AGENTS = [
-            {
-              id: 'product-idea',
-              name: 'Product Idea Agent',
-              icon: '💡',
-              color: '#f59e0b',
-              bg: 'rgba(245,158,11,0.08)',
-              border: 'rgba(245,158,11,0.22)',
-              badge: 'Core',
-              badgeColor: '#f59e0b',
-              badgeBg: 'rgba(245,158,11,0.12)',
-              description: 'Generates validated product concepts from market signals, pain points, and trend data. Outputs structured idea briefs with target audience, value proposition, and competitive angle.',
-              capabilities: ['Market gap analysis', 'Trend synthesis', 'Idea scoring & ranking', 'Audience definition'],
-              status: 'active',
-            },
-            {
-              id: 'product-builder',
-              name: 'Product Builder Agent',
-              icon: '🔧',
-              color: '#6366f1',
-              bg: 'rgba(99,102,241,0.08)',
-              border: 'rgba(99,102,241,0.22)',
-              badge: 'Core',
-              badgeColor: '#6366f1',
-              badgeBg: 'rgba(99,102,241,0.12)',
-              description: 'Transforms product ideas into detailed build plans — feature lists, user stories, tech stack recommendations, and MVP scope definitions.',
-              capabilities: ['Feature prioritization', 'MVP scoping', 'User story generation', 'Tech stack advice'],
-              status: 'active',
-            },
-            {
-              id: 'expert-profile',
-              name: 'Expert Profile Agent',
-              icon: '🎓',
-              color: '#10b981',
-              bg: 'rgba(16,185,129,0.08)',
-              border: 'rgba(16,185,129,0.22)',
-              badge: 'Core',
-              badgeColor: '#10b981',
-              badgeBg: 'rgba(16,185,129,0.12)',
-              description: 'Builds authoritative expert personas and positioning profiles. Defines unique authority pillars, credibility signals, and voice guidelines for content and marketing.',
-              capabilities: ['Authority mapping', 'Voice & tone definition', 'Credibility signals', 'Positioning statements'],
-              status: 'active',
-            },
-            {
-              id: 'content-blueprint',
-              name: 'Content Blueprint Agent',
-              icon: '📐',
-              color: '#3b82f6',
-              bg: 'rgba(59,130,246,0.08)',
-              border: 'rgba(59,130,246,0.22)',
-              badge: 'Core',
-              badgeColor: '#3b82f6',
-              badgeBg: 'rgba(59,130,246,0.12)',
-              description: 'Creates comprehensive content strategies and editorial calendars. Maps content pillars to audience journey stages with topic clusters and distribution plans.',
-              capabilities: ['Content pillar mapping', 'Editorial calendar', 'Topic clustering', 'Distribution strategy'],
-              status: 'active',
-            },
-            {
-              id: 'prompt-engineer',
-              name: 'Prompt Engineer Agent',
-              icon: '⚡',
-              color: '#8b5cf6',
-              bg: 'rgba(139,92,246,0.08)',
-              border: 'rgba(139,92,246,0.22)',
-              badge: 'Core',
-              badgeColor: '#8b5cf6',
-              badgeBg: 'rgba(139,92,246,0.12)',
-              description: 'Designs, optimizes, and versions prompts for maximum AI output quality. Applies chain-of-thought, few-shot, and structured output techniques for each use case.',
-              capabilities: ['Prompt optimization', 'Chain-of-thought design', 'Few-shot engineering', 'Output structuring'],
-              status: 'active',
-            },
-            {
-              id: 'content-tester',
-              name: 'Content Tester Agent',
-              icon: '🧪',
-              color: '#ec4899',
-              bg: 'rgba(236,72,153,0.08)',
-              border: 'rgba(236,72,153,0.22)',
-              badge: 'Core',
-              badgeColor: '#ec4899',
-              badgeBg: 'rgba(236,72,153,0.12)',
-              description: 'A/B tests content variants for engagement, clarity, and conversion. Scores outputs against defined criteria and provides structured improvement feedback.',
-              capabilities: ['A/B variant testing', 'Engagement scoring', 'Clarity analysis', 'Conversion optimization'],
-              status: 'active',
-            },
-            {
-              id: 'content-generator',
-              name: 'Content Generator Agent',
-              icon: '✍️',
-              color: '#14b8a6',
-              bg: 'rgba(20,184,166,0.08)',
-              border: 'rgba(20,184,166,0.22)',
-              badge: 'Core',
-              badgeColor: '#14b8a6',
-              badgeBg: 'rgba(20,184,166,0.12)',
-              description: 'Produces high-volume, on-brand content across formats — emails, social posts, ad copy, landing pages, and long-form articles — aligned to blueprints and expert profiles.',
-              capabilities: ['Multi-format generation', 'Brand voice matching', 'SEO-optimized copy', 'Bulk content output'],
-              status: 'active',
-            },
-            {
-              id: 'product-designer',
-              name: 'Product Designer Agent',
-              icon: '🎨',
-              color: '#f97316',
-              bg: 'rgba(249,115,22,0.08)',
-              border: 'rgba(249,115,22,0.22)',
-              badge: 'Core',
-              badgeColor: '#f97316',
-              badgeBg: 'rgba(249,115,22,0.12)',
-              description: 'Designs product UX flows, wireframe descriptions, and feature specifications. Translates requirements into user-centric design briefs ready for development handoff.',
-              capabilities: ['UX flow design', 'Wireframe descriptions', 'Feature specs', 'Design system guidance'],
-              status: 'active',
-            },
-            {
-              id: 'quality-assurance',
-              name: 'Quality Assurance Agent',
-              icon: '✅',
-              color: '#22c55e',
-              bg: 'rgba(34,197,94,0.08)',
-              border: 'rgba(34,197,94,0.22)',
-              badge: 'Core',
-              badgeColor: '#22c55e',
-              badgeBg: 'rgba(34,197,94,0.12)',
-              description: 'Reviews all agent outputs for accuracy, consistency, tone alignment, and completeness. Flags issues, suggests improvements, and approves content for downstream use.',
-              capabilities: ['Output validation', 'Tone consistency checks', 'Factual accuracy review', 'Approval workflow'],
-              status: 'active',
-            },
-            {
-              id: 'orchestrator',
-              name: 'The Orchestrator Agent',
-              icon: '🎯',
-              color: '#a78bfa',
-              bg: 'rgba(167,139,250,0.1)',
-              border: 'rgba(167,139,250,0.28)',
-              badge: 'Bonus',
-              badgeColor: '#a78bfa',
-              badgeBg: 'rgba(167,139,250,0.15)',
-              description: 'The master coordinator. Routes tasks to the right agents, manages execution order, resolves conflicts between outputs, and assembles final deliverables from multi-agent pipelines.',
-              capabilities: ['Task routing', 'Pipeline orchestration', 'Conflict resolution', 'Deliverable assembly'],
-              status: 'active',
-              bonus: true,
-            },
-            {
-              id: 'product-expander',
-              name: 'Product Expander Agent',
-              icon: '🚀',
-              color: '#fb923c',
-              bg: 'rgba(251,146,60,0.1)',
-              border: 'rgba(251,146,60,0.28)',
-              badge: 'Bonus',
-              badgeColor: '#fb923c',
-              badgeBg: 'rgba(251,146,60,0.15)',
-              description: 'Takes existing products and identifies expansion opportunities — new markets, adjacent features, upsell paths, and partnership angles — with prioritized go-to-market recommendations.',
-              capabilities: ['Market expansion mapping', 'Feature adjacency analysis', 'Upsell path design', 'GTM recommendations'],
-              status: 'active',
-              bonus: true,
-            },
-          ];
+          // Static display config per agent id (colors/icons only — data comes from agentsData)
+          const AGENT_STYLE = {
+            'build-product':    { color: '#6366f1', bg: 'rgba(99,102,241,0.08)',   border: 'rgba(99,102,241,0.22)',   badgeColor: '#6366f1', badgeBg: 'rgba(99,102,241,0.12)' },
+            'product-idea':     { color: '#f59e0b', bg: 'rgba(245,158,11,0.08)',   border: 'rgba(245,158,11,0.22)',   badgeColor: '#f59e0b', badgeBg: 'rgba(245,158,11,0.12)' },
+            'build-database':   { color: '#3b82f6', bg: 'rgba(59,130,246,0.08)',   border: 'rgba(59,130,246,0.22)',   badgeColor: '#3b82f6', badgeBg: 'rgba(59,130,246,0.12)' },
+            'expert-profile':   { color: '#10b981', bg: 'rgba(16,185,129,0.08)',   border: 'rgba(16,185,129,0.22)',   badgeColor: '#10b981', badgeBg: 'rgba(16,185,129,0.12)' },
+            'content-blueprint':{ color: '#0ea5e9', bg: 'rgba(14,165,233,0.08)',   border: 'rgba(14,165,233,0.22)',   badgeColor: '#0ea5e9', badgeBg: 'rgba(14,165,233,0.12)' },
+            'write-prompt':     { color: '#8b5cf6', bg: 'rgba(139,92,246,0.08)',   border: 'rgba(139,92,246,0.22)',   badgeColor: '#8b5cf6', badgeBg: 'rgba(139,92,246,0.12)' },
+            'test-content':     { color: '#ec4899', bg: 'rgba(236,72,153,0.08)',   border: 'rgba(236,72,153,0.22)',   badgeColor: '#ec4899', badgeBg: 'rgba(236,72,153,0.12)' },
+            'generate-content': { color: '#14b8a6', bg: 'rgba(20,184,166,0.08)',   border: 'rgba(20,184,166,0.22)',   badgeColor: '#14b8a6', badgeBg: 'rgba(20,184,166,0.12)' },
+            'design-product':   { color: '#f97316', bg: 'rgba(249,115,22,0.08)',   border: 'rgba(249,115,22,0.22)',   badgeColor: '#f97316', badgeBg: 'rgba(249,115,22,0.12)' },
+            'product-qa':       { color: '#22c55e', bg: 'rgba(34,197,94,0.08)',    border: 'rgba(34,197,94,0.22)',    badgeColor: '#22c55e', badgeBg: 'rgba(34,197,94,0.12)' },
+            'product-expand':   { color: '#fb923c', bg: 'rgba(251,146,60,0.1)',    border: 'rgba(251,146,60,0.28)',   badgeColor: '#fb923c', badgeBg: 'rgba(251,146,60,0.15)' },
+            'analyze-build':    { color: '#60a5fa', bg: 'rgba(96,165,250,0.1)',    border: 'rgba(96,165,250,0.28)',   badgeColor: '#60a5fa', badgeBg: 'rgba(96,165,250,0.15)' },
+            'evolve':           { color: '#a78bfa', bg: 'rgba(167,139,250,0.1)',   border: 'rgba(167,139,250,0.28)',  badgeColor: '#a78bfa', badgeBg: 'rgba(167,139,250,0.15)' },
+          };
 
-          const coreAgents  = AGENTS.filter(a => !a.bonus);
-          const bonusAgents = AGENTS.filter(a => a.bonus);
+          const BADGE_COLORS = {
+            Core:  { color: '#6366f1', bg: 'rgba(99,102,241,0.12)',  border: 'rgba(99,102,241,0.3)' },
+            Bonus: { color: '#a78bfa', bg: 'rgba(167,139,250,0.12)', border: 'rgba(167,139,250,0.3)' },
+            Evolve:{ color: '#60a5fa', bg: 'rgba(96,165,250,0.12)',  border: 'rgba(96,165,250,0.3)' },
+          };
 
-          const AgentCard = ({ agent }) => (
-            <div style={{
-              background: '#111827',
-              border: `1px solid ${agent.border}`,
-              borderRadius: 14,
-              padding: '20px 22px',
-              position: 'relative',
-              transition: 'border-color .2s',
-            }}>
-              {/* Header */}
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: 11,
-                  background: agent.bg, border: `1px solid ${agent.border}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 22, flexShrink: 0,
-                }}>
-                  {agent.icon}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 700, fontSize: 15, color: '#f1f5f9' }}>{agent.name}</span>
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
-                      background: agent.badgeBg, color: agent.badgeColor,
-                      border: `1px solid ${agent.border}`,
-                      padding: '2px 7px', borderRadius: 99,
-                    }}>{agent.badge}</span>
+          // Load agents on first render of this tab
+          if (!agentsLoading && agentsData.length === 0) {
+            loadAgents();
+          }
+
+          const coreAgents  = agentsData.filter(a => a.badge === 'Core');
+          const bonusAgents = agentsData.filter(a => a.badge === 'Bonus');
+          const evolveAgents = agentsData.filter(a => a.badge === 'Evolve');
+          const sharedCount = agentsData.filter(a => a.shared).length;
+
+          const AgentCard = ({ agent }) => {
+            const s = AGENT_STYLE[agent.id] || AGENT_STYLE['build-product'];
+            const bc = BADGE_COLORS[agent.badge] || BADGE_COLORS.Core;
+            const saving = !!agentsSaving[agent.id];
+            return (
+              <div style={{
+                background: '#111827',
+                border: `1px solid ${agent.shared ? s.color + '55' : s.border}`,
+                borderRadius: 14,
+                padding: '20px 22px',
+                position: 'relative',
+                transition: 'border-color .2s',
+              }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 11,
+                    background: s.bg, border: `1px solid ${s.border}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 22, flexShrink: 0,
+                  }}>
+                    {agent.avatar}
                   </div>
-                  {/* Status dot */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399', flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>Ready</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 700, fontSize: 15, color: '#f1f5f9' }}>{agent.name}</span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                        background: bc.bg, color: bc.color, border: `1px solid ${bc.border}`,
+                        padding: '2px 7px', borderRadius: 99,
+                      }}>{agent.badge}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: agent.shared ? '#34d399' : '#4b5563', flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: '#6b7280' }}>{agent.shared ? 'Shared with users' : 'Not shared'}</span>
+                    </div>
                   </div>
+                  {/* Share toggle */}
+                  <button
+                    onClick={() => toggleAgentShare(agent.id, !agent.shared)}
+                    disabled={saving}
+                    style={{
+                      flexShrink: 0, fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 8, cursor: saving ? 'wait' : 'pointer',
+                      border: `1px solid ${agent.shared ? 'rgba(52,211,153,0.4)' : 'rgba(255,255,255,0.12)'}`,
+                      background: agent.shared ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.04)',
+                      color: agent.shared ? '#34d399' : '#6b7280',
+                      transition: 'all .15s', opacity: saving ? 0.6 : 1,
+                    }}
+                  >
+                    {saving ? '…' : agent.shared ? '✓ Shared' : 'Share'}
+                  </button>
                 </div>
-              </div>
 
-              {/* Description */}
-              <p style={{ margin: '0 0 14px', fontSize: 13, color: '#9ca3af', lineHeight: 1.65 }}>
-                {agent.description}
-              </p>
+                {/* Description */}
+                <p style={{ margin: '0 0 14px', fontSize: 13, color: '#9ca3af', lineHeight: 1.65 }}>
+                  {agent.description}
+                </p>
 
-              {/* Capabilities */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {agent.capabilities.map((cap, i) => (
-                  <span key={i} style={{
-                    fontSize: 11, padding: '3px 9px', borderRadius: 99,
-                    background: agent.bg, color: agent.color,
-                    border: `1px solid ${agent.border}`,
-                  }}>{cap}</span>
-                ))}
+                {/* Capabilities */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {(agent.capabilities || []).map((cap, i) => (
+                    <span key={i} style={{
+                      fontSize: 11, padding: '3px 9px', borderRadius: 99,
+                      background: s.bg, color: s.color, border: `1px solid ${s.border}`,
+                    }}>{cap}</span>
+                  ))}
+                </div>
+
+                {/* Skill file hint */}
+                {agent.skillFile && (
+                  <div style={{ marginTop: 10, fontSize: 11, color: '#374151' }}>
+                    📁 <code style={{ fontFamily: 'monospace', color: '#4b5563' }}>{agent.skillFile}</code>
+                  </div>
+                )}
               </div>
-            </div>
-          );
+            );
+          };
 
           return (
             <div>
               {/* Header */}
-              <div style={{ marginBottom: 28 }}>
-                <h2 style={{ margin: '0 0 6px', fontSize: 19, fontWeight: 700, color: '#f1f5f9' }}>🤖 AI Agent Suite</h2>
-                <p style={{ margin: 0, fontSize: 13, color: '#6b7280' }}>
-                  End-to-end product and content intelligence — from idea to published asset.
-                </p>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28, gap: 16, flexWrap: 'wrap' }}>
+                <div>
+                  <h2 style={{ margin: '0 0 6px', fontSize: 19, fontWeight: 700, color: '#f1f5f9' }}>🤖 Rewyse AI Agent Suite</h2>
+                  <p style={{ margin: 0, fontSize: 13, color: '#6b7280' }}>
+                    End-to-end digital product pipeline — synchronized with <code style={{ fontFamily: 'monospace', fontSize: 12, color: '#4b5563' }}>rewyse-ai/</code> skill files.
+                  </p>
+                </div>
+                <button
+                  onClick={loadAgents}
+                  disabled={agentsLoading}
+                  style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #374151', background: 'transparent', color: '#6b7280', cursor: agentsLoading ? 'wait' : 'pointer' }}
+                >
+                  {agentsLoading ? 'Loading…' : '↻ Refresh'}
+                </button>
               </div>
 
               {/* Stats row */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10, marginBottom: 32 }}>
                 {[
-                  { label: 'Total Agents',  value: AGENTS.length,       color: '#e5e7eb' },
-                  { label: 'Core',          value: coreAgents.length,   color: '#6366f1' },
-                  { label: 'Bonus',         value: bonusAgents.length,  color: '#a78bfa' },
-                  { label: 'Status',        value: 'All Active',        color: '#34d399' },
+                  { label: 'Total Agents', value: agentsData.length || 13,  color: '#e5e7eb' },
+                  { label: 'Core',         value: coreAgents.length,        color: '#6366f1' },
+                  { label: 'Evolve',       value: evolveAgents.length,      color: '#60a5fa' },
+                  { label: 'Shared',       value: sharedCount,              color: '#34d399' },
                 ].map(s => (
                   <div key={s.label} style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 10, padding: '14px 16px' }}>
                     <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -3913,25 +3837,35 @@ export default function Admin() {
                 ))}
               </div>
 
-              {/* Core agents */}
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#374151', marginBottom: 14 }}>Core Agents</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
-                  {coreAgents.map(a => <AgentCard key={a.id} agent={a} />)}
-                </div>
-              </div>
+              {agentsLoading ? (
+                <div style={{ color: '#4b5563', fontSize: 13, textAlign: 'center', padding: 40 }}>Loading agents…</div>
+              ) : (
+                <>
+                  {/* Pipeline agents */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#374151', marginBottom: 14 }}>
+                      Pipeline Agents — Phases 0–10
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
+                      {[...coreAgents, ...bonusAgents].map(a => <AgentCard key={a.id} agent={a} />)}
+                    </div>
+                  </div>
 
-              {/* Bonus agents */}
-              <div style={{ marginTop: 32 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#374151' }}>Bonus Agents</div>
-                  <div style={{ flex: 1, height: 1, background: 'rgba(167,139,250,0.15)' }} />
-                  <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.25)', borderRadius: 99, padding: '2px 8px' }}>BONUS</span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
-                  {bonusAgents.map(a => <AgentCard key={a.id} agent={a} />)}
-                </div>
-              </div>
+                  {/* Evolve agents */}
+                  {evolveAgents.length > 0 && (
+                    <div style={{ marginTop: 32 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#374151' }}>Self-Improvement Agents</div>
+                        <div style={{ flex: 1, height: 1, background: 'rgba(96,165,250,0.15)' }} />
+                        <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 99, padding: '2px 8px' }}>EVOLVE</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
+                        {evolveAgents.map(a => <AgentCard key={a.id} agent={a} />)}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           );
         })()}

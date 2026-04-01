@@ -30,6 +30,7 @@ const billingStore     = require('../services/billingStore');
 const workflowStore    = require('../services/workflowStore');
 const roleService      = require('../services/roleService');
 const ghlClient        = require('../services/ghlClient');
+const systemAgentStore = require('../services/systemAgentStore');
 const config           = require('../config');
 
 router.use(adminAuth);
@@ -1622,6 +1623,35 @@ router.delete('/beta-lab/:id', async (req, res) => {
     if (!betaLabStore) return res.status(503).json({ success: false, error: 'Beta Lab store unavailable' });
     await betaLabStore.deleteFeature(req.params.id);
     activityLogger.log({ locationId: 'system', event: 'beta_feature_delete', detail: { featureId: req.params.id }, success: true, adminId: req.adminId });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── GET /admin/agents — list all 11 system agents with shared state ──────────
+
+router.get('/agents', async (req, res) => {
+  try {
+    const agents = await systemAgentStore.getAgents();
+    res.json({ success: true, data: agents });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ─── PUT /admin/agents/:id — toggle shared flag ───────────────────────────────
+
+router.put('/agents/:id', async (req, res) => {
+  try {
+    const { shared } = req.body;
+    if (typeof shared !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'shared (boolean) is required' });
+    }
+    await systemAgentStore.setAgentShared(req.params.id, shared);
+    activityLogger.log({
+      locationId: 'system',
+      event: 'agent_share_toggle',
+      detail: { agentId: req.params.id, shared },
+      success: true,
+      adminId: req.adminId,
+    });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });

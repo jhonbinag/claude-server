@@ -119,24 +119,63 @@ function PersonaCard({ persona, onClick }) {
   );
 }
 
-// ── Home / persona picker ─────────────────────────────────────────────────────
+// ── Section label ─────────────────────────────────────────────────────────────
 
-function PersonaHome({ personas, personasLoading, onSelectPersona, onFreeChat }) {
+function SectionLabel({ label }) {
+  return (
+    <div style={{ width: '100%', maxWidth: 640, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#374151', flexShrink: 0 }}>{label}</span>
+      <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.06)' }} />
+    </div>
+  );
+}
+
+// ── Home / persona + agent picker ─────────────────────────────────────────────
+
+function PersonaHome({ personas, personasLoading, agents, agentsLoading, onSelectPersona, onFreeChat }) {
+  const hasPersonas = personas.length > 0;
+  const hasAgents   = agents.length > 0;
+  const loading     = personasLoading || agentsLoading;
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: '40px 24px 24px' }}>
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
         <div style={{ fontSize: 44, marginBottom: 10 }}>💬</div>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#f1f5f9' }}>Who do you want to talk to?</h2>
-        <p style={{ margin: '8px 0 0', fontSize: 13, color: '#6b7280' }}>Choose an AI persona below, or start a free chat.</p>
+        <p style={{ margin: '8px 0 0', fontSize: 13, color: '#6b7280' }}>Choose a persona or agent below, or start a free chat.</p>
       </div>
 
-      {personasLoading ? (
-        <div style={{ color: '#4b5563', fontSize: 13 }}>Loading personas…</div>
-      ) : personas.length > 0 ? (
-        <div style={{ width: '100%', maxWidth: 640, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14, marginBottom: 28 }}>
-          {personas.map(p => <PersonaCard key={p.personaId} persona={p} onClick={onSelectPersona} />)}
-        </div>
-      ) : null}
+      {loading ? (
+        <div style={{ color: '#4b5563', fontSize: 13 }}>Loading…</div>
+      ) : (
+        <>
+          {/* Personas section */}
+          {hasPersonas && (
+            <>
+              <SectionLabel label="Personas" />
+              <div style={{ width: '100%', maxWidth: 640, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14, marginBottom: 28 }}>
+                {personas.map(p => <PersonaCard key={p.personaId} persona={p} onClick={onSelectPersona} />)}
+              </div>
+            </>
+          )}
+
+          {/* Agents section */}
+          {hasAgents && (
+            <>
+              <SectionLabel label="🤖 AI Agents" />
+              <div style={{ width: '100%', maxWidth: 640, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14, marginBottom: 28 }}>
+                {agents.map(a => (
+                  <PersonaCard
+                    key={a.agentId}
+                    persona={{ ...a, personaId: a.agentId, avatar: a.avatar }}
+                    onClick={onSelectPersona}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
 
       {/* Free chat fallback */}
       <button
@@ -159,8 +198,10 @@ export default function Chats() {
   const [sessions,         setSessions]         = useState([]);
   const [personas,         setPersonas]         = useState([]);
   const [personasLoading,  setPersonasLoading]  = useState(false);
+  const [agents,           setAgents]           = useState([]);
+  const [agentsLoading,    setAgentsLoading]    = useState(false);
   const [activeId,         setActiveId]         = useState(null);
-  const [activePersona,    setActivePersona]    = useState(null); // persona for current session
+  const [activePersona,    setActivePersona]    = useState(null); // persona or agent for current session
   const [messages,         setMessages]         = useState([]);
   const [streamText,       setStreamText]       = useState('');
   const [streamStatus,     setStreamStatus]     = useState(''); // 'Thinking…' / '✨ Improving…'
@@ -197,7 +238,20 @@ export default function Chats() {
     setPersonasLoading(false);
   }, [locationId]);
 
-  useEffect(() => { loadSessions(); loadPersonas(); }, [loadSessions, loadPersonas]);
+  // ── Load shared system agents ──────────────────────────────────────────────
+
+  const loadAgents = useCallback(async () => {
+    if (!locationId) return;
+    setAgentsLoading(true);
+    try {
+      const r = await fetch('/chats/agents', { headers: { 'x-location-id': locationId } });
+      const d = await r.json();
+      if (d.success) setAgents(d.data || []);
+    } catch (_) {}
+    setAgentsLoading(false);
+  }, [locationId]);
+
+  useEffect(() => { loadSessions(); loadPersonas(); loadAgents(); }, [loadSessions, loadPersonas, loadAgents]);
 
   // ── Auto-scroll ────────────────────────────────────────────────────────────
 
@@ -210,9 +264,11 @@ export default function Chats() {
     setActiveId(session.id);
     setStreamText('');
     setStreamStatus('');
-    // Restore persona from session metadata
+    // Restore persona or agent from session metadata
     if (session.personaId) {
-      const p = personas.find(x => x.personaId === session.personaId) || null;
+      const p = personas.find(x => x.personaId === session.personaId)
+             || agents.find(x => x.agentId === session.personaId)
+             || null;
       setActivePersona(p);
     } else {
       setActivePersona(null);
@@ -230,10 +286,12 @@ export default function Chats() {
   const newChat = useCallback(async (persona = null, initialMessage = '') => {
     const id = uid();
     const title = persona ? `Chat with ${persona.name}` : 'New Chat';
+    // Agents use agentId; personas use personaId — both stored as personaId in session
+    const sessionPersonaId = persona?.agentId || persona?.personaId || null;
     await fetch('/chats', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
-      body: JSON.stringify({ id, title, messages: [], personaId: persona?.personaId || null }),
+      body: JSON.stringify({ id, title, messages: [], personaId: sessionPersonaId }),
     }).catch(() => {});
     setActiveId(id);
     setActivePersona(persona);
@@ -456,6 +514,8 @@ export default function Chats() {
             <PersonaHome
               personas={personas}
               personasLoading={personasLoading}
+              agents={agents}
+              agentsLoading={agentsLoading}
               onSelectPersona={persona => newChat(persona)}
               onFreeChat={() => newChat(null)}
             />

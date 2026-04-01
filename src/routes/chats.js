@@ -30,6 +30,7 @@ const brainStore         = require('../services/brainStore');
 const personaStore       = require('../services/personaStore');
 const integrationStore   = require('../services/integrationStore');
 const toolRegistry       = require('../tools/toolRegistry');
+const systemAgentStore   = require('../services/systemAgentStore');
 const config             = require('../config');
 const Anthropic          = require('@anthropic-ai/sdk');
 
@@ -186,6 +187,21 @@ router.get('/personas', async (req, res) => {
   }
 });
 
+// ── GET /chats/agents — shared system agents visible to this location ─────────
+
+router.get('/agents', async (req, res) => {
+  try {
+    const agents = await systemAgentStore.getSharedAgents();
+    // Return only the fields the UI needs (no systemPrompt exposed to client)
+    const safe = agents.map(({ id, name, avatar, description, capabilities, badge, bonus }) => ({
+      agentId: id, name, avatar, description, capabilities, badge, bonus,
+    }));
+    res.json({ success: true, data: safe });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ── GET /chats ─────────────────────────────────────────────────────────────────
 
 router.get('/', async (req, res) => {
@@ -255,16 +271,25 @@ router.post('/:id/message', async (req, res) => {
       if (combined) brainContext = `KNOWLEDGE BASE:\n${combined}\n\n---\n\n`;
     }
 
-    // ── 2. Persona ────────────────────────────────────────────────────────────
+    // ── 2. Persona / System Agent ─────────────────────────────────────────────
     let persona = null;
+    let systemAgent = null;
     try {
-      if (personaId) persona = await personaStore.getPersona(personaId);
-      if (!persona)  persona = await personaStore.getPersonaForLocation(req.locationId);
+      if (personaId) {
+        persona = await personaStore.getPersona(personaId);
+        // If no persona found, check if personaId is actually a system agent id
+        if (!persona) {
+          systemAgent = await systemAgentStore.getAgentById(personaId);
+        }
+      }
+      if (!persona && !systemAgent) persona = await personaStore.getPersonaForLocation(req.locationId);
     } catch (_) {}
 
     let basePrompt = 'You are a helpful AI assistant. Be concise, clear, and friendly. Use markdown formatting where helpful.';
     let personaWebhookContext = '';
-    if (persona) {
+    if (systemAgent) {
+      basePrompt = systemAgent.systemPrompt?.trim() || basePrompt;
+    } else if (persona) {
       basePrompt = persona.systemPrompt?.trim() || persona.personality?.trim() || basePrompt;
       if (persona.content?.trim()) brainContext = `PERSONA KNOWLEDGE:\n${persona.content}\n\n---\n\n` + brainContext;
 
