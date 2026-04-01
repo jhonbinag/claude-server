@@ -29,6 +29,7 @@ const betaLabStore         = require('../services/betaLabStore');
 const dashboardConfigStore = require('../services/dashboardConfigStore');
 const credStore            = require('../services/dashboardCredentialStore');
 const tokenStore           = require('../services/tokenStore');
+const locationRegistry     = require('../services/locationRegistry');
 const ghlClient            = require('../services/ghlClient');
 
 let businessProfileStore;
@@ -138,25 +139,34 @@ router.get('/locations', async (req, res) => {
   try {
     const locationIds = req.locationIds;
 
+    // Try locationRegistry first (Firestore/Redis) — falls back to tokenStore file
+    const allRegistered = await locationRegistry.listAllLocations({ includeUninstalled: false }).catch(() => null);
+
     let locations;
     if (locationIds.includes('all')) {
-      const allIds = tokenStore.listLocations();
-      locations = allIds.map(id => {
-        const r = tokenStore.getTokenRecord(id);
-        return {
-          locationId:   id,
-          locationName: r?.locationName || r?.name || '',
-          status:       r?.status || 'active',
-        };
-      });
+      if (allRegistered && allRegistered.length > 0) {
+        locations = allRegistered.map(r => ({
+          locationId:   r.locationId,
+          locationName: r.locationName || r.name || '',
+          status:       r.status || 'active',
+        }));
+      } else {
+        // tokenStore fallback
+        const allIds = tokenStore.listLocations();
+        locations = allIds.map(id => {
+          const r = tokenStore.getTokenRecord(id);
+          return { locationId: id, locationName: r?.locationName || r?.name || '', status: r?.status || 'active' };
+        });
+      }
     } else {
+      // Specific location IDs — look up names from registry
+      const registryMap = {};
+      if (allRegistered) allRegistered.forEach(r => { registryMap[r.locationId] = r; });
       locations = locationIds.map(id => {
+        const reg = registryMap[id];
+        if (reg) return { locationId: id, locationName: reg.locationName || reg.name || '', status: reg.status || 'active' };
         const r = tokenStore.getTokenRecord(id);
-        return {
-          locationId:   id,
-          locationName: r?.locationName || r?.name || '',
-          status:       r?.status || 'unknown',
-        };
+        return { locationId: id, locationName: r?.locationName || r?.name || '', status: r?.status || 'unknown' };
       });
     }
 
