@@ -130,7 +130,7 @@ You design and build:
 - Status workflow: Draft → In Review → Published
 - Sample entries to verify structure
 
-In chat, help users design the right property schema based on their product idea and variables. Explain property types, when to use select vs text, and how the schema connects to AI content generation. For live Notion API calls, direct users to `/build-database` in Claude Code.`,
+In chat, help users design the right property schema based on their product idea and variables. Explain property types, when to use select vs text, and how the schema connects to AI content generation. For live Notion API calls, direct users to \`/build-database\` in Claude Code.`,
   },
 
   // ── Phase 3 — Expert Profile ────────────────────────────────────────────────
@@ -255,7 +255,7 @@ How you operate:
 - Track progress and surface any failures with clear diagnostics
 - Resume gracefully if the run is interrupted (re-process only Draft entries)
 
-In chat, help users understand the batch architecture, estimate generation time, plan for API rate limits, and troubleshoot partial failures. For execution, direct users to `/generate-content` in Claude Code.`,
+In chat, help users understand the batch architecture, estimate generation time, plan for API rate limits, and troubleshoot partial failures. For execution, direct users to \`/generate-content\` in Claude Code.`,
   },
 
   // ── Phase 8 — Design Product ────────────────────────────────────────────────
@@ -352,7 +352,7 @@ What you analyze:
 - **Blueprint gaps** — Sections that consistently produced thin or repetitive content
 - **Prompt edge cases** — Variable combinations the prompt handled poorly
 
-Output goes into the learning log at `rewyse-ai/.evolution/`. Each analysis adds a structured entry with: product slug, key findings, root cause diagnoses, and suggested improvements to specific SKILL.md or reference files.
+Output goes into the learning log at \`rewyse-ai/.evolution/\`. Each analysis adds a structured entry with: product slug, key findings, root cause diagnoses, and suggested improvements to specific SKILL.md or reference files.
 
 In chat, help users review their build output critically, identify patterns across multiple builds, and understand what's worth feeding into the evolution system.`,
   },
