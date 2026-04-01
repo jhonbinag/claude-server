@@ -231,34 +231,60 @@ export default function AdminDashboard() {
   const loadBeta = useCallback(async () => {
     if (!token || !activeLocationId) return;
     setBetaLoading(true);
-    const data = await dashFetch('/dashboard/beta', token, activeLocationId);
-    if (data.success) setBetaFeatures(data.data || []);
-    else if (data.error?.includes('expired') || data.error?.includes('Invalid')) handleLogout();
-    setBetaLoading(false);
+    try {
+      const data = await dashFetch('/dashboard/beta', token, activeLocationId);
+      if (data.success) setBetaFeatures(data.data || []);
+      else if (data.error?.includes('expired') || data.error?.includes('Invalid')) handleLogout();
+    } catch { /* network error */ } finally {
+      setBetaLoading(false);
+    }
   }, [token, activeLocationId]); // eslint-disable-line
 
   const loadUsers = useCallback(async () => {
     if (!token || !activeLocationId) return;
     setUsersLoading(true);
-    const data = await dashFetch('/dashboard/users', token, activeLocationId);
-    if (data.success) setUsers(data.users || []);
-    setUsersLoading(false);
+    try {
+      const data = await dashFetch('/dashboard/users', token, activeLocationId);
+      if (data.success) setUsers(data.users || []);
+    } catch { /* network error */ } finally {
+      setUsersLoading(false);
+    }
   }, [token, activeLocationId]); // eslint-disable-line
 
   // ── effects ───────────────────────────────────────────────────────────────
   useEffect(() => { if (authed && !locationPicker) loadConfig(); }, [authed, locationPicker]); // eslint-disable-line
 
+  // Refresh credential from server on auth — keeps locationIds in sync with Firestore
   useEffect(() => {
-    if (!authed || !configLoaded) return;
-    const firstTab = enabledTabs[0] || 'beta';
-    setTab(t => enabledTabs.includes(t) ? t : firstTab);
-  }, [configLoaded]); // eslint-disable-line
+    if (!authed || !token) return;
+    dashFetch('/dashboard/me', token, null).then(data => {
+      if (!data.success) return;
+      const fresh = {
+        name:        data.credential.name,
+        email:       data.credential.email || '',
+        username:    data.credential.username,
+        locationIds: data.credential.locationIds || (data.credential.locationId ? [data.credential.locationId] : []),
+        role:        data.credential.role,
+      };
+      localStorage.setItem(LS_CRED, JSON.stringify(fresh));
+      setCred(fresh);
+    }).catch(() => {});
+  }, [authed, token]); // eslint-disable-line
 
   useEffect(() => {
-    if (!authed || locationPicker || !activeLocationId) return;
+    if (!authed || !configLoaded) return;
+    // 'updates' is always valid; don't override it unless it's truly not in visibleTabs
+    const firstTab = enabledTabs[0] || 'beta';
+    setTab(t => (t === 'updates' || enabledTabs.includes(t)) ? t : firstTab);
+  }, [configLoaded]); // eslint-disable-line
+
+  // Re-load data whenever active location OR tab changes — loadBeta/loadUsers in deps
+  // ensures we always call the latest version that captures the current locationId
+  useEffect(() => {
+    if (!authed || !activeLocationId) return;
     if (tab === 'beta' || tab === 'updates') loadBeta();
     if (tab === 'users') loadUsers();
-  }, [tab, authed, activeLocationId, locationPicker]); // eslint-disable-line
+  }, [tab, authed, activeLocationId, loadBeta, loadUsers]); // eslint-disable-line
 
   // ── actions ───────────────────────────────────────────────────────────────
   const toggleFeature = async (featureId, enabled) => {
