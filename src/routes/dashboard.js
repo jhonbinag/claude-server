@@ -139,35 +139,33 @@ router.get('/locations', async (req, res) => {
   try {
     const locationIds = req.locationIds;
 
-    // Try locationRegistry first (Firestore/Redis) — falls back to tokenStore file
-    const allRegistered = await locationRegistry.listAllLocations({ includeUninstalled: false }).catch(() => null);
+    // Build merged map: registry (Firestore/Redis) + tokenStore — same as admin route
+    const registryList = await locationRegistry.listAllLocations({ includeUninstalled: true }).catch(() => []);
+    const tokenIds     = tokenStore.listLocations();
+
+    const seedMap = new Map(registryList.map(loc => [loc.locationId, loc]));
+    for (const id of tokenIds) {
+      if (!seedMap.has(id)) {
+        const r = tokenStore.getTokenRecord(id);
+        seedMap.set(id, { locationId: id, locationName: r?.locationName || r?.name || '', status: 'active' });
+      }
+    }
+
+    const toEntry = (id) => {
+      const r = seedMap.get(id) || {};
+      const tr = tokenStore.getTokenRecord(id) || {};
+      return {
+        locationId:   id,
+        locationName: r.locationName || r.name || tr.locationName || tr.name || '',
+        status:       r.status || 'active',
+      };
+    };
 
     let locations;
     if (locationIds.includes('all')) {
-      if (allRegistered && allRegistered.length > 0) {
-        locations = allRegistered.map(r => ({
-          locationId:   r.locationId,
-          locationName: r.locationName || r.name || '',
-          status:       r.status || 'active',
-        }));
-      } else {
-        // tokenStore fallback
-        const allIds = tokenStore.listLocations();
-        locations = allIds.map(id => {
-          const r = tokenStore.getTokenRecord(id);
-          return { locationId: id, locationName: r?.locationName || r?.name || '', status: r?.status || 'active' };
-        });
-      }
+      locations = [...seedMap.keys()].map(toEntry).filter(l => l.status !== 'uninstalled');
     } else {
-      // Specific location IDs — look up names from registry
-      const registryMap = {};
-      if (allRegistered) allRegistered.forEach(r => { registryMap[r.locationId] = r; });
-      locations = locationIds.map(id => {
-        const reg = registryMap[id];
-        if (reg) return { locationId: id, locationName: reg.locationName || reg.name || '', status: reg.status || 'active' };
-        const r = tokenStore.getTokenRecord(id);
-        return { locationId: id, locationName: r?.locationName || r?.name || '', status: r?.status || 'unknown' };
-      });
+      locations = locationIds.map(toEntry);
     }
 
     res.json({ success: true, locations });
