@@ -76,6 +76,7 @@ export default function AdminDashboard() {
   const [locationsList,   setLocationsList]   = useState([]); // available locations for picker
   const [activeLocationId, setActiveLocationId] = useState(session?.location || null);
   const [locationPicker,  setLocationPicker]  = useState(false); // show picker?
+  const [locDropOpen,     setLocDropOpen]     = useState(false); // sidebar location dropdown
 
   // Login form
   const [usernameIn,      setUsernameIn]      = useState('');
@@ -175,12 +176,8 @@ export default function AdminDashboard() {
           const locId = credData.locationIds[0];
           localStorage.setItem(LS_LOCATION, locId);
           setActiveLocationId(locId);
-          setAuthed(true);
-        } else {
-          // Multi or all — fetch locations then show picker
-          setAuthed(true);
-          setLocationPicker(true);
         }
+        setAuthed(true);
       } else {
         setLoginErr(data.error || 'Login failed.');
       }
@@ -199,8 +196,8 @@ export default function AdminDashboard() {
   }, [token]);
 
   useEffect(() => {
-    if (authed && locationPicker && token) loadLocations(token);
-  }, [authed, locationPicker, token]); // eslint-disable-line
+    if (authed && needsLocationPicker(cred) && token) loadLocations(token);
+  }, [authed, token]); // eslint-disable-line
 
   const selectLocation = (locId) => {
     localStorage.setItem(LS_LOCATION, locId);
@@ -371,113 +368,200 @@ export default function AdminDashboard() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // LOCATION PICKER (multi-location credentials)
+  // MAIN DASHBOARD
   // ═══════════════════════════════════════════════════════════════════════════
-  if (locationPicker) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#07080f', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif', padding: 16 }}>
-        <div style={{ width: '100%', maxWidth: 460, background: '#0f1117', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '32px 28px', boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}>
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📍</div>
-            <h2 style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 700, color: '#f1f5f9' }}>Select a Location</h2>
-            <p style={{ margin: 0, fontSize: 13, color: '#4b5563' }}>Hi {cred?.name} — choose which location to manage.</p>
-          </div>
+  const navBtnStyle = (active) => ({
+    display: 'flex', alignItems: 'center', gap: 10,
+    width: '100%', padding: '9px 10px',
+    background: active ? 'rgba(99,102,241,0.12)' : 'transparent',
+    border: active ? '1px solid rgba(99,102,241,0.2)' : '1px solid transparent',
+    borderRadius: 8, color: active ? '#a5b4fc' : '#9ca3af',
+    fontSize: 13, fontWeight: active ? 600 : 400,
+    cursor: 'pointer', textAlign: 'left', transition: 'all .15s', marginBottom: 2,
+  });
 
-          {locationsList.length === 0 ? (
-            <p style={{ color: '#4b5563', textAlign: 'center', fontSize: 13 }}>Loading locations…</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {locationsList.map(loc => (
-                <button
-                  key={loc.locationId}
-                  onClick={() => selectLocation(loc.locationId)}
-                  style={{
-                    background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)',
-                    borderRadius: 10, padding: '14px 16px', cursor: 'pointer', textAlign: 'left',
-                    transition: 'all .15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.12)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.35)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.06)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.15)'; }}
-                >
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#e5e7eb' }}>{loc.locationName || 'Unnamed Location'}</div>
-                  <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#4b5563', marginTop: 3 }}>{loc.locationId}</div>
-                </button>
-              ))}
+  return (
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#07080f', color: '#e5e7eb', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+
+      {/* Backdrop — closes location dropdown on outside click */}
+      {locDropOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 98 }} onClick={() => setLocDropOpen(false)} />}
+
+      {/* ── Sidebar ── */}
+      <aside style={{ width: 230, flexShrink: 0, background: '#0f1117', borderRight: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+
+        {/* Brand */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', minHeight: 56, flexShrink: 0 }}>
+          <span style={{ fontSize: 20, flexShrink: 0 }}>
+            {bizProfile?.logoUrl
+              ? <img src={bizProfile.logoUrl} alt="" style={{ width: 24, height: 24, borderRadius: 5, objectFit: 'cover', verticalAlign: 'middle' }} onError={e => { e.target.style.display='none'; }} />
+              : bizProfile?.logoEmoji || '🧩'}
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {bizProfile?.name || 'Admin Dashboard'}
+          </span>
+        </div>
+
+        {/* Nav items */}
+        <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
+          {visibleTabs.map(t => {
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                style={navBtnStyle(active)}
+                onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#e5e7eb'; } }}
+                onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ca3af'; } }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Bottom: location + user + logout */}
+        <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.07)', padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+
+          {/* Location switcher — multi-location credentials */}
+          {needsLocationPicker(cred) && (
+            <div style={{ position: 'relative', zIndex: 99 }}>
+              <button
+                onClick={() => setLocDropOpen(o => !o)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px',
+                  background: locDropOpen ? 'rgba(99,102,241,0.1)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${locDropOpen ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                  borderRadius: 8, cursor: 'pointer', transition: 'all .15s',
+                }}
+              >
+                <span style={{ fontSize: 14, flexShrink: 0 }}>📍</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: activeLocationId ? '#e2e8f0' : '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {activeLocationName || activeLocationId || 'Select location…'}
+                  </div>
+                  {activeLocationId && (
+                    <div style={{ fontSize: 10, color: '#374151', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeLocationId}</div>
+                  )}
+                </div>
+                <span style={{ fontSize: 10, color: '#4b5563', flexShrink: 0 }}>{locDropOpen ? '▴' : '▾'}</span>
+              </button>
+
+              {locDropOpen && (
+                <div style={{
+                  position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, right: 0,
+                  background: '#13131a', border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 10, boxShadow: '0 -12px 40px rgba(0,0,0,0.6)',
+                  maxHeight: 280, overflowY: 'auto', zIndex: 100,
+                }}>
+                  <div style={{ padding: '8px 12px 6px', fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    Switch Location
+                  </div>
+                  {locationsList.length === 0 ? (
+                    <div style={{ padding: '16px 12px', fontSize: 12, color: '#4b5563', textAlign: 'center' }}>Loading locations…</div>
+                  ) : (
+                    locationsList.map(loc => {
+                      const isActive = loc.locationId === activeLocationId;
+                      return (
+                        <button
+                          key={loc.locationId}
+                          onClick={() => { selectLocation(loc.locationId); setLocDropOpen(false); }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            width: '100%', textAlign: 'left', padding: '10px 12px',
+                            background: isActive ? 'rgba(99,102,241,0.1)' : 'transparent',
+                            border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                            cursor: 'pointer', transition: 'background .1s',
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.08)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = isActive ? 'rgba(99,102,241,0.1)' : 'transparent'; }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {loc.locationName || loc.name || 'Unnamed Location'}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#374151', fontFamily: 'monospace', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.locationId}</div>
+                          </div>
+                          {isActive && <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 700, flexShrink: 0 }}>✓</span>}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          <button
-            onClick={handleLogout}
-            style={{ width: '100%', marginTop: 20, background: 'transparent', border: '1px solid #1f2937', borderRadius: 8, color: '#4b5563', padding: '10px 0', fontSize: 13, cursor: 'pointer' }}
-          >
-            Sign Out
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // MAIN DASHBOARD
-  // ═══════════════════════════════════════════════════════════════════════════
-  return (
-    <div style={{ minHeight: '100vh', background: '#07080f', color: '#e5e7eb', fontFamily: 'system-ui, sans-serif' }}>
-
-      {/* Top bar */}
-      <div style={{ background: '#0f1117', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '0 24px', display: 'flex', alignItems: 'center', gap: 14, height: 56 }}>
-        <span style={{ fontSize: 20 }}>
-          {bizProfile?.logoUrl
-            ? <img src={bizProfile.logoUrl} alt="" style={{ width: 24, height: 24, borderRadius: 5, objectFit: 'cover', verticalAlign: 'middle' }} onError={e => { e.target.style.display='none'; }} />
-            : bizProfile?.logoEmoji || '🧩'}
-        </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9' }}>{bizProfile?.name || 'Admin Dashboard'}</div>
-          <div style={{ fontSize: 11, color: '#4b5563', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {activeLocationName || activeLocationId || '—'}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          {/* Location switcher — only if multi-location credential */}
-          {needsLocationPicker(cred) && (
-            <button
-              onClick={() => { loadLocations(); setLocationPicker(true); }}
-              style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 7, color: '#a5b4fc', padding: '5px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-            >
-              📍 Switch Location
-            </button>
+          {/* Single-location: show location name as static info */}
+          {!needsLocationPicker(cred) && activeLocationId && (
+            <div style={{ padding: '7px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+              <div style={{ fontSize: 10, color: '#374151', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Location</div>
+              <div style={{ fontSize: 12, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {activeLocationName || activeLocationId}
+              </div>
+            </div>
           )}
 
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#e5e7eb' }}>{cred?.name}</div>
-            <div style={{ fontSize: 10, color: '#4b5563' }}>{cred?.username}</div>
+          {/* User info */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cred?.name}</div>
+              <div style={{ fontSize: 11, color: '#4b5563' }}>@{cred?.username}</div>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', borderRadius: 99, padding: '2px 8px', flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              {cred?.role === 'admin' ? 'Admin' : 'Mini'}
+            </span>
           </div>
-          <span style={{ fontSize: 11, fontWeight: 600, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.3)', color: '#a78bfa', borderRadius: 99, padding: '3px 10px' }}>
-            {cred?.role === 'admin' ? 'Admin' : 'Mini Admin'}
-          </span>
-          <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 7, color: '#6b7280', padding: '5px 12px', cursor: 'pointer', fontSize: 12 }}>
-            Sign out
+
+          {/* Logout */}
+          <button
+            onClick={handleLogout}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 10px', background: 'transparent', border: 'none', borderRadius: 8, color: '#6b7280', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'all .15s' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#e5e7eb'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#6b7280'; }}
+          >
+            <span>↩</span>
+            <span>Sign Out</span>
           </button>
         </div>
-      </div>
+      </aside>
 
-      {/* Tab bar */}
-      {visibleTabs.length > 1 && (
-        <div style={{ background: '#0f1117', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '0 24px', display: 'flex' }}>
-          {visibleTabs.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              background: 'none', border: 'none',
-              borderBottom: tab === t.id ? '2px solid #6366f1' : '2px solid transparent',
-              color: tab === t.id ? '#a5b4fc' : '#6b7280',
-              padding: '14px 20px', fontSize: 13,
-              fontWeight: tab === t.id ? 600 : 400, cursor: 'pointer',
-            }}>{t.label}</button>
-          ))}
+      {/* ── Main area ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+
+        {/* Top bar */}
+        <div style={{ height: 56, flexShrink: 0, background: '#0f1117', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 14 }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {visibleTabs.find(t => t.id === tab)?.label || 'Dashboard'}
+          </h2>
+          {activeLocationName && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#4b5563', flexShrink: 0 }}>
+              <span>📍</span>
+              <span style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeLocationName}</span>
+            </div>
+          )}
         </div>
-      )}
 
-      {/* Content */}
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 24px' }}>
+        {/* No location selected yet — prompt */}
+        {needsLocationPicker(cred) && !activeLocationId ? (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+            <div style={{ textAlign: 'center', maxWidth: 340 }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>📍</div>
+              <h3 style={{ margin: '0 0 8px', fontSize: 16, color: '#f1f5f9', fontWeight: 700 }}>Select a Location</h3>
+              <p style={{ margin: '0 0 24px', fontSize: 13, color: '#6b7280', lineHeight: 1.7 }}>
+                Use the location switcher in the sidebar to choose which location you want to manage.
+              </p>
+              <button
+                onClick={() => setLocDropOpen(true)}
+                style={{ background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Open Location Switcher
+              </button>
+            </div>
+          </div>
+        ) : (
+
+        /* Content */
+        <div style={{ flex: 1, overflowY: 'auto', padding: '28px 24px', maxWidth: 960, width: '100%', boxSizing: 'border-box' }}>
 
         {/* ── Beta Lab ── */}
         {tab === 'beta' && enabledTabs.includes('beta') && (
@@ -612,6 +696,8 @@ export default function AdminDashboard() {
               </div>
             )}
           </div>
+        )}
+        </div>
         )}
       </div>
     </div>
