@@ -139,21 +139,22 @@ router.get('/locations', async (req, res) => {
   try {
     const locationIds = req.locationIds;
 
-    // Build merged map: registry (Firestore/Redis) + tokenStore — same as admin route
-    const registryList = await locationRegistry.listAllLocations({ includeUninstalled: true }).catch(() => []);
-    const tokenIds     = tokenStore.listLocations();
+    // Build merged map: registry (Firestore/Redis) + tokenStore — mirrors admin buildLocationSeedMap
+    const [registryList, tokenIds] = await Promise.all([
+      locationRegistry.listAllLocations({ includeUninstalled: true }).catch(() => []),
+      Promise.resolve(tokenStore.listLocations()).catch(() => []),
+    ]);
 
     const seedMap = new Map(registryList.map(loc => [loc.locationId, loc]));
-    for (const id of tokenIds) {
+    for (const id of (Array.isArray(tokenIds) ? tokenIds : await tokenIds)) {
       if (!seedMap.has(id)) {
-        const r = tokenStore.getTokenRecord(id);
-        seedMap.set(id, { locationId: id, locationName: r?.locationName || r?.name || '', status: 'active' });
+        seedMap.set(id, { locationId: id, status: 'active' });
       }
     }
 
-    const toEntry = (id) => {
-      const r = seedMap.get(id) || {};
-      const tr = tokenStore.getTokenRecord(id) || {};
+    const toEntry = async (id) => {
+      const r  = seedMap.get(id) || {};
+      const tr = await Promise.resolve(tokenStore.getTokenRecord(id)).catch(() => null) || {};
       return {
         locationId:   id,
         locationName: r.locationName || r.name || tr.locationName || tr.name || '',
@@ -163,9 +164,11 @@ router.get('/locations', async (req, res) => {
 
     let locations;
     if (locationIds.includes('all')) {
-      locations = [...seedMap.keys()].map(toEntry).filter(l => l.status !== 'uninstalled');
+      const allIds = [...seedMap.keys()];
+      const entries = await Promise.all(allIds.map(toEntry));
+      locations = entries.filter(l => l.status !== 'uninstalled');
     } else {
-      locations = locationIds.map(toEntry);
+      locations = await Promise.all(locationIds.map(toEntry));
     }
 
     res.json({ success: true, locations });
