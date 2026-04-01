@@ -266,9 +266,13 @@ export default function Chats() {
     setStreamStatus('');
     // Restore persona or agent from session metadata
     if (session.personaId) {
-      const p = personas.find(x => x.personaId === session.personaId)
+      const found = personas.find(x => x.personaId === session.personaId)
              || agents.find(x => x.agentId === session.personaId)
              || null;
+      // Ensure agent objects have personaId set so sendMessage can forward it
+      const p = found && found.agentId && !found.personaId
+        ? { ...found, personaId: found.agentId }
+        : found;
       setActivePersona(p);
     } else {
       setActivePersona(null);
@@ -337,7 +341,7 @@ export default function Chats() {
       const res = await fetch(`/chats/${sessionId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-location-id': locationId },
-        body: JSON.stringify({ message: text.trim(), history, personaId: persona?.personaId || null }),
+        body: JSON.stringify({ message: text.trim(), history, personaId: persona?.agentId || persona?.personaId || null }),
         signal: ctrl.signal,
       });
 
