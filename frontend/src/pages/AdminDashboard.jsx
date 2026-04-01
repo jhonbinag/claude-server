@@ -37,6 +37,25 @@ async function dashFetch(path, token, activeLocationId, opts = {}) {
   return res.json();
 }
 
+// ── feature tool meta (matches TopBar FEATURE_META) ──────────────────────────
+const FEATURE_META = {
+  dashboard:        { label: 'Dashboard',           icon: '⊞'  },
+  chats:            { label: 'Chats',               icon: '💬' },
+  settings:         { label: 'Settings',            icon: '⚙️' },
+  agents:           { label: 'AI Agents',           icon: '🤖' },
+  ghl_agent:        { label: 'GHL Agent',           icon: '⚡' },
+  workflows:        { label: 'Workflow Builder',    icon: '🔀' },
+  brain:            { label: 'Brain',               icon: '🧠' },
+  funnel_builder:   { label: 'Funnel Builder',      icon: '🏗️' },
+  website_builder:  { label: 'Website Builder',     icon: '🌐' },
+  email_builder:    { label: 'Email Builder',       icon: '📧' },
+  campaign_builder: { label: 'Campaign Builder',    icon: '📣' },
+  ads_generator:    { label: 'Bulk Ads Generator',  icon: '🎯' },
+  ad_library:       { label: 'Ad Library Intel',    icon: '📊' },
+  social_planner:   { label: 'Social Planner',      icon: '📱' },
+  manychat:         { label: 'ManyChat',            icon: '📩' },
+};
+
 // ── static meta ───────────────────────────────────────────────────────────────
 const STATUS_META = {
   permanent:  { label: 'Permanent', color: '#34d399', bg: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.3)'  },
@@ -707,7 +726,20 @@ export default function AdminDashboard() {
                           <span style={{ background: sm.bg, border: `1px solid ${sm.border}`, color: sm.color, padding: '1px 7px', borderRadius: 99, fontSize: 11, fontWeight: 600 }}>{sm.label}</span>
                         </div>
                         {f.description && (
-                          <p style={{ margin: '0 0 14px', fontSize: 13, color: '#9ca3af', lineHeight: 1.65 }}>{f.description}</p>
+                          <p style={{ margin: '0 0 10px', fontSize: 13, color: '#9ca3af', lineHeight: 1.65 }}>{f.description}</p>
+                        )}
+                        {(f.linkedFeatures || []).length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
+                            {(f.linkedFeatures || []).map((key, i) => {
+                              const meta = FEATURE_META[key];
+                              return (
+                                <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.22)', borderRadius: 99, padding: '2px 9px', color: '#818cf8', fontSize: 11 }}>
+                                  {meta ? <span>{meta.icon}</span> : null}
+                                  {meta ? meta.label : key}
+                                </span>
+                              );
+                            })}
+                          </div>
                         )}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                           <div style={{ fontSize: 11, color: f.status === 'permanent' ? '#34d399' : (f.myEnabled ? '#34d399' : '#6b7280') }}>
@@ -784,13 +816,26 @@ export default function AdminDashboard() {
                           <span style={{ background: sm.bg, border: `1px solid ${sm.border}`, color: sm.color, padding: '1px 7px', borderRadius: 99, fontSize: 11, fontWeight: 600 }}>{sm.label}</span>
                           {f.panelOnly && <span style={{ fontSize: 10, color: '#4b5563' }}>— admin view only</span>}
                         </div>
-                        {f.description && <p style={{ margin: 0, fontSize: 13, color: '#9ca3af', lineHeight: 1.6 }}>{f.description}</p>}
+                        {f.description && <p style={{ margin: '0 0 8px', fontSize: 13, color: '#9ca3af', lineHeight: 1.6 }}>{f.description}</p>}
+                        {(f.linkedFeatures || []).length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+                            {(f.linkedFeatures || []).map((key, i) => {
+                              const meta = FEATURE_META[key];
+                              return (
+                                <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.22)', borderRadius: 99, padding: '2px 9px', color: '#818cf8', fontSize: 11 }}>
+                                  {meta ? <span>{meta.icon}</span> : null}
+                                  {meta ? meta.label : key}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
                         {f.toggleable && (
-                          <p style={{ margin: '6px 0 0', fontSize: 11, color: f.myEnabled ? '#34d399' : '#4b5563' }}>
+                          <p style={{ margin: '4px 0 0', fontSize: 11, color: f.myEnabled ? '#34d399' : '#4b5563' }}>
                             {f.myEnabled ? '✓ Enabled for your users' : '✗ Disabled — users cannot see this'}
                           </p>
                         )}
-                        {f.status === 'permanent' && <p style={{ margin: '6px 0 0', fontSize: 11, color: '#34d399' }}>✓ Available to all users automatically</p>}
+                        {f.status === 'permanent' && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#34d399' }}>✓ Available to all users automatically</p>}
                       </div>
                       {f.toggleable && (
                         <button onClick={() => !busy && toggleFeature(f.featureId, !f.myEnabled)} disabled={busy}
