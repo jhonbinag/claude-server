@@ -210,9 +210,10 @@ export default function Chats() {
   const [search,           setSearch]           = useState('');
   const [sideOpen,         setSideOpen]         = useState(true);
 
-  const bottomRef = useRef(null);
-  const inputRef  = useRef(null);
-  const abortRef  = useRef(null);
+  const bottomRef    = useRef(null);
+  const inputRef     = useRef(null);
+  const abortRef     = useRef(null);
+  const restoredRef  = useRef(false);
 
   // ── Load sessions ──────────────────────────────────────────────────────────
 
@@ -251,11 +252,32 @@ export default function Chats() {
     setAgentsLoading(false);
   }, [locationId]);
 
-  useEffect(() => { loadSessions(); loadPersonas(); loadAgents(); }, [loadSessions, loadPersonas, loadAgents]);
+  useEffect(() => {
+    restoredRef.current = false;
+    loadSessions(); loadPersonas(); loadAgents();
+  }, [loadSessions, loadPersonas, loadAgents]);
 
   // ── Auto-scroll ────────────────────────────────────────────────────────────
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, streamText]);
+
+  // ── Persist last active session to localStorage ────────────────────────────
+
+  useEffect(() => {
+    if (!locationId) return;
+    if (activeId) localStorage.setItem(`chats_lastActive_${locationId}`, activeId);
+  }, [activeId, locationId]);
+
+  // ── Restore last active session after page load ────────────────────────────
+
+  useEffect(() => {
+    if (restoredRef.current || !locationId || sessions.length === 0) return;
+    restoredRef.current = true;
+    const saved = localStorage.getItem(`chats_lastActive_${locationId}`);
+    if (!saved) return;
+    const session = sessions.find(s => s.id === saved);
+    if (session) openSession(session);
+  }, [sessions, locationId, openSession]);
 
   // ── Open a session ─────────────────────────────────────────────────────────
 
@@ -283,7 +305,7 @@ export default function Chats() {
       if (d.success) setMessages(d.data.messages || []);
     } catch (_) { setMessages([]); }
     setTimeout(() => inputRef.current?.focus(), 100);
-  }, [locationId, personas]);
+  }, [locationId, personas, agents]);
 
   // ── Create new chat (with or without a persona) ────────────────────────────
 
