@@ -96,7 +96,7 @@ export default function AdminDashboard() {
   const [activeLocationId, setActiveLocationId] = useState(session?.location || null);
   const [locationPicker,  setLocationPicker]  = useState(false); // show picker?
   const [locDropOpen,     setLocDropOpen]     = useState(false); // sidebar location dropdown
-  const [locLoading,      setLocLoading]      = useState(false); // initial fetch in progress
+  const [locLoading,      setLocLoading]      = useState(!!session); // true on mount so spinner shows before first loadLocations
 
   // Login form
   const [usernameIn,      setUsernameIn]      = useState('');
@@ -160,7 +160,7 @@ export default function AdminDashboard() {
     localStorage.removeItem(LS_LOCATION);
     setAuthed(false); setToken(null); setCred(null);
     setActiveLocationId(null); setLocationsList([]);
-    setLocationPicker(false);
+    setLocationPicker(false); setLocLoading(false);
     setUsernameIn(''); setPasswordIn('');
     setBetaFeatures([]); setUsers([]);
     setConfigLoaded(false);
@@ -213,7 +213,7 @@ export default function AdminDashboard() {
   // ── load locations for picker ─────────────────────────────────────────────
   const loadLocations = useCallback(async (tok) => {
     const t = tok || token;
-    if (!t) return;
+    if (!t) { setLocLoading(false); return; }
     setLocLoading(true);
     try {
       const data = await dashFetch('/dashboard/locations', t, null);
@@ -227,8 +227,15 @@ export default function AdminDashboard() {
           if (first) localStorage.setItem(LS_LOCATION, first);
           return first;
         });
+      } else if (!data.success) {
+        const err = (data.error || '').toLowerCase();
+        // Expired / invalid session → force re-login
+        if (err.includes('expired') || err.includes('invalid') || err.includes('log in') || err.includes('session')) {
+          handleLogout();
+        }
+        // Otherwise leave locationsList empty so user sees the empty state
       }
-    } finally {
+    } catch { /* network error — leave list empty */ } finally {
       setLocLoading(false);
     }
   }, [token]); // eslint-disable-line
