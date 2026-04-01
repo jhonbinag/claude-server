@@ -168,6 +168,8 @@ router.get('/callback', async (req, res) => {
       locationName = loc?.name || loc?.business?.name || null;
     } catch { /* non-fatal — name stays null */ }
     locationRegistry.registerLocation(locationId, { companyId: tokenData.companyId, name: locationName }).catch(() => {});
+    // Also persist name in the token record so the mini-admin location picker can show it
+    if (locationName) tokenStore.saveLocationName(locationId, locationName).catch?.(() => {});
 
     // Sync GHL users + assign default roles (fire-and-forget)
     const installingUserId = tokenData.userId || tokenData.user_id || null;

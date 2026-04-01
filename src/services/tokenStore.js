@@ -165,6 +165,17 @@ function getAppSettings() {
   return readStore().appSettings || null;
 }
 
+// Persist human-readable location name alongside the token record so the
+// mini-admin dashboard can display sub-account names without a live GHL call.
+function saveLocationName(locationId, name) {
+  if (!name) return;
+  const store = readStore();
+  if (!store.locations[locationId]) return;
+  if (store.locations[locationId].locationName === name) return; // no-op
+  store.locations[locationId].locationName = name;
+  writeStore(store);
+}
+
 module.exports = {
   saveTokens,
   getTokenRecord,
@@ -180,4 +191,5 @@ module.exports = {
   getToolSharing,
   saveAppSettings,
   getAppSettings,
+  saveLocationName,
 };

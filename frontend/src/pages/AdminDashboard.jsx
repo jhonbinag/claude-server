@@ -541,7 +541,7 @@ export default function AdminDashboard() {
                   <div style={{ fontSize: 12, fontWeight: 600, color: activeLocationId ? '#e2e8f0' : '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {activeLocationName || activeLocationId || 'Select location…'}
                   </div>
-                  {activeLocationId && (
+                  {activeLocationId && activeLocationName && activeLocationName !== activeLocationId && (
                     <div style={{ fontSize: 10, color: '#374151', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeLocationId}</div>
                   )}
                 </div>
@@ -584,7 +584,7 @@ export default function AdminDashboard() {
                         >
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: 500, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {loc.locationName || loc.name || 'Unnamed Location'}
+                              {loc.locationName || loc.name || loc.locationId}
                             </div>
                             <div style={{ fontSize: 10, color: '#374151', fontFamily: 'monospace', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.locationId}</div>
                           </div>
@@ -672,8 +672,42 @@ export default function AdminDashboard() {
         {(() => (
         <div style={{ flex: 1, overflowY: 'auto', padding: '28px 24px', maxWidth: 960, width: '100%', boxSizing: 'border-box' }}>
 
+        {/* ── No location selected — show contextual guidance ── */}
+        {!activeLocationId && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 24px', textAlign: 'center' }}>
+            {locLoading ? (
+              <>
+                <div style={{ width: 36, height: 36, border: '3px solid #1f2937', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginBottom: 20 }} />
+                <p style={{ fontSize: 14, color: '#4b5563', margin: 0 }}>Loading sub-accounts…</p>
+              </>
+            ) : locationsList.length === 0 ? (
+              <>
+                <p style={{ fontSize: 44, margin: '0 0 16px' }}>📭</p>
+                <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: '#e5e7eb' }}>No sub-accounts found</h3>
+                <p style={{ margin: '0 0 20px', fontSize: 13, color: '#4b5563', maxWidth: 320, lineHeight: 1.6 }}>
+                  No GHL sub-accounts are linked to your credential. Ask your admin to assign locations, or install the app on a GHL sub-account first.
+                </p>
+                <button
+                  onClick={() => loadLocations(token)}
+                  style={{ background: 'transparent', border: '1px solid #374151', borderRadius: 8, color: '#9ca3af', padding: '8px 20px', fontSize: 13, cursor: 'pointer' }}
+                >
+                  ↻ Retry
+                </button>
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: 44, margin: '0 0 16px' }}>📍</p>
+                <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: '#e5e7eb' }}>Select a sub-account</h3>
+                <p style={{ fontSize: 13, color: '#4b5563', maxWidth: 300, lineHeight: 1.6, margin: 0 }}>
+                  Use the location switcher at the bottom of the sidebar to choose a sub-account.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
         {/* ── Updates ── */}
-        {tab === 'updates' && (
+        {activeLocationId && tab === 'updates' && (
           <div>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, gap: 12, flexWrap: 'wrap' }}>
               <div>
@@ -775,7 +809,7 @@ export default function AdminDashboard() {
         )}
 
         {/* ── Settings (Beta Lab + Users sub-tabs) ── */}
-        {tab === 'settings' && (
+        {activeLocationId && tab === 'settings' && (
           <div>
             {/* Sub-tab bar */}
             <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid #1f2937', paddingBottom: 0 }}>

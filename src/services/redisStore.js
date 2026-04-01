@@ -163,6 +163,17 @@ async function getAppSettings() {
   return typeof raw === 'string' ? JSON.parse(raw) : raw;
 }
 
+// Persist human-readable location name alongside the token record so the
+// mini-admin dashboard can display sub-account names without a live GHL call.
+async function saveLocationName(locationId, name) {
+  if (!name) return;
+  const existing = await getRecord(locationId);
+  if (!existing) return;
+  if (existing.locationName === name) return; // no-op
+  existing.locationName = name;
+  await redis.set(KEY_PREFIX + locationId, JSON.stringify(existing));
+}
+
 module.exports = {
   saveTokens,
   getTokenRecord:      getRecord,
@@ -178,4 +189,5 @@ module.exports = {
   getToolSharing,
   saveAppSettings,
   getAppSettings,
+  saveLocationName,
 };
