@@ -2062,6 +2062,7 @@ export default function Admin() {
     if (tab === 'app-settings') { loadAppSettings(); loadBizProfile(); loadSmtpConfig(); }
     if (tab === 'billing')   { loadBilling(); loadTiers(); }
     if (tab === 'personas')  { loadSharedBrains(); loadPersonas(); }
+    if (tab === 'agents')    loadAgents();
     if (tab === 'integrations') { loadIntegrations(); loadBetaFeatures(); loadDashCfg(); loadCredentials(); if (locations.length === 0) loadLocations(); }
     // Users & Roles tab: ensure locations list + default role loaded
     if (tab === 'users-roles') {
@@ -3714,11 +3715,6 @@ export default function Admin() {
             Bonus: { color: '#a78bfa', bg: 'rgba(167,139,250,0.12)', border: 'rgba(167,139,250,0.3)' },
             Evolve:{ color: '#60a5fa', bg: 'rgba(96,165,250,0.12)',  border: 'rgba(96,165,250,0.3)' },
           };
-
-          // Load agents on first render of this tab
-          if (!agentsLoading && agentsData.length === 0) {
-            loadAgents();
-          }
 
           const coreAgents  = agentsData.filter(a => a.badge === 'Core');
           const bonusAgents = agentsData.filter(a => a.badge === 'Bonus');
