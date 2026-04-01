@@ -200,6 +200,18 @@ router.post('/beta/:id/toggle', async (req, res) => {
   }
 });
 
+// ── POST /dashboard/beta/:id/acknowledge ─────────────────────────────────────
+
+router.post('/beta/:id/acknowledge', async (req, res) => {
+  if (!req.locationId) return res.status(400).json({ success: false, error: 'No active location.' });
+  try {
+    await betaLabStore.acknowledgeForLocation(req.params.id, req.locationId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── GET /dashboard/users ──────────────────────────────────────────────────────
 
 router.get('/users', async (req, res) => {

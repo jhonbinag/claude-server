@@ -90,7 +90,7 @@ export default function AdminDashboard() {
   const [activationMsg,   setActivationMsg]   = useState(null); // { type: 'success'|'error', text }
 
   // Dashboard
-  const [tab,             setTab]             = useState('beta');
+  const [tab,             setTab]             = useState('updates');
   const [enabledTabs,     setEnabledTabs]     = useState([]);
   const [configLoaded,    setConfigLoaded]    = useState(false);
   const [bizProfile,      setBizProfile]      = useState(null);
@@ -99,6 +99,8 @@ export default function AdminDashboard() {
   const [betaFeatures,    setBetaFeatures]    = useState([]);
   const [betaLoading,     setBetaLoading]     = useState(false);
   const [toggling,        setToggling]        = useState({});
+  const [acknowledging,   setAcknowledging]   = useState({});
+  const [popupDismissed,  setPopupDismissed]  = useState(false);
 
   // Users
   const [users,           setUsers]           = useState([]);
@@ -208,8 +210,9 @@ export default function AdminDashboard() {
   const selectLocation = (locId) => {
     if (locId === activeLocationId) return;
     localStorage.setItem(LS_LOCATION, locId);
-    setBetaFeatures([]);   // clear stale data immediately
+    setBetaFeatures([]);
     setUsers([]);
+    setPopupDismissed(false);
     setActiveLocationId(locId);
     setLocationPicker(false);
   };
@@ -253,7 +256,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!authed || locationPicker || !activeLocationId) return;
-    if (tab === 'beta')  loadBeta();
+    if (tab === 'beta' || tab === 'updates') loadBeta();
     if (tab === 'users') loadUsers();
   }, [tab, authed, activeLocationId, locationPicker]); // eslint-disable-line
 
@@ -284,12 +287,29 @@ export default function AdminDashboard() {
     setTimeout(() => setSyncMsg(''), 3500);
   };
 
+  const acknowledgeBeta = async (featureId) => {
+    setAcknowledging(a => ({ ...a, [featureId]: true }));
+    const data = await dashFetch(`/dashboard/beta/${featureId}/acknowledge`, token, activeLocationId, { method: 'POST' });
+    if (data.success) setBetaFeatures(prev => prev.map(f => f.featureId === featureId ? { ...f, acknowledged: true } : f));
+    setAcknowledging(a => ({ ...a, [featureId]: false }));
+  };
+
   const isMiniAdmin = ['mini_admin', 'owner', 'admin'].includes(cred?.role);
+
+  // Derived beta data
+  const visibleFeatures = betaFeatures.filter(f => f.visible && !f.panelOnly);
+  const unreadFeatures  = visibleFeatures.filter(f => !f.acknowledged);
+  const unreadCount     = unreadFeatures.length;
+
   const ALL_TABS_META = [
-    { id: 'beta',  label: '🧪 Beta Lab' },
-    { id: 'users', label: '👥 Users'    },
+    { id: 'updates', label: '🆕 Updates',  icon: '🆕' },
+    { id: 'beta',    label: '🧪 Beta Lab',  icon: '🧪' },
+    { id: 'users',   label: '👥 Users',     icon: '👥' },
   ];
-  const visibleTabs = ALL_TABS_META.filter(t => enabledTabs.includes(t.id));
+  // Updates always visible; Beta/Users controlled by enabledTabs
+  const visibleTabs = ALL_TABS_META.filter(t =>
+    t.id === 'updates' || enabledTabs.includes(t.id)
+  );
 
   // ── active location display name ──────────────────────────────────────────
   const activeLocationName = locationsList.find(l => l.locationId === activeLocationId)?.locationName || activeLocationId || '';
@@ -428,6 +448,26 @@ export default function AdminDashboard() {
             );
           })}
         </nav>
+
+        {/* Permanent features in sidebar */}
+        {betaFeatures.filter(f => f.status === 'permanent' && f.visible && !f.panelOnly).length > 0 && (
+          <div style={{ padding: '0 8px 8px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+            <div style={{ fontSize: 10, color: '#374151', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '6px 4px 4px' }}>Features</div>
+            {betaFeatures.filter(f => f.status === 'permanent' && f.visible && !f.panelOnly).map(f => (
+              <button
+                key={f.featureId}
+                onClick={() => setTab('updates')}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 10px', background: 'transparent', border: 'none', borderRadius: 7, color: '#6b7280', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#9ca3af'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#6b7280'; }}
+              >
+                <span style={{ fontSize: 14 }}>{f.icon || '⚡'}</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.title}</span>
+                {!f.acknowledged && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6366f1', flexShrink: 0 }} />}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Bottom: location + user + logout */}
         <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.07)', padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -578,6 +618,95 @@ export default function AdminDashboard() {
         /* Content */
         <div style={{ flex: 1, overflowY: 'auto', padding: '28px 24px', maxWidth: 960, width: '100%', boxSizing: 'border-box' }}>
 
+        {/* ── Updates ── */}
+        {tab === 'updates' && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <h2 style={{ margin: '0 0 5px', fontSize: 17, fontWeight: 700 }}>🆕 What's New</h2>
+                <p style={{ margin: 0, fontSize: 13, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  Features and improvements for your location.
+                  {unreadCount > 0 && (
+                    <span style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc', padding: '1px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600 }}>
+                      {unreadCount} new
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button onClick={loadBeta} style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 8, color: '#9ca3af', padding: '7px 14px', cursor: 'pointer', fontSize: 13 }}>
+                ↻ Refresh
+              </button>
+            </div>
+
+            {betaLoading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {[1,2,3].map(i => (
+                  <div key={i} style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 14, padding: '18px 20px' }}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+                      <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,0.05)', animation: 'pulse 1.4s ease-in-out infinite', flexShrink: 0 }} />
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ height: 14, width: `${50 + i * 10}%`, background: 'rgba(255,255,255,0.06)', borderRadius: 6, animation: 'pulse 1.4s ease-in-out infinite' }} />
+                        <div style={{ height: 11, width: '70%', background: 'rgba(255,255,255,0.04)', borderRadius: 6, animation: 'pulse 1.4s ease-in-out infinite' }} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : visibleFeatures.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 72, color: '#374151' }}>
+                <p style={{ fontSize: 40, margin: '0 0 12px' }}>🆕</p>
+                <p style={{ fontSize: 14 }}>No updates published yet.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {[...visibleFeatures]
+                  .sort((a, b) => (a.acknowledged ? 1 : 0) - (b.acknowledged ? 1 : 0))
+                  .map(f => {
+                    const sm = STATUS_META[f.status] || STATUS_META.not_shared;
+                    const isUnread = !f.acknowledged;
+                    const acking = acknowledging[f.featureId];
+                    return (
+                      <div key={f.featureId} style={{
+                        background: isUnread ? 'rgba(99,102,241,0.04)' : '#111827',
+                        border: `1px solid ${isUnread ? 'rgba(99,102,241,0.25)' : '#1f2937'}`,
+                        borderRadius: 14, padding: '18px 20px', position: 'relative',
+                      }}>
+                        {isUnread && <div style={{ position: 'absolute', top: 14, right: 16, width: 8, height: 8, borderRadius: '50%', background: '#6366f1' }} />}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 22 }}>{f.icon || '⚡'}</span>
+                          <span style={{ fontWeight: 700, fontSize: 15, color: '#f1f5f9' }}>{f.title}</span>
+                          {f.version && (
+                            <span style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc', padding: '1px 7px', borderRadius: 99, fontSize: 11 }}>{f.version}</span>
+                          )}
+                          <span style={{ background: sm.bg, border: `1px solid ${sm.border}`, color: sm.color, padding: '1px 7px', borderRadius: 99, fontSize: 11, fontWeight: 600 }}>{sm.label}</span>
+                        </div>
+                        {f.description && (
+                          <p style={{ margin: '0 0 14px', fontSize: 13, color: '#9ca3af', lineHeight: 1.65 }}>{f.description}</p>
+                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                          <div style={{ fontSize: 11, color: f.status === 'permanent' ? '#34d399' : (f.myEnabled ? '#34d399' : '#6b7280') }}>
+                            {f.status === 'permanent' ? '✓ Available to all your users' : (f.toggleable ? (f.myEnabled ? '✓ Enabled for your users' : '✗ Disabled') : '')}
+                          </div>
+                          {isUnread ? (
+                            <button
+                              onClick={() => acknowledgeBeta(f.featureId)}
+                              disabled={acking}
+                              style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 8, color: '#a5b4fc', padding: '6px 16px', fontSize: 12, fontWeight: 600, cursor: acking ? 'not-allowed' : 'pointer', opacity: acking ? 0.6 : 1, flexShrink: 0 }}
+                            >
+                              {acking ? 'Saving…' : '✓ Got it'}
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 11, color: '#374151' }}>✓ Acknowledged</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Beta Lab ── */}
         {tab === 'beta' && enabledTabs.includes('beta') && (
           <div>
@@ -725,6 +854,39 @@ export default function AdminDashboard() {
         </div>
         )}
       </div>
+
+      {/* ── Floating "Click to Update" popup ── */}
+      {authed && unreadCount > 0 && !popupDismissed && tab !== 'updates' && (
+        <div style={{
+          position: 'fixed', bottom: 28, right: 28, zIndex: 300,
+          background: '#0f1117', border: '1px solid rgba(99,102,241,0.45)',
+          borderRadius: 14, padding: '16px 18px 14px',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.55)', maxWidth: 270,
+          animation: 'pulse 2s ease-in-out infinite',
+        }}>
+          <button
+            onClick={() => setPopupDismissed(true)}
+            style={{ position: 'absolute', top: 10, right: 12, background: 'none', border: 'none', color: '#4b5563', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: 0 }}
+          >✕</button>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            <span style={{ fontSize: 26, flexShrink: 0 }}>🆕</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>
+                {unreadCount} New Update{unreadCount > 1 ? 's' : ''}
+              </div>
+              <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.5, marginBottom: 12 }}>
+                New features are ready for your location.
+              </div>
+              <button
+                onClick={() => { setTab('updates'); setPopupDismissed(true); }}
+                style={{ background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', padding: '7px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Click to Update
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
