@@ -107,15 +107,20 @@ function useIsMobile() {
 const BASE = '';
 
 async function adminFetch(path, { method = 'GET', adminKey, body } = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      'x-admin-key':  adminKey,
-      'Content-Type': 'application/json',
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  return res.json();
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: {
+        'x-admin-key':  adminKey,
+        'Content-Type': 'application/json',
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return { success: false, error: `Server error (${res.status})` }; }
+  } catch (e) {
+    return { success: false, error: e.message || 'Network error' };
+  }
 }
 
 function shortLocationId(locationId, maxLength = 10) {
@@ -1706,11 +1711,13 @@ export default function Admin() {
   // Brain (shared knowledge base) state
   const [sharedBrains,       setSharedBrains]       = useState([]);
   const [brainLoading,       setBrainLoading]        = useState(false);
+  const [brainError,         setBrainError]          = useState(null);
   const [selectedBrain,      setSelectedBrain]       = useState(null); // full brain object
 
   // Chat Personas state
   const [personas,           setPersonas]           = useState([]);
   const [personasLoading,    setPersonasLoading]    = useState(false);
+  const [personasError,      setPersonasError]      = useState(null);
   const [personaModal,       setPersonaModal]       = useState(null); // null | 'create' | persona object (edit)
   const [personaForm,        setPersonaForm]        = useState({ name:'', description:'', avatar:'🧑‍💼', personality:'', content:'', assignedTo:'__all__', assignedLocations:[], status:'draft', webhookEnabled:false, webhookUrl:'' });
   const [personaImproving,   setPersonaImproving]   = useState(false);
@@ -1979,8 +1986,13 @@ export default function Admin() {
 
   const loadSharedBrains = useCallback(async () => {
     setBrainLoading(true);
+    setBrainError(null);
     const data = await adminFetch('/brain/list', { adminKey });
-    if (data.success) setSharedBrains(data.data || []);
+    if (data.success) {
+      setSharedBrains(data.data || []);
+    } else {
+      setBrainError(data.error || 'Failed to load brains');
+    }
     setBrainLoading(false);
   }, [adminKey]);
 
@@ -1990,8 +2002,13 @@ export default function Admin() {
 
   const loadPersonas = useCallback(async () => {
     setPersonasLoading(true);
+    setPersonasError(null);
     const data = await adminFetch('/admin/personas', { adminKey });
-    if (data.success) setPersonas(data.data || []);
+    if (data.success) {
+      setPersonas(data.data || []);
+    } else {
+      setPersonasError(data.error || 'Failed to load personas');
+    }
     setPersonasLoading(false);
   }, [adminKey]);
 
@@ -2968,6 +2985,11 @@ export default function Admin() {
 
             {personasLoading ? (
               <div style={{ textAlign:'center', padding:40, color:'#6b7280' }}>Loading…</div>
+            ) : personasError ? (
+              <div style={{ background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.25)', borderRadius:10, padding:'14px 18px', display:'flex', alignItems:'center', gap:12 }}>
+                <span style={{ color:'#f87171', fontSize:13, flex:1 }}>Failed to load personas: {personasError}</span>
+                <button onClick={loadPersonas} style={{ background:'rgba(239,68,68,0.15)', border:'1px solid rgba(239,68,68,0.3)', borderRadius:6, color:'#f87171', padding:'4px 12px', cursor:'pointer', fontSize:12, fontWeight:600, flexShrink:0 }}>Retry</button>
+              </div>
             ) : personas.length === 0 ? (
               <div style={{ textAlign:'center', padding:60, color:'#4b5563' }}>
                 <div style={{ fontSize:40, marginBottom:12 }}>🎭</div>
@@ -5753,7 +5775,14 @@ export default function Admin() {
 
                   {brainLoading && <p style={{ color: BD.textMuted, fontSize: 13 }}>Loading brains…</p>}
 
-                  {!brainLoading && sharedBrains.length === 0 && (
+                  {!brainLoading && brainError && (
+                    <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                      <span style={{ color: '#f87171', fontSize: 13, flex: 1 }}>Failed to load brains: {brainError}</span>
+                      <button onClick={loadSharedBrains} style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, color: '#f87171', padding: '4px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 600, flexShrink: 0 }}>Retry</button>
+                    </div>
+                  )}
+
+                  {!brainLoading && !brainError && sharedBrains.length === 0 && (
                     <div style={{ background: BD.card, border: `1px dashed ${BD.border}`, borderRadius: 16, padding: '60px 20px', textAlign: 'center' }}>
                       <div style={{ fontSize: 48, marginBottom: 16 }}>🧠</div>
                       <h3 style={{ margin: '0 0 8px', color: BD.textPri, fontSize: 18 }}>No brains yet</h3>
@@ -5761,7 +5790,7 @@ export default function Admin() {
                     </div>
                   )}
 
-                  {!brainLoading && sharedBrains.length > 0 && (
+                  {!brainLoading && !brainError && sharedBrains.length > 0 && (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
                       {sharedBrains.map(b => {
                         const { healthy, pendingCount } = getBrainHealth(b);
