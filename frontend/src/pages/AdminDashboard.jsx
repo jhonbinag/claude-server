@@ -77,6 +77,7 @@ export default function AdminDashboard() {
   const [activeLocationId, setActiveLocationId] = useState(session?.location || null);
   const [locationPicker,  setLocationPicker]  = useState(false); // show picker?
   const [locDropOpen,     setLocDropOpen]     = useState(false); // sidebar location dropdown
+  const [locLoading,      setLocLoading]      = useState(false); // initial fetch in progress
 
   // Login form
   const [usernameIn,      setUsernameIn]      = useState('');
@@ -191,9 +192,14 @@ export default function AdminDashboard() {
   const loadLocations = useCallback(async (tok) => {
     const t = tok || token;
     if (!t) return;
-    const data = await dashFetch('/dashboard/locations', t, null);
-    if (data.success) setLocationsList(data.locations || []);
-  }, [token]);
+    setLocLoading(true);
+    try {
+      const data = await dashFetch('/dashboard/locations', t, null);
+      if (data.success) setLocationsList(data.locations || []);
+    } finally {
+      setLocLoading(false);
+    }
+  }, [token]); // eslint-disable-line
 
   useEffect(() => {
     if (authed && needsLocationPicker(cred) && token) loadLocations(token);
@@ -382,6 +388,7 @@ export default function AdminDashboard() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#07080f', color: '#e5e7eb', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Backdrop — closes location dropdown on outside click */}
       {locDropOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 98 }} onClick={() => setLocDropOpen(false)} />}
@@ -456,8 +463,13 @@ export default function AdminDashboard() {
                   <div style={{ padding: '8px 12px 6px', fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     Switch Location
                   </div>
-                  {locationsList.length === 0 ? (
-                    <div style={{ padding: '16px 12px', fontSize: 12, color: '#4b5563', textAlign: 'center' }}>Loading locations…</div>
+                  {locLoading ? (
+                    <div style={{ padding: '18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 12, color: '#4b5563' }}>
+                      <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #374151', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                      Loading…
+                    </div>
+                  ) : locationsList.length === 0 ? (
+                    <div style={{ padding: '16px 12px', fontSize: 12, color: '#4b5563', textAlign: 'center' }}>No locations found</div>
                   ) : (
                     locationsList.map(loc => {
                       const isActive = loc.locationId === activeLocationId;
@@ -551,7 +563,7 @@ export default function AdminDashboard() {
                 Use the location switcher in the sidebar to choose which location you want to manage.
               </p>
               <button
-                onClick={() => setLocDropOpen(true)}
+                onClick={() => { if (locationsList.length === 0) loadLocations(); setLocDropOpen(true); }}
                 style={{ background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
               >
                 Open Location Switcher
