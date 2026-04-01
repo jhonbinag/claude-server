@@ -217,14 +217,26 @@ export default function AdminDashboard() {
     setLocLoading(true);
     try {
       const data = await dashFetch('/dashboard/locations', t, null);
-      if (data.success) setLocationsList(data.locations || []);
+      if (data.success) {
+        const locs = data.locations || [];
+        setLocationsList(locs);
+        // Auto-select first location if none chosen yet
+        setActiveLocationId(prev => {
+          if (prev) return prev;
+          const first = locs[0]?.locationId || null;
+          if (first) localStorage.setItem(LS_LOCATION, first);
+          return first;
+        });
+      }
     } finally {
       setLocLoading(false);
     }
   }, [token]); // eslint-disable-line
 
   useEffect(() => {
-    if (authed && needsLocationPicker(cred) && token) loadLocations(token);
+    // Always load locations when authed — both for multi and single-location creds
+    // so that locationName resolves and location switcher is populated
+    if (authed && token) loadLocations(token);
   }, [authed, token]); // eslint-disable-line
 
   const selectLocation = (locId) => {
@@ -237,12 +249,17 @@ export default function AdminDashboard() {
     setLocationPicker(false);
   };
 
-  // ── load public config (enabled tabs) ─────────────────────────────────────
+  // ── load public config (branding + enabled tabs) ─────────────────────────
   const loadConfig = useCallback(async () => {
-    const data = await fetch('/dashboard/public-config').then(r => r.json());
-    if (data.success) {
-      setEnabledTabs(data.enabledTabs || []);
-      if (data.businessProfile) setBizProfile(data.businessProfile);
+    try {
+      const data = await fetch('/dashboard/public-config').then(r => r.json());
+      if (data.success) {
+        // Ensure at least ['beta','users'] — enabledTabs only controls end-user TopBar,
+        // not this mini-admin panel, so always fall back to full set
+        setEnabledTabs(data.enabledTabs?.length ? data.enabledTabs : ['beta', 'users']);
+        if (data.businessProfile) setBizProfile(data.businessProfile);
+      }
+    } catch { /* non-fatal */ } finally {
       setConfigLoaded(true);
     }
   }, []);
@@ -347,8 +364,8 @@ export default function AdminDashboard() {
   const unreadFeatures  = visibleFeatures.filter(f => !f.acknowledged);
   const unreadCount     = unreadFeatures.length;
 
-  // Sidebar: only Settings (contains Beta Lab + Users sub-tabs)
-  const showSettings = enabledTabs.includes('beta') || enabledTabs.includes('users');
+  // Settings always visible in sidebar — it's the mini-admin management panel
+  const showSettings = true;
 
   // ── active location display name ──────────────────────────────────────────
   const activeLocationName = locationsList.find(l => l.locationId === activeLocationId)?.locationName || activeLocationId || '';
@@ -651,26 +668,8 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* No location selected yet — prompt */}
-        {needsLocationPicker(cred) && !activeLocationId ? (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
-            <div style={{ textAlign: 'center', maxWidth: 340 }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>📍</div>
-              <h3 style={{ margin: '0 0 8px', fontSize: 16, color: '#f1f5f9', fontWeight: 700 }}>Select a Location</h3>
-              <p style={{ margin: '0 0 24px', fontSize: 13, color: '#6b7280', lineHeight: 1.7 }}>
-                Use the location switcher in the sidebar to choose which location you want to manage.
-              </p>
-              <button
-                onClick={() => { if (locationsList.length === 0) loadLocations(); setLocDropOpen(true); }}
-                style={{ background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-              >
-                Open Location Switcher
-              </button>
-            </div>
-          </div>
-        ) : (
-
-        /* Content */
+        {/* Content — always rendered; individual sections show inline location prompt if needed */}
+        {(() => (
         <div style={{ flex: 1, overflowY: 'auto', padding: '28px 24px', maxWidth: 960, width: '100%', boxSizing: 'border-box' }}>
 
         {/* ── Updates ── */}
@@ -780,26 +779,22 @@ export default function AdminDashboard() {
           <div>
             {/* Sub-tab bar */}
             <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid #1f2937', paddingBottom: 0 }}>
-              {enabledTabs.includes('beta') && (
-                <button
-                  onClick={() => setSettingsSubTab('beta')}
-                  style={{ padding: '8px 16px', background: 'transparent', border: 'none', borderBottom: `2px solid ${settingsSubTab === 'beta' ? '#6366f1' : 'transparent'}`, color: settingsSubTab === 'beta' ? '#a5b4fc' : '#6b7280', fontSize: 13, fontWeight: settingsSubTab === 'beta' ? 600 : 400, cursor: 'pointer', transition: 'all .15s', marginBottom: -1 }}
-                >
-                  🧪 Beta Lab
-                </button>
-              )}
-              {enabledTabs.includes('users') && (
-                <button
-                  onClick={() => setSettingsSubTab('users')}
-                  style={{ padding: '8px 16px', background: 'transparent', border: 'none', borderBottom: `2px solid ${settingsSubTab === 'users' ? '#6366f1' : 'transparent'}`, color: settingsSubTab === 'users' ? '#a5b4fc' : '#6b7280', fontSize: 13, fontWeight: settingsSubTab === 'users' ? 600 : 400, cursor: 'pointer', transition: 'all .15s', marginBottom: -1 }}
-                >
-                  👥 Users
-                </button>
-              )}
+              <button
+                onClick={() => setSettingsSubTab('beta')}
+                style={{ padding: '8px 16px', background: 'transparent', border: 'none', borderBottom: `2px solid ${settingsSubTab === 'beta' ? '#6366f1' : 'transparent'}`, color: settingsSubTab === 'beta' ? '#a5b4fc' : '#6b7280', fontSize: 13, fontWeight: settingsSubTab === 'beta' ? 600 : 400, cursor: 'pointer', transition: 'all .15s', marginBottom: -1 }}
+              >
+                🧪 Beta Lab
+              </button>
+              <button
+                onClick={() => setSettingsSubTab('users')}
+                style={{ padding: '8px 16px', background: 'transparent', border: 'none', borderBottom: `2px solid ${settingsSubTab === 'users' ? '#6366f1' : 'transparent'}`, color: settingsSubTab === 'users' ? '#a5b4fc' : '#6b7280', fontSize: 13, fontWeight: settingsSubTab === 'users' ? 600 : 400, cursor: 'pointer', transition: 'all .15s', marginBottom: -1 }}
+              >
+                👥 Users
+              </button>
             </div>
 
             {/* Beta Lab sub-tab */}
-            {settingsSubTab === 'beta' && enabledTabs.includes('beta') && (
+            {settingsSubTab === 'beta' && (
           <div>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 12, flexWrap: 'wrap' }}>
               <div>
@@ -886,7 +881,7 @@ export default function AdminDashboard() {
         )}
 
             {/* Users sub-tab */}
-            {settingsSubTab === 'users' && enabledTabs.includes('users') && (
+            {settingsSubTab === 'users' && (
           <div>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 12, flexWrap: 'wrap' }}>
               <div>
@@ -958,7 +953,7 @@ export default function AdminDashboard() {
           </div>
         )}
         </div>
-        )}
+        ))()}
 
       </div>
 
