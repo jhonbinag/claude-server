@@ -10,6 +10,14 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { AppContext } from '../context/AppContext';
+import Chats        from './Chats';
+import AgentsHub    from './AgentsHub';
+import Workflows    from './Workflows';
+import AdsHub       from './AdsHub';
+import SocialHub    from './SocialHub';
+import FunnelBuilder from './FunnelBuilder';
+import Dashboard    from './Dashboard';
 
 // ── storage ───────────────────────────────────────────────────────────────────
 const LS_TOKEN    = 'gtm_dash_token';
@@ -56,16 +64,68 @@ const FEATURE_META = {
   manychat:         { label: 'ManyChat',            icon: '📩' },
 };
 
-// ── feature → app route mapping ──────────────────────────────────────────────
+// ── feature → tab navigation (stays within admin-dashboard context) ──────────
 const FEATURE_NAV = [
-  { feature: 'dashboard',      label: 'Dashboard',          icon: '⊞',  href: '/ui/' },
-  { feature: 'chats',          label: 'Chats',              icon: '💬', href: '/ui/chats' },
-  { feature: 'agents',         label: 'AI Agents',          icon: '🤖', href: '/ui/agents' },
-  { feature: 'workflows',      label: 'Workflows',          icon: '⟳',  href: '/ui/workflows' },
-  { feature: 'funnel_builder', label: 'Funnel Builder',     icon: '🏗️', href: '/ui/funnel-builder' },
-  { feature: 'ads_generator',  label: 'Ads',                icon: '⚡',  href: '/ui/ads' },
-  { feature: 'social_planner', label: 'ManyChat & Socials', icon: '📱', href: '/ui/social' },
+  { feature: 'dashboard',      label: 'Dashboard',          icon: '⊞'  },
+  { feature: 'chats',          label: 'Chats',              icon: '💬' },
+  { feature: 'agents',         label: 'AI Agents',          icon: '🤖' },
+  { feature: 'workflows',      label: 'Workflows',          icon: '⟳'  },
+  { feature: 'funnel_builder', label: 'Funnel Builder',     icon: '🏗️' },
+  { feature: 'ads_generator',  label: 'Ads',                icon: '⚡'  },
+  { feature: 'social_planner', label: 'ManyChat & Socials', icon: '📱' },
 ];
+
+const FEATURE_TABS = new Set(FEATURE_NAV.map(f => f.feature));
+
+const FEATURE_TAB_TITLE = {
+  dashboard:      '⊞ Dashboard',
+  chats:          '💬 Chats',
+  agents:         '🤖 AI Agents',
+  workflows:      '⟳ Workflows',
+  funnel_builder: '🏗️ Funnel Builder',
+  ads_generator:  '⚡ Ads',
+  social_planner: '📱 ManyChat & Socials',
+};
+
+// ── Thin AppContext bridge for feature pages rendered inside admin-dashboard ──
+function DashContextBridge({ locationId, betaFeatures, allowedFeatures, children }) {
+  const canAccess = (feature) => {
+    if (!feature) return true;
+    if (!allowedFeatures?.length) return true;
+    return allowedFeatures.includes(feature);
+  };
+  const ctxValue = {
+    locationId,
+    locationName: '',
+    ghlMessages: [],
+    apiKey: locationId,
+    isAuthenticated: !!locationId,
+    isAuthLoading: false,
+    claudeReady: true,
+    aiProvider: null,
+    providerPreviews: {},
+    enabledTools: [],
+    integrations: [],
+    integrationsLoaded: false,
+    userId: null,
+    userRole: 'mini_admin',
+    allowedFeatures: allowedFeatures?.length ? allowedFeatures : ['*'],
+    canAccess,
+    betaFeatures: betaFeatures || [],
+    unreadBetaCount: 0,
+    acknowledgeBeta: async () => {},
+    toggleBeta: async () => {},
+    bizProfile: null,
+    theme: 'dark',
+    toggleTheme: () => {},
+    activate: async () => false,
+    login: async () => false,
+    logout: () => {},
+    loadIntegrations: async () => {},
+    refreshStatus: async () => {},
+  };
+  return <AppContext.Provider value={ctxValue}>{children}</AppContext.Provider>;
+}
 
 // ── static meta ───────────────────────────────────────────────────────────────
 const STATUS_META = {
@@ -509,26 +569,18 @@ export default function AdminDashboard() {
 
         {/* Nav items */}
         <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
-          {/* App feature links based on allowedFeatures (empty = all) */}
+          {/* App feature links — tab-based navigation, stays in admin-dashboard context */}
           {FEATURE_NAV.filter(f => !cred?.allowedFeatures?.length || cred.allowedFeatures.includes(f.feature)).map(f => (
-            <a
+            <button
               key={f.feature}
-              href={f.href}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                width: '100%', padding: '9px 10px',
-                background: 'transparent', border: '1px solid transparent',
-                borderRadius: 8, color: '#9ca3af',
-                fontSize: 13, fontWeight: 400,
-                cursor: 'pointer', textDecoration: 'none', transition: 'all .15s', marginBottom: 2,
-                boxSizing: 'border-box',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#e5e7eb'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ca3af'; }}
+              onClick={() => setTab(f.feature)}
+              style={navBtnStyle(tab === f.feature)}
+              onMouseEnter={e => { if (tab !== f.feature) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#e5e7eb'; } }}
+              onMouseLeave={e => { if (tab !== f.feature) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ca3af'; } }}
             >
               <span style={{ fontSize: 15, width: 20, textAlign: 'center', flexShrink: 0 }}>{f.icon}</span>
               {f.label}
-            </a>
+            </button>
           ))}
 
           {/* Divider before Settings */}
@@ -703,7 +755,7 @@ export default function AdminDashboard() {
         {/* Top bar */}
         <div style={{ height: 56, flexShrink: 0, background: '#0f1117', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 14 }}>
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {tab === 'updates' ? '🆕 Updates' : tab === 'settings' ? (settingsSubTab === 'users' ? '👥 Users' : '🧪 Beta Lab') : 'Dashboard'}
+            {FEATURE_TAB_TITLE[tab] || (tab === 'updates' ? '🆕 Updates' : tab === 'settings' ? (settingsSubTab === 'users' ? '👥 Users' : '🧪 Beta Lab') : 'Dashboard')}
           </h2>
           {activeLocationName && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#4b5563', flexShrink: 0 }}>
@@ -713,8 +765,23 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* Content — always rendered; individual sections show inline location prompt if needed */}
-        {(() => (
+        {/* Feature page tabs — rendered full-area with AppContext bridge */}
+        {activeLocationId && FEATURE_TABS.has(tab) && (
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <DashContextBridge locationId={activeLocationId} betaFeatures={betaFeatures} allowedFeatures={cred?.allowedFeatures}>
+              {tab === 'chats'          && <Chats />}
+              {tab === 'agents'         && <AgentsHub />}
+              {tab === 'workflows'      && <Workflows />}
+              {tab === 'funnel_builder' && <FunnelBuilder />}
+              {tab === 'ads_generator'  && <AdsHub />}
+              {tab === 'social_planner' && <SocialHub />}
+              {tab === 'dashboard'      && <Dashboard />}
+            </DashContextBridge>
+          </div>
+        )}
+
+        {/* Settings / Updates — padded content view */}
+        {!FEATURE_TABS.has(tab) && (() => (
         <div style={{ flex: 1, overflowY: 'auto', padding: '28px 24px', maxWidth: 960, width: '100%', boxSizing: 'border-box' }}>
 
         {/* ── No location selected — show contextual guidance ── */}

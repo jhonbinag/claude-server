@@ -430,3 +430,5 @@ export const useApp = () => {
   if (!ctx) throw new Error('useApp must be inside AppProvider');
   return ctx;
 };
+
+export { AppContext };
