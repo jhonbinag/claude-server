@@ -1,6 +1,28 @@
+import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import { useApp }      from './context/AppContext';
+
+// ── Error Boundary — catches React render errors (shows message vs blank page) ─
+class AppErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, color: '#f1f5f9', background: '#07080f', minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+          <h2 style={{ color: '#f87171', marginBottom: 16 }}>Something went wrong</h2>
+          <pre style={{ color: '#fbbf24', fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#0f1117', padding: 16, borderRadius: 8, border: '1px solid rgba(251,191,36,0.2)' }}>
+            {this.state.error.message}
+            {'\n\n'}
+            {this.state.error.stack}
+          </pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import AppShell        from './components/AppShell';
 import Dashboard       from './pages/Dashboard';
 import Settings        from './pages/Settings';
@@ -60,17 +82,25 @@ const pathname = window.location.pathname;
 export default function App() {
   if (pathname.startsWith('/admin-dashboard')) {
     return (
-      <Routes>
-        <Route path="/*" element={<AdminDashboard />} />
-      </Routes>
+      <AppErrorBoundary>
+        <Routes>
+          <Route path="/*" element={<AdminDashboard />} />
+        </Routes>
+      </AppErrorBoundary>
     );
   }
   if (pathname.startsWith('/admin') && !pathname.startsWith('/admin-dashboard')) {
     return (
-      <Routes>
-        <Route path="/*" element={<Admin />} />
-      </Routes>
+      <AppErrorBoundary>
+        <Routes>
+          <Route path="/*" element={<Admin />} />
+        </Routes>
+      </AppErrorBoundary>
     );
   }
-  return <AppRoutes />;
+  return (
+    <AppErrorBoundary>
+      <AppRoutes />
+    </AppErrorBoundary>
+  );
 }
