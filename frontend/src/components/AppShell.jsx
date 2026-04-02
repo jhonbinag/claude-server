@@ -7,6 +7,9 @@ export default function AppShell() {
   const [collapsed,   setCollapsed]   = useState(false);
   const [mobileOpen,  setMobileOpen]  = useState(false);
 
+  // When embedded in an iframe (e.g. mini admin dashboard), hide chrome entirely
+  const embedded = new URLSearchParams(window.location.search).get('embed') === '1';
+
   // Close mobile sidebar on resize to desktop
   useEffect(() => {
     function onResize() {
@@ -15,6 +18,14 @@ export default function AppShell() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  if (embedded) {
+    return (
+      <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', minHeight: 0, height: '100vh', background: 'var(--content-bg)' }}>
+        <Outlet />
+      </main>
+    );
+  }
 
   return (
     <div className="app-shell">

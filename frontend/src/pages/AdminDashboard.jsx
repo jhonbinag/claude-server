@@ -141,12 +141,25 @@ export default function AdminDashboard() {
   // Activation messages (from ?activated=1 / ?activation_error=...)
   const [activationMsg,   setActivationMsg]   = useState(null); // { type: 'success'|'error', text }
 
-  // Dashboard
-  const [tab,             setTab]             = useState('settings');
+  // Dashboard — tab is derived from the URL path suffix
+  // e.g. /ui/admin-dashboard/chats → 'chats', /ui/admin-dashboard → 'settings'
+  const [tab,             setTab]             = useState(() => {
+    const suffix = window.location.pathname.replace(/.*\/admin-dashboard\/?/, '').split('/')[0];
+    return suffix || 'settings';
+  });
   const [settingsSubTab,  setSettingsSubTab]  = useState('beta');
   const [enabledTabs,     setEnabledTabs]     = useState([]);
   const [configLoaded,    setConfigLoaded]    = useState(false);
   const [bizProfile,      setBizProfile]      = useState(null);
+
+  // Sync tab → URL path: /ui/admin-dashboard/chats, /ui/admin-dashboard/settings, etc.
+  useEffect(() => {
+    const base = '/ui/admin-dashboard';
+    const target = tab === 'settings' ? base : `${base}/${tab}`;
+    if (window.location.pathname !== target) {
+      window.history.replaceState(null, '', target);
+    }
+  }, [tab]);
 
   // Beta Lab
   const [betaFeatures,    setBetaFeatures]    = useState([]);
@@ -732,7 +745,7 @@ export default function AdminDashboard() {
           <div style={{ flex: 1, overflow: 'hidden' }}>
             <iframe
               key={`${tab}-${activeLocationId}`}
-              src={`${FEATURE_ROUTES[tab]}?locationId=${encodeURIComponent(activeLocationId)}`}
+              src={`${FEATURE_ROUTES[tab]}?locationId=${encodeURIComponent(activeLocationId)}&embed=1`}
               style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
               title={FEATURE_TAB_TITLE[tab]}
             />

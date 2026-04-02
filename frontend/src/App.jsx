@@ -61,6 +61,7 @@ export default function App() {
       {/* Standalone — no AppProvider, no GHL session needed */}
       <Route path="/admin"           element={<Admin />} />
       <Route path="/admin-dashboard" element={<AdminDashboard />} />
+      <Route path="/admin-dashboard/*" element={<AdminDashboard />} />
 
       {/* All other routes use AppProvider + AppShell */}
       <Route path="/*" element={<AppRoutes />} />
