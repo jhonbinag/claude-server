@@ -10,14 +10,6 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { AppContext } from '../context/AppContext';
-import Chats        from './Chats';
-import AgentsHub    from './AgentsHub';
-import Workflows    from './Workflows';
-import AdsHub       from './AdsHub';
-import SocialHub    from './SocialHub';
-import FunnelBuilder from './FunnelBuilder';
-import Dashboard    from './Dashboard';
 
 // ── storage ───────────────────────────────────────────────────────────────────
 const LS_TOKEN    = 'gtm_dash_token';
@@ -87,45 +79,15 @@ const FEATURE_TAB_TITLE = {
   social_planner: '📱 ManyChat & Socials',
 };
 
-// ── Thin AppContext bridge for feature pages rendered inside admin-dashboard ──
-function DashContextBridge({ locationId, betaFeatures, allowedFeatures, children }) {
-  const canAccess = (feature) => {
-    if (!feature) return true;
-    if (!allowedFeatures?.length) return true;
-    return allowedFeatures.includes(feature);
-  };
-  const ctxValue = {
-    locationId,
-    locationName: '',
-    ghlMessages: [],
-    apiKey: locationId,
-    isAuthenticated: !!locationId,
-    isAuthLoading: false,
-    claudeReady: true,
-    aiProvider: null,
-    providerPreviews: {},
-    enabledTools: [],
-    integrations: [],
-    integrationsLoaded: false,
-    userId: null,
-    userRole: 'mini_admin',
-    allowedFeatures: allowedFeatures?.length ? allowedFeatures : ['*'],
-    canAccess,
-    betaFeatures: betaFeatures || [],
-    unreadBetaCount: 0,
-    acknowledgeBeta: async () => {},
-    toggleBeta: async () => {},
-    bizProfile: null,
-    theme: 'dark',
-    toggleTheme: () => {},
-    activate: async () => false,
-    login: async () => false,
-    logout: () => {},
-    loadIntegrations: async () => {},
-    refreshStatus: async () => {},
-  };
-  return <AppContext.Provider value={ctxValue}>{children}</AppContext.Provider>;
-}
+const FEATURE_ROUTES = {
+  dashboard:      '/ui/',
+  chats:          '/ui/chats',
+  agents:         '/ui/agents',
+  workflows:      '/ui/workflows',
+  funnel_builder: '/ui/funnel-builder',
+  ads_generator:  '/ui/ads',
+  social_planner: '/ui/social',
+};
 
 // ── static meta ───────────────────────────────────────────────────────────────
 const STATUS_META = {
@@ -765,18 +727,15 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* Feature page tabs — rendered full-area with AppContext bridge */}
+        {/* Feature page tabs — rendered in iframe so they get their own AppContext */}
         {activeLocationId && FEATURE_TABS.has(tab) && (
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <DashContextBridge locationId={activeLocationId} betaFeatures={betaFeatures} allowedFeatures={cred?.allowedFeatures}>
-              {tab === 'chats'          && <Chats />}
-              {tab === 'agents'         && <AgentsHub />}
-              {tab === 'workflows'      && <Workflows />}
-              {tab === 'funnel_builder' && <FunnelBuilder />}
-              {tab === 'ads_generator'  && <AdsHub />}
-              {tab === 'social_planner' && <SocialHub />}
-              {tab === 'dashboard'      && <Dashboard />}
-            </DashContextBridge>
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            <iframe
+              key={`${tab}-${activeLocationId}`}
+              src={`${FEATURE_ROUTES[tab]}?locationId=${encodeURIComponent(activeLocationId)}`}
+              style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+              title={FEATURE_TAB_TITLE[tab]}
+            />
           </div>
         )}
 
