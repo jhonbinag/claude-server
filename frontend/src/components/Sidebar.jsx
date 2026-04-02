@@ -111,11 +111,20 @@ const LABEL_COLORS = {
 };
 
 export default function Sidebar({ collapsed, mobileOpen, onToggle, onMobileClose }) {
-  const { logout, canAccess, isAuthenticated, bizProfile } = useApp();
+  const { logout, canAccess, isAuthenticated, bizProfile, betaFeatures } = useApp();
   const { pathname } = useLocation();
   const [changelogOpen, setChangelogOpen] = useState(false);
 
-  const visible = NAV.filter(({ feature }) => !feature || !isAuthenticated || canAccess(feature));
+  // Features unlocked by active (permanent or enabled) beta entries
+  const betaUnlocked = new Set(
+    (betaFeatures || [])
+      .filter(f => f.myEnabled && !f.panelOnly)
+      .flatMap(f => f.linkedFeatures || [])
+  );
+
+  const visible = NAV.filter(({ feature }) =>
+    !feature || !isAuthenticated || canAccess(feature) || betaUnlocked.has(feature)
+  );
 
   const sidebarClass = [
     'hl-sidebar',
