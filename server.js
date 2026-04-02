@@ -84,6 +84,19 @@ const path = require('path');
 app.use('/ui/assets', express.static(path.join(__dirname, 'public/ui/assets'), { index: false, maxAge: '1y', immutable: true }));
 app.use('/ui', express.static(path.join(__dirname, 'public/ui'), { index: false, maxAge: 0 }));
 
+// Backwards-compat redirect: old /ui/admin-dashboard → new /admin-dashboard
+app.get(['/ui/admin-dashboard', '/ui/admin-dashboard/*'], (req, res) => {
+  const suffix = req.path.replace(/^\/ui\/admin-dashboard/, '') || '';
+  const qs = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+  res.redirect(301, '/admin-dashboard' + suffix + qs);
+});
+
+// Serve SPA for /admin-dashboard/* browser navigations explicitly
+app.get(['/admin-dashboard', '/admin-dashboard/*'], (req, res) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.sendFile(path.join(__dirname, 'public/ui/index.html'));
+});
+
 // ── Privacy Policy (required for Facebook App Live mode) ─────────────────────
 app.get('/privacy', (req, res) => {
   res.setHeader('Content-Type', 'text/html');

@@ -5396,7 +5396,7 @@ export default function Admin() {
               <h3 style={{ color: '#fff', margin: '0 0 6px', fontSize: 16 }}>🛡️ Admin Dashboard</h3>
               <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
                 Configure what sections are visible on the Admin Dashboard (
-                <code style={{ color: '#a5b4fc', fontSize: 12 }}>/ui/admin-dashboard</code>
+                <code style={{ color: '#a5b4fc', fontSize: 12 }}>/admin-dashboard</code>
                 ). Share that link with your location admins.
               </p>
             </div>
@@ -5406,10 +5406,10 @@ export default function Admin() {
               <div style={{ fontSize: 12, fontWeight: 600, color: '#9ca3af', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shareable Link</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <code style={{ flex: 1, background: '#0a0f1a', border: '1px solid #1f2937', borderRadius: 6, padding: '8px 12px', fontSize: 13, color: '#a5b4fc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {window.location.origin}/ui/admin-dashboard
+                  {window.location.origin}/admin-dashboard
                 </code>
                 <button
-                  onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/ui/admin-dashboard`); toast.success('Link copied'); }}
+                  onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/admin-dashboard`); toast.success('Link copied'); }}
                   style={{ flexShrink: 0, background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, color: '#a5b4fc', padding: '7px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                 >Copy</button>
               </div>
@@ -5585,7 +5585,7 @@ export default function Admin() {
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
                 <div>
                   <h2 style={{ margin:0, fontSize:16, fontWeight:700, color:'#f1f5f9' }}>Admin Dashboard Credentials</h2>
-                  <p style={{ margin:'4px 0 0', fontSize:13, color:'#6b7280' }}>Login accounts for <span style={{ color:'#a78bfa', fontFamily:'monospace', fontSize:12 }}>/ui/admin-dashboard</span>. Passwords are auto-generated and emailed.</p>
+                  <p style={{ margin:'4px 0 0', fontSize:13, color:'#6b7280' }}>Login accounts for <span style={{ color:'#a78bfa', fontFamily:'monospace', fontSize:12 }}>/admin-dashboard</span>. Passwords are auto-generated and emailed.</p>
                 </div>
                 <div style={{ display:'flex', gap:8 }}>
                   <button onClick={loadCredentials} style={{ background:'transparent', border:'1px solid #2a2a2a', borderRadius:8, color:'#9ca3af', padding:'8px 14px', cursor:'pointer', fontSize:13 }}>↻ Reload</button>

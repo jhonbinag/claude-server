@@ -113,12 +113,12 @@ router.get('/activate/:token', async (req, res) => {
     const result = await credStore.activateByToken(req.params.token);
     if (!result.success) {
       // Redirect to login with error param
-      return res.redirect(`/ui/admin-dashboard?activation_error=${encodeURIComponent(result.error)}`);
+      return res.redirect(`/admin-dashboard?activation_error=${encodeURIComponent(result.error)}`);
     }
     // Redirect to login page with success flag
-    res.redirect('/ui/admin-dashboard?activated=1');
+    res.redirect('/admin-dashboard?activated=1');
   } catch (err) {
-    res.redirect(`/ui/admin-dashboard?activation_error=${encodeURIComponent(err.message)}`);
+    res.redirect(`/admin-dashboard?activation_error=${encodeURIComponent(err.message)}`);
   }
 });
 
