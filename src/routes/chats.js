@@ -442,24 +442,39 @@ router.post('/:id/message', async (req, res) => {
     // ── 4B. Two-pass improve path ─────────────────────────────────────────────
     } else {
       send('status', { text: 'Thinking…' });
-      const draft     = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 1024, system: systemPrompt, messages: claudeMessages });
-      const draftText = draft.content[0]?.text?.trim() || '';
+      let draftText = '';
+      try {
+        const draft = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 1024, system: systemPrompt, messages: claudeMessages });
+        draftText = draft.content[0]?.text?.trim() || '';
+      } catch (_) {}
 
-      send('status', { text: '✨ Improving…' });
-      const stream = client.messages.stream({
-        model:    'claude-sonnet-4-6',
-        max_tokens: 2048,
-        system:   systemPrompt,
-        messages: [
-          ...claudeMessages,
-          { role: 'assistant', content: draftText },
-          { role: 'user', content: persona
-            ? `Review and improve this response to be more natural and true to your personality as ${persona.name}. Write only the improved response.`
-            : 'Review and improve this response to be clearer and better structured. Write only the improved response.' },
-        ],
-      });
-      stream.on('text', t => { fullText += t; send('text', { text: t }); });
-      await stream.finalMessage();
+      if (draftText) {
+        send('status', { text: '✨ Improving…' });
+        const stream = client.messages.stream({
+          model:    'claude-sonnet-4-6',
+          max_tokens: 2048,
+          system:   systemPrompt,
+          messages: [
+            ...claudeMessages,
+            { role: 'assistant', content: draftText },
+            { role: 'user', content: persona
+              ? `Review and improve this response to be more natural and true to your personality as ${persona.name}. Write only the improved response.`
+              : 'Review and improve this response to be clearer and better structured. Write only the improved response.' },
+          ],
+        });
+        stream.on('text', t => { fullText += t; send('text', { text: t }); });
+        await stream.finalMessage();
+      } else {
+        // Haiku draft failed or returned empty — fall back to direct Sonnet stream
+        const stream = client.messages.stream({
+          model:    'claude-sonnet-4-6',
+          max_tokens: 2048,
+          system:   systemPrompt,
+          messages: claudeMessages,
+        });
+        stream.on('text', t => { fullText += t; send('text', { text: t }); });
+        await stream.finalMessage();
+      }
     }
 
     // ── 5. Persist ────────────────────────────────────────────────────────────

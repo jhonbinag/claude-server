@@ -369,9 +369,9 @@ export default function Chats() {
 
       const reader  = res.body.getReader();
       const decoder = new TextDecoder();
-      let buf = '', fullText = '';
+      let buf = '', fullText = '', streamDone = false;
 
-      while (true) {
+      while (!streamDone) {
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
@@ -389,7 +389,7 @@ export default function Chats() {
             const parsed = JSON.parse(data);
             if (evt === 'status') { setStreamStatus(parsed.text); setStreamText(''); }
             else if (evt === 'text') { fullText += parsed.text; setStreamText(fullText); setStreamStatus(''); }
-            else if (evt === 'done' || evt === 'error') break;
+            else if (evt === 'done' || evt === 'error') { streamDone = true; break; }
           } catch (_) {}
         }
       }
