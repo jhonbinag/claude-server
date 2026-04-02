@@ -110,6 +110,14 @@ if (webhookRoutes) app.use('/webhooks', webhookRoutes);
 if (claudeRoutes)  app.use('/claude',   claudeRoutes);
 if (toolsRoutes)   app.use('/tools',    toolsRoutes);
 if (adsRoutes)       app.use('/ads',       adsRoutes);
+// Serve SPA for /admin/* browser navigations (no x-admin-key = browser, not API call)
+const _SPA_FILE = path.join(__dirname, 'public/ui/index.html');
+app.get(['/admin', '/admin/*'], (req, res, next) => {
+  if (req.headers['x-admin-key']) return next(); // API call — let adminRoutes handle
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.sendFile(_SPA_FILE);
+});
+
 if (adminRoutes)     app.use('/admin',     adminRoutes);
 if (workflowRoutes)  app.use('/workflows', workflowRoutes);
 if (billingRoutes)   app.use('/billing',   billingRoutes);

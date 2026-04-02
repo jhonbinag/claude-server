@@ -9,7 +9,60 @@
  * Activation: /dashboard/activate/:token redirects here with ?activated=1
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { AppContext } from '../context/AppContext';
+
+const LazyChats         = React.lazy(() => import('./Chats'));
+const LazyAgentsHub     = React.lazy(() => import('./AgentsHub'));
+const LazyWorkflows     = React.lazy(() => import('./Workflows'));
+const LazyFunnelBuilder = React.lazy(() => import('./FunnelBuilder'));
+const LazyAdsHub        = React.lazy(() => import('./AdsHub'));
+const LazySocialHub     = React.lazy(() => import('./SocialHub'));
+const LazyDashboard     = React.lazy(() => import('./Dashboard'));
+
+// ── DashContextBridge — provides AppContext to feature pages ──────────────────
+function DashContextBridge({ locationId, betaFeatures, allowedFeatures, children }) {
+  const canAccess = (feature) => {
+    if (!feature) return true;
+    if (!allowedFeatures?.length) return true;
+    return allowedFeatures.includes(feature);
+  };
+  return (
+    <AppContext.Provider value={{
+      locationId,
+      locationName: '',
+      ghlMessages: [],
+      apiKey: locationId,
+      isAuthenticated: !!locationId,
+      isAuthLoading: false,
+      claudeReady: true,
+      aiProvider: null,
+      providerPreviews: {},
+      enabledTools: [],
+      integrations: [],
+      integrationsLoaded: false,
+      userId: null,
+      userRole: 'mini_admin',
+      allowedFeatures: allowedFeatures?.length ? allowedFeatures : ['*'],
+      canAccess,
+      betaFeatures: betaFeatures || [],
+      unreadBetaCount: 0,
+      acknowledgeBeta: async () => {},
+      toggleBeta: async () => {},
+      bizProfile: null,
+      theme: 'dark',
+      toggleTheme: () => {},
+      activate: async () => false,
+      login: async () => false,
+      logout: () => {},
+      loadIntegrations: async () => {},
+      refreshStatus: async () => {},
+    }}>
+      {children}
+    </AppContext.Provider>
+  );
+}
 
 // ── storage ───────────────────────────────────────────────────────────────────
 const LS_TOKEN    = 'gtm_dash_token';
@@ -79,16 +132,6 @@ const FEATURE_TAB_TITLE = {
   social_planner: '📱 ManyChat & Socials',
 };
 
-const FEATURE_ROUTES = {
-  dashboard:      '/ui/',
-  chats:          '/ui/chats',
-  agents:         '/ui/agents',
-  workflows:      '/ui/workflows',
-  funnel_builder: '/ui/funnel-builder',
-  ads_generator:  '/ui/ads',
-  social_planner: '/ui/social',
-};
-
 // ── static meta ───────────────────────────────────────────────────────────────
 const STATUS_META = {
   permanent:  { label: 'Permanent', color: '#34d399', bg: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.3)'  },
@@ -141,25 +184,14 @@ export default function AdminDashboard() {
   // Activation messages (from ?activated=1 / ?activation_error=...)
   const [activationMsg,   setActivationMsg]   = useState(null); // { type: 'success'|'error', text }
 
-  // Dashboard — tab is derived from the URL path suffix
-  // e.g. /ui/admin-dashboard/chats → 'chats', /ui/admin-dashboard → 'settings'
-  const [tab,             setTab]             = useState(() => {
-    const suffix = window.location.pathname.replace(/.*\/admin-dashboard\/?/, '').split('/')[0];
-    return suffix || 'settings';
-  });
   const [settingsSubTab,  setSettingsSubTab]  = useState('beta');
   const [enabledTabs,     setEnabledTabs]     = useState([]);
   const [configLoaded,    setConfigLoaded]    = useState(false);
   const [bizProfile,      setBizProfile]      = useState(null);
-
-  // Sync tab → URL path: /ui/admin-dashboard/chats, /ui/admin-dashboard/settings, etc.
-  useEffect(() => {
-    const base = '/ui/admin-dashboard';
-    const target = tab === 'settings' ? base : `${base}/${tab}`;
-    if (window.location.pathname !== target) {
-      window.history.replaceState(null, '', target);
-    }
-  }, [tab]);
+  const location  = useLocation();
+  const navigate  = useNavigate();
+  const tab       = location.pathname.replace(/^\//, '') || 'settings';
+  const goTab     = (t) => navigate(t === 'settings' ? '/' : `/${t}`);
 
   // Beta Lab
   const [betaFeatures,    setBetaFeatures]    = useState([]);
@@ -363,11 +395,6 @@ export default function AdminDashboard() {
     }).catch(() => {});
   }, [authed, token]); // eslint-disable-line
 
-  useEffect(() => {
-    if (!authed || !configLoaded) return;
-    setTab('settings');
-  }, [configLoaded]); // eslint-disable-line
-
   // Re-load data whenever active location OR sub-tab changes
   useEffect(() => {
     if (!authed || !activeLocationId) return;
@@ -548,7 +575,7 @@ export default function AdminDashboard() {
           {FEATURE_NAV.filter(f => !cred?.allowedFeatures?.length || cred.allowedFeatures.includes(f.feature)).map(f => (
             <button
               key={f.feature}
-              onClick={() => setTab(f.feature)}
+              onClick={() => goTab(f.feature)}
               style={navBtnStyle(tab === f.feature)}
               onMouseEnter={e => { if (tab !== f.feature) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#e5e7eb'; } }}
               onMouseLeave={e => { if (tab !== f.feature) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ca3af'; } }}
@@ -563,7 +590,7 @@ export default function AdminDashboard() {
 
           {showSettings && (
             <button
-              onClick={() => setTab('settings')}
+              onClick={() => goTab('settings')}
               style={navBtnStyle(tab === 'settings')}
               onMouseEnter={e => { if (tab !== 'settings') { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#e5e7eb'; } }}
               onMouseLeave={e => { if (tab !== 'settings') { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ca3af'; } }}
@@ -580,7 +607,7 @@ export default function AdminDashboard() {
             {betaFeatures.filter(f => f.status === 'permanent' && f.visible && !f.panelOnly).map(f => (
               <button
                 key={f.featureId}
-                onClick={() => setTab('updates')}
+                onClick={() => goTab('updates')}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 10px', background: 'transparent', border: 'none', borderRadius: 7, color: '#6b7280', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#9ca3af'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#6b7280'; }}
@@ -693,7 +720,7 @@ export default function AdminDashboard() {
 
           {/* Updates — above sign out */}
           <button
-            onClick={() => setTab('updates')}
+            onClick={() => goTab('updates')}
             style={{
               display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 10px',
               background: tab === 'updates' ? 'rgba(99,102,241,0.12)' : 'transparent',
@@ -740,15 +767,20 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* Feature page tabs — rendered in iframe so they get their own AppContext */}
+        {/* Feature pages — rendered with DashContextBridge, no iframe */}
         {activeLocationId && FEATURE_TABS.has(tab) && (
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <iframe
-              key={`${tab}-${activeLocationId}`}
-              src={`${FEATURE_ROUTES[tab]}?locationId=${encodeURIComponent(activeLocationId)}&embed=1`}
-              style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
-              title={FEATURE_TAB_TITLE[tab]}
-            />
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <DashContextBridge locationId={activeLocationId} betaFeatures={betaFeatures} allowedFeatures={cred?.allowedFeatures}>
+              <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#4b5563', fontSize: 13 }}>Loading…</div>}>
+                {tab === 'dashboard'      && <LazyDashboard />}
+                {tab === 'chats'          && <LazyChats />}
+                {tab === 'agents'         && <LazyAgentsHub />}
+                {tab === 'workflows'      && <LazyWorkflows />}
+                {tab === 'funnel_builder' && <LazyFunnelBuilder />}
+                {tab === 'ads_generator'  && <LazyAdsHub />}
+                {tab === 'social_planner' && <LazySocialHub />}
+              </Suspense>
+            </DashContextBridge>
           </div>
         )}
 
@@ -1098,7 +1130,7 @@ export default function AdminDashboard() {
                 New features are ready for your location.
               </div>
               <button
-                onClick={() => { setTab('updates'); setPopupDismissed(true); }}
+                onClick={() => { goTab('updates'); setPopupDismissed(true); }}
                 style={{ background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', padding: '7px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
               >
                 Click to Update

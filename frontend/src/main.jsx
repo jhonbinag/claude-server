@@ -6,10 +6,17 @@ import 'react-toastify/dist/ReactToastify.css';
 import App from './App';
 import './index.css';
 
+function getBasename() {
+  const p = window.location.pathname;
+  if (p.startsWith('/admin-dashboard')) return '/admin-dashboard';
+  if (p.startsWith('/admin')) return '/admin';
+  return '/ui';
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {/* basename="/ui" matches Express mount point app.use('/ui', uiRoute) */}
-    <BrowserRouter basename="/ui">
+    {/* basename is dynamic — /ui, /admin-dashboard, or /admin */}
+    <BrowserRouter basename={getBasename()}>
       <App />
       <ToastContainer
         position="bottom-right"

@@ -10,8 +10,9 @@
  *   Logs      — filterable activity log viewer
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { toast } from 'react-toastify';
+import { AppContext } from '../context/AppContext';
 
 function confirmToast(message, onConfirm, confirmLabel = 'Confirm', confirmColor = '#dc2626') {
   toast(({ closeToast }) => (
@@ -91,6 +92,56 @@ const BUILTIN_ROLES_DEFAULT = [
   { id: 'member',     name: 'Member',     features: ['dashboard','ads_generator','ad_library','social_planner'], builtin: true },
   { id: 'chats_only', name: 'Chat User',  features: ['dashboard','chats'], builtin: true, description: 'Default — Chats access only' },
 ];
+
+const LazyChats         = React.lazy(() => import('./Chats'));
+const LazyAgentsHub     = React.lazy(() => import('./AgentsHub'));
+const LazyWorkflows     = React.lazy(() => import('./Workflows'));
+const LazyFunnelBuilder = React.lazy(() => import('./FunnelBuilder'));
+const LazyAdsHub        = React.lazy(() => import('./AdsHub'));
+const LazySocialHub     = React.lazy(() => import('./SocialHub'));
+
+// ── DashContextBridge — provides AppContext to feature pages ──────────────────
+function DashContextBridge({ locationId, betaFeatures, allowedFeatures, children }) {
+  const canAccess = (feature) => {
+    if (!feature) return true;
+    if (!allowedFeatures?.length) return true;
+    return allowedFeatures.includes(feature);
+  };
+  return (
+    <AppContext.Provider value={{
+      locationId,
+      locationName: '',
+      ghlMessages: [],
+      apiKey: locationId,
+      isAuthenticated: !!locationId,
+      isAuthLoading: false,
+      claudeReady: true,
+      aiProvider: null,
+      providerPreviews: {},
+      enabledTools: [],
+      integrations: [],
+      integrationsLoaded: false,
+      userId: null,
+      userRole: 'mini_admin',
+      allowedFeatures: allowedFeatures?.length ? allowedFeatures : ['*'],
+      canAccess,
+      betaFeatures: betaFeatures || [],
+      unreadBetaCount: 0,
+      acknowledgeBeta: async () => {},
+      toggleBeta: async () => {},
+      bizProfile: null,
+      theme: 'dark',
+      toggleTheme: () => {},
+      activate: async () => false,
+      login: async () => false,
+      logout: () => {},
+      loadIntegrations: async () => {},
+      refreshStatus: async () => {},
+    }}>
+      {children}
+    </AppContext.Provider>
+  );
+}
 
 function useIsMobile() {
   const [m, setM] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
@@ -1631,15 +1682,39 @@ export default function Admin() {
   // without waiting for the background verification call to return.
   const [authed,       setAuthed]       = useState(() => !!localStorage.getItem('gtm_admin_key'));
   const [authError,    setAuthError]    = useState('');
-  const [tab,          setTab]          = useState(() => new URLSearchParams(window.location.search).get('tab') || 'overview');
+  const [tab,          setTab]          = useState(() => {
+    const slug = window.location.pathname.replace(/.*\/admin\/?/, '').split('/')[0] || '';
+    const TAB_TO_SLUG_INIT = {
+      '': 'overview', 'locations': 'locations', 'users-roles': 'users-roles',
+      'personas': 'personas', 'agents': 'agents', 'integrations': 'integrations',
+      'billing': 'billing', 'logs': 'logs', 'app-settings': 'app-settings',
+      'chats': 'chats', 'workflows': 'workflows', 'funnel-builder': 'funnel_builder',
+      'ads': 'ads_generator', 'social': 'social_planner',
+    };
+    return TAB_TO_SLUG_INIT[slug] || 'overview';
+  });
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
+  const [adminViewLocId, setAdminViewLocId] = useState(() => localStorage.getItem('gtm_admin_view_loc') || '');
 
-  // Keep ?tab= in sync so reload returns to the same section
+  // Keep URL path in sync with active tab
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    params.set('tab', tab);
-    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+    const TAB_TO_SLUG_EFF = {
+      'overview': '',      'locations': 'locations',   'users-roles': 'users-roles',
+      'personas': 'personas', 'agents': 'agents',      'integrations': 'integrations',
+      'billing': 'billing', 'logs': 'logs',            'app-settings': 'app-settings',
+      'chats': 'chats',    'workflows': 'workflows',   'funnel_builder': 'funnel-builder',
+      'ads_generator': 'ads', 'social_planner': 'social',
+    };
+    const slug = TAB_TO_SLUG_EFF[tab] ?? tab;
+    const target = slug ? `/admin/${slug}` : '/admin';
+    if (window.location.pathname !== target) {
+      window.history.replaceState(null, '', target);
+    }
   }, [tab]);
+
+  useEffect(() => {
+    if (adminViewLocId) localStorage.setItem('gtm_admin_view_loc', adminViewLocId);
+  }, [adminViewLocId]);
 
   const [stats,      setStats]      = useState(null);
   const [locations,  setLocations]  = useState([]);
@@ -2310,6 +2385,15 @@ export default function Admin() {
     { key: 'app-settings', label: 'App Settings',  icon: '⚙️' },
   ];
 
+  const ADMIN_FEATURE_NAV = [
+    { key: 'chats',          label: 'Chats',              icon: '💬' },
+    { key: 'agents',         label: 'AI Agents',          icon: '🤖' },
+    { key: 'workflows',      label: 'Workflows',          icon: '⟳'  },
+    { key: 'funnel_builder', label: 'Funnel Builder',     icon: '🏗️' },
+    { key: 'ads_generator',  label: 'Ads',                icon: '⚡'  },
+    { key: 'social_planner', label: 'ManyChat & Socials', icon: '📱' },
+  ];
+
   const PAGE_TITLE = {
     overview: 'Dashboard', locations: 'Locations',
     'users-roles': 'Users & Roles', personas: 'Personas', integrations: 'Integrations',
@@ -2356,6 +2440,21 @@ export default function Admin() {
             {/* Nav */}
             <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto', scrollbarWidth: 'none' }}>
               {SIDEBAR_NAV.map(({ key, label, icon }) => (
+                <button
+                  key={key}
+                  onClick={() => { setTab(key); if (isMobile) setSidebarOpen(false); }}
+                  style={navItemStyle(tab === key)}
+                  onMouseEnter={e => { if (tab !== key) { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#9ca3af'; } }}
+                  onMouseLeave={e => { if (tab !== key) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#6b7280'; } }}
+                >
+                  <span style={{ fontSize: 14, width: 18, textAlign: 'center', flexShrink: 0 }}>{icon}</span>
+                  {label}
+                </button>
+              ))}
+              {/* Divider */}
+              <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '8px 4px' }} />
+              <div style={{ fontSize: 10, color: '#374151', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', padding: '2px 4px 6px' }}>App View</div>
+              {ADMIN_FEATURE_NAV.map(({ key, label, icon }) => (
                 <button
                   key={key}
                   onClick={() => { setTab(key); if (isMobile) setSidebarOpen(false); }}
@@ -2452,6 +2551,46 @@ export default function Admin() {
 
         {/* Page content */}
         <div style={{ padding: isMobile ? '16px' : '28px', flex: 1, overflowX: 'hidden' }}>
+
+        {/* ── Feature sub-pages (App View) ── */}
+        {['chats','agents','workflows','funnel_builder','ads_generator','social_planner'].includes(tab) && (
+          <div style={{ margin: '-28px', height: 'calc(100% + 28px)', display: 'flex', flexDirection: 'column' }}>
+            {/* Location picker bar */}
+            <div style={{ padding: '12px 24px', background: '#0e0e16', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+              <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Viewing as location:</span>
+              <select
+                value={adminViewLocId}
+                onChange={e => setAdminViewLocId(e.target.value)}
+                style={{ background: '#0a0f1a', border: '1px solid #1f2937', borderRadius: 7, color: '#e2e8f0', padding: '5px 10px', fontSize: 12, cursor: 'pointer', flex: 1, maxWidth: 320 }}
+              >
+                <option value="">— select location —</option>
+                {locations.map(loc => (
+                  <option key={loc.locationId} value={loc.locationId}>{loc.locationName || loc.locationId}</option>
+                ))}
+              </select>
+            </div>
+            {/* Feature content */}
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              {adminViewLocId ? (
+                <DashContextBridge locationId={adminViewLocId} betaFeatures={[]} allowedFeatures={[]}>
+                  <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#4b5563', fontSize: 13 }}>Loading…</div>}>
+                    {tab === 'chats'          && <LazyChats />}
+                    {tab === 'agents'         && <LazyAgentsHub />}
+                    {tab === 'workflows'      && <LazyWorkflows />}
+                    {tab === 'funnel_builder' && <LazyFunnelBuilder />}
+                    {tab === 'ads_generator'  && <LazyAdsHub />}
+                    {tab === 'social_planner' && <LazySocialHub />}
+                  </Suspense>
+                </DashContextBridge>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 12, color: '#4b5563' }}>
+                  <span style={{ fontSize: 32 }}>📍</span>
+                  <p style={{ fontSize: 13, margin: 0 }}>Select a location above to view this feature.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── App Settings Tab ─────────────────────────────────────────── */}
         {tab === 'app-settings' && (

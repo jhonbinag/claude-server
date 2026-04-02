@@ -55,16 +55,22 @@ function AppRoutes() {
   );
 }
 
-export default function App() {
-  return (
-    <Routes>
-      {/* Standalone — no AppProvider, no GHL session needed */}
-      <Route path="/admin"           element={<Admin />} />
-      <Route path="/admin-dashboard" element={<AdminDashboard />} />
-      <Route path="/admin-dashboard/*" element={<AdminDashboard />} />
+const pathname = window.location.pathname;
 
-      {/* All other routes use AppProvider + AppShell */}
-      <Route path="/*" element={<AppRoutes />} />
-    </Routes>
-  );
+export default function App() {
+  if (pathname.startsWith('/admin-dashboard')) {
+    return (
+      <Routes>
+        <Route path="/*" element={<AdminDashboard />} />
+      </Routes>
+    );
+  }
+  if (pathname.startsWith('/admin') && !pathname.startsWith('/admin-dashboard')) {
+    return (
+      <Routes>
+        <Route path="/*" element={<Admin />} />
+      </Routes>
+    );
+  }
+  return <AppRoutes />;
 }
