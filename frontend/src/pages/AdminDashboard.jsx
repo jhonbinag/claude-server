@@ -20,6 +20,7 @@ const LazyFunnelBuilder = React.lazy(() => import('./FunnelBuilder'));
 const LazyAdsHub        = React.lazy(() => import('./AdsHub'));
 const LazySocialHub     = React.lazy(() => import('./SocialHub'));
 const LazyDashboard     = React.lazy(() => import('./Dashboard'));
+const LazyBrain         = React.lazy(() => import('./Brain'));
 
 // ── DashContextBridge — provides AppContext to feature pages ──────────────────
 function DashContextBridge({ locationId, betaFeatures, allowedFeatures, children }) {
@@ -118,6 +119,7 @@ const FEATURE_NAV = [
   { feature: 'funnel_builder', label: 'Funnel Builder',     icon: '🏗️' },
   { feature: 'ads_generator',  label: 'Ads',                icon: '⚡'  },
   { feature: 'social_planner', label: 'ManyChat & Socials', icon: '📱' },
+  { feature: 'brain',          label: 'Brain',              icon: '🧠' },
 ];
 
 const FEATURE_TABS = new Set(FEATURE_NAV.map(f => f.feature));
@@ -130,6 +132,7 @@ const FEATURE_TAB_TITLE = {
   funnel_builder: '🏗️ Funnel Builder',
   ads_generator:  '⚡ Ads',
   social_planner: '📱 ManyChat & Socials',
+  brain:          '🧠 Brain',
 };
 
 // ── static meta ───────────────────────────────────────────────────────────────
@@ -768,19 +771,37 @@ export default function AdminDashboard() {
         </div>
 
         {/* Feature pages — rendered with DashContextBridge, no iframe */}
-        {activeLocationId && FEATURE_TABS.has(tab) && (
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <DashContextBridge locationId={activeLocationId} betaFeatures={betaFeatures} allowedFeatures={cred?.allowedFeatures}>
-              <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#4b5563', fontSize: 13 }}>Loading…</div>}>
-                {tab === 'dashboard'      && <LazyDashboard />}
-                {tab === 'chats'          && <LazyChats />}
-                {tab === 'agents'         && <LazyAgentsHub />}
-                {tab === 'workflows'      && <LazyWorkflows />}
-                {tab === 'funnel_builder' && <LazyFunnelBuilder />}
-                {tab === 'ads_generator'  && <LazyAdsHub />}
-                {tab === 'social_planner' && <LazySocialHub />}
-              </Suspense>
-            </DashContextBridge>
+        {FEATURE_TABS.has(tab) && (
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            {activeLocationId ? (
+              <DashContextBridge locationId={activeLocationId} betaFeatures={betaFeatures} allowedFeatures={cred?.allowedFeatures}>
+                <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#4b5563', fontSize: 13 }}>Loading…</div>}>
+                  {tab === 'dashboard'      && <LazyDashboard />}
+                  {tab === 'chats'          && <LazyChats />}
+                  {tab === 'agents'         && <LazyAgentsHub />}
+                  {tab === 'workflows'      && <LazyWorkflows />}
+                  {tab === 'funnel_builder' && <LazyFunnelBuilder />}
+                  {tab === 'ads_generator'  && <LazyAdsHub />}
+                  {tab === 'social_planner' && <LazySocialHub />}
+                  {tab === 'brain'          && <LazyBrain />}
+                </Suspense>
+              </DashContextBridge>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, color: '#4b5563', padding: 24, textAlign: 'center' }}>
+                {locLoading ? (
+                  <>
+                    <div style={{ width: 32, height: 32, border: '3px solid #1f2937', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                    <p style={{ fontSize: 13, margin: 0 }}>Loading sub-accounts…</p>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 32 }}>📍</span>
+                    <p style={{ fontSize: 14, margin: 0, fontWeight: 600, color: '#e5e7eb' }}>Select a sub-account</p>
+                    <p style={{ fontSize: 13, margin: 0, maxWidth: 280, lineHeight: 1.6 }}>Use the location switcher in the sidebar to choose a sub-account.</p>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 

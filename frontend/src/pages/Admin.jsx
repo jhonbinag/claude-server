@@ -99,6 +99,7 @@ const LazyWorkflows     = React.lazy(() => import('./Workflows'));
 const LazyFunnelBuilder = React.lazy(() => import('./FunnelBuilder'));
 const LazyAdsHub        = React.lazy(() => import('./AdsHub'));
 const LazySocialHub     = React.lazy(() => import('./SocialHub'));
+const LazyBrain         = React.lazy(() => import('./Brain'));
 
 // ── DashContextBridge — provides AppContext to feature pages ──────────────────
 function DashContextBridge({ locationId, betaFeatures, allowedFeatures, children }) {
@@ -2392,6 +2393,7 @@ export default function Admin() {
     { key: 'funnel_builder', label: 'Funnel Builder',     icon: '🏗️' },
     { key: 'ads_generator',  label: 'Ads',                icon: '⚡'  },
     { key: 'social_planner', label: 'ManyChat & Socials', icon: '📱' },
+    { key: 'brain',          label: 'Brain',              icon: '🧠' },
   ];
 
   const PAGE_TITLE = {
@@ -2553,7 +2555,7 @@ export default function Admin() {
         <div style={{ padding: isMobile ? '16px' : '28px', flex: 1, overflowX: 'hidden' }}>
 
         {/* ── Feature sub-pages (App View) ── */}
-        {['chats','agents','workflows','funnel_builder','ads_generator','social_planner'].includes(tab) && (
+        {['chats','agents','workflows','funnel_builder','ads_generator','social_planner','brain'].includes(tab) && (
           <div style={{ margin: '-28px', height: 'calc(100% + 28px)', display: 'flex', flexDirection: 'column' }}>
             {/* Location picker bar */}
             <div style={{ padding: '12px 24px', background: '#0e0e16', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
@@ -2570,7 +2572,7 @@ export default function Admin() {
               </select>
             </div>
             {/* Feature content */}
-            <div style={{ flex: 1, overflow: 'hidden' }}>
+            <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
               {adminViewLocId ? (
                 <DashContextBridge locationId={adminViewLocId} betaFeatures={[]} allowedFeatures={[]}>
                   <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#4b5563', fontSize: 13 }}>Loading…</div>}>
@@ -2580,6 +2582,7 @@ export default function Admin() {
                     {tab === 'funnel_builder' && <LazyFunnelBuilder />}
                     {tab === 'ads_generator'  && <LazyAdsHub />}
                     {tab === 'social_planner' && <LazySocialHub />}
+                    {tab === 'brain'          && <LazyBrain />}
                   </Suspense>
                 </DashContextBridge>
               ) : (
