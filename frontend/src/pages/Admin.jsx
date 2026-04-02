@@ -1662,7 +1662,7 @@ export default function Admin() {
   const [appSettingsSubTab, setAppSettingsSubTab] = useState('ghl'); // 'ghl' | 'business'
   const [integrationsSubTab, setIntegrationsSubTab] = useState('integrations'); // 'integrations' | 'tool-access' | 'beta-lab'
   const [adminSubTab, setAdminSubTab] = useState('users-roles'); // 'users-roles' | 'dashboard-cfg' | 'credentials'
-  const [personasSubTab, setPersonasSubTab] = useState('brain'); // 'brain' | 'personas'
+  const [personasSubTab, setPersonasSubTab] = useState('personas'); // 'brain' | 'personas'
   const [plansSubTab, setPlansSubTab] = useState('billing'); // 'billing' | 'plan-tiers'
 
   // Business profile state
