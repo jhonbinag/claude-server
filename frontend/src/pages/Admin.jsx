@@ -1754,7 +1754,7 @@ export default function Admin() {
   const [credentials,        setCredentials]        = useState([]);
   const [credLoading,        setCredLoading]        = useState(false);
   const [credModal,          setCredModal]          = useState(null); // null | 'create' | cred obj (edit)
-  const [credForm,           setCredForm]           = useState({ name:'', email:'', username:'', locationIds:[], role:'mini_admin', status:'active', notes:'' });
+  const [credForm,           setCredForm]           = useState({ name:'', email:'', username:'', locationIds:[], allowedFeatures:[], role:'mini_admin', status:'active', notes:'' });
   const [credSaving,         setCredSaving]         = useState(false);
   const [credShowPass,       setCredShowPass]       = useState(false);
   const [credActivateNow,    setCredActivateNow]    = useState(false);
@@ -5342,12 +5342,12 @@ export default function Admin() {
             return <span style={{ fontSize:12, color:'#9ca3af' }}>{ids.length} locations</span>;
           };
           const openCreate = () => {
-            setCredForm({ name:'', email:'', username:'', locationIds:[], role:'mini_admin', status:'active', notes:'' });
+            setCredForm({ name:'', email:'', username:'', locationIds:[], allowedFeatures:[], role:'mini_admin', status:'active', notes:'' });
             setCredActivateNow(false);
             setCredModal('create');
           };
           const openEdit = (cred) => {
-            setCredForm({ name:cred.name, email:cred.email||'', username:cred.username, locationIds:cred.locationIds||(cred.locationId?[cred.locationId]:[]), role:cred.role||'mini_admin', status:cred.status||'active', notes:cred.notes||'' });
+            setCredForm({ name:cred.name, email:cred.email||'', username:cred.username, locationIds:cred.locationIds||(cred.locationId?[cred.locationId]:[]), allowedFeatures:cred.allowedFeatures||[], role:cred.role||'mini_admin', status:cred.status||'active', notes:cred.notes||'' });
             setCredNewPassword('');
             setCredShowNewPass(false);
             setCredModal(cred);
@@ -5379,7 +5379,7 @@ export default function Admin() {
             setCredSaving(true);
             try {
               const isCreate = credModal === 'create';
-              const body = { name:credForm.name, email:credForm.email, username:credForm.username, locationIds:credForm.locationIds, role:credForm.role, status:credForm.status, notes:credForm.notes };
+              const body = { name:credForm.name, email:credForm.email, username:credForm.username, locationIds:credForm.locationIds, allowedFeatures:credForm.allowedFeatures, role:credForm.role, status:credForm.status, notes:credForm.notes };
               if (isCreate && credActivateNow) body.activateNow = true;
               if (!isCreate && credNewPassword.trim()) body.newPassword = credNewPassword.trim();
               const url = isCreate ? '/admin/dashboard-credentials' : `/admin/dashboard-credentials/${credModal.credentialId}`;
@@ -5639,6 +5639,45 @@ export default function Admin() {
                       <option value="active">Active (after activation)</option>
                       <option value="inactive">Inactive</option>
                     </select>
+
+                    {/* Allowed Features */}
+                    <label style={lblStyle}>Allowed Features <span style={{ fontSize:10, color:'#4b5563', fontWeight:400, textTransform:'none', letterSpacing:0 }}>(leave all unchecked = all features)</span></label>
+                    <div style={{ background:'rgba(255,255,255,0.02)', border:'1px solid #1e2a3a', borderRadius:8, padding:'10px 12px', marginBottom:14, display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {[
+                        { key:'dashboard',      label:'Dashboard',         icon:'⊞' },
+                        { key:'chats',          label:'Chats',             icon:'💬' },
+                        { key:'agents',         label:'AI Agents',         icon:'🤖' },
+                        { key:'workflows',      label:'Workflows',         icon:'🔀' },
+                        { key:'funnel_builder', label:'Funnel Builder',    icon:'🏗️' },
+                        { key:'ads_generator',  label:'Ads Generator',     icon:'🎯' },
+                        { key:'social_planner', label:'Social Planner',    icon:'📱' },
+                        { key:'settings',       label:'Settings',          icon:'⚙️' },
+                      ].map(f => {
+                        const checked = credForm.allowedFeatures.includes(f.key);
+                        return (
+                          <button
+                            key={f.key}
+                            type="button"
+                            onClick={() => setCredForm(prev => ({
+                              ...prev,
+                              allowedFeatures: checked
+                                ? prev.allowedFeatures.filter(k => k !== f.key)
+                                : [...prev.allowedFeatures, f.key],
+                            }))}
+                            style={{
+                              display:'flex', alignItems:'center', gap:5,
+                              padding:'4px 10px', borderRadius:20, cursor:'pointer', fontSize:12,
+                              background: checked ? 'rgba(99,102,241,0.18)' : 'rgba(255,255,255,0.04)',
+                              border: `1px solid ${checked ? 'rgba(99,102,241,0.4)' : '#2a2a3a'}`,
+                              color: checked ? '#a5b4fc' : '#6b7280',
+                              fontWeight: checked ? 600 : 400,
+                            }}
+                          >
+                            <span>{f.icon}</span>{f.label}
+                          </button>
+                        );
+                      })}
+                    </div>
 
                     <label style={lblStyle}>Notes (optional)</label>
                     <textarea

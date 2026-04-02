@@ -56,6 +56,17 @@ const FEATURE_META = {
   manychat:         { label: 'ManyChat',            icon: '📩' },
 };
 
+// ── feature → app route mapping ──────────────────────────────────────────────
+const FEATURE_NAV = [
+  { feature: 'dashboard',      label: 'Dashboard',          icon: '⊞',  href: '/ui/' },
+  { feature: 'chats',          label: 'Chats',              icon: '💬', href: '/ui/chats' },
+  { feature: 'agents',         label: 'AI Agents',          icon: '🤖', href: '/ui/agents' },
+  { feature: 'workflows',      label: 'Workflows',          icon: '⟳',  href: '/ui/workflows' },
+  { feature: 'funnel_builder', label: 'Funnel Builder',     icon: '🏗️', href: '/ui/funnel-builder' },
+  { feature: 'ads_generator',  label: 'Ads',                icon: '⚡',  href: '/ui/ads' },
+  { feature: 'social_planner', label: 'ManyChat & Socials', icon: '📱', href: '/ui/social' },
+];
+
 // ── static meta ───────────────────────────────────────────────────────────────
 const STATUS_META = {
   permanent:  { label: 'Permanent', color: '#34d399', bg: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.3)'  },
@@ -183,11 +194,12 @@ export default function AdminDashboard() {
 
       if (data.success) {
         const credData = {
-          name:        data.credential.name,
-          email:       data.credential.email || '',
-          username:    data.credential.username,
-          locationIds: data.credential.locationIds || (data.credential.locationId ? [data.credential.locationId] : []),
-          role:        data.credential.role,
+          name:            data.credential.name,
+          email:           data.credential.email || '',
+          username:        data.credential.username,
+          locationIds:     data.credential.locationIds || (data.credential.locationId ? [data.credential.locationId] : []),
+          allowedFeatures: data.credential.allowedFeatures || [],
+          role:            data.credential.role,
         };
         localStorage.setItem(LS_TOKEN, data.token);
         localStorage.setItem(LS_CRED, JSON.stringify(credData));
@@ -304,11 +316,12 @@ export default function AdminDashboard() {
     dashFetch('/dashboard/me', token, null).then(data => {
       if (!data.success) return;
       const fresh = {
-        name:        data.credential.name,
-        email:       data.credential.email || '',
-        username:    data.credential.username,
-        locationIds: data.credential.locationIds || (data.credential.locationId ? [data.credential.locationId] : []),
-        role:        data.credential.role,
+        name:            data.credential.name,
+        email:           data.credential.email || '',
+        username:        data.credential.username,
+        locationIds:     data.credential.locationIds || (data.credential.locationId ? [data.credential.locationId] : []),
+        allowedFeatures: data.credential.allowedFeatures || [],
+        role:            data.credential.role,
       };
       localStorage.setItem(LS_CRED, JSON.stringify(fresh));
       setCred(fresh);
@@ -496,6 +509,31 @@ export default function AdminDashboard() {
 
         {/* Nav items */}
         <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
+          {/* App feature links based on allowedFeatures (empty = all) */}
+          {FEATURE_NAV.filter(f => !cred?.allowedFeatures?.length || cred.allowedFeatures.includes(f.feature)).map(f => (
+            <a
+              key={f.feature}
+              href={f.href}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                width: '100%', padding: '9px 10px',
+                background: 'transparent', border: '1px solid transparent',
+                borderRadius: 8, color: '#9ca3af',
+                fontSize: 13, fontWeight: 400,
+                cursor: 'pointer', textDecoration: 'none', transition: 'all .15s', marginBottom: 2,
+                boxSizing: 'border-box',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#e5e7eb'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ca3af'; }}
+            >
+              <span style={{ fontSize: 15, width: 20, textAlign: 'center', flexShrink: 0 }}>{f.icon}</span>
+              {f.label}
+            </a>
+          ))}
+
+          {/* Divider before Settings */}
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '6px 4px 8px' }} />
+
           {showSettings && (
             <button
               onClick={() => setTab('settings')}

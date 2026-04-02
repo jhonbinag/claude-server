@@ -1397,7 +1397,7 @@ router.get('/dashboard-credentials', async (req, res) => {
 router.post('/dashboard-credentials', async (req, res) => {
   try {
     if (!credentialStore) return res.status(503).json({ success: false, error: 'Credential store unavailable' });
-    const { name, email, username, locationIds, role, status, notes, activateNow } = req.body;
+    const { name, email, username, locationIds, allowedFeatures, role, status, notes, activateNow } = req.body;
     if (!name?.trim())     return res.status(400).json({ success: false, error: 'name required' });
     if (!email?.trim())    return res.status(400).json({ success: false, error: 'email required' });
     if (!username?.trim()) return res.status(400).json({ success: false, error: 'username required' });
@@ -1406,7 +1406,7 @@ router.post('/dashboard-credentials', async (req, res) => {
     }
 
     const skipEmail = activateNow === true;
-    const { cred, plainPassword } = await credentialStore.createCredential({ name, email, username, locationIds, role, status, notes, activated: skipEmail });
+    const { cred, plainPassword } = await credentialStore.createCredential({ name, email, username, locationIds, allowedFeatures, role, status, notes, activated: skipEmail });
 
     // If activateNow: skip email, return plainPassword directly to admin
     if (skipEmail) {

@@ -152,7 +152,7 @@ async function getByUsername(username) {
  * @returns {{ cred, plainPassword }}
  */
 async function createCredential(data) {
-  const { name, email, username, locationIds, role, status, notes, activated: activateNow } = data;
+  const { name, email, username, locationIds, role, status, notes, activated: activateNow, allowedFeatures } = data;
   if (!name?.trim())     throw new Error('name is required');
   if (!email?.trim())    throw new Error('email is required');
   if (!username?.trim()) throw new Error('username is required');
@@ -180,6 +180,7 @@ async function createCredential(data) {
     passwordHash:     hash,
     passwordSalt:     salt,
     locationIds:      locationIds,
+    allowedFeatures:  Array.isArray(allowedFeatures) ? allowedFeatures : [],
     role:             role || 'mini_admin',
     status:           status || 'active',
     activated:        skipActivation,
@@ -214,7 +215,8 @@ async function updateCredential(credentialId, updates) {
 
   if (updates.name      !== undefined) patch.name      = updates.name.trim();
   if (updates.email     !== undefined) patch.email     = updates.email.trim().toLowerCase();
-  if (updates.locationIds !== undefined) patch.locationIds = updates.locationIds;
+  if (updates.locationIds     !== undefined) patch.locationIds     = updates.locationIds;
+  if (updates.allowedFeatures !== undefined) patch.allowedFeatures = Array.isArray(updates.allowedFeatures) ? updates.allowedFeatures : [];
   if (updates.role      !== undefined) patch.role      = updates.role;
   if (updates.status    !== undefined) patch.status    = updates.status;
   if (updates.notes     !== undefined) patch.notes     = updates.notes;
