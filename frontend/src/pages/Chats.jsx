@@ -12,6 +12,432 @@ import { useApp } from '../context/AppContext';
 import AuthGate   from '../components/AuthGate';
 import Spinner    from '../components/Spinner';
 
+// ── GHL Action Panel ──────────────────────────────────────────────────────────
+
+const GHL_ACTIONS = [
+  { key: 'search',      label: 'Search Contact',       icon: '🔍' },
+  { key: 'add',         label: 'Add Contact',          icon: '➕' },
+  { key: 'update',      label: 'Update Contact',       icon: '✏️' },
+  { key: 'tag',         label: 'Add Tag',              icon: '🏷️' },
+  { key: 'workflow',    label: 'Add to Workflow',      icon: '⚡' },
+  { key: 'opportunity', label: 'Add to Opportunity',   icon: '💼' },
+];
+
+function GhlPanel({ locationId, onClose }) {
+  const [locationConfirmed, setLocationConfirmed] = useState(false);
+  const [locationInfo,      setLocationInfo]      = useState(null);
+  const [confirming,        setConfirming]        = useState(true);
+  const [action,            setAction]            = useState(null);
+  const [loading,           setLoading]           = useState(false);
+  const [result,            setResult]            = useState(null);
+
+  // Search state
+  const [searchQ,     setSearchQ]     = useState('');
+  const [searchRes,   setSearchRes]   = useState([]);
+  const [selectedContact, setSelectedContact] = useState(null);
+
+  // Form states
+  const [form, setForm] = useState({});
+
+  // Workflows & pipelines (loaded on demand)
+  const [workflows,  setWorkflows]  = useState([]);
+  const [pipelines,  setPipelines]  = useState([]);
+
+  const headers = { 'Content-Type': 'application/json', 'x-location-id': locationId };
+
+  // Step 1 — confirm location on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch('/chats/ghl/location', { headers });
+        const d = await r.json();
+        if (d.success) { setLocationInfo(d.data); }
+      } catch {}
+      setConfirming(false);
+    })();
+  }, [locationId]);
+
+  const confirm = () => {
+    setLocationConfirmed(true);
+    toast.success(`Connected to: ${locationInfo?.name || locationId}`);
+  };
+
+  const ghlFetch = async (path, options = {}) => {
+    const r = await fetch(path, { ...options, headers: { ...headers, ...(options.headers || {}) } });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'GHL request failed');
+    return d.data;
+  };
+
+  const selectAction = async (key) => {
+    setAction(key); setResult(null); setForm({}); setSelectedContact(null); setSearchRes([]);
+    if (key === 'workflow' && !workflows.length) {
+      try { const d = await ghlFetch('/chats/ghl/workflows'); setWorkflows(d); } catch {}
+    }
+    if (key === 'opportunity' && !pipelines.length) {
+      try { const d = await ghlFetch('/chats/ghl/pipelines'); setPipelines(d); } catch {}
+    }
+  };
+
+  const doSearch = async () => {
+    if (!searchQ.trim()) return;
+    setLoading(true);
+    try {
+      const d = await ghlFetch(`/chats/ghl/search?q=${encodeURIComponent(searchQ)}`);
+      setSearchRes(d);
+      if (!d.length) toast.info('No contacts found.');
+    } catch (e) { toast.error(e.message); }
+    setLoading(false);
+  };
+
+  const doAdd = async () => {
+    if (!form.email && !form.phone) { toast.error('Email or phone required.'); return; }
+    setLoading(true);
+    try {
+      const d = await ghlFetch('/chats/ghl/contacts', {
+        method: 'POST',
+        body: JSON.stringify({ firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone }),
+      });
+      setResult(d);
+      toast.success(`Contact created: ${form.firstName || ''} ${form.lastName || ''}`);
+    } catch (e) { toast.error(e.message); }
+    setLoading(false);
+  };
+
+  const doUpdate = async () => {
+    if (!selectedContact) { toast.error('Search and select a contact first.'); return; }
+    setLoading(true);
+    try {
+      await ghlFetch(`/chats/ghl/contacts/${selectedContact.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone }),
+      });
+      toast.success('Contact updated.');
+      setResult({ ...selectedContact, ...form });
+    } catch (e) { toast.error(e.message); }
+    setLoading(false);
+  };
+
+  const doTag = async () => {
+    if (!selectedContact) { toast.error('Search and select a contact first.'); return; }
+    if (!form.tags?.trim()) { toast.error('Enter at least one tag.'); return; }
+    setLoading(true);
+    try {
+      await ghlFetch(`/chats/ghl/contacts/${selectedContact.id}/tags`, {
+        method: 'POST',
+        body: JSON.stringify({ tags: form.tags.split(',').map(t => t.trim()).filter(Boolean) }),
+      });
+      toast.success(`Tags added to ${selectedContact.firstName || selectedContact.email}.`);
+      setResult({ tagged: true });
+    } catch (e) { toast.error(e.message); }
+    setLoading(false);
+  };
+
+  const doWorkflow = async () => {
+    if (!selectedContact) { toast.error('Search and select a contact first.'); return; }
+    if (!form.workflowId) { toast.error('Select a workflow.'); return; }
+    setLoading(true);
+    try {
+      await ghlFetch(`/chats/ghl/contacts/${selectedContact.id}/workflow/${form.workflowId}`, { method: 'POST' });
+      const wf = workflows.find(w => w.id === form.workflowId);
+      toast.success(`Added to workflow: ${wf?.name || form.workflowId}`);
+      setResult({ enrolled: true, workflow: wf?.name });
+    } catch (e) { toast.error(e.message); }
+    setLoading(false);
+  };
+
+  const doOpportunity = async () => {
+    if (!selectedContact) { toast.error('Search and select a contact first.'); return; }
+    if (!form.pipelineId) { toast.error('Select a pipeline.'); return; }
+    setLoading(true);
+    try {
+      const d = await ghlFetch('/chats/ghl/opportunities', {
+        method: 'POST',
+        body: JSON.stringify({
+          contactId: selectedContact.id, pipelineId: form.pipelineId,
+          pipelineStageId: form.stageId || undefined,
+          name: form.oppName || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim() || 'New Opportunity',
+          monetaryValue: parseFloat(form.value) || 0,
+        }),
+      });
+      toast.success('Opportunity created.');
+      setResult(d);
+    } catch (e) { toast.error(e.message); }
+    setLoading(false);
+  };
+
+  const inp = { width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e2e8f0', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
+  const lbl = { display: 'block', fontSize: 11, color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 };
+
+  // ── Contact search widget (reused across actions) ───────────────────────────
+  const SearchWidget = () => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={lbl}>Find Contact (email / phone / name)</label>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input value={searchQ} onChange={e => setSearchQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} placeholder="john@example.com or +1555…" style={{ ...inp, flex: 1 }} />
+        <button onClick={doSearch} disabled={loading} style={{ padding: '8px 14px', borderRadius: 8, background: '#4f46e5', border: 'none', color: '#fff', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>Search</button>
+      </div>
+      {searchRes.length > 0 && (
+        <div style={{ marginTop: 8, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden' }}>
+          {searchRes.map(c => (
+            <div key={c.id} onClick={() => { setSelectedContact(c); setForm(f => ({ ...f, firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone })); setSearchRes([]); }}
+              style={{ padding: '8px 12px', cursor: 'pointer', background: selectedContact?.id === c.id ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 13 }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.1)'}
+              onMouseLeave={e => e.currentTarget.style.background = selectedContact?.id === c.id ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)'}
+            >
+              <span style={{ color: '#e2e8f0', fontWeight: 500 }}>{c.firstName} {c.lastName}</span>
+              <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 8 }}>{c.email || c.phone}</span>
+              {c.tags?.length > 0 && <span style={{ marginLeft: 8, fontSize: 10, color: '#818cf8' }}>{c.tags.slice(0,3).join(', ')}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {selectedContact && (
+        <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ color: '#34d399' }}>✓ {selectedContact.firstName} {selectedContact.lastName} · {selectedContact.email || selectedContact.phone}</span>
+          <button onClick={() => { setSelectedContact(null); setForm({}); }} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 14 }}>×</button>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{ background: '#14141e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 18, width: '100%', maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        {/* Header */}
+        <div style={{ padding: '16px 20px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>⚡ GHL Actions</h3>
+            {locationConfirmed && locationInfo && (
+              <p style={{ margin: '2px 0 0', fontSize: 11, color: '#4ade80' }}>✓ {locationInfo.name}</p>
+            )}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+
+          {/* Step 1 — Location confirmation */}
+          {!locationConfirmed ? (
+            <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
+              {confirming ? (
+                <p style={{ color: '#6b7280', fontSize: 13 }}>Connecting to GHL…</p>
+              ) : locationInfo ? (
+                <>
+                  <div style={{ fontSize: 36, marginBottom: 10 }}>🏢</div>
+                  <p style={{ margin: '0 0 4px', fontWeight: 700, color: '#f1f5f9', fontSize: 15 }}>{locationInfo.name}</p>
+                  <p style={{ margin: '0 0 4px', fontSize: 12, color: '#6b7280' }}>ID: {locationInfo.locationId}</p>
+                  {locationInfo.email && <p style={{ margin: '0 0 16px', fontSize: 12, color: '#6b7280' }}>{locationInfo.email}</p>}
+                  <p style={{ margin: '0 0 18px', fontSize: 13, color: '#9ca3af' }}>Confirm this is the correct GHL sub-account before making any changes.</p>
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                    <button onClick={confirm} style={{ padding: '10px 28px', borderRadius: 10, background: '#4f46e5', border: 'none', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                      Yes, confirm
+                    </button>
+                    <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#9ca3af', fontSize: 13, cursor: 'pointer' }}>
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <p style={{ color: '#f87171', fontSize: 13 }}>⚠️ Could not load location info. GHL may not be connected.</p>
+                  <button onClick={onClose} style={{ marginTop: 12, padding: '8px 20px', borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#9ca3af', fontSize: 13, cursor: 'pointer' }}>Close</button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Action picker */}
+              {!action && (
+                <div>
+                  <p style={{ margin: '0 0 14px', fontSize: 13, color: '#9ca3af' }}>What would you like to do?</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {GHL_ACTIONS.map(a => (
+                      <button key={a.key} onClick={() => selectAction(a.key)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', cursor: 'pointer', fontSize: 13, textAlign: 'left', transition: 'all .15s' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.12)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
+                      >
+                        <span style={{ fontSize: 20 }}>{a.icon}</span>
+                        <span style={{ fontWeight: 500 }}>{a.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Search ── */}
+              {action === 'search' && (
+                <div>
+                  <button onClick={() => setAction(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 12, marginBottom: 14, padding: 0 }}>← Back</button>
+                  <h4 style={{ margin: '0 0 14px', color: '#f1f5f9', fontSize: 14 }}>🔍 Search Contact</h4>
+                  <SearchWidget />
+                  {selectedContact && (
+                    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 14, fontSize: 13 }}>
+                      <p style={{ margin: '0 0 6px', fontWeight: 700, color: '#f1f5f9' }}>{selectedContact.firstName} {selectedContact.lastName}</p>
+                      {selectedContact.email && <p style={{ margin: '0 0 3px', color: '#9ca3af' }}>📧 {selectedContact.email}</p>}
+                      {selectedContact.phone && <p style={{ margin: '0 0 3px', color: '#9ca3af' }}>📞 {selectedContact.phone}</p>}
+                      {selectedContact.tags?.length > 0 && <p style={{ margin: '6px 0 0', color: '#818cf8', fontSize: 11 }}>Tags: {selectedContact.tags.join(', ')}</p>}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Add Contact ── */}
+              {action === 'add' && (
+                <div>
+                  <button onClick={() => setAction(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 12, marginBottom: 14, padding: 0 }}>← Back</button>
+                  <h4 style={{ margin: '0 0 14px', color: '#f1f5f9', fontSize: 14 }}>➕ Add New Contact</h4>
+                  {[['firstName','First Name'],['lastName','Last Name'],['email','Email'],['phone','Phone']].map(([k,l]) => (
+                    <div key={k} style={{ marginBottom: 12 }}>
+                      <label style={lbl}>{l}</label>
+                      <input value={form[k] || ''} onChange={e => setForm(f => ({...f,[k]:e.target.value}))} placeholder={l} style={inp} />
+                    </div>
+                  ))}
+                  {result ? (
+                    <p style={{ color: '#4ade80', fontSize: 13 }}>✓ Contact created (ID: {result.id})</p>
+                  ) : (
+                    <button onClick={doAdd} disabled={loading} style={{ width: '100%', padding: '10px', borderRadius: 10, background: '#4f46e5', border: 'none', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
+                      {loading ? 'Creating…' : 'Create Contact'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* ── Update Contact ── */}
+              {action === 'update' && (
+                <div>
+                  <button onClick={() => setAction(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 12, marginBottom: 14, padding: 0 }}>← Back</button>
+                  <h4 style={{ margin: '0 0 14px', color: '#f1f5f9', fontSize: 14 }}>✏️ Update Contact</h4>
+                  <SearchWidget />
+                  {selectedContact && (
+                    <>
+                      {[['firstName','First Name'],['lastName','Last Name'],['email','Email'],['phone','Phone']].map(([k,l]) => (
+                        <div key={k} style={{ marginBottom: 12 }}>
+                          <label style={lbl}>{l}</label>
+                          <input value={form[k] || ''} onChange={e => setForm(f => ({...f,[k]:e.target.value}))} placeholder={l} style={inp} />
+                        </div>
+                      ))}
+                      {result ? (
+                        <p style={{ color: '#4ade80', fontSize: 13 }}>✓ Contact updated.</p>
+                      ) : (
+                        <button onClick={doUpdate} disabled={loading} style={{ width: '100%', padding: '10px', borderRadius: 10, background: '#4f46e5', border: 'none', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
+                          {loading ? 'Updating…' : 'Save Changes'}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* ── Add Tag ── */}
+              {action === 'tag' && (
+                <div>
+                  <button onClick={() => setAction(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 12, marginBottom: 14, padding: 0 }}>← Back</button>
+                  <h4 style={{ margin: '0 0 14px', color: '#f1f5f9', fontSize: 14 }}>🏷️ Add Tag to Contact</h4>
+                  <SearchWidget />
+                  {selectedContact && (
+                    <>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={lbl}>Tags (comma separated)</label>
+                        <input value={form.tags || ''} onChange={e => setForm(f => ({...f, tags: e.target.value}))} placeholder="lead, vip, follow-up" style={inp} />
+                      </div>
+                      {result ? (
+                        <p style={{ color: '#4ade80', fontSize: 13 }}>✓ Tags added.</p>
+                      ) : (
+                        <button onClick={doTag} disabled={loading} style={{ width: '100%', padding: '10px', borderRadius: 10, background: '#4f46e5', border: 'none', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
+                          {loading ? 'Adding…' : 'Add Tags'}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* ── Add to Workflow ── */}
+              {action === 'workflow' && (
+                <div>
+                  <button onClick={() => setAction(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 12, marginBottom: 14, padding: 0 }}>← Back</button>
+                  <h4 style={{ margin: '0 0 14px', color: '#f1f5f9', fontSize: 14 }}>⚡ Add to Workflow</h4>
+                  <SearchWidget />
+                  {selectedContact && (
+                    <>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={lbl}>Workflow</label>
+                        <select value={form.workflowId || ''} onChange={e => setForm(f => ({...f, workflowId: e.target.value}))} style={{ ...inp }}>
+                          <option value="">— select workflow —</option>
+                          {workflows.map(w => <option key={w.id} value={w.id}>{w.name} {w.status === 'published' ? '✓' : ''}</option>)}
+                        </select>
+                      </div>
+                      {result ? (
+                        <p style={{ color: '#4ade80', fontSize: 13 }}>✓ Enrolled in: {result.workflow}</p>
+                      ) : (
+                        <button onClick={doWorkflow} disabled={loading} style={{ width: '100%', padding: '10px', borderRadius: 10, background: '#4f46e5', border: 'none', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
+                          {loading ? 'Enrolling…' : 'Add to Workflow'}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* ── Add to Opportunity ── */}
+              {action === 'opportunity' && (
+                <div>
+                  <button onClick={() => setAction(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 12, marginBottom: 14, padding: 0 }}>← Back</button>
+                  <h4 style={{ margin: '0 0 14px', color: '#f1f5f9', fontSize: 14 }}>💼 Add to Opportunity</h4>
+                  <SearchWidget />
+                  {selectedContact && (
+                    <>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={lbl}>Pipeline</label>
+                        <select value={form.pipelineId || ''} onChange={e => setForm(f => ({...f, pipelineId: e.target.value, stageId: ''}))} style={{ ...inp }}>
+                          <option value="">— select pipeline —</option>
+                          {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                      </div>
+                      {form.pipelineId && (() => {
+                        const stages = pipelines.find(p => p.id === form.pipelineId)?.stages || [];
+                        return stages.length > 0 ? (
+                          <div style={{ marginBottom: 12 }}>
+                            <label style={lbl}>Stage</label>
+                            <select value={form.stageId || ''} onChange={e => setForm(f => ({...f, stageId: e.target.value}))} style={{ ...inp }}>
+                              <option value="">— select stage —</option>
+                              {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                          </div>
+                        ) : null;
+                      })()}
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={lbl}>Opportunity Name</label>
+                        <input value={form.oppName || ''} onChange={e => setForm(f => ({...f, oppName: e.target.value}))} placeholder="Deal name…" style={inp} />
+                      </div>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={lbl}>Value ($)</label>
+                        <input type="number" value={form.value || ''} onChange={e => setForm(f => ({...f, value: e.target.value}))} placeholder="0" style={inp} />
+                      </div>
+                      {result ? (
+                        <p style={{ color: '#4ade80', fontSize: 13 }}>✓ Opportunity created.</p>
+                      ) : (
+                        <button onClick={doOpportunity} disabled={loading} style={{ width: '100%', padding: '10px', borderRadius: 10, background: '#4f46e5', border: 'none', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
+                          {loading ? 'Creating…' : 'Create Opportunity'}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function uid() { return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
@@ -216,6 +642,7 @@ export default function Chats() {
   const [hoveredSession,   setHoveredSession]   = useState(null);
   const [cmdPalette,       setCmdPalette]       = useState([]);
   const [cmdIndex,         setCmdIndex]         = useState(0);
+  const [showGhlPanel,     setShowGhlPanel]     = useState(false);
 
   const bottomRef    = useRef(null);
   const inputRef     = useRef(null);
@@ -607,6 +1034,13 @@ export default function Chats() {
               {activeId ? (sessions.find(s => s.id === activeId)?.title || 'Chat') : 'Chats'}
             </span>
           )}
+          {activeId && (
+            <button
+              onClick={() => setShowGhlPanel(v => !v)}
+              style={{ fontSize:11, padding:'4px 10px', borderRadius:6, background: showGhlPanel ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)', border:`1px solid ${showGhlPanel ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)'}`, color: showGhlPanel ? '#a5b4fc' : '#9ca3af', cursor:'pointer', transition:'all .15s' }}
+              title="GHL Actions"
+            >⚡ GHL</button>
+          )}
           {isStreaming && (
             <button onClick={stopStream} style={{ fontSize:11, padding:'4px 10px', borderRadius:6, background:'rgba(239,68,68,0.15)', border:'1px solid rgba(239,68,68,0.3)', color:'#f87171', cursor:'pointer' }}>⏹ Stop</button>
           )}
@@ -726,6 +1160,9 @@ export default function Chats() {
           </div>
         )}
       </div>
+
+      {/* GHL Action Panel overlay */}
+      {showGhlPanel && <GhlPanel locationId={locationId} onClose={() => setShowGhlPanel(false)} />}
     </div>
   );
 }

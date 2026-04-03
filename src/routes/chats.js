@@ -641,4 +641,115 @@ router.post('/:id/message', async (req, res) => {
   res.end();
 });
 
+// ── GHL Action endpoints (used by the in-chat GHL panel) ──────────────────────
+// All require x-location-id. Returns JSON (not SSE).
+
+// GET /chats/ghl/location — confirm location info before any GHL action
+router.get('/ghl/location', async (req, res) => {
+  try {
+    const data = await req.ghl('GET', `/locations/${req.locationId}`);
+    const loc = data?.location || data;
+    res.json({ success: true, data: { locationId: req.locationId, name: loc?.name || req.locationId, email: loc?.email, phone: loc?.phone, address: loc?.address } });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// GET /chats/ghl/search?q= — search contacts by email, phone, or name
+router.get('/ghl/search', async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ success: false, error: 'Query required' });
+  try {
+    const data = await req.ghl('GET', '/contacts/', null, { locationId: req.locationId, query: q, limit: 10 });
+    res.json({ success: true, data: (data?.contacts || []).map(c => ({
+      id: c.id, firstName: c.firstName, lastName: c.lastName,
+      email: c.email, phone: c.phone, tags: c.tags || [],
+    }))});
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// POST /chats/ghl/contacts — create contact
+router.post('/ghl/contacts', async (req, res) => {
+  const { firstName, lastName, email, phone, tags } = req.body;
+  if (!email && !phone) return res.status(400).json({ success: false, error: 'email or phone required' });
+  try {
+    const data = await req.ghl('POST', '/contacts/', { locationId: req.locationId, firstName, lastName, email, phone, tags: tags || [] });
+    res.json({ success: true, data: { id: data?.contact?.id || data?.id, firstName, lastName, email, phone } });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /chats/ghl/contacts/:id — update contact
+router.put('/ghl/contacts/:id', async (req, res) => {
+  try {
+    const data = await req.ghl('PUT', `/contacts/${req.params.id}`, req.body);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// POST /chats/ghl/contacts/:id/tags — add tags to contact
+router.post('/ghl/contacts/:id/tags', async (req, res) => {
+  const { tags } = req.body;
+  if (!tags?.length) return res.status(400).json({ success: false, error: 'tags array required' });
+  try {
+    const data = await req.ghl('POST', `/contacts/${req.params.id}/tags`, { tags });
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// POST /chats/ghl/contacts/:id/workflow/:wfId — add contact to workflow
+router.post('/ghl/contacts/:id/workflow/:wfId', async (req, res) => {
+  try {
+    const data = await req.ghl('POST', `/contacts/${req.params.id}/workflow/${req.params.wfId}`);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// GET /chats/ghl/workflows — list GHL workflows
+router.get('/ghl/workflows', async (req, res) => {
+  try {
+    const data = await req.ghl('GET', '/workflows/', null, { locationId: req.locationId });
+    res.json({ success: true, data: (data?.workflows || []).map(w => ({ id: w.id, name: w.name, status: w.status })) });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// GET /chats/ghl/pipelines — list pipelines + stages
+router.get('/ghl/pipelines', async (req, res) => {
+  try {
+    const data = await req.ghl('GET', '/opportunities/pipelines', null, { locationId: req.locationId });
+    res.json({ success: true, data: data?.pipelines || data?.data || [] });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// POST /chats/ghl/opportunities — add contact to opportunity
+router.post('/ghl/opportunities', async (req, res) => {
+  const { contactId, pipelineId, pipelineStageId, name, monetaryValue } = req.body;
+  if (!contactId || !pipelineId) return res.status(400).json({ success: false, error: 'contactId and pipelineId required' });
+  try {
+    const data = await req.ghl('POST', '/opportunities/', {
+      locationId: req.locationId, contactId, pipelineId,
+      pipelineStageId: pipelineStageId || undefined,
+      name: name || 'New Opportunity',
+      monetaryValue: monetaryValue || 0,
+      status: 'open',
+    });
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
