@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { toast } from 'react-toastify';
 import { useApp } from '../context/AppContext';
 import AuthGate   from '../components/AuthGate';
 import Spinner    from '../components/Spinner';
@@ -341,12 +342,38 @@ export default function Chats() {
 
   // ── Delete session ─────────────────────────────────────────────────────────
 
-  const deleteSession = useCallback(async (id, e) => {
+  const deleteSession = useCallback((id, e) => {
     e.stopPropagation();
-    await fetch(`/chats/${id}`, { method: 'DELETE', headers: { 'x-location-id': locationId } });
-    if (activeId === id) { setActiveId(null); setActivePersona(null); setMessages([]); }
-    await loadSessions();
-  }, [locationId, activeId, loadSessions]);
+    const session = sessions.find(s => s.id === id);
+    const title   = session?.title || 'this chat';
+
+    toast(({ closeToast }) => (
+      <div>
+        <p style={{ margin: '0 0 6px', fontWeight: 600, fontSize: 13, color: '#f1f5f9' }}>Delete "{title}"?</p>
+        <p style={{ margin: '0 0 12px', fontSize: 12, color: '#9ca3af' }}>This cannot be undone.</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={async () => {
+              closeToast();
+              try {
+                await fetch(`/chats/${id}`, { method: 'DELETE', headers: { 'x-location-id': locationId } });
+                if (activeId === id) { setActiveId(null); setActivePersona(null); setMessages([]); }
+                await loadSessions();
+                toast.success('Chat deleted.');
+              } catch {
+                toast.error('Failed to delete chat. Please try again.');
+              }
+            }}
+            style={{ flex: 1, padding: '7px', borderRadius: 7, background: '#ef4444', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+          >Delete</button>
+          <button
+            onClick={closeToast}
+            style={{ flex: 1, padding: '7px', borderRadius: 7, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', color: '#9ca3af', cursor: 'pointer', fontSize: 12 }}
+          >Cancel</button>
+        </div>
+      </div>
+    ), { autoClose: false, closeButton: false, closeOnClick: false });
+  }, [locationId, activeId, sessions, loadSessions]);
 
   // ── Send message ───────────────────────────────────────────────────────────
 
