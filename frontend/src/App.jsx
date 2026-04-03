@@ -34,6 +34,7 @@ import AdsHub          from './pages/AdsHub';
 import SocialHub       from './pages/SocialHub';
 import Chats           from './pages/Chats';
 import AdminDashboard  from './pages/AdminDashboard';
+import Reporting       from './pages/Reporting';
 
 // ── Route wrapper: redirects to first accessible page if feature is blocked ───
 const FALLBACK_ORDER = ['/chats', '/agents', '/ads', '/social', '/workflows', '/funnel-builder', '/settings'];
@@ -94,6 +95,15 @@ export default function App() {
       <AppErrorBoundary>
         <Routes>
           <Route path="/*" element={<Admin />} />
+        </Routes>
+      </AppErrorBoundary>
+    );
+  }
+  if (pathname.startsWith('/reporting')) {
+    return (
+      <AppErrorBoundary>
+        <Routes>
+          <Route path="/*" element={<Reporting />} />
         </Routes>
       </AppErrorBoundary>
     );

@@ -26,6 +26,7 @@ function getBasename() {
   const p = window.location.pathname;
   if (p.startsWith('/admin-dashboard')) return '/admin-dashboard';
   if (p.startsWith('/admin')) return '/admin';
+  if (p.startsWith('/reporting')) return '/reporting';
   return '/ui';
 }
 
