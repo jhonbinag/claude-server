@@ -44,7 +44,26 @@ function isBillingError(msg = '') {
   return m.includes('credit') || m.includes('billing') || m.includes('quota') ||
          m.includes('insufficient') || m.includes('balance') || m.includes('rate limit') ||
          m.includes('exceeded') || m.includes('too low') || m.includes('limit exceeded') ||
-         m.includes('overloaded') || m.includes('529');
+         m.includes('overloaded') || m.includes('529') ||
+         m.includes('too large') || m.includes('request too large') || m.includes('context length') ||
+         m.includes('tokens per minute') || m.includes('maximum context');
+}
+
+// Context limits per provider (chars) — keeps requests within free-tier token budgets
+const PROVIDER_LIMITS = {
+  anthropic: { systemChars: 80000, historyMessages: 20, brainChunks: 5 },
+  openai:    { systemChars: 40000, historyMessages: 15, brainChunks: 4 },
+  groq:      { systemChars: 8000,  historyMessages: 6,  brainChunks: 2 },
+  google:    { systemChars: 60000, historyMessages: 15, brainChunks: 4 },
+};
+
+function trimForProvider(provider, systemPrompt, messages) {
+  const limits = PROVIDER_LIMITS[provider] || PROVIDER_LIMITS.openai;
+  const trimmedSystem = systemPrompt.length > limits.systemChars
+    ? systemPrompt.slice(0, limits.systemChars) + '\n[context trimmed]'
+    : systemPrompt;
+  const trimmedMessages = messages.slice(-limits.historyMessages);
+  return { trimmedSystem, trimmedMessages };
 }
 
 async function resolveProviders(locationId) {
@@ -54,7 +73,7 @@ async function resolveProviders(locationId) {
   const list = [];
   if (configs.anthropic?.apiKey) list.push({ provider: 'anthropic', anthropicKey: configs.anthropic.apiKey });
   if (configs.openai?.apiKey)    list.push({ provider: 'openai',    openaiKey: configs.openai.apiKey, hostname: 'api.openai.com', model: 'gpt-4o-mini' });
-  if (configs.groq?.apiKey)      list.push({ provider: 'groq',      groqKey:   configs.groq.apiKey,   hostname: 'api.groq.com',   model: 'llama-3.3-70b-versatile' });
+  if (configs.groq?.apiKey)      list.push({ provider: 'groq',      groqKey:   configs.groq.apiKey,   hostname: 'api.groq.com',   model: 'llama-3.1-70b-versatile' });
   if (configs.google?.apiKey)    list.push({ provider: 'google',    googleKey: configs.google.apiKey });
 
   if (!list.length) throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
@@ -505,14 +524,15 @@ router.post('/:id/message', async (req, res) => {
         // 4A. Agentic tool-use path (Anthropic only — tools require SDK)
         if (claudeTools.length > 0 && providerInfo.provider === 'anthropic') {
           send('status', { text: `Analyzing request…` });
+          const { trimmedSystem: sys, trimmedMessages: initMsgs } = trimForProvider('anthropic', systemPrompt, claudeMessages);
           const client = await getAnthropicClient(providerInfo.anthropicKey);
-          let msgs = [...claudeMessages];
+          let msgs = [...initMsgs];
           let iterations = 0;
           while (iterations < 5) {
             iterations++;
             const response = await client.messages.create({
               model: 'claude-sonnet-4-6', max_tokens: 2048,
-              system: systemPrompt, messages: msgs, tools: claudeTools,
+              system: sys, messages: msgs, tools: claudeTools,
             });
             if (response.stop_reason === 'tool_use') {
               const toolResults = [];
@@ -528,7 +548,7 @@ router.post('/:id/message', async (req, res) => {
           }
           send('status', { text: '✨ Improving…' });
           const improveStream = client.messages.stream({
-            model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt,
+            model: 'claude-sonnet-4-6', max_tokens: 2048, system: sys,
             messages: [...msgs, { role: 'assistant', content: fullText }, { role: 'user', content: improveInstruction }],
           });
           let improvedText = '';
@@ -539,22 +559,23 @@ router.post('/:id/message', async (req, res) => {
         // 4B. Anthropic two-pass (Haiku draft → Sonnet improve)
         } else if (providerInfo.provider === 'anthropic') {
           send('status', { text: `Thinking… (${providerInfo.provider})` });
+          const { trimmedSystem: sys, trimmedMessages: msgs2 } = trimForProvider('anthropic', systemPrompt, claudeMessages);
           const client = await getAnthropicClient(providerInfo.anthropicKey);
           let draftText = '';
           try {
-            const draft = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 1024, system: systemPrompt, messages: claudeMessages });
+            const draft = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 1024, system: sys, messages: msgs2 });
             draftText = draft.content[0]?.text?.trim() || '';
           } catch (_) {}
           if (draftText) {
             send('status', { text: '✨ Improving…' });
             const stream = client.messages.stream({
-              model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt,
-              messages: [...claudeMessages, { role: 'assistant', content: draftText }, { role: 'user', content: improveInstruction }],
+              model: 'claude-sonnet-4-6', max_tokens: 2048, system: sys,
+              messages: [...msgs2, { role: 'assistant', content: draftText }, { role: 'user', content: improveInstruction }],
             });
             stream.on('text', t => { fullText += t; send('text', { text: t }); });
             await stream.finalMessage();
           } else {
-            const stream = client.messages.stream({ model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt, messages: claudeMessages });
+            const stream = client.messages.stream({ model: 'claude-sonnet-4-6', max_tokens: 2048, system: sys, messages: msgs2 });
             stream.on('text', t => { fullText += t; send('text', { text: t }); });
             await stream.finalMessage();
           }
@@ -562,14 +583,16 @@ router.post('/:id/message', async (req, res) => {
         // 4C. OpenAI / Groq
         } else if (providerInfo.provider === 'openai' || providerInfo.provider === 'groq') {
           send('status', { text: `Thinking… (${providerInfo.provider})` });
+          const { trimmedSystem: sys, trimmedMessages: msgs2 } = trimForProvider(providerInfo.provider, systemPrompt, claudeMessages);
           const apiKey = providerInfo.openaiKey || providerInfo.groqKey;
-          fullText = await openAICompatChat(providerInfo.hostname, apiKey, { model: providerInfo.model, systemPrompt, messages: claudeMessages });
+          fullText = await openAICompatChat(providerInfo.hostname, apiKey, { model: providerInfo.model, systemPrompt: sys, messages: msgs2 });
           if (fullText) send('text', { text: fullText });
 
         // 4D. Google Gemini
         } else if (providerInfo.provider === 'google') {
           send('status', { text: `Thinking… (${providerInfo.provider})` });
-          fullText = await geminiGenerate(providerInfo.googleKey, { systemPrompt, messages: claudeMessages, onText: t => send('text', { text: t }) });
+          const { trimmedSystem: sys, trimmedMessages: msgs2 } = trimForProvider('google', systemPrompt, claudeMessages);
+          fullText = await geminiGenerate(providerInfo.googleKey, { systemPrompt: sys, messages: msgs2, onText: t => send('text', { text: t }) });
         }
 
         break; // success — stop trying more providers
