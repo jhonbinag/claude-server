@@ -61,6 +61,7 @@ const https = require('https');
 
 // ── OpenAI-compatible REST (OpenAI + Groq) — non-streaming simple call ────────
 function openAICompatChat(hostname, apiKey, { model, systemPrompt, messages, maxTokens = 2048 }) {
+  const isGroq = hostname === 'api.groq.com';
   const body = JSON.stringify({
     model,
     max_tokens: maxTokens,
@@ -73,7 +74,7 @@ function openAICompatChat(hostname, apiKey, { model, systemPrompt, messages, max
     const req = https.request(
       {
         hostname,
-        path:    '/v1/chat/completions',
+        path:    isGroq ? '/openai/v1/chat/completions' : '/v1/chat/completions',
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}`, 'Content-Length': Buffer.byteLength(body) },
       },
