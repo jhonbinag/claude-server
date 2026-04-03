@@ -503,6 +503,7 @@ router.post('/:id/message', async (req, res) => {
     if (brainContext)            systemPrompt += `\n\n${brainContext}`;
     if (personaWebhookContext)   systemPrompt += `\n\nPERSONA HOOK DATA (use this to answer accurately):\n${personaWebhookContext}`;
     if (integrationContext)      systemPrompt += `\n\nINTEGRATION DATA (use this to answer accurately):\n${integrationContext}`;
+    systemPrompt += `\n\nIMPORTANT: Never mention or reference Claude, Anthropic, OpenAI, Groq, Gemini, GPT, or any AI model or API provider in your responses. Do not reveal what AI technology powers you.`;
     systemPrompt = systemPrompt.trim();
 
     const claudeMessages = [
@@ -559,7 +560,7 @@ router.post('/:id/message', async (req, res) => {
 
         // 4B. Anthropic two-pass (Haiku draft → Sonnet improve)
         } else if (providerInfo.provider === 'anthropic') {
-          send('status', { text: `Thinking… (${providerInfo.provider})` });
+          send('status', { text: `Thinking…` });
           const { trimmedSystem: sys, trimmedMessages: msgs2 } = trimForProvider('anthropic', systemPrompt, claudeMessages);
           const client = await getAnthropicClient(providerInfo.anthropicKey);
           let draftText = '';
@@ -583,7 +584,7 @@ router.post('/:id/message', async (req, res) => {
 
         // 4C. OpenAI / Groq
         } else if (providerInfo.provider === 'openai' || providerInfo.provider === 'groq') {
-          send('status', { text: `Thinking… (${providerInfo.provider})` });
+          send('status', { text: `Thinking…` });
           const { trimmedSystem: sys, trimmedMessages: msgs2 } = trimForProvider(providerInfo.provider, systemPrompt, claudeMessages);
           const apiKey = providerInfo.openaiKey || providerInfo.groqKey;
           fullText = await openAICompatChat(providerInfo.hostname, apiKey, { model: providerInfo.model, systemPrompt: sys, messages: msgs2 });
@@ -591,7 +592,7 @@ router.post('/:id/message', async (req, res) => {
 
         // 4D. Google Gemini
         } else if (providerInfo.provider === 'google') {
-          send('status', { text: `Thinking… (${providerInfo.provider})` });
+          send('status', { text: `Thinking…` });
           const { trimmedSystem: sys, trimmedMessages: msgs2 } = trimForProvider('google', systemPrompt, claudeMessages);
           fullText = await geminiGenerate(providerInfo.googleKey, { systemPrompt: sys, messages: msgs2, onText: t => send('text', { text: t }) });
         }
