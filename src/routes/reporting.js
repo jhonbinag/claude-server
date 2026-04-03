@@ -40,23 +40,36 @@ router.get('/dashboard', async (req, res) => {
     const weekMs  = 7  * 24 * 60 * 60 * 1000;
     const monthMs = 30 * 24 * 60 * 60 * 1000;
 
-    const [contacts, opps, convs, weekly, monthly] = await Promise.allSettled([
-      req.ghl('GET', '/contacts/',              null, { locationId: locId,  limit: 1 }),
-      req.ghl('GET', '/opportunities/search',   null, { location_id: locId, limit: 1 }),
-      req.ghl('GET', '/conversations/search',   null, { locationId: locId,  limit: 1 }),
-      req.ghl('GET', '/contacts/',              null, { locationId: locId,  limit: 100, startAfter: now - weekMs }),
-      req.ghl('GET', '/contacts/',              null, { locationId: locId,  limit: 100, startAfter: now - monthMs }),
+    // Fetch totals + large recent batches for server-side date counting
+    const [contacts, opps, convs, recent500] = await Promise.allSettled([
+      req.ghl('GET', '/contacts/',            null, { locationId: locId, limit: 1 }),
+      req.ghl('GET', '/opportunities/search', null, { location_id: locId, limit: 1 }),
+      req.ghl('GET', '/conversations/search', null, { locationId: locId, limit: 1 }),
+      req.ghl('GET', '/contacts/',            null, { locationId: locId, limit: 500 }),
     ]);
 
     const ok = r => r.status === 'fulfilled';
+
+    // Count contacts within 7d / 30d by filtering on dateAdded server-side
+    let weekly = 0, monthly = 0;
+    if (ok(recent500)) {
+      const all = recent500.value?.contacts || [];
+      all.forEach(c => {
+        const raw     = c.dateAdded ?? c.createdAt ?? null;
+        if (!raw) return;
+        const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
+        if (addedMs >= now - weekMs)  weekly++;
+        if (addedMs >= now - monthMs) monthly++;
+      });
+    }
 
     res.json({
       success: true,
       data: {
         contacts: {
           total:   ok(contacts) ? (contacts.value?.meta?.total ?? contacts.value?.count ?? 0) : 0,
-          weekly:  ok(weekly)   ? (weekly.value?.contacts?.length ?? 0) : 0,
-          monthly: ok(monthly)  ? (monthly.value?.contacts?.length ?? 0) : 0,
+          weekly,
+          monthly,
         },
         opportunities: {
           total: ok(opps) ? (opps.value?.meta?.total ?? 0) : 0,
@@ -72,21 +85,49 @@ router.get('/dashboard', async (req, res) => {
 });
 
 // ── GET /rpt/contacts ─────────────────────────────────────────────────────────
+// When startDate/endDate are present we fetch up to 500 records from GHL
+// and filter server-side by dateAdded — GHL's startAfter is a pagination cursor,
+// not a reliable date filter, so we handle the date logic ourselves.
 
 router.get('/contacts', async (req, res) => {
   if (!requireGhl(req, res)) return;
   const { limit = 20, page = 1, startDate, endDate, query } = req.query;
+  const pageNum  = Math.max(1, Number(page));
+  const pageSize = Math.max(1, Number(limit));
+
   try {
-    const params = { locationId: req.locationId, limit: Number(limit) };
-    if (query)     params.query      = query;
-    if (startDate) params.startAfter = new Date(startDate).getTime();
+    const hasDateFilter = !!(startDate || endDate);
+
+    // When filtering by date, fetch a large batch so we can filter properly.
+    // GHL doesn't expose a reliable dateAdded filter on the list endpoint.
+    const fetchLimit = hasDateFilter ? 500 : pageSize;
+    const params = { locationId: req.locationId, limit: fetchLimit };
+    if (query) params.query = query;
 
     const data = await req.ghl('GET', '/contacts/', null, params);
-    res.json({
-      success: true,
-      data: data?.contacts || [],
-      meta: { total: data?.meta?.total ?? data?.count ?? data?.contacts?.length ?? 0 },
-    });
+    let contacts = data?.contacts || [];
+
+    if (hasDateFilter) {
+      const startMs = startDate ? new Date(startDate).getTime() : null;
+      // end of endDate day
+      const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
+
+      contacts = contacts.filter(c => {
+        // GHL returns dateAdded as an ISO string or ms number
+        const raw   = c.dateAdded ?? c.createdAt ?? null;
+        if (!raw) return false;
+        const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
+        if (startMs && addedMs < startMs) return false;
+        if (endMs   && addedMs > endMs)   return false;
+        return true;
+      });
+    }
+
+    const total    = contacts.length;
+    const offset   = (pageNum - 1) * pageSize;
+    const paginated = contacts.slice(offset, offset + pageSize);
+
+    res.json({ success: true, data: paginated, meta: { total } });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
   }
