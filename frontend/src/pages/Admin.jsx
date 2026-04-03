@@ -3012,7 +3012,7 @@ export default function Admin() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#9ca3af', textAlign: 'left' }}>
-                    {['Location', 'Status', 'Integrations', 'Last Active', 'Installed', 'Actions'].map((h) => (
+                    {['Location', 'Status', 'AI Provider', 'Integrations', 'Last Active', 'Installed', 'Actions'].map((h) => (
                       <th key={h} style={{ padding: '10px 14px', fontWeight: 500 }}>{h}</th>
                     ))}
                   </tr>
@@ -3033,6 +3033,15 @@ export default function Admin() {
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           <StatusBadge status={loc.status === 'uninstalled' ? 'uninstalled' : loc.tokenStatus || 'none'} />
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          {loc.aiProvider ? (
+                            <span title={loc.aiKeyPreview} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#052e16', color: '#4ade80', border: '1px solid #166534', borderRadius: 6, padding: '2px 8px', fontSize: 12, fontWeight: 600 }}>
+                              ✓ {loc.aiProvider}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#6b7280', fontSize: 12 }}>—</span>
+                          )}
                         </td>
                         <td style={{ padding: '10px 14px', color: '#94a3b8' }}>
                           {loc.integrations ?? '—'}

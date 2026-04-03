@@ -102,6 +102,8 @@ router.post('/app-settings', async (req, res) => {
 
 // ─── Helper: enrich a registry record with live token status ─────────────────
 
+const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google'];
+
 async function enrichLocation(rec) {
   const tokenStat = await toolTokenService.getTokenStatus(rec.locationId);
   let integrationCount = 0;
@@ -110,12 +112,26 @@ async function enrichLocation(rec) {
     integrationCount = enabled.length;
   } catch { /* non-fatal */ }
 
+  let aiProvider = null;
+  let aiKeyPreview = null;
+  try {
+    const configs  = await toolRegistry.loadToolConfigs(rec.locationId);
+    const provider = AI_PROVIDERS.find(p => configs[p]?.apiKey);
+    if (provider) {
+      aiProvider   = provider;
+      const k      = configs[provider].apiKey;
+      aiKeyPreview = k.slice(0, 6) + '...' + k.slice(-4);
+    }
+  } catch { /* non-fatal */ }
+
   return {
     ...rec,
-    tokenStatus:  tokenStat.status,
+    tokenStatus:   tokenStat.status,
     tokenIdleDays: tokenStat.idleDays,
-    lastActive:   tokenStat.lastActive || rec.lastActive || null,
-    integrations: integrationCount,
+    lastActive:    tokenStat.lastActive || rec.lastActive || null,
+    integrations:  integrationCount,
+    aiProvider,
+    aiKeyPreview,
   };
 }
 
