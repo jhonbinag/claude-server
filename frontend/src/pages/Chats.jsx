@@ -573,8 +573,10 @@ export default function Chats() {
                           </div>
                           <button onClick={e => deleteSession(s.id, e)}
                             title="Delete chat"
-                            style={{ flexShrink:0, background:'none', border:'none', cursor:'pointer', fontSize:15, padding:'2px 4px', borderRadius:4, color: '#ef4444', opacity: isHovered ? 1 : 0, transition:'opacity .15s', lineHeight:1 }}
-                          >🗑</button>
+                            style={{ flexShrink:0, background:'none', border:'none', cursor:'pointer', fontSize:16, padding:'2px 5px', borderRadius:4, color:'#fff', opacity: isHovered ? 0.7 : 0, transition:'opacity .15s', lineHeight:1, fontWeight:300 }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                            onMouseLeave={e => e.currentTarget.style.opacity = isHovered ? 0.7 : 0}
+                          >×</button>
                         </div>
                       );
                     })}
