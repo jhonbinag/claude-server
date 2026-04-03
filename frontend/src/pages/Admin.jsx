@@ -1687,7 +1687,7 @@ export default function Admin() {
     const slug = window.location.pathname.replace(/.*\/admin\/?/, '').split('/')[0] || '';
     const TAB_TO_SLUG_INIT = {
       '': 'overview', 'locations': 'locations', 'users-roles': 'users-roles',
-      'personas': 'personas', 'agents': 'agents', 'integrations': 'integrations',
+      'personas': 'personas', 'agents': 'agents', 'rewyse': 'rewyse', 'integrations': 'integrations',
       'billing': 'billing', 'logs': 'logs', 'app-settings': 'app-settings',
       'chats': 'chats', 'workflows': 'workflows', 'funnel-builder': 'funnel_builder',
       'ads': 'ads_generator', 'social': 'social_planner',
@@ -1701,7 +1701,7 @@ export default function Admin() {
   useEffect(() => {
     const TAB_TO_SLUG_EFF = {
       'overview': '',      'locations': 'locations',   'users-roles': 'users-roles',
-      'personas': 'personas', 'agents': 'agents',      'integrations': 'integrations',
+      'personas': 'personas', 'agents': 'agents', 'rewyse': 'rewyse', 'integrations': 'integrations',
       'billing': 'billing', 'logs': 'logs',            'app-settings': 'app-settings',
       'chats': 'chats',    'workflows': 'workflows',   'funnel_builder': 'funnel-builder',
       'ads_generator': 'ads', 'social_planner': 'social',
@@ -2155,7 +2155,7 @@ export default function Admin() {
     if (tab === 'app-settings') { loadAppSettings(); loadBizProfile(); loadSmtpConfig(); }
     if (tab === 'billing')   { loadBilling(); loadTiers(); }
     if (tab === 'personas')  { loadSharedBrains(); loadPersonas(); }
-    if (tab === 'agents')    loadAgents();
+    if (tab === 'rewyse')    loadAgents();
     if (tab === 'integrations') { loadIntegrations(); loadBetaFeatures(); loadDashCfg(); loadCredentials(); if (locations.length === 0) loadLocations(); }
     // Users & Roles tab: ensure locations list + default role loaded
     if (tab === 'users-roles') {
@@ -2378,8 +2378,9 @@ export default function Admin() {
     { key: 'overview',     label: 'Dashboard',     icon: '⊞' },
     { key: 'locations',    label: 'Locations',     icon: '📍' },
     { key: 'users-roles',  label: 'Users & Roles', icon: '👥' },
+    { key: 'agents',       label: 'AI Agents',     icon: '🤖' },
     { key: 'personas',     label: 'Personas',      icon: '🧠' },
-    { key: 'agents',       label: 'Agents',        icon: '🤖' },
+    { key: 'rewyse',       label: 'Pipeline Agents', icon: '⚙️' },
     { key: 'integrations', label: 'Integrations',  icon: '🔌' },
     { key: 'billing',      label: 'Plans',         icon: '💳' },
     { key: 'logs',         label: 'Activity Logs', icon: '📋' },
@@ -2399,7 +2400,7 @@ export default function Admin() {
   const PAGE_TITLE = {
     overview: 'Dashboard', locations: 'Locations',
     'users-roles': 'Users & Roles', personas: 'Personas', integrations: 'Integrations',
-    agents: 'Agents',
+    agents: 'AI Agents', rewyse: 'Pipeline Agents',
     billing: 'Plans', logs: 'Activity Logs', 'app-settings': 'App Settings',
   };
 
@@ -3880,8 +3881,8 @@ export default function Admin() {
           );
         })()}
 
-        {/* ── Agents Tab ───────────────────────────────────────────────── */}
-        {tab === 'agents' && (() => {
+        {/* ── Pipeline Agents (Rewyse) Tab ─────────────────────────────── */}
+        {tab === 'rewyse' && (() => {
           // Static display config per agent id (colors/icons only — data comes from agentsData)
           const AGENT_STYLE = {
             'build-product':    { color: '#6366f1', bg: 'rgba(99,102,241,0.08)',   border: 'rgba(99,102,241,0.22)',   badgeColor: '#6366f1', badgeBg: 'rgba(99,102,241,0.12)' },
