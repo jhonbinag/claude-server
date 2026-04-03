@@ -36,25 +36,29 @@ const Anthropic          = require('@anthropic-ai/sdk');
 
 const SHARED_LOC = '__shared__';
 
-// ── Provider detection — mirrors claudeService.js runTask() priority order ────
-// Priority: Anthropic → OpenAI → Groq → Google
+// ── Provider detection — reads per-location config from Upstash/Firebase first ─
+// Priority: Anthropic → OpenAI → Groq → Google (same as claudeService.js)
+// Per-location keys (Upstash/Firebase) take precedence over env vars.
+const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google'];
+
 async function resolveProvider(locationId) {
-  let locAnthropicKey = null;
-  try {
-    const configs  = await toolRegistry.loadToolConfigs(locationId);
-    locAnthropicKey = configs.anthropic?.apiKey || null;
-  } catch (_) {}
+  let configs = {};
+  try { configs = await toolRegistry.loadToolConfigs(locationId); } catch (_) {}
 
-  const anthropicKey = locAnthropicKey || process.env.ANTHROPIC_API_KEY || null;
-  const openaiKey    = process.env.OPENAI_API_KEY  || null;
-  const groqKey      = process.env.GROQ_API_KEY    || null;
-  const googleKey    = process.env.GOOGLE_API_KEY  || null;
+  // 1. Per-location key from Upstash/Firebase
+  const perLoc = AI_PROVIDERS.find(p => configs[p]?.apiKey);
+  if (perLoc === 'anthropic') return { provider: 'anthropic', anthropicKey: configs.anthropic.apiKey };
+  if (perLoc === 'openai')    return { provider: 'openai',    openaiKey: configs.openai.apiKey,   hostname: 'api.openai.com', model: 'gpt-4o-mini' };
+  if (perLoc === 'groq')      return { provider: 'groq',      groqKey:   configs.groq.apiKey,    hostname: 'api.groq.com',   model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' };
+  if (perLoc === 'google')    return { provider: 'google',    googleKey: configs.google.apiKey };
 
-  if (anthropicKey) return { provider: 'anthropic', anthropicKey };
-  if (openaiKey)    return { provider: 'openai',    openaiKey,  hostname: 'api.openai.com', model: 'gpt-4o-mini' };
-  if (groqKey)      return { provider: 'groq',      groqKey,    hostname: 'api.groq.com',   model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' };
-  if (googleKey)    return { provider: 'google',    googleKey };
-  throw new Error('No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, or GOOGLE_API_KEY.');
+  // 2. Platform-level env var fallback
+  if (process.env.ANTHROPIC_API_KEY) return { provider: 'anthropic', anthropicKey: process.env.ANTHROPIC_API_KEY };
+  if (process.env.OPENAI_API_KEY)    return { provider: 'openai',    openaiKey:    process.env.OPENAI_API_KEY,    hostname: 'api.openai.com', model: 'gpt-4o-mini' };
+  if (process.env.GROQ_API_KEY)      return { provider: 'groq',      groqKey:      process.env.GROQ_API_KEY,      hostname: 'api.groq.com',   model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' };
+  if (process.env.GOOGLE_API_KEY)    return { provider: 'google',    googleKey:    process.env.GOOGLE_API_KEY };
+
+  throw new Error('No AI provider configured for this location.');
 }
 
 const https = require('https');
