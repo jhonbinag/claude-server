@@ -111,6 +111,15 @@ app.get(['/admin-dashboard', '/admin-dashboard/*'], (req, res) => {
   });
 });
 
+// Serve SPA for /reporting/* browser navigations explicitly
+app.get(['/reporting', '/reporting/*'], (req, res) => {
+  const spaFile = path.join(__dirname, 'public/ui/index.html');
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.sendFile(spaFile, (err) => {
+    if (err) console.error(`[SPA] sendFile error for reporting:`, err);
+  });
+});
+
 // ── Privacy Policy (required for Facebook App Live mode) ─────────────────────
 app.get('/privacy', (req, res) => {
   res.setHeader('Content-Type', 'text/html');
