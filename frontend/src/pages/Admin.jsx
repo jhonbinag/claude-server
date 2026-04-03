@@ -2454,47 +2454,7 @@ export default function Admin() {
                   {label}
                 </button>
               ))}
-              {/* Divider */}
-              <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '8px 4px' }} />
-              <div style={{ fontSize: 10, color: '#374151', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', padding: '2px 4px 6px' }}>App View</div>
-              {ADMIN_FEATURE_NAV.map(({ key, label, icon }) => (
-                <button
-                  key={key}
-                  onClick={() => { setTab(key); if (isMobile) setSidebarOpen(false); }}
-                  style={navItemStyle(tab === key)}
-                  onMouseEnter={e => { if (tab !== key) { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#9ca3af'; } }}
-                  onMouseLeave={e => { if (tab !== key) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#6b7280'; } }}
-                >
-                  <span style={{ fontSize: 14, width: 18, textAlign: 'center', flexShrink: 0 }}>{icon}</span>
-                  {label}
-                </button>
-              ))}
             </nav>
-
-            {/* App links */}
-            <div style={{ padding: '6px 8px 8px', borderTop: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
-              <div style={{ fontSize: 10, color: '#374151', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', padding: '4px 4px 6px' }}>Go to App</div>
-              {[
-                { label: 'Dashboard',          icon: '⊞',  href: '/ui/' },
-                { label: 'Chats',              icon: '💬', href: '/ui/chats' },
-                { label: 'AI Agents',          icon: '🤖', href: '/ui/agents' },
-                { label: 'Workflows',          icon: '⟳',  href: '/ui/workflows' },
-                { label: 'Funnel Builder',     icon: '🏗️', href: '/ui/funnel-builder' },
-                { label: 'Ads',                icon: '⚡',  href: '/ui/ads' },
-                { label: 'ManyChat & Socials', icon: '📱', href: '/ui/social' },
-              ].map(f => (
-                <a
-                  key={f.href}
-                  href={f.href}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '7px 12px', borderRadius: 8, marginBottom: 1, background: 'transparent', border: 'none', color: '#4b5563', fontSize: 12, textDecoration: 'none', cursor: 'pointer', transition: 'color .15s', boxSizing: 'border-box' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#9ca3af'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#4b5563'; }}
-                >
-                  <span style={{ fontSize: 13, width: 18, textAlign: 'center', flexShrink: 0 }}>{f.icon}</span>
-                  {f.label}
-                </a>
-              ))}
-            </div>
 
             {/* Bottom */}
             <div style={{ padding: '8px 8px 14px', borderTop: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
