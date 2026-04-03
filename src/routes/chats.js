@@ -36,23 +36,29 @@ const Anthropic          = require('@anthropic-ai/sdk');
 
 const SHARED_LOC = '__shared__';
 
-// ── Provider detection — reads per-location config from Upstash/Firebase first ─
-// Priority: Anthropic → OpenAI → Groq → Google (same as claudeService.js)
-// Per-location keys (Upstash/Firebase) take precedence over env vars.
+// ── Provider detection — returns ALL configured providers for fallback support ─
 const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google'];
 
-async function resolveProvider(locationId) {
+function isBillingError(msg = '') {
+  const m = msg.toLowerCase();
+  return m.includes('credit') || m.includes('billing') || m.includes('quota') ||
+         m.includes('insufficient') || m.includes('balance') || m.includes('rate limit') ||
+         m.includes('exceeded') || m.includes('too low') || m.includes('limit exceeded') ||
+         m.includes('overloaded') || m.includes('529');
+}
+
+async function resolveProviders(locationId) {
   let configs = {};
   try { configs = await toolRegistry.loadToolConfigs(locationId); } catch (_) {}
 
-  // Read exclusively from per-location Upstash/Firebase config — no env var fallback
-  const perLoc = AI_PROVIDERS.find(p => configs[p]?.apiKey);
-  if (perLoc === 'anthropic') return { provider: 'anthropic', anthropicKey: configs.anthropic.apiKey };
-  if (perLoc === 'openai')    return { provider: 'openai',    openaiKey: configs.openai.apiKey, hostname: 'api.openai.com', model: 'gpt-4o-mini' };
-  if (perLoc === 'groq')      return { provider: 'groq',      groqKey:   configs.groq.apiKey,   hostname: 'api.groq.com',   model: 'llama-3.3-70b-versatile' };
-  if (perLoc === 'google')    return { provider: 'google',    googleKey: configs.google.apiKey };
+  const list = [];
+  if (configs.anthropic?.apiKey) list.push({ provider: 'anthropic', anthropicKey: configs.anthropic.apiKey });
+  if (configs.openai?.apiKey)    list.push({ provider: 'openai',    openaiKey: configs.openai.apiKey, hostname: 'api.openai.com', model: 'gpt-4o-mini' });
+  if (configs.groq?.apiKey)      list.push({ provider: 'groq',      groqKey:   configs.groq.apiKey,   hostname: 'api.groq.com',   model: 'llama-3.3-70b-versatile' });
+  if (configs.google?.apiKey)    list.push({ provider: 'google',    googleKey: configs.google.apiKey });
 
-  throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
+  if (!list.length) throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
+  return list;
 }
 
 const https = require('https');
@@ -366,8 +372,8 @@ router.post('/:id/message', async (req, res) => {
   const send = (evt, data) => res.write(`event: ${evt}\ndata: ${JSON.stringify(data)}\n\n`);
 
   try {
-    // Resolve AI provider — Anthropic first, Google fallback
-    const providerInfo = await resolveProvider(req.locationId);
+    // Load all configured providers — try in order, fall back on billing/quota errors
+    const providers = await resolveProviders(req.locationId);
 
     // ── 1. Brains ─────────────────────────────────────────────────────────────
     const brains = await getAllBrains(req.locationId);
@@ -492,86 +498,93 @@ router.post('/:id/message', async (req, res) => {
       ? `Review and improve this response to be more natural and true to your personality as ${persona.name}. Write only the improved response.`
       : 'Review and improve this response to be clearer and better structured. Write only the improved response.';
 
-    // ── 4A. Agentic tool-use path (Anthropic only — tools require SDK) ────────
-    if (claudeTools.length > 0 && providerInfo.provider === 'anthropic') {
-      send('status', { text: `Analyzing request…` });
-      const client = await getAnthropicClient(providerInfo.anthropicKey);
-
-      let msgs = [...claudeMessages];
-      let iterations = 0;
-
-      while (iterations < 5) {
-        iterations++;
-        const response = await client.messages.create({
-          model: 'claude-sonnet-4-6', max_tokens: 2048,
-          system: systemPrompt, messages: msgs, tools: claudeTools,
-        });
-
-        if (response.stop_reason === 'tool_use') {
-          const toolResults = [];
-          for (const block of response.content.filter(b => b.type === 'tool_use')) {
-            send('status', { text: `Fetching from ${toolMap[block.name]?.integ?.name || block.name}…` });
-            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: await executeTool(block, toolMap) });
-          }
-          msgs = [...msgs, { role: 'assistant', content: response.content }, { role: 'user', content: toolResults }];
-        } else {
-          fullText = response.content.find(b => b.type === 'text')?.text || '';
-          break;
-        }
-      }
-
-      send('status', { text: '✨ Improving…' });
-      const improveStream = client.messages.stream({
-        model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt,
-        messages: [...msgs, { role: 'assistant', content: fullText }, { role: 'user', content: improveInstruction }],
-      });
-      let improvedText = '';
-      improveStream.on('text', t => { improvedText += t; send('text', { text: t }); });
-      await improveStream.finalMessage();
-      if (improvedText) fullText = improvedText;
-
-    // ── 4B. Anthropic two-pass (Haiku draft → Sonnet improve) ────────────────
-    } else if (providerInfo.provider === 'anthropic') {
-      send('status', { text: 'Thinking…' });
-      const client = await getAnthropicClient(providerInfo.anthropicKey);
-      let draftText = '';
+    // ── 4. Try providers in order — fall back on billing/quota errors ─────────
+    let lastErr = null;
+    for (const providerInfo of providers) {
       try {
-        const draft = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 1024, system: systemPrompt, messages: claudeMessages });
-        draftText = draft.content[0]?.text?.trim() || '';
-      } catch (_) {}
+        // 4A. Agentic tool-use path (Anthropic only — tools require SDK)
+        if (claudeTools.length > 0 && providerInfo.provider === 'anthropic') {
+          send('status', { text: `Analyzing request…` });
+          const client = await getAnthropicClient(providerInfo.anthropicKey);
+          let msgs = [...claudeMessages];
+          let iterations = 0;
+          while (iterations < 5) {
+            iterations++;
+            const response = await client.messages.create({
+              model: 'claude-sonnet-4-6', max_tokens: 2048,
+              system: systemPrompt, messages: msgs, tools: claudeTools,
+            });
+            if (response.stop_reason === 'tool_use') {
+              const toolResults = [];
+              for (const block of response.content.filter(b => b.type === 'tool_use')) {
+                send('status', { text: `Fetching from ${toolMap[block.name]?.integ?.name || block.name}…` });
+                toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: await executeTool(block, toolMap) });
+              }
+              msgs = [...msgs, { role: 'assistant', content: response.content }, { role: 'user', content: toolResults }];
+            } else {
+              fullText = response.content.find(b => b.type === 'text')?.text || '';
+              break;
+            }
+          }
+          send('status', { text: '✨ Improving…' });
+          const improveStream = client.messages.stream({
+            model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt,
+            messages: [...msgs, { role: 'assistant', content: fullText }, { role: 'user', content: improveInstruction }],
+          });
+          let improvedText = '';
+          improveStream.on('text', t => { improvedText += t; send('text', { text: t }); });
+          await improveStream.finalMessage();
+          if (improvedText) fullText = improvedText;
 
-      if (draftText) {
-        send('status', { text: '✨ Improving…' });
-        const stream = client.messages.stream({
-          model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt,
-          messages: [...claudeMessages, { role: 'assistant', content: draftText }, { role: 'user', content: improveInstruction }],
-        });
-        stream.on('text', t => { fullText += t; send('text', { text: t }); });
-        await stream.finalMessage();
-      } else {
-        const stream = client.messages.stream({ model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt, messages: claudeMessages });
-        stream.on('text', t => { fullText += t; send('text', { text: t }); });
-        await stream.finalMessage();
+        // 4B. Anthropic two-pass (Haiku draft → Sonnet improve)
+        } else if (providerInfo.provider === 'anthropic') {
+          send('status', { text: `Thinking… (${providerInfo.provider})` });
+          const client = await getAnthropicClient(providerInfo.anthropicKey);
+          let draftText = '';
+          try {
+            const draft = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 1024, system: systemPrompt, messages: claudeMessages });
+            draftText = draft.content[0]?.text?.trim() || '';
+          } catch (_) {}
+          if (draftText) {
+            send('status', { text: '✨ Improving…' });
+            const stream = client.messages.stream({
+              model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt,
+              messages: [...claudeMessages, { role: 'assistant', content: draftText }, { role: 'user', content: improveInstruction }],
+            });
+            stream.on('text', t => { fullText += t; send('text', { text: t }); });
+            await stream.finalMessage();
+          } else {
+            const stream = client.messages.stream({ model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt, messages: claudeMessages });
+            stream.on('text', t => { fullText += t; send('text', { text: t }); });
+            await stream.finalMessage();
+          }
+
+        // 4C. OpenAI / Groq
+        } else if (providerInfo.provider === 'openai' || providerInfo.provider === 'groq') {
+          send('status', { text: `Thinking… (${providerInfo.provider})` });
+          const apiKey = providerInfo.openaiKey || providerInfo.groqKey;
+          fullText = await openAICompatChat(providerInfo.hostname, apiKey, { model: providerInfo.model, systemPrompt, messages: claudeMessages });
+          if (fullText) send('text', { text: fullText });
+
+        // 4D. Google Gemini
+        } else if (providerInfo.provider === 'google') {
+          send('status', { text: `Thinking… (${providerInfo.provider})` });
+          fullText = await geminiGenerate(providerInfo.googleKey, { systemPrompt, messages: claudeMessages, onText: t => send('text', { text: t }) });
+        }
+
+        break; // success — stop trying more providers
+
+      } catch (err) {
+        lastErr = err;
+        if (isBillingError(err.message)) {
+          console.warn(`[Chats] ${providerInfo.provider} billing/quota error — trying next provider:`, err.message.slice(0, 120));
+          continue; // try next provider
+        }
+        throw err; // non-billing error — propagate immediately
       }
-
-    // ── 4C. OpenAI / Groq (OpenAI-compatible REST) ────────────────────────────
-    } else if (providerInfo.provider === 'openai' || providerInfo.provider === 'groq') {
-      send('status', { text: 'Thinking…' });
-      const apiKey   = providerInfo.openaiKey || providerInfo.groqKey;
-      const hostname = providerInfo.hostname;
-      const model    = providerInfo.model;
-      fullText = await openAICompatChat(hostname, apiKey, { model, systemPrompt, messages: claudeMessages });
-      if (fullText) send('text', { text: fullText });
-
-    // ── 4D. Google Gemini ─────────────────────────────────────────────────────
-    } else if (providerInfo.provider === 'google') {
-      send('status', { text: 'Thinking…' });
-      fullText = await geminiGenerate(providerInfo.googleKey, {
-        systemPrompt,
-        messages: claudeMessages,
-        onText: t => send('text', { text: t }),
-      });
     }
+
+    if (!fullText && lastErr) throw lastErr;
 
     // ── 5. Always send done first so client never hangs ──────────────────────
     send('done', { text: fullText });

@@ -258,6 +258,16 @@ async function generateWithAnyKey(apiKey, system, userText, opts = {}) {
   throw new Error('Unrecognised API key format.');
 }
 
+// ── Billing/quota error detection ────────────────────────────────────────────
+
+function isBillingError(msg = '') {
+  const m = msg.toLowerCase();
+  return m.includes('credit') || m.includes('billing') || m.includes('quota') ||
+         m.includes('insufficient') || m.includes('balance') || m.includes('rate limit') ||
+         m.includes('exceeded') || m.includes('too low') || m.includes('limit exceeded') ||
+         m.includes('overloaded') || m.includes('529');
+}
+
 // ── Public: per-location (primary API) ───────────────────────────────────────
 
 const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google', 'perplexity'];
@@ -269,13 +279,26 @@ async function generateForLocation(locationId, systemPrompt, userPrompt, opts = 
     console.warn(`[aiService] loadToolConfigs failed for ${locationId}:`, err.message);
   }
 
-  const perLoc = AI_PROVIDERS.find(p => configs[p]?.apiKey);
-  if (!perLoc) {
+  const candidates = AI_PROVIDERS.filter(p => configs[p]?.apiKey);
+  if (!candidates.length) {
     throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
   }
 
-  console.log(`[aiService] generateForLocation(${locationId}): using ${perLoc}`);
-  return generateWithAnyKey(configs[perLoc].apiKey, systemPrompt, userPrompt, opts);
+  let lastErr = null;
+  for (const p of candidates) {
+    try {
+      console.log(`[aiService] generateForLocation(${locationId}): trying ${p}`);
+      return await generateWithAnyKey(configs[p].apiKey, systemPrompt, userPrompt, opts);
+    } catch (err) {
+      lastErr = err;
+      if (isBillingError(err.message)) {
+        console.warn(`[aiService] ${p} billing/quota error — trying next provider:`, err.message.slice(0, 120));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error('All configured AI providers failed.');
 }
 
 async function generateWithVisionForLocation(locationId, system, userText, imageBase64, mimeType, opts = {}) {
@@ -285,18 +308,31 @@ async function generateWithVisionForLocation(locationId, system, userText, image
     console.warn(`[aiService] loadToolConfigs failed for ${locationId}:`, err.message);
   }
 
-  const perLoc = AI_PROVIDERS.find(p => configs[p]?.apiKey);
-  if (!perLoc) {
+  const candidates = AI_PROVIDERS.filter(p => configs[p]?.apiKey);
+  if (!candidates.length) {
     throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
   }
 
-  const apiKey    = configs[perLoc].apiKey;
   const maxTokens = opts.maxTokens || 8192;
-  if (perLoc === 'anthropic')  return anthropicGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
-  if (perLoc === 'openai')     return openaiGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
-  if (perLoc === 'groq')       return groqGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
-  if (perLoc === 'google')     return googleGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
-  throw new Error(`Vision not supported for provider: ${perLoc}`);
+  let lastErr = null;
+  for (const p of candidates) {
+    try {
+      const apiKey = configs[p].apiKey;
+      if (p === 'anthropic')  return await anthropicGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
+      if (p === 'openai')     return await openaiGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
+      if (p === 'groq')       return await groqGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
+      if (p === 'google')     return await googleGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
+      // perplexity vision not supported — skip silently
+    } catch (err) {
+      lastErr = err;
+      if (isBillingError(err.message)) {
+        console.warn(`[aiService] ${p} billing/quota error (vision) — trying next:`, err.message.slice(0, 120));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error('All configured AI providers failed (vision).');
 }
 
 // ── Shim: callers that pass locationId in opts ────────────────────────────────

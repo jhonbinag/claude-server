@@ -715,18 +715,47 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
 
 const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google'];
 
+function isBillingError(msg = '') {
+  const m = msg.toLowerCase();
+  return m.includes('credit') || m.includes('billing') || m.includes('quota') ||
+         m.includes('insufficient') || m.includes('balance') || m.includes('rate limit') ||
+         m.includes('exceeded') || m.includes('too low') || m.includes('limit exceeded') ||
+         m.includes('overloaded') || m.includes('529');
+}
+
 async function runTask(options) {
   const { locationId } = options;
   let configs = {};
   try { configs = await toolRegistry.loadToolConfigs(locationId); } catch (_) {}
 
-  const perLoc = AI_PROVIDERS.find(p => configs[p]?.apiKey);
-  if (perLoc === 'anthropic') return runTaskWithAnthropic(options);
-  if (perLoc === 'openai')    return runTaskOpenAICompat(options, 'api.openai.com', configs.openai.apiKey, 'gpt-4o-mini');
-  if (perLoc === 'groq')      return runTaskOpenAICompat(options, 'api.groq.com',   configs.groq.apiKey,   'llama-3.1-8b-instant');
-  if (perLoc === 'google')    return runTaskWithGemini({ ...options, _googleKey: configs.google.apiKey });
+  // Build ordered list of all configured providers
+  const candidates = [];
+  if (configs.anthropic?.apiKey) candidates.push({ provider: 'anthropic' });
+  if (configs.openai?.apiKey)    candidates.push({ provider: 'openai' });
+  if (configs.groq?.apiKey)      candidates.push({ provider: 'groq' });
+  if (configs.google?.apiKey)    candidates.push({ provider: 'google' });
 
-  throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
+  if (!candidates.length) {
+    throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
+  }
+
+  let lastErr = null;
+  for (const { provider } of candidates) {
+    try {
+      if (provider === 'anthropic') return await runTaskWithAnthropic(options);
+      if (provider === 'openai')    return await runTaskOpenAICompat(options, 'api.openai.com', configs.openai.apiKey, 'gpt-4o-mini');
+      if (provider === 'groq')      return await runTaskOpenAICompat(options, 'api.groq.com',   configs.groq.apiKey,   'llama-3.1-8b-instant');
+      if (provider === 'google')    return await runTaskWithGemini({ ...options, _googleKey: configs.google.apiKey });
+    } catch (err) {
+      lastErr = err;
+      if (isBillingError(err.message)) {
+        console.warn(`[claudeService] ${provider} billing/quota error — trying next provider:`, err.message.slice(0, 120));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error('All configured AI providers failed.');
 }
 
 module.exports = { runTask };
