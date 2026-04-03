@@ -469,7 +469,15 @@ export default function Chats() {
     setCmdPalette([]);
     setInput('');
     const target = personas.find(p => p.personaId === cmd.id) || agents.find(a => (a.agentId || a.personaId) === cmd.id);
-    if (target) newChat({ ...target, personaId: target.personaId || target.agentId, agentId: target.agentId });
+    if (!target) return;
+    const normalized = { ...target, personaId: target.personaId || target.agentId, agentId: target.agentId };
+    if (activeId) {
+      // Switch the active persona/agent in the current chat without creating a new one
+      setActivePersona(normalized);
+      toast.success(`Switched to ${normalized.name}`);
+    } else {
+      newChat(normalized);
+    }
   };
 
   const handleSend = () => {
