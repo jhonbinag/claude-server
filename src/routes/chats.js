@@ -230,7 +230,8 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const conv = await store.getConversation(req.locationId + ':chats', req.params.id);
-    if (!conv) return res.status(404).json({ success: false, error: 'Not found' });
+    // Return empty messages if session exists in index but messages haven't been saved yet
+    if (!conv) return res.json({ success: true, data: { id: req.params.id, messages: [], title: 'New Chat' } });
     res.json({ success: true, data: conv });
   } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
@@ -471,7 +472,9 @@ router.post('/:id/message', async (req, res) => {
           messages: [
             ...claudeMessages,
             { role: 'assistant', content: draftText },
-            { role: 'user', content: persona
+            { role: 'user', content: systemAgent
+              ? `Review and improve this response. Stay fully in character as ${systemAgent.name}. Keep all methodology, phase references, and formatting intact. Write only the improved response.`
+              : persona
               ? `Review and improve this response to be more natural and true to your personality as ${persona.name}. Write only the improved response.`
               : 'Review and improve this response to be clearer and better structured. Write only the improved response.' },
           ],
@@ -491,21 +494,29 @@ router.post('/:id/message', async (req, res) => {
       }
     }
 
-    // ── 5. Persist ────────────────────────────────────────────────────────────
-    const conv     = await store.getConversation(req.locationId + ':chats', req.params.id).catch(() => null);
-    const existing = conv?.messages || [];
-    const updated  = [
-      ...existing,
-      { role: 'user',      content: message.trim(), ts: Date.now() },
-      { role: 'assistant', content: fullText,        ts: Date.now() },
-    ];
-    const title = conv?.title && conv.title !== 'New Chat' ? conv.title : makeTitle(message);
-    await store.saveConversation(req.locationId + ':chats', {
-      id: req.params.id, title, messages: updated,
-      ...(personaId ? { personaId } : (conv?.personaId ? { personaId: conv.personaId } : {})),
-    });
-
+    // ── 5. Always send done first so client never hangs ──────────────────────
     send('done', { text: fullText });
+
+    // ── 6. Persist (fire-and-forget — must not block or crash the response) ──
+    try {
+      const conv     = await store.getConversation(req.locationId + ':chats', req.params.id).catch(() => null);
+      const existing = conv?.messages || [];
+      // Merge: use client history as ground truth (already validated), append new pair
+      const clientHistory = history.slice(-100).map(m => ({ role: m.role, content: m.content, ts: m.ts || 0 }));
+      const merged = clientHistory.length >= existing.length ? clientHistory : existing;
+      const updated = [
+        ...merged,
+        { role: 'user',      content: message.trim(), ts: Date.now() },
+        { role: 'assistant', content: fullText,        ts: Date.now() },
+      ];
+      const title = conv?.title && conv.title !== 'New Chat' ? conv.title : makeTitle(message);
+      await store.saveConversation(req.locationId + ':chats', {
+        id: req.params.id, title, messages: updated,
+        ...(personaId ? { personaId } : (conv?.personaId ? { personaId: conv.personaId } : {})),
+      });
+    } catch (saveErr) {
+      console.error('[Chats] Failed to persist conversation:', saveErr.message);
+    }
   } catch (err) {
     send('error', { error: err.message });
   }

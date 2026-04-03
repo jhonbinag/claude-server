@@ -73,8 +73,8 @@ async function saveConversation(locationId, { id, title, messages, personaId }) 
   const docId  = `${locationId}_${id}`;
   const now    = new Date().toISOString();
   const safeTitle   = (title || 'New conversation').slice(0, 80);
-  const previewMsg  = messages.find(m => m.type === 'text');
-  const preview     = previewMsg ? previewMsg.text.slice(0, 120) : '';
+  const previewMsg  = messages.find(m => m.role === 'user' || m.role === 'assistant');
+  const preview     = previewMsg ? (previewMsg.content || '').slice(0, 120) : '';
 
   if (d) {
     const admin   = require('firebase-admin');
