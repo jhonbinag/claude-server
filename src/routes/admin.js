@@ -180,6 +180,30 @@ async function resolveLocationRecord(seed) {
   return resolved;
 }
 
+// ─── GET /admin/ai-keys — show which locations have an active AI key ──────────
+
+router.get('/ai-keys', async (req, res) => {
+  try {
+    const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google'];
+    const seedMap  = await buildLocationSeedMap({ includeUninstalled: false });
+    const results  = await Promise.all([...seedMap.keys()].map(async (locationId) => {
+      try {
+        const configs   = await toolRegistry.loadToolConfigs(locationId);
+        const provider  = AI_PROVIDERS.find(p => configs[p]?.apiKey);
+        const key       = provider ? configs[provider].apiKey : null;
+        return { locationId, provider: provider || null, keyPreview: key ? key.slice(0, 8) + '...' + key.slice(-4) : null };
+      } catch {
+        return { locationId, provider: null, keyPreview: null };
+      }
+    }));
+    const withKey    = results.filter(r => r.provider);
+    const withoutKey = results.filter(r => !r.provider);
+    res.json({ success: true, total: results.length, withKey: withKey.length, data: withKey, noKey: withoutKey.map(r => r.locationId) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─── GET /admin/locations — list all locations ────────────────────────────────
 
 router.get('/locations', async (req, res) => {
