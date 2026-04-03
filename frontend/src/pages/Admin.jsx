@@ -6134,7 +6134,7 @@ export default function Admin() {
                 brainLocQ={brainLocQ}
                 onBack={() => setSelectedBrain(null)}
                 onRefresh={loadSharedBrains}
-                onFlash={flash}
+                onFlash={(msg) => toast.success(msg)}
                 onDeleted={async (brainId) => {
                   const locQ = selectedBrain?._locationId && selectedBrain._locationId !== '__shared__'
                     ? `?loc=${encodeURIComponent(selectedBrain._locationId)}` : '';
