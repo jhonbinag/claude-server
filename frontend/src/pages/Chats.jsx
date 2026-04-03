@@ -268,17 +268,6 @@ export default function Chats() {
     if (activeId) localStorage.setItem(`chats_lastActive_${locationId}`, activeId);
   }, [activeId, locationId]);
 
-  // ── Restore last active session after page load ────────────────────────────
-
-  useEffect(() => {
-    if (restoredRef.current || !locationId || sessions.length === 0) return;
-    restoredRef.current = true;
-    const saved = localStorage.getItem(`chats_lastActive_${locationId}`);
-    if (!saved) return;
-    const session = sessions.find(s => s.id === saved);
-    if (session) openSession(session);
-  }, [sessions, locationId, openSession]);
-
   // ── Open a session ─────────────────────────────────────────────────────────
 
   const openSession = useCallback(async (session) => {
@@ -306,6 +295,17 @@ export default function Chats() {
     } catch (_) { setMessages([]); }
     setTimeout(() => inputRef.current?.focus(), 100);
   }, [locationId, personas, agents]);
+
+  // ── Restore last active session after page load ────────────────────────────
+
+  useEffect(() => {
+    if (restoredRef.current || !locationId || sessions.length === 0) return;
+    restoredRef.current = true;
+    const saved = localStorage.getItem(`chats_lastActive_${locationId}`);
+    if (!saved) return;
+    const session = sessions.find(s => s.id === saved);
+    if (session) openSession(session);
+  }, [sessions, locationId, openSession]);
 
   // ── Create new chat (with or without a persona) ────────────────────────────
 
