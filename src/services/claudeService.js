@@ -722,7 +722,8 @@ function isBillingError(msg = '') {
          m.includes('exceeded') || m.includes('too low') || m.includes('limit exceeded') ||
          m.includes('overloaded') || m.includes('529') ||
          m.includes('too large') || m.includes('request too large') || m.includes('context length') ||
-         m.includes('tokens per minute') || m.includes('maximum context');
+         m.includes('tokens per minute') || m.includes('maximum context') ||
+         m.includes('decommissioned') || m.includes('no longer supported') || m.includes('deprecated');
 }
 
 async function runTask(options) {

@@ -46,7 +46,8 @@ function isBillingError(msg = '') {
          m.includes('exceeded') || m.includes('too low') || m.includes('limit exceeded') ||
          m.includes('overloaded') || m.includes('529') ||
          m.includes('too large') || m.includes('request too large') || m.includes('context length') ||
-         m.includes('tokens per minute') || m.includes('maximum context');
+         m.includes('tokens per minute') || m.includes('maximum context') ||
+         m.includes('decommissioned') || m.includes('no longer supported') || m.includes('deprecated');
 }
 
 // Context limits per provider (chars) — keeps requests within free-tier token budgets
@@ -73,7 +74,7 @@ async function resolveProviders(locationId) {
   const list = [];
   if (configs.anthropic?.apiKey) list.push({ provider: 'anthropic', anthropicKey: configs.anthropic.apiKey });
   if (configs.openai?.apiKey)    list.push({ provider: 'openai',    openaiKey: configs.openai.apiKey, hostname: 'api.openai.com', model: 'gpt-4o-mini' });
-  if (configs.groq?.apiKey)      list.push({ provider: 'groq',      groqKey:   configs.groq.apiKey,   hostname: 'api.groq.com',   model: 'llama-3.1-70b-versatile' });
+  if (configs.groq?.apiKey)      list.push({ provider: 'groq',      groqKey:   configs.groq.apiKey,   hostname: 'api.groq.com',   model: 'llama-3.3-70b-versatile' });
   if (configs.google?.apiKey)    list.push({ provider: 'google',    googleKey: configs.google.apiKey });
 
   if (!list.length) throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
