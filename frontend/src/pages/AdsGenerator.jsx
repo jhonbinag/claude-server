@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import { useApp }                 from '../context/AppContext';
 import { useStreamFetch }         from '../hooks/useStreamFetch';
 import AuthGate                   from '../components/AuthGate';
@@ -29,85 +30,114 @@ const QUICK_NICHES = [
   '💆 Health & Wellness', '📚 Online Courses', '🛍️ eCommerce',
 ];
 
+// ─── Ad Modal ────────────────────────────────────────────────────────────────
+
+function AdModal({ ad, index, onClose }) {
+  const { copy } = ad;
+  if (!copy) return null;
+
+  const fullText = [
+    copy.headline && `Headline:\n${copy.headline}`,
+    copy.primaryText && `\nPrimary Text:\n${copy.primaryText}`,
+    copy.callToAction && `\nCall to Action: ${copy.callToAction}`,
+    copy.whyItWorks && `\nWhy It Works:\n${copy.whyItWorks}`,
+  ].filter(Boolean).join('\n');
+
+  const copyField = (label, value) => {
+    navigator.clipboard.writeText(value).then(() => toast.success(`${label} copied!`));
+  };
+
+  const copyAll = () => {
+    navigator.clipboard.writeText(fullText).then(() => toast.success('Full ad copy copied!'));
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background:'#14141e', border:'1px solid rgba(255,255,255,0.1)', borderRadius:18, width:'100%', maxWidth:560, maxHeight:'85vh', overflowY:'auto', display:'flex', flexDirection:'column' }}
+      >
+        {/* Header */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 20px 14px', borderBottom:'1px solid rgba(255,255,255,0.07)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <span style={{ fontSize:13, fontWeight:700, color:'#a5b4fc' }}>Ad #{index + 1}</span>
+            <span style={{ fontSize:11, padding:'2px 10px', borderRadius:20, background:'rgba(99,102,241,0.2)', color:'#a5b4fc' }}>{copy.angle || 'direct'}</span>
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={copyAll} style={{ fontSize:12, padding:'6px 14px', borderRadius:8, background:'rgba(99,102,241,0.2)', border:'1px solid rgba(99,102,241,0.35)', color:'#a5b4fc', cursor:'pointer', fontWeight:600 }}>
+              Copy All
+            </button>
+            <button onClick={onClose} style={{ background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:20, lineHeight:1, padding:'0 4px' }}>×</button>
+          </div>
+        </div>
+
+        {/* Fields */}
+        <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:14 }}>
+          {[
+            { label: 'Headline', value: copy.headline },
+            { label: 'Primary Text', value: copy.primaryText },
+            { label: 'Call to Action', value: copy.callToAction },
+            { label: 'Why It Works', value: copy.whyItWorks, accent: true },
+          ].filter(f => f.value).map(({ label, value, accent }) => (
+            <div key={label} style={{ background: accent ? 'rgba(16,185,129,0.06)' : 'rgba(255,255,255,0.03)', border:`1px solid ${accent ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.07)'}`, borderRadius:12, padding:'12px 14px' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                <span style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color: accent ? '#34d399' : '#6b7280' }}>{accent ? '💡 ' : ''}{label}</span>
+                <button
+                  onClick={() => copyField(label, value)}
+                  style={{ fontSize:11, padding:'3px 10px', borderRadius:6, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', color:'#9ca3af', cursor:'pointer' }}
+                >
+                  Copy
+                </button>
+              </div>
+              <p style={{ margin:0, fontSize:13, color: accent ? '#6ee7b7' : '#e2e8f0', lineHeight:1.65, whiteSpace:'pre-wrap' }}>{value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Ad Card ─────────────────────────────────────────────────────────────────
 
-function AdCard({ ad, index }) {
-  const [expanded, setExpanded] = useState(false);
+function AdCard({ ad, index, onClick }) {
+  const [hovered, setHovered] = useState(false);
   const { copy } = ad;
   if (!copy) return null;
 
   return (
     <div
-      className="rounded-2xl overflow-hidden flex flex-col"
-      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        borderRadius:16, overflow:'hidden', display:'flex', flexDirection:'column', cursor:'pointer',
+        background: hovered ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.04)',
+        border:`1px solid ${hovered ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.08)'}`,
+        transition:'all .15s',
+      }}
     >
       {/* Image placeholder */}
-      <div
-        className="flex flex-col items-center justify-center gap-1 flex-shrink-0"
-        style={{ background: 'rgba(0,0,0,0.25)', height: 90, borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-      >
-        <span style={{ fontSize: 22 }}>🖼️</span>
-        <p className="text-xs text-gray-600">Creative placeholder</p>
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, background:'rgba(0,0,0,0.25)', height:80, borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0 }}>
+        <span style={{ fontSize:20 }}>🖼️</span>
+        <p style={{ margin:0, fontSize:10, color:'#4b5563' }}>Creative placeholder</p>
       </div>
 
       {/* Card body */}
-      <div className="flex flex-col flex-1 p-3 gap-2">
-        {/* Badge row */}
-        <div className="flex items-center justify-between gap-1">
-          <span className="text-xs font-bold text-indigo-300 uppercase tracking-wider">Ad #{index + 1}</span>
-          <span
-            className="text-xs px-2 py-0.5 rounded-full truncate"
-            style={{ background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', maxWidth: 100 }}
-          >
-            {copy.angle || 'direct'}
-          </span>
+      <div style={{ display:'flex', flexDirection:'column', flex:1, padding:'10px 12px', gap:8 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
+          <span style={{ fontSize:11, fontWeight:700, color:'#818cf8', textTransform:'uppercase', letterSpacing:'0.05em' }}>Ad #{index + 1}</span>
+          <span style={{ fontSize:10, padding:'2px 8px', borderRadius:20, background:'rgba(99,102,241,0.15)', color:'#a5b4fc', maxWidth:90, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{copy.angle || 'direct'}</span>
         </div>
-
-        {/* Headline */}
-        <p className="text-sm font-bold text-white leading-snug">{copy.headline}</p>
-
-        {/* Primary text */}
-        <p
-          className="text-xs text-gray-400 leading-relaxed whitespace-pre-line"
-          style={{
-            display: '-webkit-box',
-            WebkitLineClamp: expanded ? 'unset' : 3,
-            WebkitBoxOrient: 'vertical',
-            overflow: expanded ? 'visible' : 'hidden',
-          }}
-        >
-          {copy.primaryText}
-        </p>
-
-        {copy.primaryText?.length > 100 && (
-          <button
-            onClick={() => setExpanded(e => !e)}
-            className="text-xs text-left"
-            style={{ color: '#818cf8' }}
-          >
-            {expanded ? '▲ less' : '▼ more'}
-          </button>
-        )}
-
-        {/* CTA */}
-        <div className="mt-auto pt-1">
-          <span
-            className="inline-block px-3 py-1 rounded-lg text-xs font-semibold"
-            style={{ background: '#1877f2', color: '#fff' }}
-          >
-            {copy.callToAction || 'Learn More'}
-          </span>
+        <p style={{ margin:0, fontSize:12, fontWeight:700, color:'#f1f5f9', lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{copy.headline}</p>
+        <p style={{ margin:0, fontSize:11, color:'#6b7280', lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{copy.primaryText}</p>
+        <div style={{ marginTop:'auto', paddingTop:4, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <span style={{ fontSize:10, padding:'3px 10px', borderRadius:6, background:'#1877f2', color:'#fff', fontWeight:600 }}>{copy.callToAction || 'Learn More'}</span>
+          <span style={{ fontSize:11, color: hovered ? '#a5b4fc' : '#4b5563', transition:'color .15s' }}>View →</span>
         </div>
-
-        {/* Why it works */}
-        {copy.whyItWorks && (
-          <div
-            className="text-xs px-2.5 py-2 rounded-xl leading-snug"
-            style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.15)', color: '#6ee7b7' }}
-          >
-            💡 {copy.whyItWorks}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -200,6 +230,7 @@ export default function AdsGenerator() {
   const [step,     setStep]     = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [ads,      setAds]      = useState([]);
+  const [selectedAd, setSelectedAd] = useState(null);
   const [libInfo,  setLibInfo]  = useState(null);
   const [error,    setError]    = useState(null);
   const [warnings, setWarnings] = useState([]);
@@ -468,19 +499,24 @@ export default function AdsGenerator() {
 
             <AnalysisCard analysis={analysis} />
 
-            {/* 4-column grid */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              {ads.map((ad, i) => ad && <AdCard key={i} ad={ad} index={i} />)}
+            {/* 3-column grid — click any card to open full modal */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {ads.map((ad, i) => ad && <AdCard key={i} ad={ad} index={i} onClick={() => setSelectedAd({ ad, index: i })} />)}
             </div>
 
-            {/* Skeleton loaders in 4-col grid */}
+            {/* Skeleton loaders in 3-col grid */}
             {isRunning && ads.length === 0 && !analysis && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-2">
-                {[...Array(8)].map((_, i) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
+                {[...Array(6)].map((_, i) => (
                   <div key={i} className="h-48 rounded-2xl animate-pulse"
                     style={{ background: 'rgba(255,255,255,0.03)', animationDelay: `${i * 0.08}s` }} />
                 ))}
               </div>
+            )}
+
+            {/* Ad detail modal */}
+            {selectedAd && (
+              <AdModal ad={selectedAd.ad} index={selectedAd.index} onClose={() => setSelectedAd(null)} />
             )}
 
             {/* Self-improvement panel — auto-starts 3s after generation */}
