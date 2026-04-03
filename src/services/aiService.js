@@ -313,7 +313,12 @@ async function generateWithVision(system, userText, imageBase64, mimeType, opts 
   return generateWithVisionForLocation(locationId, system, userText, imageBase64, mimeType, rest);
 }
 
+// Backwards-compat stub — always returns null since env-var providers are removed.
+// Guards that check !getProvider() will correctly show "no provider" when location has no key.
+function getProvider() { return null; }
+
 module.exports = {
+  getProvider,
   generate,
   generateWithVision,
   generateWithKey,

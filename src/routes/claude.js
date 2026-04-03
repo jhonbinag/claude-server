@@ -324,12 +324,7 @@ router.get('/status', async (req, res) => {
       } catch { /* non-fatal */ }
     }
 
-    // Final fallback: env-var configured provider (platform-level)
-    if (!hasKey) {
-      const aiService = require('../services/aiService');
-      const envProvider = aiService.getProvider();
-      if (envProvider) { hasKey = true; providerName = envProvider.name; }
-    }
+    // No env-var fallback — provider must be configured per-location in Settings → Integrations
 
     const MODEL_NAMES = {
       anthropic: 'claude-opus-4-6',
