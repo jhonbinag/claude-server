@@ -59,6 +59,15 @@ app.use(rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 }));
 
+// ── Request logger ─────────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} → ${res.statusCode} (${Date.now() - start}ms)`);
+  });
+  next();
+});
+
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
@@ -93,8 +102,12 @@ app.get(['/ui/admin-dashboard', '/ui/admin-dashboard/*'], (req, res) => {
 
 // Serve SPA for /admin-dashboard/* browser navigations explicitly
 app.get(['/admin-dashboard', '/admin-dashboard/*'], (req, res) => {
+  const spaFile = path.join(__dirname, 'public/ui/index.html');
+  console.log(`[SPA] Serving admin-dashboard → ${spaFile}`);
   res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.sendFile(path.join(__dirname, 'public/ui/index.html'));
+  res.sendFile(spaFile, (err) => {
+    if (err) console.error(`[SPA] sendFile error for admin-dashboard:`, err);
+  });
 });
 
 // ── Privacy Policy (required for Facebook App Live mode) ─────────────────────
@@ -161,7 +174,7 @@ if (uiRoute)              app.use('/',               uiRoute);
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path }));
 
 app.use((err, req, res, _next) => {
-  console.error('[Server Error]', err);
+  console.error(`[Server Error] ${req.method} ${req.originalUrl}`, err);
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
