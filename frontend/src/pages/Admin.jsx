@@ -8218,15 +8218,16 @@ function bezierPath(x1, y1, x2, y2) {
 
 function EditWorkflowModal({ modal, adminKey, locationLabel, onClose, onSaved, onFlash }) {
   const wf = modal.data;
-  const [name,     setName]     = useState(wf.name    || '');
-  const [context,  setContext]  = useState(wf.context || '');
-  const [steps,    setSteps]    = useState(() => {
+  const [name,       setName]       = useState(wf.name    || '');
+  const [context,    setContext]    = useState(wf.context || '');
+  const [steps,      setSteps]      = useState(() => {
     if (!Array.isArray(wf.steps) || wf.steps.length === 0)
       return [{ tool: 'ghl', label: '', instruction: '' }];
     return wf.steps.map(s => ({ tool: s.tool || 'ghl', label: s.label || '', instruction: s.instruction || '' }));
   });
-  const [popupIdx, setPopupIdx] = useState(null); // which node's popup is open
-  const [saving,   setSaving]   = useState(false);
+  const [popupIdx,   setPopupIdx]   = useState(null);
+  const [saving,     setSaving]     = useState(false);
+  const [maximized,  setMaximized]  = useState(false);
 
   const inp = { width: '100%', padding: '8px 10px', background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#e5e7eb', fontSize: 13, boxSizing: 'border-box' };
   const lbl = { display: 'block', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 };
@@ -8238,21 +8239,20 @@ function EditWorkflowModal({ modal, adminKey, locationLabel, onClose, onSaved, o
   };
   const addStep = () => { setSteps(p => [...p, { tool: 'ghl', label: '', instruction: '' }]); setPopupIdx(steps.length); };
 
-  // Full-width canvas geometry — node centered horizontally
-  const MODAL_W   = 860;
-  const INNER_W   = MODAL_W - 48;        // canvas inner width with padding
-  const FC_W      = 280;                  // full-canvas node width
-  const FC_H      = 76;                   // node height
-  const FC_GAP    = 80;                   // gap between nodes
+  // Canvas geometry — adapts to maximized vs normal
+  const MODAL_W   = maximized ? (typeof window !== 'undefined' ? window.innerWidth : 1200) : 860;
+  const INNER_W   = MODAL_W - 48;
+  const FC_W      = maximized ? 340 : 280;
+  const FC_H      = 76;
+  const FC_GAP    = 80;
   const FC_PAD    = 28;
-  const FC_X      = (INNER_W - FC_W) / 2; // center node
+  const FC_X      = (INNER_W - FC_W) / 2;
   const canvasH   = steps.length * (FC_H + FC_GAP) - FC_GAP + FC_PAD * 2;
   const nodeTop   = (i) => FC_PAD + i * (FC_H + FC_GAP);
 
-  // Popup appears to the right of the node; if no room, to the left
-  const POPUP_W   = 300;
-  const popupLeft = FC_X + FC_W + 18;
-  const fitsRight = popupLeft + POPUP_W <= INNER_W + 10;
+  const POPUP_W      = maximized ? 360 : 300;
+  const popupLeft    = FC_X + FC_W + 18;
+  const fitsRight    = popupLeft + POPUP_W <= INNER_W + 10;
   const finalPopLeft = fitsRight ? popupLeft : FC_X - POPUP_W - 18;
 
   const save = async () => {
@@ -8270,15 +8270,23 @@ function EditWorkflowModal({ modal, adminKey, locationLabel, onClose, onSaved, o
     setSaving(false);
   };
 
+  const overlayStyle = maximized
+    ? { position: 'fixed', inset: 0, zIndex: 1000, background: '#0a0a0a', display: 'flex', flexDirection: 'column' }
+    : { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 };
+
+  const boxStyle = maximized
+    ? { background: '#111', display: 'flex', flexDirection: 'column', width: '100%', height: '100%', overflow: 'hidden' }
+    : { background: '#111', border: '1px solid #222', borderRadius: 16, width: `min(${MODAL_W}px, 100%)`, maxHeight: '94vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' };
+
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}
-      onClick={e => { if (e.target === e.currentTarget) { setPopupIdx(null); onClose(); } }}
+      style={overlayStyle}
+      onClick={e => { if (!maximized && e.target === e.currentTarget) { setPopupIdx(null); onClose(); } }}
     >
-      <div style={{ background: '#111', border: '1px solid #222', borderRadius: 16, width: `min(${MODAL_W}px, 100%)`, maxHeight: '94vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={boxStyle}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', borderBottom: '1px solid #1e1e1e', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', borderBottom: '1px solid #1e1e1e', flexWrap: 'wrap', flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <input
               value={name}
@@ -8295,9 +8303,18 @@ function EditWorkflowModal({ modal, adminKey, locationLabel, onClose, onSaved, o
             value={context}
             onChange={e => setContext(e.target.value)}
             placeholder="System prompt / context…"
-            style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 8, color: '#9ca3af', fontSize: 12, padding: '6px 12px', width: 240, outline: 'none' }}
+            style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 8, color: '#9ca3af', fontSize: 12, padding: '6px 12px', width: maximized ? 360 : 240, outline: 'none' }}
           />
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 22, lineHeight: 1, flexShrink: 0 }}>×</button>
+          {/* Maximize / Minimize */}
+          <button
+            onClick={() => setMaximized(m => !m)}
+            title={maximized ? 'Minimize' : 'Maximize'}
+            style={{ background: 'none', border: '1px solid #2a2a2a', borderRadius: 6, color: '#6b7280', cursor: 'pointer', fontSize: 14, lineHeight: 1, flexShrink: 0, padding: '4px 8px' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed'; e.currentTarget.style.color = '#a78bfa'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.color = '#6b7280'; }}
+          >{maximized ? '⊡' : '⊞'}</button>
+          {/* Close */}
+          <button onClick={onClose} title="Close" style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 22, lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
 
         {/* Canvas body */}
