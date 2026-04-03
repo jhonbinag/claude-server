@@ -247,15 +247,83 @@ function LeadsTile({ label, value, color, bg, bdr, loading }) {
   );
 }
 
+// ── Dashboard — leads tab (7d / 30d contacts table) ──────────────────────────
+
+const LEAD_COLS = [
+  { key: 'name',      label: 'Name',    render: (_, r) => [r.firstName, r.lastName].filter(Boolean).join(' ') || <span style={{ color: C.muted }}>—</span> },
+  { key: 'email',     label: 'Email',   render: v => v || <span style={{ color: C.muted }}>—</span> },
+  { key: 'phone',     label: 'Phone',   render: v => v || <span style={{ color: C.muted }}>—</span> },
+  { key: 'tags',      label: 'Tags',    render: v => Array.isArray(v) && v.length ? v.slice(0, 3).map(t => <span key={t} style={{ marginRight: 4, padding: '1px 7px', borderRadius: 8, background: C.accentBg, color: '#a5b4fc', fontSize: 11 }}>{t}</span>) : <span style={{ color: C.muted }}>—</span> },
+  { key: 'dateAdded', label: 'Added',   render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
+];
+
+function LeadsTabPanel({ locationId, days }) {
+  const [rows,    setRows]    = useState([]);
+  const [total,   setTotal]   = useState(0);
+  const [page,    setPage]    = useState(1);
+  const [limit,   setLimit]   = useState(20);
+  const [loading, setLoading] = useState(false);
+  const [loaded,  setLoaded]  = useState(false);
+
+  const headers = { 'x-location-id': locationId };
+
+  const load = useCallback(async (p = 1) => {
+    setLoading(true);
+    try {
+      const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const params = new URLSearchParams({ limit, page: p, startDate });
+      const r = await fetch(`/rpt/contacts?${params}`, { headers });
+      const d = await r.json();
+      if (d.success) { setRows(d.data); setTotal(d.meta?.total ?? d.data.length); }
+    } catch (_) {}
+    setLoading(false);
+    setLoaded(true);
+  }, [locationId, limit, days]);
+
+  // Auto-load on mount
+  useEffect(() => { load(1); }, [load]);
+
+  const handlePage = p => { setPage(p); load(p); };
+  const handleLimit = n => { setLimit(n); setPage(1); };
+
+  return (
+    <div>
+      {/* Per-page + refresh row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <label style={{ ...S.label, margin: 0 }}>Per page</label>
+        <select
+          value={limit}
+          onChange={e => handleLimit(Number(e.target.value))}
+          style={{ ...S.input, padding: '5px 10px', fontSize: 12 }}
+        >
+          {[10, 20, 30, 40, 50].map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <button
+          onClick={() => { setPage(1); load(1); }}
+          disabled={loading}
+          style={{ ...S.btn, padding: '6px 14px', fontSize: 12, opacity: loading ? 0.6 : 1 }}
+        >
+          {loading ? 'Loading…' : '↻ Refresh'}
+        </button>
+        {loaded && !loading && (
+          <span style={{ fontSize: 12, color: C.muted }}>
+            {total > 0 ? `${total.toLocaleString()} contact${total !== 1 ? 's' : ''} added in the last ${days} days` : 'No contacts found'}
+          </span>
+        )}
+      </div>
+
+      <DataTable columns={LEAD_COLS} rows={rows} loading={loading} loaded={loaded} />
+      {loaded && total > 0 && <Pagination page={page} total={total} limit={limit} onChange={handlePage} />}
+    </div>
+  );
+}
+
 // ── Dashboard Section ─────────────────────────────────────────────────────────
 
 function DashboardView({ locationId }) {
-  const [stats,       setStats]       = useState(null);
-  const [loading,     setLoading]     = useState(false);
-  const [filterStart, setFilterStart] = useState('');
-  const [filterEnd,   setFilterEnd]   = useState('');
-  const [customCount, setCustomCount] = useState(null);
-  const [customLoading, setCustomLoading] = useState(false);
+  const [stats,   setStats]   = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [leadsTab, setLeadsTab] = useState('7d');
 
   const headers = { 'x-location-id': locationId };
 
@@ -271,19 +339,11 @@ function DashboardView({ locationId }) {
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
-  const loadCustom = async () => {
-    if (!filterStart && !filterEnd) return;
-    setCustomLoading(true);
-    try {
-      const p = new URLSearchParams({ limit: 100 });
-      if (filterStart) p.set('startDate', filterStart);
-      if (filterEnd)   p.set('endDate',   filterEnd);
-      const r = await fetch(`/rpt/contacts?${p}`, { headers });
-      const d = await r.json();
-      if (d.success) setCustomCount(d.meta?.total ?? d.data?.length ?? 0);
-    } catch (_) {}
-    setCustomLoading(false);
-  };
+  const TABS = [
+    { key: '7d',  label: 'Last 7 Days',  days: 7,  color: '#a5b4fc', bg: 'rgba(99,102,241,0.08)',  bdr: C.accentBdr },
+    { key: '30d', label: 'Last 30 Days', days: 30, color: '#34d399', bg: C.greenBg,                bdr: C.greenBdr  },
+  ];
+  const activeTab = TABS.find(t => t.key === leadsTab);
 
   return (
     <div>
@@ -295,58 +355,51 @@ function DashboardView({ locationId }) {
 
       {/* Summary cards */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 28 }}>
-        <StatCard icon="👥" label="Total Contacts"      value={stats?.contacts?.total}      loading={loading && !stats} />
-        <StatCard icon="💼" label="Total Opportunities" value={stats?.opportunities?.total}  loading={loading && !stats} color={C.green} />
-        <StatCard icon="💬" label="Total Conversations" value={stats?.conversations?.total}  loading={loading && !stats} color={C.amber} />
+        <StatCard icon="👥" label="Total Contacts"      value={stats?.contacts?.total}     loading={loading && !stats} />
+        <StatCard icon="💼" label="Total Opportunities" value={stats?.opportunities?.total} loading={loading && !stats} color={C.green} />
+        <StatCard icon="💬" label="Total Conversations" value={stats?.conversations?.total} loading={loading && !stats} color={C.amber} />
       </div>
 
-      {/* Leads trend */}
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 26px', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.text }}>New Leads (Contacts Added)</h2>
-          <button onClick={loadStats} disabled={loading} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 7, padding: '5px 12px', fontSize: 11, color: C.muted, cursor: 'pointer' }}>
-            {loading ? 'Refreshing…' : '↻ Refresh'}
-          </button>
-        </div>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          <LeadsTile
-            label="Last 7 Days" value={stats?.contacts?.weekly}
-            loading={loading && !stats}
-            color="#a5b4fc" bg="rgba(99,102,241,0.08)" bdr={C.accentBdr}
-          />
-          <LeadsTile
-            label="Last 30 Days" value={stats?.contacts?.monthly}
-            loading={loading && !stats}
-            color="#34d399" bg={C.greenBg} bdr={C.greenBdr}
-          />
-        </div>
-      </div>
-
-      {/* Custom date range filter */}
+      {/* New Leads with tabs */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 26px' }}>
-        <h2 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: C.text }}>Custom Date Filter</h2>
-        <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>Filter contacts by date added within a custom range.</p>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div>
-            <label style={S.label}>From</label>
-            <input type="date" value={filterStart} onChange={e => setFilterStart(e.target.value)} style={S.input} />
-          </div>
-          <div>
-            <label style={S.label}>To</label>
-            <input type="date" value={filterEnd} onChange={e => setFilterEnd(e.target.value)} style={S.input} />
-          </div>
-          <button onClick={loadCustom} disabled={customLoading || (!filterStart && !filterEnd)} style={{ ...S.btn, opacity: customLoading ? 0.6 : 1 }}>
-            {customLoading ? 'Loading…' : 'Apply Filter'}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.text }}>New Leads — Contacts Added</h2>
+          <button onClick={loadStats} disabled={loading} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 7, padding: '5px 12px', fontSize: 11, color: C.muted, cursor: 'pointer' }}>
+            {loading ? 'Refreshing…' : '↻ Refresh stats'}
           </button>
         </div>
-        {customCount !== null && (
-          <div style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: C.accentBg, border: `1px solid ${C.accentBdr}`, borderRadius: 10 }}>
-            <span style={{ fontSize: 20 }}>👥</span>
-            <span style={{ fontSize: 13, color: '#a5b4fc' }}>
-              Contacts in range: <strong style={{ fontSize: 18 }}>{customCount.toLocaleString()}</strong>
-            </span>
-          </div>
-        )}
+
+        {/* Tab bar */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+          {TABS.map(tab => {
+            const active = leadsTab === tab.key;
+            const count  = tab.key === '7d' ? stats?.contacts?.weekly : stats?.contacts?.monthly;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setLeadsTab(tab.key)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '9px 18px', borderRadius: 10, cursor: 'pointer',
+                  background: active ? tab.bg : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${active ? tab.bdr : C.border}`,
+                  color: active ? tab.color : C.muted,
+                  fontSize: 13, fontWeight: active ? 600 : 400,
+                  transition: 'all .15s',
+                }}
+              >
+                <span style={{ fontWeight: 700, fontSize: 16 }}>
+                  {loading && !stats ? '…' : (count ?? '—')}
+                </span>
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tab content — each tab mounts its own LeadsTabPanel */}
+        {leadsTab === '7d'  && <LeadsTabPanel key="7d"  locationId={locationId} days={7}  />}
+        {leadsTab === '30d' && <LeadsTabPanel key="30d" locationId={locationId} days={30} />}
       </div>
     </div>
   );
