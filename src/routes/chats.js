@@ -159,6 +159,20 @@ function makeTitle(text) {
   return t.length > 60 ? t.slice(0, 57) + '…' : t;
 }
 
+// ── Request logger — identifies which UI context the request comes from ──────
+router.use((req, res, next) => {
+  const ref     = req.headers['referer'] || req.headers['referer'] || '';
+  const origin  = ref.includes('/admin-dashboard') ? '[admin-dashboard]'
+                : ref.includes('/admin')            ? '[admin]'
+                : ref.includes('/ui')               ? '[ui]'
+                : '[unknown]';
+  const locId   = req.headers['x-location-id'] || req.headers['x-dash-location'] || '(none)';
+  const dashTok = req.headers['x-dash-token']  ? '✓ dash-token' : '';
+  const adminKey = req.headers['x-admin-key']  ? '✓ admin-key'  : '';
+  console.log(`[Chats] ${origin} ${req.method} ${req.path} | loc=${locId} ${dashTok}${adminKey}`);
+  next();
+});
+
 // All routes require authentication
 router.use(authenticate);
 
