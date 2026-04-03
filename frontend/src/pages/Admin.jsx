@@ -8028,14 +8028,41 @@ function TierEditModal({ tierKey, data, allIntegrations, adminKey, onClose, onSa
 // ── Edit Workflow Modal ────────────────────────────────────────────────────────
 
 const WF_TOOLS = [
-  { key: 'ghl',          label: 'GoHighLevel',  icon: '⚡', color: '#4ade80' },
-  { key: 'openai',       label: 'OpenAI',       icon: '✨', color: '#60a5fa' },
-  { key: 'perplexity',   label: 'Perplexity',   icon: '🔍', color: '#a78bfa' },
-  { key: 'sendgrid',     label: 'SendGrid',     icon: '📧', color: '#f472b6' },
-  { key: 'apollo',       label: 'Apollo.io',    icon: '🚀', color: '#fb923c' },
-  { key: 'slack',        label: 'Slack',        icon: '💬', color: '#34d399' },
-  { key: 'facebook_ads', label: 'Facebook Ads', icon: '📘', color: '#60a5fa' },
-  { key: 'heygen',       label: 'HeyGen',       icon: '🎬', color: '#f472b6' },
+  { key: 'ghl', label: 'GoHighLevel', icon: '⚡', color: '#4ade80', triggers: [
+    'Contact Created', 'Contact Updated', 'Tag Added', 'Tag Removed',
+    'Opportunity Created', 'Opportunity Stage Changed', 'Appointment Booked',
+    'Form Submitted', 'Payment Received', 'Invoice Sent', 'SMS Received',
+    'Email Opened', 'Pipeline Stage Changed',
+  ]},
+  { key: 'openai', label: 'OpenAI', icon: '✨', color: '#60a5fa', triggers: [
+    'Chat Completion', 'Text Summarization', 'Sentiment Analysis',
+    'Entity Extraction', 'Translation', 'Content Classification',
+    'Embedding Generation', 'Function Calling',
+  ]},
+  { key: 'perplexity', label: 'Perplexity', icon: '🔍', color: '#a78bfa', triggers: [
+    'Web Search', 'Research Query', 'Real-time Data Lookup',
+    'News Search', 'Academic Search',
+  ]},
+  { key: 'sendgrid', label: 'SendGrid', icon: '📧', color: '#f472b6', triggers: [
+    'Send Email', 'Email Delivered', 'Email Opened', 'Link Clicked',
+    'Bounce Received', 'Unsubscribe Event', 'Spam Report',
+  ]},
+  { key: 'apollo', label: 'Apollo.io', icon: '🚀', color: '#fb923c', triggers: [
+    'Contact Enrichment', 'Company Lookup', 'Email Verified',
+    'Sequence Enrolled', 'Meeting Booked', 'Lead Scored',
+  ]},
+  { key: 'slack', label: 'Slack', icon: '💬', color: '#34d399', triggers: [
+    'Send Message', 'Message Posted in Channel', 'New Direct Message',
+    'Reaction Added', 'User Joined Channel', 'Mention Detected',
+  ]},
+  { key: 'facebook_ads', label: 'Facebook Ads', icon: '📘', color: '#60a5fa', triggers: [
+    'Lead Form Submitted', 'Ad Clicked', 'Campaign Started',
+    'Budget Threshold Reached', 'Ad Set Paused', 'Conversion Tracked',
+  ]},
+  { key: 'heygen', label: 'HeyGen', icon: '🎬', color: '#f472b6', triggers: [
+    'Video Generated', 'Avatar Video Completed', 'Video Shared',
+    'Personalized Video Created', 'Batch Video Done',
+  ]},
 ];
 
 // Canvas layout constants
@@ -8223,7 +8250,7 @@ function EditWorkflowModal({ modal, adminKey, locationLabel, onClose, onSaved, o
   const [steps,      setSteps]      = useState(() => {
     if (!Array.isArray(wf.steps) || wf.steps.length === 0)
       return [{ tool: 'ghl', label: '', instruction: '' }];
-    return wf.steps.map(s => ({ tool: s.tool || 'ghl', label: s.label || '', instruction: s.instruction || '' }));
+    return wf.steps.map(s => ({ tool: s.tool || 'ghl', label: s.label || '', instruction: s.instruction || '', trigger: s.trigger || '' }));
   });
   const [popupIdx,   setPopupIdx]   = useState(null);
   const [saving,     setSaving]     = useState(false);
@@ -8262,7 +8289,7 @@ function EditWorkflowModal({ modal, adminKey, locationLabel, onClose, onSaved, o
     try {
       const res = await adminFetch(`/admin/locations/${modal.locationId}/workflows/${wf.id}`, {
         method: 'PUT', adminKey,
-        body: { name: name.trim(), context: context.trim(), steps: validSteps },
+        body: { name: name.trim(), context: context.trim(), steps: validSteps.map(s => ({ ...s, trigger: s.trigger || '' })) },
       });
       if (res.success) onSaved(modal.locationId, res.data || { ...wf, name: name.trim(), context: context.trim(), steps: validSteps });
       else onFlash(`✗ ${res.error || 'Save failed'}`);
@@ -8394,6 +8421,11 @@ function EditWorkflowModal({ modal, adminKey, locationLabel, onClose, onSaved, o
                     <div style={{ fontSize: 12, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: FC_W - 32 }}>
                       {step.label || <span style={{ color: '#374151', fontStyle: 'italic' }}>click to edit</span>}
                     </div>
+                    {step.trigger && (
+                      <div style={{ fontSize: 10, color: t.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: FC_W - 32, opacity: 0.8 }}>
+                        ⚡ {step.trigger}
+                      </div>
+                    )}
 
                     {/* Ports */}
                     <span style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)', width: 12, height: 12, borderRadius: '50%', background: t.color, border: '2px solid #141414' }} />
@@ -8436,11 +8468,42 @@ function EditWorkflowModal({ modal, adminKey, locationLabel, onClose, onSaved, o
                       <label style={lbl}>Tool</label>
                       <select
                         value={step.tool}
-                        onChange={e => updateStep(i, { ...step, tool: e.target.value })}
-                        style={{ ...inp, marginBottom: 12 }}
+                        onChange={e => updateStep(i, { ...step, tool: e.target.value, trigger: '' })}
+                        style={{ ...inp, marginBottom: 8 }}
                       >
                         {WF_TOOLS.map(x => <option key={x.key} value={x.key}>{x.icon} {x.label}</option>)}
                       </select>
+
+                      {/* Available triggers for selected tool */}
+                      {t.triggers?.length > 0 && (
+                        <div style={{ marginBottom: 12 }}>
+                          <label style={{ ...lbl, marginBottom: 6 }}>Trigger</label>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                            {t.triggers.map(tr => {
+                              const active = step.trigger === tr;
+                              return (
+                                <button
+                                  key={tr}
+                                  onClick={() => updateStep(i, { ...step, trigger: active ? '' : tr })}
+                                  style={{
+                                    fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
+                                    border: `1px solid ${active ? t.color : '#2a2a2a'}`,
+                                    background: active ? t.color + '22' : 'transparent',
+                                    color: active ? t.color : '#6b7280',
+                                    fontWeight: active ? 600 : 400,
+                                    transition: 'all .12s',
+                                  }}
+                                >{tr}</button>
+                              );
+                            })}
+                          </div>
+                          {step.trigger && (
+                            <p style={{ margin: '6px 0 0', fontSize: 11, color: t.color }}>
+                              ✓ Trigger: {step.trigger}
+                            </p>
+                          )}
+                        </div>
+                      )}
 
                       <label style={lbl}>Label</label>
                       <input
