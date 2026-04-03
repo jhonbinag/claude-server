@@ -36,16 +36,76 @@ const Anthropic          = require('@anthropic-ai/sdk');
 
 const SHARED_LOC = '__shared__';
 
-// Per-location client — uses location's own Anthropic key, falls back to server env key
-async function getClient(locationId) {
+// ── Provider detection ────────────────────────────────────────────────────────
+// Returns { provider: 'anthropic'|'google', anthropicKey?, googleKey? }
+async function resolveProvider(locationId) {
+  let anthropicKey = null;
+  let googleKey    = null;
   try {
     const configs = await toolRegistry.loadToolConfigs(locationId);
-    const apiKey  = configs.anthropic?.apiKey || config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY;
-    if (apiKey) return new Anthropic({ apiKey });
+    anthropicKey  = configs.anthropic?.apiKey || null;
+    googleKey     = configs.google?.apiKey    || null;
   } catch (_) {}
-  const apiKey = config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('Anthropic API key not configured. Go to Settings → Claude AI to add your key.');
-  return new Anthropic({ apiKey });
+  anthropicKey = anthropicKey || config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || null;
+  googleKey    = googleKey    || config.google?.apiKey    || process.env.GOOGLE_API_KEY    || null;
+  if (anthropicKey) return { provider: 'anthropic', anthropicKey };
+  if (googleKey)    return { provider: 'google',    googleKey };
+  throw new Error('No AI provider configured. Add ANTHROPIC_API_KEY or GOOGLE_API_KEY to your environment.');
+}
+
+// ── Gemini REST helper (streaming via SSE send callback) ──────────────────────
+const https = require('https');
+
+function geminiGenerate(googleKey, { systemPrompt, messages, onText }) {
+  const model   = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const contents = messages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
+  const body = JSON.stringify({
+    system_instruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+    contents,
+    generationConfig: { maxOutputTokens: 2048 },
+  });
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: 'generativelanguage.googleapis.com',
+        path:     `/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${googleKey}`,
+        method:   'POST',
+        headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      },
+      (resp) => {
+        let fullText = '';
+        let buf = '';
+        resp.on('data', chunk => {
+          buf += chunk.toString();
+          const lines = buf.split('\n');
+          buf = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const raw = line.slice(6).trim();
+            if (!raw || raw === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(raw);
+              const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              if (text) { fullText += text; if (onText) onText(text); }
+            } catch (_) {}
+          }
+        });
+        resp.on('end', () => resolve(fullText));
+        resp.on('error', reject);
+      }
+    );
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+// Legacy — kept for tool-use path which still needs Anthropic SDK
+async function getAnthropicClient(anthropicKey) {
+  return new Anthropic({ apiKey: anthropicKey });
 }
 
 // ── Brain helpers ─────────────────────────────────────────────────────────────
@@ -274,8 +334,8 @@ router.post('/:id/message', async (req, res) => {
   const send = (evt, data) => res.write(`event: ${evt}\ndata: ${JSON.stringify(data)}\n\n`);
 
   try {
-    // Resolve Anthropic client using location key → server env fallback
-    const client = await getClient(req.locationId);
+    // Resolve AI provider — Anthropic first, Google fallback
+    const providerInfo = await resolveProvider(req.locationId);
 
     // ── 1. Brains ─────────────────────────────────────────────────────────────
     const brains = await getAllBrains(req.locationId);
@@ -394,9 +454,16 @@ router.post('/:id/message', async (req, res) => {
 
     let fullText = '';
 
-    // ── 4A. Agentic tool-use path ─────────────────────────────────────────────
-    if (claudeTools.length > 0) {
+    const improveInstruction = systemAgent
+      ? `Review and improve this response. Stay fully in character as ${systemAgent.name}. Keep all methodology, phase references, and formatting intact. Write only the improved response.`
+      : persona
+      ? `Review and improve this response to be more natural and true to your personality as ${persona.name}. Write only the improved response.`
+      : 'Review and improve this response to be clearer and better structured. Write only the improved response.';
+
+    // ── 4A. Agentic tool-use path (Anthropic only — tools require SDK) ────────
+    if (claudeTools.length > 0 && providerInfo.provider === 'anthropic') {
       send('status', { text: `Analyzing request…` });
+      const client = await getAnthropicClient(providerInfo.anthropicKey);
 
       let msgs = [...claudeMessages];
       let iterations = 0;
@@ -404,59 +471,37 @@ router.post('/:id/message', async (req, res) => {
       while (iterations < 5) {
         iterations++;
         const response = await client.messages.create({
-          model:      'claude-sonnet-4-6',
-          max_tokens: 2048,
-          system:     systemPrompt,
-          messages:   msgs,
-          tools:      claudeTools,
+          model: 'claude-sonnet-4-6', max_tokens: 2048,
+          system: systemPrompt, messages: msgs, tools: claudeTools,
         });
 
         if (response.stop_reason === 'tool_use') {
-          const toolUseBlocks  = response.content.filter(b => b.type === 'tool_use');
-          const toolResults    = [];
-
-          for (const block of toolUseBlocks) {
-            const intName = toolMap[block.name]?.integ?.name || block.name;
-            send('status', { text: `Fetching from ${intName}…` });
-            const result = await executeTool(block, toolMap);
-            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+          const toolResults = [];
+          for (const block of response.content.filter(b => b.type === 'tool_use')) {
+            send('status', { text: `Fetching from ${toolMap[block.name]?.integ?.name || block.name}…` });
+            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: await executeTool(block, toolMap) });
           }
-
-          msgs = [
-            ...msgs,
-            { role: 'assistant', content: response.content },
-            { role: 'user',      content: toolResults },
-          ];
+          msgs = [...msgs, { role: 'assistant', content: response.content }, { role: 'user', content: toolResults }];
         } else {
           fullText = response.content.find(b => b.type === 'text')?.text || '';
           break;
         }
       }
 
-      // Stream improve pass over the tool-use response
       send('status', { text: '✨ Improving…' });
       const improveStream = client.messages.stream({
-        model:      'claude-sonnet-4-6',
-        max_tokens: 2048,
-        system:     systemPrompt,
-        messages:   [
-          ...msgs,
-          { role: 'assistant', content: fullText },
-          { role: 'user', content: persona
-            ? `Review and improve this response to make it more natural and true to your personality as ${persona.name}. Write only the improved response.`
-            : 'Review and improve this response to make it clearer and better structured. Write only the improved response.' },
-        ],
-        tools: claudeTools,
+        model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt,
+        messages: [...msgs, { role: 'assistant', content: fullText }, { role: 'user', content: improveInstruction }],
       });
-
       let improvedText = '';
       improveStream.on('text', t => { improvedText += t; send('text', { text: t }); });
       await improveStream.finalMessage();
       if (improvedText) fullText = improvedText;
 
-    // ── 4B. Two-pass improve path ─────────────────────────────────────────────
-    } else {
+    // ── 4B. Anthropic two-pass path ───────────────────────────────────────────
+    } else if (providerInfo.provider === 'anthropic') {
       send('status', { text: 'Thinking…' });
+      const client = await getAnthropicClient(providerInfo.anthropicKey);
       let draftText = '';
       try {
         const draft = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 1024, system: systemPrompt, messages: claudeMessages });
@@ -466,32 +511,25 @@ router.post('/:id/message', async (req, res) => {
       if (draftText) {
         send('status', { text: '✨ Improving…' });
         const stream = client.messages.stream({
-          model:    'claude-sonnet-4-6',
-          max_tokens: 2048,
-          system:   systemPrompt,
-          messages: [
-            ...claudeMessages,
-            { role: 'assistant', content: draftText },
-            { role: 'user', content: systemAgent
-              ? `Review and improve this response. Stay fully in character as ${systemAgent.name}. Keep all methodology, phase references, and formatting intact. Write only the improved response.`
-              : persona
-              ? `Review and improve this response to be more natural and true to your personality as ${persona.name}. Write only the improved response.`
-              : 'Review and improve this response to be clearer and better structured. Write only the improved response.' },
-          ],
+          model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt,
+          messages: [...claudeMessages, { role: 'assistant', content: draftText }, { role: 'user', content: improveInstruction }],
         });
         stream.on('text', t => { fullText += t; send('text', { text: t }); });
         await stream.finalMessage();
       } else {
-        // Haiku draft failed or returned empty — fall back to direct Sonnet stream
-        const stream = client.messages.stream({
-          model:    'claude-sonnet-4-6',
-          max_tokens: 2048,
-          system:   systemPrompt,
-          messages: claudeMessages,
-        });
+        const stream = client.messages.stream({ model: 'claude-sonnet-4-6', max_tokens: 2048, system: systemPrompt, messages: claudeMessages });
         stream.on('text', t => { fullText += t; send('text', { text: t }); });
         await stream.finalMessage();
       }
+
+    // ── 4C. Google Gemini path ────────────────────────────────────────────────
+    } else if (providerInfo.provider === 'google') {
+      send('status', { text: 'Thinking…' });
+      fullText = await geminiGenerate(providerInfo.googleKey, {
+        systemPrompt,
+        messages: claudeMessages,
+        onText: t => send('text', { text: t }),
+      });
     }
 
     // ── 5. Always send done first so client never hangs ──────────────────────
