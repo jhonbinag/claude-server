@@ -36,28 +36,66 @@ const Anthropic          = require('@anthropic-ai/sdk');
 
 const SHARED_LOC = '__shared__';
 
-// ── Provider detection ────────────────────────────────────────────────────────
-// Returns { provider: 'anthropic'|'google', anthropicKey?, googleKey? }
+// ── Provider detection — mirrors claudeService.js runTask() priority order ────
+// Priority: Anthropic → OpenAI → Groq → Google
 async function resolveProvider(locationId) {
-  let anthropicKey = null;
-  let googleKey    = null;
+  let locAnthropicKey = null;
   try {
-    const configs = await toolRegistry.loadToolConfigs(locationId);
-    anthropicKey  = configs.anthropic?.apiKey || null;
-    googleKey     = configs.google?.apiKey    || null;
+    const configs  = await toolRegistry.loadToolConfigs(locationId);
+    locAnthropicKey = configs.anthropic?.apiKey || null;
   } catch (_) {}
-  anthropicKey = anthropicKey || config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || null;
-  googleKey    = googleKey    || config.google?.apiKey    || process.env.GOOGLE_API_KEY    || null;
+
+  const anthropicKey = locAnthropicKey || process.env.ANTHROPIC_API_KEY || null;
+  const openaiKey    = process.env.OPENAI_API_KEY  || null;
+  const groqKey      = process.env.GROQ_API_KEY    || null;
+  const googleKey    = process.env.GOOGLE_API_KEY  || null;
+
   if (anthropicKey) return { provider: 'anthropic', anthropicKey };
+  if (openaiKey)    return { provider: 'openai',    openaiKey,  hostname: 'api.openai.com', model: 'gpt-4o-mini' };
+  if (groqKey)      return { provider: 'groq',      groqKey,    hostname: 'api.groq.com',   model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' };
   if (googleKey)    return { provider: 'google',    googleKey };
-  throw new Error('No AI provider configured. Add ANTHROPIC_API_KEY or GOOGLE_API_KEY to your environment.');
+  throw new Error('No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, or GOOGLE_API_KEY.');
 }
 
-// ── Gemini REST helper (streaming via SSE send callback) ──────────────────────
 const https = require('https');
 
+// ── OpenAI-compatible REST (OpenAI + Groq) — non-streaming simple call ────────
+function openAICompatChat(hostname, apiKey, { model, systemPrompt, messages, maxTokens = 2048 }) {
+  const body = JSON.stringify({
+    model,
+    max_tokens: maxTokens,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages,
+    ],
+  });
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname,
+        path:    '/v1/chat/completions',
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}`, 'Content-Length': Buffer.byteLength(body) },
+      },
+      (resp) => {
+        let d = '';
+        resp.on('data', c => d += c);
+        resp.on('end', () => {
+          try {
+            const parsed = JSON.parse(d);
+            if (parsed.error) return reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
+            resolve(parsed.choices?.[0]?.message?.content || '');
+          } catch (e) { reject(e); }
+        });
+      }
+    );
+    req.on('error', reject); req.write(body); req.end();
+  });
+}
+
+// ── Gemini REST — streaming ───────────────────────────────────────────────────
 function geminiGenerate(googleKey, { systemPrompt, messages, onText }) {
-  const model   = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const model    = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
   const contents = messages.map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
@@ -76,8 +114,7 @@ function geminiGenerate(googleKey, { systemPrompt, messages, onText }) {
         headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
       },
       (resp) => {
-        let fullText = '';
-        let buf = '';
+        let fullText = '', buf = '';
         resp.on('data', chunk => {
           buf += chunk.toString();
           const lines = buf.split('\n');
@@ -87,8 +124,7 @@ function geminiGenerate(googleKey, { systemPrompt, messages, onText }) {
             const raw = line.slice(6).trim();
             if (!raw || raw === '[DONE]') continue;
             try {
-              const parsed = JSON.parse(raw);
-              const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              const text = JSON.parse(raw).candidates?.[0]?.content?.parts?.[0]?.text || '';
               if (text) { fullText += text; if (onText) onText(text); }
             } catch (_) {}
           }
@@ -97,13 +133,10 @@ function geminiGenerate(googleKey, { systemPrompt, messages, onText }) {
         resp.on('error', reject);
       }
     );
-    req.on('error', reject);
-    req.write(body);
-    req.end();
+    req.on('error', reject); req.write(body); req.end();
   });
 }
 
-// Legacy — kept for tool-use path which still needs Anthropic SDK
 async function getAnthropicClient(anthropicKey) {
   return new Anthropic({ apiKey: anthropicKey });
 }
@@ -498,7 +531,7 @@ router.post('/:id/message', async (req, res) => {
       await improveStream.finalMessage();
       if (improvedText) fullText = improvedText;
 
-    // ── 4B. Anthropic two-pass path ───────────────────────────────────────────
+    // ── 4B. Anthropic two-pass (Haiku draft → Sonnet improve) ────────────────
     } else if (providerInfo.provider === 'anthropic') {
       send('status', { text: 'Thinking…' });
       const client = await getAnthropicClient(providerInfo.anthropicKey);
@@ -522,7 +555,16 @@ router.post('/:id/message', async (req, res) => {
         await stream.finalMessage();
       }
 
-    // ── 4C. Google Gemini path ────────────────────────────────────────────────
+    // ── 4C. OpenAI / Groq (OpenAI-compatible REST) ────────────────────────────
+    } else if (providerInfo.provider === 'openai' || providerInfo.provider === 'groq') {
+      send('status', { text: 'Thinking…' });
+      const apiKey   = providerInfo.openaiKey || providerInfo.groqKey;
+      const hostname = providerInfo.hostname;
+      const model    = providerInfo.model;
+      fullText = await openAICompatChat(hostname, apiKey, { model, systemPrompt, messages: claudeMessages });
+      if (fullText) send('text', { text: fullText });
+
+    // ── 4D. Google Gemini ─────────────────────────────────────────────────────
     } else if (providerInfo.provider === 'google') {
       send('status', { text: 'Thinking…' });
       fullText = await geminiGenerate(providerInfo.googleKey, {
