@@ -209,6 +209,7 @@ export default function Chats() {
   const [input,            setInput]            = useState('');
   const [search,           setSearch]           = useState('');
   const [sideOpen,         setSideOpen]         = useState(true);
+  const [hoveredSession,   setHoveredSession]   = useState(null);
 
   const bottomRef    = useRef(null);
   const inputRef     = useRef(null);
@@ -483,11 +484,12 @@ export default function Chats() {
                     <p style={{ fontSize:10, fontWeight:600, color:'#4b5563', textTransform:'uppercase', letterSpacing:'0.06em', padding:'10px 8px 4px' }}>{group}</p>
                     {items.map(s => {
                       const sp = personas.find(p => p.personaId === s.personaId);
+                      const isHovered = hoveredSession === s.id;
                       return (
                         <div key={s.id} onClick={() => openSession(s)}
-                          style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderRadius:8, cursor:'pointer', background: activeId === s.id ? 'rgba(99,102,241,0.15)' : 'transparent', border:`1px solid ${activeId === s.id ? 'rgba(99,102,241,0.3)' : 'transparent'}`, marginBottom:2, transition:'all .12s' }}
-                          onMouseOver={e => { if (activeId !== s.id) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
-                          onMouseOut={e  => { if (activeId !== s.id) e.currentTarget.style.background = 'transparent'; }}
+                          onMouseEnter={() => setHoveredSession(s.id)}
+                          onMouseLeave={() => setHoveredSession(null)}
+                          style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderRadius:8, cursor:'pointer', background: activeId === s.id ? 'rgba(99,102,241,0.15)' : isHovered ? 'rgba(255,255,255,0.04)' : 'transparent', border:`1px solid ${activeId === s.id ? 'rgba(99,102,241,0.3)' : 'transparent'}`, marginBottom:2, transition:'all .12s' }}
                         >
                           <span style={{ fontSize:16, flexShrink:0 }}>{sp?.avatar || '💬'}</span>
                           <div style={{ flex:1, minWidth:0 }}>
@@ -495,10 +497,9 @@ export default function Chats() {
                             <p style={{ margin:0, fontSize:10, color:'#4b5563' }}>{sp ? sp.name : 'Free chat'} · {formatTime(s.updatedAt || s.createdAt)}</p>
                           </div>
                           <button onClick={e => deleteSession(s.id, e)}
-                            style={{ flexShrink:0, background:'none', border:'none', color:'#374151', cursor:'pointer', fontSize:14, padding:'0 2px', opacity:0, transition:'opacity .15s' }}
-                            onMouseOver={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = '#ef4444'; }}
-                            onMouseOut={e  => { e.currentTarget.style.opacity = 0; e.currentTarget.style.color = '#374151'; }}
-                          >×</button>
+                            title="Delete chat"
+                            style={{ flexShrink:0, background:'none', border:'none', cursor:'pointer', fontSize:15, padding:'2px 4px', borderRadius:4, color: '#ef4444', opacity: isHovered ? 1 : 0, transition:'opacity .15s', lineHeight:1 }}
+                          >🗑</button>
                         </div>
                       );
                     })}
