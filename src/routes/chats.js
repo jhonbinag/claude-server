@@ -45,20 +45,14 @@ async function resolveProvider(locationId) {
   let configs = {};
   try { configs = await toolRegistry.loadToolConfigs(locationId); } catch (_) {}
 
-  // 1. Per-location key from Upstash/Firebase
+  // Read exclusively from per-location Upstash/Firebase config — no env var fallback
   const perLoc = AI_PROVIDERS.find(p => configs[p]?.apiKey);
   if (perLoc === 'anthropic') return { provider: 'anthropic', anthropicKey: configs.anthropic.apiKey };
-  if (perLoc === 'openai')    return { provider: 'openai',    openaiKey: configs.openai.apiKey,   hostname: 'api.openai.com', model: 'gpt-4o-mini' };
-  if (perLoc === 'groq')      return { provider: 'groq',      groqKey:   configs.groq.apiKey,    hostname: 'api.groq.com',   model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' };
+  if (perLoc === 'openai')    return { provider: 'openai',    openaiKey: configs.openai.apiKey, hostname: 'api.openai.com', model: 'gpt-4o-mini' };
+  if (perLoc === 'groq')      return { provider: 'groq',      groqKey:   configs.groq.apiKey,   hostname: 'api.groq.com',   model: 'llama-3.3-70b-versatile' };
   if (perLoc === 'google')    return { provider: 'google',    googleKey: configs.google.apiKey };
 
-  // 2. Platform-level env var fallback
-  if (process.env.ANTHROPIC_API_KEY) return { provider: 'anthropic', anthropicKey: process.env.ANTHROPIC_API_KEY };
-  if (process.env.OPENAI_API_KEY)    return { provider: 'openai',    openaiKey:    process.env.OPENAI_API_KEY,    hostname: 'api.openai.com', model: 'gpt-4o-mini' };
-  if (process.env.GROQ_API_KEY)      return { provider: 'groq',      groqKey:      process.env.GROQ_API_KEY,      hostname: 'api.groq.com',   model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' };
-  if (process.env.GOOGLE_API_KEY)    return { provider: 'google',    googleKey:    process.env.GOOGLE_API_KEY };
-
-  throw new Error('No AI provider configured for this location.');
+  throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
 }
 
 const https = require('https');
