@@ -178,14 +178,17 @@ function PersonaHome({ personas, personasLoading, agents, agentsLoading, onSelec
       )}
 
       {/* Free chat fallback */}
-      <button
-        onClick={() => onFreeChat()}
-        style={{ fontSize: 13, padding: '9px 20px', borderRadius: 10, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9ca3af', cursor: 'pointer', transition: 'all .15s' }}
-        onMouseOver={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#e2e8f0'; }}
-        onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#9ca3af'; }}
-      >
-        💬 Start a free chat
-      </button>
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
+        <button
+          onClick={() => onFreeChat()}
+          style={{ fontSize: 13, padding: '9px 20px', borderRadius: 10, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#9ca3af', cursor: 'pointer', transition: 'all .15s' }}
+          onMouseOver={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#e2e8f0'; }}
+          onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#9ca3af'; }}
+        >
+          💬 Start a free chat
+        </button>
+        <p style={{ margin:0, fontSize:11, color:'#374151' }}>Tip: type <code style={{ background:'rgba(99,102,241,0.12)', color:'#818cf8', padding:'1px 5px', borderRadius:4 }}>/</code> in the message box to see available commands</p>
+      </div>
     </div>
   );
 }
@@ -210,6 +213,8 @@ export default function Chats() {
   const [search,           setSearch]           = useState('');
   const [sideOpen,         setSideOpen]         = useState(true);
   const [hoveredSession,   setHoveredSession]   = useState(null);
+  const [cmdPalette,       setCmdPalette]       = useState([]);
+  const [cmdIndex,         setCmdIndex]         = useState(0);
 
   const bottomRef    = useRef(null);
   const inputRef     = useRef(null);
@@ -411,13 +416,48 @@ export default function Chats() {
     }
   }, [isStreaming, locationId, loadSessions]);
 
+  // ── Command palette ────────────────────────────────────────────────────────
+
+  const allCommands = [
+    ...personas.map(p => ({ id: p.personaId, name: p.name, avatar: p.avatar || '🧑‍💼', description: p.description, cmd: p.name.toLowerCase().replace(/\s+/g, '-'), type: 'persona' })),
+    ...agents.map(a  => ({ id: a.agentId || a.personaId, name: a.name, avatar: a.avatar || '🤖', description: a.description, cmd: a.id || (a.name.toLowerCase().replace(/\s+/g, '-')), type: 'agent' })),
+  ];
+
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setInput(val);
+    if (val.startsWith('/')) {
+      const query = val.slice(1).toLowerCase();
+      const matches = allCommands.filter(c =>
+        c.cmd.includes(query) || c.name.toLowerCase().includes(query)
+      );
+      setCmdPalette(matches);
+      setCmdIndex(0);
+    } else {
+      setCmdPalette([]);
+    }
+  };
+
+  const selectCommand = (cmd) => {
+    setCmdPalette([]);
+    setInput('');
+    const target = personas.find(p => p.personaId === cmd.id) || agents.find(a => (a.agentId || a.personaId) === cmd.id);
+    if (target) newChat({ ...target, personaId: target.personaId || target.agentId, agentId: target.agentId });
+  };
+
   const handleSend = () => {
     if (!input.trim()) return;
+    if (cmdPalette.length > 0) { selectCommand(cmdPalette[cmdIndex] || cmdPalette[0]); return; }
     if (!activeId) newChat(null, input);
     else sendMessage(activeId, input, messages, activePersona);
   };
 
   const handleKeyDown = (e) => {
+    if (cmdPalette.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setCmdIndex(i => Math.min(i + 1, cmdPalette.length - 1)); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); setCmdIndex(i => Math.max(i - 1, 0)); return; }
+      if (e.key === 'Escape')    { setCmdPalette([]); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
@@ -601,18 +641,43 @@ export default function Chats() {
               </div>
             )}
             <div style={{ maxWidth:760, margin:'0 auto', position:'relative' }}>
+              {/* Command palette */}
+              {cmdPalette.length > 0 && (
+                <div style={{ position:'absolute', bottom:'calc(100% + 8px)', left:0, right:0, background:'#1a1a24', border:'1px solid rgba(99,102,241,0.35)', borderRadius:12, overflow:'hidden', zIndex:50, boxShadow:'0 -8px 32px rgba(0,0,0,0.5)' }}>
+                  <div style={{ padding:'6px 12px 4px', fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:'#4b5563', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+                    Commands — ↑↓ navigate · Enter to select · Esc to close
+                  </div>
+                  {cmdPalette.slice(0, 8).map((cmd, i) => (
+                    <div key={cmd.id} onMouseDown={() => selectCommand(cmd)}
+                      style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', background: i === cmdIndex ? 'rgba(99,102,241,0.15)' : 'transparent', borderLeft: i === cmdIndex ? '2px solid #6366f1' : '2px solid transparent', transition:'all .1s' }}
+                      onMouseEnter={() => setCmdIndex(i)}
+                    >
+                      <span style={{ fontSize:18, flexShrink:0 }}>{cmd.avatar}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:600, color: i === cmdIndex ? '#a5b4fc' : '#e2e8f0' }}>
+                          <span style={{ color:'#6366f1', fontFamily:'monospace' }}>/{cmd.cmd}</span>
+                          <span style={{ marginLeft:8, fontWeight:400 }}>{cmd.name}</span>
+                        </div>
+                        {cmd.description && <div style={{ fontSize:11, color:'#4b5563', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 }}>{cmd.description}</div>}
+                      </div>
+                      <span style={{ fontSize:10, padding:'2px 7px', borderRadius:10, background: cmd.type === 'agent' ? 'rgba(16,185,129,0.12)' : 'rgba(99,102,241,0.12)', color: cmd.type === 'agent' ? '#34d399' : '#818cf8', flexShrink:0 }}>{cmd.type}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <textarea
                 ref={inputRef}
                 className="chat-input"
                 value={input}
-                onChange={e => setInput(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                placeholder={activePersona ? `Message ${activePersona.name}…` : 'Message…'}
+                placeholder={activePersona ? `Message ${activePersona.name}… (type / for commands)` : 'Message… (type / for commands)'}
                 rows={1}
                 disabled={isStreaming}
                 style={{ width:'100%', boxSizing:'border-box', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:12, padding:'11px 48px 11px 14px', fontSize:14, color:'#e2e8f0', resize:'none', lineHeight:1.5, maxHeight:160, overflowY:'auto', transition:'border-color .15s' }}
                 onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.5)'}
-                onBlur={e  => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                onBlur={e  => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; setTimeout(() => setCmdPalette([]), 150); }}
                 onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; }}
               />
               <button
