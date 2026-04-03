@@ -8561,55 +8561,99 @@ function EditConnectionModal({ modal, adminKey, locationLabel, onClose, onSaved,
 
 // ── Log table ─────────────────────────────────────────────────────────────────
 
+function resolveLogLocation(locationId, getLocationName) {
+  if (!locationId || locationId === 'system') return { label: 'Admin Dashboard', badge: true };
+  const name = getLocationName?.(locationId);
+  return { label: name || locationId, badge: false };
+}
+
 function LogTable({ logs, getLocationName }) {
+  const [page,    setPage]    = useState(1);
+  const [perPage, setPerPage] = useState(20);
+
+  const totalPages = Math.max(1, Math.ceil(logs.length / perPage));
+  const safePage   = Math.min(page, totalPages);
+  const paginated  = logs.slice((safePage - 1) * perPage, safePage * perPage);
+
   return (
-    <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 500 }}>
-        <thead>
-          <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#9ca3af', textAlign: 'left' }}>
-            {['Time', 'Location', 'Event', 'Status', 'Detail'].map((h) => (
-              <th key={h} style={{ padding: '9px 14px', fontWeight: 500 }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {logs.map((log, i) => (
-            <tr key={i} style={{ borderBottom: '1px solid #1e1e1e' }}>
-              <td style={{ padding: '8px 14px', color: '#6b7280', whiteSpace: 'nowrap', fontSize: 12 }}>
-                {relTime(log.timestamp)}
-              </td>
-              <td style={{ padding: '8px 14px' }}>
-                <LocationIdentity
-                  locationId={log.locationId}
-                  name={getLocationName?.(log.locationId)}
-                  fallbackName="Unknown Location"
-                  shortId
-                  idFontSize={11}
-                  nameWeight={500}
-                />
-              </td>
-              <td style={{ padding: '8px 14px' }}>
-                <EventBadge event={log.event} />
-              </td>
-              <td style={{ padding: '8px 14px' }}>
-                <span style={{ color: log.success ? '#4ade80' : '#f87171', fontSize: 12 }}>
-                  {log.success ? '✓ OK' : '✗ Fail'}
-                </span>
-              </td>
-              <td style={{ padding: '8px 14px', color: '#6b7280', fontSize: 12, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {log.detail ? JSON.stringify(log.detail) : ''}
-              </td>
-            </tr>
+    <div>
+      {/* Pagination controls */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, color: '#6b7280' }}>Show</span>
+          {[10, 20, 30, 40, 50].map(n => (
+            <button key={n} onClick={() => { setPerPage(n); setPage(1); }}
+              style={{ padding: '4px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: '1px solid', borderColor: perPage === n ? '#7c3aed' : '#333', background: perPage === n ? 'rgba(124,58,237,0.2)' : '#1a1a1a', color: perPage === n ? '#a78bfa' : '#6b7280', fontWeight: perPage === n ? 600 : 400 }}
+            >{n}</button>
           ))}
-          {logs.length === 0 && (
-            <tr>
-              <td colSpan={5} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>
-                No activity logs yet.
-              </td>
+          <span style={{ fontSize: 12, color: '#6b7280' }}>per page · {logs.length} total</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage === 1}
+            style={{ padding: '4px 10px', borderRadius: 6, fontSize: 12, cursor: safePage === 1 ? 'default' : 'pointer', background: '#1a1a1a', border: '1px solid #333', color: safePage === 1 ? '#374151' : '#9ca3af' }}>← Prev</button>
+          <span style={{ fontSize: 12, color: '#6b7280' }}>Page {safePage} of {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}
+            style={{ padding: '4px 10px', borderRadius: 6, fontSize: 12, cursor: safePage === totalPages ? 'default' : 'pointer', background: '#1a1a1a', border: '1px solid #333', color: safePage === totalPages ? '#374151' : '#9ca3af' }}>Next →</button>
+        </div>
+      </div>
+
+      <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 500 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #2a2a2a', color: '#9ca3af', textAlign: 'left' }}>
+              {['Time', 'Location', 'Event', 'Status', 'Detail'].map((h) => (
+                <th key={h} style={{ padding: '9px 14px', fontWeight: 500 }}>{h}</th>
+              ))}
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {paginated.map((log, i) => {
+              const { label, badge } = resolveLogLocation(log.locationId, getLocationName);
+              return (
+                <tr key={i} style={{ borderBottom: '1px solid #1e1e1e' }}>
+                  <td style={{ padding: '8px 14px', color: '#6b7280', whiteSpace: 'nowrap', fontSize: 12 }}>
+                    {relTime(log.timestamp)}
+                  </td>
+                  <td style={{ padding: '8px 14px' }}>
+                    {badge ? (
+                      <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 20, background: 'rgba(124,58,237,0.15)', color: '#a78bfa', border: '1px solid rgba(124,58,237,0.25)', whiteSpace: 'nowrap' }}>
+                        🛡 Admin Dashboard
+                      </span>
+                    ) : (
+                      <LocationIdentity
+                        locationId={log.locationId}
+                        name={getLocationName?.(log.locationId)}
+                        fallbackName={label}
+                        shortId
+                        idFontSize={11}
+                        nameWeight={500}
+                      />
+                    )}
+                  </td>
+                  <td style={{ padding: '8px 14px' }}>
+                    <EventBadge event={log.event} />
+                  </td>
+                  <td style={{ padding: '8px 14px' }}>
+                    <span style={{ color: log.success ? '#4ade80' : '#f87171', fontSize: 12 }}>
+                      {log.success ? '✓ OK' : '✗ Fail'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '8px 14px', color: '#6b7280', fontSize: 12, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {log.detail ? JSON.stringify(log.detail) : ''}
+                  </td>
+                </tr>
+              );
+            })}
+            {paginated.length === 0 && (
+              <tr>
+                <td colSpan={5} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>
+                  No activity logs yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
