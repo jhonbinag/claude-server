@@ -117,16 +117,14 @@ Respond with ONLY valid JSON (no markdown, no extra text):
 {"improved":"<full improved content>","description":"<one sentence: what changed and why>"}`;
 
 // ── Build ordered list of provider candidates for this location ──────────────
-// Priority: per-location Anthropic key → server ANTHROPIC_API_KEY → OpenAI → Groq → Gemini
-// Returns an array so callers can fall through on billing/quota failures.
+// Reads exclusively from per-location Redis/Firebase config — no env var fallback.
 async function getProviderCandidates(locationId) {
   const configs    = await toolRegistry.loadToolConfigs(locationId);
   const candidates = [];
-  if (configs.anthropic?.apiKey)  candidates.push({ provider: 'anthropic', apiKey: configs.anthropic.apiKey });
-  if (config.anthropic?.apiKey)   candidates.push({ provider: 'anthropic', apiKey: config.anthropic.apiKey });
-  if (process.env.OPENAI_API_KEY) candidates.push({ provider: 'openai',    apiKey: process.env.OPENAI_API_KEY });
-  if (process.env.GROQ_API_KEY)   candidates.push({ provider: 'groq',      apiKey: process.env.GROQ_API_KEY });
-  if (process.env.GOOGLE_API_KEY) candidates.push({ provider: 'gemini',    apiKey: process.env.GOOGLE_API_KEY });
+  if (configs.anthropic?.apiKey) candidates.push({ provider: 'anthropic', apiKey: configs.anthropic.apiKey });
+  if (configs.openai?.apiKey)    candidates.push({ provider: 'openai',    apiKey: configs.openai.apiKey });
+  if (configs.groq?.apiKey)      candidates.push({ provider: 'groq',      apiKey: configs.groq.apiKey });
+  if (configs.google?.apiKey)    candidates.push({ provider: 'gemini',    apiKey: configs.google.apiKey });
 
   // Deduplicate same provider+key pairs
   const seen = new Set();

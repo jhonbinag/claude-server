@@ -23,11 +23,10 @@ const activityLogger = require('./activityLogger');
 
 const MAX_TURNS = 40; // safety ceiling on tool-call iterations (complex campaigns need more turns)
 
-// Create a per-location Anthropic client using the key stored in tool configs.
-// Falls back to the server-level ANTHROPIC_API_KEY env var (for local dev).
+// Create a per-location Anthropic client using the key stored in Redis/Firebase.
 async function getClientForLocation(locationId) {
   const configs = await toolRegistry.loadToolConfigs(locationId);
-  const apiKey  = configs.anthropic?.apiKey || config.anthropic.apiKey;
+  const apiKey  = configs.anthropic?.apiKey;
   if (!apiKey) {
     throw new Error('Anthropic API key not configured. Go to Settings → Integrations → Claude AI to add your key.');
   }
@@ -415,9 +414,7 @@ function toGeminiFunctions(tools) {
 }
 
 // POST to Gemini REST API with 429 retry
-function geminiPost(body, retries = 3) {
-  const key  = process.env.GOOGLE_API_KEY;
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
+function geminiPost(body, key, model = 'gemini-2.5-flash-preview-05-20', retries = 3) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = https.request(
@@ -437,7 +434,7 @@ function geminiPost(body, retries = 3) {
               const wait = (4 - retries) * 5000; // 5s, 10s, 15s
               console.warn(`[Gemini] 429 — retrying in ${wait / 1000}s`);
               await new Promise(r => setTimeout(r, wait));
-              geminiPost(body, retries - 1).then(resolve).catch(reject);
+              geminiPost(body, key, model, retries - 1).then(resolve).catch(reject);
             } else if (resp.statusCode >= 400) {
               reject(new Error(`Gemini ${resp.statusCode}: ${JSON.stringify(parsed).slice(0, 300)}`));
             } else {
@@ -453,8 +450,9 @@ function geminiPost(body, retries = 3) {
   });
 }
 
-async function runTaskWithGemini({ task, locationId, companyId, allowedIntegrations, onEvent, conversationHistory }) {
+async function runTaskWithGemini({ task, locationId, companyId, allowedIntegrations, onEvent, conversationHistory, _googleKey }) {
   const emit = onEvent || (() => {});
+  const googleKey = _googleKey;
 
   const [tools, enabledIntegrations] = await Promise.all([
     toolRegistry.getTools(locationId, allowedIntegrations ?? null),
@@ -483,7 +481,7 @@ async function runTaskWithGemini({ task, locationId, companyId, allowedIntegrati
       contents,
       tools: geminiFns.length ? [{ functionDeclarations: geminiFns }] : undefined,
       generationConfig: { maxOutputTokens: 8192 },
-    });
+    }, googleKey);
 
     const candidate = resp.candidates?.[0];
     if (!candidate) throw new Error('Gemini returned no candidates.');
@@ -713,14 +711,22 @@ async function runTaskOpenAICompat({ task, locationId, companyId, allowedIntegra
   return { result: limitMsg, turns, toolCallCount };
 }
 
-// ─── Route to correct provider ────────────────────────────────────────────────
+// ─── Route to correct provider — reads exclusively from Redis/Firebase ─────────
+
+const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google'];
 
 async function runTask(options) {
-  if (process.env.ANTHROPIC_API_KEY) return runTaskWithAnthropic(options);
-  if (process.env.OPENAI_API_KEY)    return runTaskOpenAICompat(options, 'api.openai.com',   process.env.OPENAI_API_KEY, 'gpt-4o-mini');
-  if (process.env.GROQ_API_KEY)      return runTaskOpenAICompat(options, 'api.groq.com',     process.env.GROQ_API_KEY,  process.env.GROQ_MODEL || 'llama-3.1-8b-instant');
-  if (process.env.GOOGLE_API_KEY)    return runTaskWithGemini(options);
-  throw new Error('No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, or GOOGLE_API_KEY.');
+  const { locationId } = options;
+  let configs = {};
+  try { configs = await toolRegistry.loadToolConfigs(locationId); } catch (_) {}
+
+  const perLoc = AI_PROVIDERS.find(p => configs[p]?.apiKey);
+  if (perLoc === 'anthropic') return runTaskWithAnthropic(options);
+  if (perLoc === 'openai')    return runTaskOpenAICompat(options, 'api.openai.com', configs.openai.apiKey, 'gpt-4o-mini');
+  if (perLoc === 'groq')      return runTaskOpenAICompat(options, 'api.groq.com',   configs.groq.apiKey,   'llama-3.1-8b-instant');
+  if (perLoc === 'google')    return runTaskWithGemini({ ...options, _googleKey: configs.google.apiKey });
+
+  throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
 }
 
 module.exports = { runTask };

@@ -149,7 +149,7 @@ ${agent.instructions}${ragContext}
 
 Your job is to generate a complete, detailed execution brief that the GHL Agent Studio agent will follow step-by-step to complete the requested task inside GoHighLevel. Be extremely specific — include actual copy, headlines, CTAs, color suggestions, and step-by-step build instructions. The GHL agent must be able to execute this without any follow-up questions.`;
 
-    const brief = (await aiService.generate(systemPrompt, `Complete this task inside GHL:\n\n${taskDescription}`, { maxTokens: 2048 })).trim();
+    const brief = (await aiService.generate(systemPrompt, `Complete this task inside GHL:\n\n${taskDescription}`, { locationId: req.locationId, maxTokens: 2048 })).trim();
 
     // Execute via GHL Agent Studio v2 API
     // POST /agent-studio/agent/:agentId/execute
@@ -203,7 +203,7 @@ Include:
 Write as direct instructions to the GHL agent. Include actual copy text. Be extremely specific.`;
 
   try {
-    const brief = (await aiService.generate('You are an expert GHL funnel strategist.', prompt, { maxTokens: 2048 })).trim();
+    const brief = (await aiService.generate('You are an expert GHL funnel strategist.', prompt, { locationId: req.locationId, maxTokens: 2048 })).trim();
     res.json({ success: true, brief });
   } catch (err) {
     res.status(500).json({ error: err.message });

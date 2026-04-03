@@ -305,19 +305,17 @@ async function getProviderList(locationId) {
   const configs = await toolRegistry.loadToolConfigs(locationId);
   const list = [];
 
-  // Per-location user-configured keys first
+  // Per-location keys from Redis/Firebase only — no env var fallback
   if (configs.anthropic?.apiKey)
     list.push({ provider: 'anthropic',  key: configs.anthropic.apiKey,  model: 'claude-sonnet-4-6' });
   if (configs.openrouter?.apiKey)
     list.push({ provider: 'openrouter', key: configs.openrouter.apiKey, model: configs.openrouter.model || 'openai/gpt-4o-mini' });
   if (configs.openai?.apiKey)
     list.push({ provider: 'openai',     key: configs.openai.apiKey,     model: 'gpt-4o-mini' });
-
-  // Server-level shared keys as fallback (Gemini free tier, Groq free tier)
-  if (process.env.GOOGLE_API_KEY)
-    list.push({ provider: 'google', key: process.env.GOOGLE_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
-  if (process.env.GROQ_API_KEY)
-    list.push({ provider: 'groq',   key: process.env.GROQ_API_KEY,   model: process.env.GROQ_MODEL   || 'llama-3.1-8b-instant' });
+  if (configs.google?.apiKey)
+    list.push({ provider: 'google',     key: configs.google.apiKey,     model: 'gemini-2.0-flash' });
+  if (configs.groq?.apiKey)
+    list.push({ provider: 'groq',       key: configs.groq.apiKey,       model: 'llama-3.1-8b-instant' });
 
   return list;
 }

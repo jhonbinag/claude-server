@@ -191,7 +191,7 @@ const TONE_INSTRUCTIONS = {
 
 // ─── Step 2: AI analysis of competitor ads ────────────────────────────────────
 
-async function analyzeAds(ads, keywords, brandContext, tone) {
+async function analyzeAds(locationId, ads, keywords, brandContext, tone) {
   const sample = ads.slice(0, 25).map((a, i) =>
     `Ad ${i + 1} [${a.pageName}]:\nPrimary: ${a.primaryText}\nHeadline: ${a.headline}`
   ).join('\n\n---\n\n');
@@ -221,13 +221,13 @@ Return this JSON:
   "summary": "2-3 sentence strategic analysis with specific differentiation opportunity"
 }`;
 
-  const raw = await aiService.generate(system, user, { maxTokens: 2048 });
+  const raw = await aiService.generate(system, user, { locationId, maxTokens: 2048 });
   return parseJson(raw);
 }
 
 // ─── Generate analysis from brief only (no FB data) ──────────────────────────
 
-async function analyzeFromBrief(keywords, offer, targetAudience, brandVoice, tone) {
+async function analyzeFromBrief(locationId, keywords, offer, targetAudience, brandVoice, tone) {
   const system = `You are a world-class Facebook advertising strategist combining the research depth of David Ogilvy, Eugene Schwartz's audience awareness framework, and Dan Kennedy's direct-response precision. Return only valid JSON, no markdown.`;
 
   const user = `Build a deep strategic ad framework for this offer. Think like the best copywriters in history — not a generic marketer.
@@ -263,13 +263,13 @@ Return this JSON:
   "summary": "2-3 sentence strategic positioning: the biggest differentiation opportunity and the #1 angle to lead with"
 }`;
 
-  const raw = await aiService.generate(system, user, { maxTokens: 2500 });
+  const raw = await aiService.generate(system, user, { locationId, maxTokens: 2500 });
   return parseJson(raw);
 }
 
 // ─── Step 3: Generate one ad variation ───────────────────────────────────────
 
-async function generateAdVariation(index, analysis, brief) {
+async function generateAdVariation(locationId, index, analysis, brief) {
   const toneInstruction = TONE_INSTRUCTIONS[brief.tone] || TONE_INSTRUCTIONS.direct_response;
   const persona = COPYWRITER_PERSONAS[index % COPYWRITER_PERSONAS.length];
   const angle   = analysis.winningAngles?.[index % Math.max(analysis.winningAngles?.length || 1, 1)];
@@ -337,7 +337,7 @@ Return ONLY this JSON (no markdown, no explanation):
   "whyItWorks": "1 sentence — the exact psychological mechanism that makes this specific variation resonate with this specific audience"
 }`;
 
-  const raw = await aiService.generate(system, user, { maxTokens: 1200 });
+  const raw = await aiService.generate(system, user, { locationId, maxTokens: 1200 });
   return parseJson(raw);
 }
 
@@ -360,24 +360,24 @@ router.post('/generate', async (req, res) => {
     return res.status(400).json({ success: false, error: '"keywords" is required.' });
   }
 
-  // ── Detect AI provider ────────────────────────────────────────────────────
-  const provider = aiService.getProvider();
-  console.log('[Ads] provider:', provider ? `${provider.name} / ${provider.model}` : 'NONE');
-
-  if (!provider) {
-    return res.status(400).json({ success: false, error: 'No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, or GOOGLE_API_KEY.' });
-  }
-
   // ── Load per-location configs ─────────────────────────────────────────────
   const configs = await toolRegistry.loadToolConfigs(req.locationId);
   const fbToken = configs.facebook_ads?.accessToken || null;
 
+  // Detect which AI provider this location has configured
+  const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google'];
+  const perLocProvider = AI_PROVIDERS.find(p => configs[p]?.apiKey);
+  if (!perLocProvider) {
+    return res.status(400).json({ success: false, error: 'No AI provider configured. Please add an API key in Settings → Integrations.' });
+  }
+
   console.log('[Ads] locationId:', req.locationId);
+  console.log('[Ads] provider:', perLocProvider);
   console.log('[Ads] fbToken:', fbToken ? '✓' : '✗ (will skip library search)');
 
   const n = Math.min(Math.max(parseInt(numVariations) || 5, 1), 10);
   const startAt = Date.now();
-  const providerLabel = `${provider.name.charAt(0).toUpperCase() + provider.name.slice(1)} (${provider.model})`;
+  const providerLabel = perLocProvider.charAt(0).toUpperCase() + perLocProvider.slice(1);
   const TOTAL_STEPS = 4;
 
   // ── Setup SSE ─────────────────────────────────────────────────────────────
@@ -408,7 +408,7 @@ router.post('/generate', async (req, res) => {
       if (!rawAds.length) {
         send('warn', { msg: `No active ads found for "${keywords}" in Facebook Ads Library — generating from brief instead.` });
         send('step', { step: 2, total: TOTAL_STEPS, label: `Building strategy with ${providerLabel}…` });
-        analysis = await analyzeFromBrief(keywords, offer, targetAudience, brandVoice, tone);
+        analysis = await analyzeFromBrief(req.locationId, keywords, offer, targetAudience, brandVoice, tone);
       } else {
         const structuredAds = extractAdCopy(rawAds);
         libInfo = { total: rawAds.length, analyzed: structuredAds.length };
@@ -421,12 +421,12 @@ router.post('/generate', async (req, res) => {
           offer          ? `Offer: ${offer}`           : '',
           targetAudience ? `Audience: ${targetAudience}` : '',
         ].filter(Boolean).join(' | ');
-        analysis = await analyzeAds(structuredAds, keywords, brandContext, tone);
+        analysis = await analyzeAds(req.locationId, structuredAds, keywords, brandContext, tone);
       }
     } else {
       // ── No FB token — skip to brief-based strategy ────────────────────
       send('step', { step: 1, total: TOTAL_STEPS, label: `No Facebook Ads token — building strategy with ${providerLabel}…` });
-      analysis = await analyzeFromBrief(keywords, offer, targetAudience, brandVoice, tone);
+      analysis = await analyzeFromBrief(req.locationId, keywords, offer, targetAudience, brandVoice, tone);
     }
 
     send('analysis', analysis);
@@ -441,7 +441,7 @@ router.post('/generate', async (req, res) => {
       send('step', { step: 3, total: TOTAL_STEPS, label: `Writing ad variation ${i + 1} of ${n} with ${providerLabel}…` });
       let copy;
       try {
-        copy = await generateAdVariation(i, analysis, brief);
+        copy = await generateAdVariation(req.locationId, i, analysis, brief);
       } catch (err) {
         console.warn(`[Ads] variation ${i + 1} parse error:`, err.message);
         copy = {

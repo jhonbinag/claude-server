@@ -268,7 +268,7 @@ Provide a structured analysis with:
 
 Be specific, data-driven, and actionable.`;
 
-    const analysis = await aiService.generate('You are a competitive intelligence analyst.', prompt, { maxTokens: 1500 });
+    const analysis = await aiService.generate('You are a competitive intelligence analyst.', prompt, { locationId: req.locationId, maxTokens: 1500 });
 
     res.json({ success: true, analysis });
   } catch (err) {

@@ -114,7 +114,7 @@ Respond with ONLY valid JSON (no markdown, no explanation):
   ]
 }`;
 
-    const text = (await aiService.generate('You are a world-class ManyChat funnel strategist.', prompt, { maxTokens: 4096 })).trim();
+    const text = (await aiService.generate('You are a world-class ManyChat funnel strategist.', prompt, { locationId: req.locationId, maxTokens: 4096 })).trim();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return res.status(500).json({ error: 'Claude did not return valid JSON for the sequence.' });

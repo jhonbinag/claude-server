@@ -226,9 +226,9 @@ function resolveAI(req, storedKey) {
   }
 
   return {
-    generate:           aiService.generate.bind(aiService),
-    generateWithVision: aiService.generateWithVision.bind(aiService),
-    isUserKey: false, provider: aiService.getProvider()?.name || 'server',
+    generate:           (sys, usr, opts = {}) => aiService.generateForLocation(req.locationId, sys, usr, opts),
+    generateWithVision: (sys, usr, b64, mime, opts = {}) => aiService.generateWithVisionForLocation(req.locationId, sys, usr, b64, mime, opts),
+    isUserKey: false, provider: 'per-location',
   };
 }
 

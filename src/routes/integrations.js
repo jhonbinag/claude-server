@@ -12,12 +12,13 @@ const express          = require('express');
 const router           = express.Router();
 const integrationStore = require('../services/integrationStore');
 const personaStore     = require('../services/personaStore');
-const Anthropic        = require('@anthropic-ai/sdk');
+const aiService        = require('../services/aiService');
 
-let _client = null;
-function client() {
-  if (!_client) _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  return _client;
+// Resolve AI provider for an integration using its first assigned location's Redis config
+async function integrationAI(integration, system, userContent) {
+  const locationId = integration.assignedLocations?.[0];
+  if (!locationId) throw new Error('No location assigned to this integration.');
+  return aiService.generateForLocation(locationId, system, userContent);
 }
 
 // ── POST /integrations/webhook/:token ─────────────────────────────────────────
@@ -55,13 +56,8 @@ router.get('/api/:key', async (req, res) => {
       ? `\n\nRECENT DATA FROM ${integration.name.toUpperCase()}:\n${typeof integration.lastPayload === 'string' ? integration.lastPayload : JSON.stringify(integration.lastPayload, null, 2)}`
       : '';
 
-    const msg = await client().messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      messages: [{ role: 'user', content: `${query}${context}` }],
-    });
-
-    res.json({ success: true, answer: msg.content[0]?.text || '', integration: integration.name });
+    const answer = await integrationAI(integration, `You are a helpful AI assistant for the ${integration.name} integration. Answer concisely.`, `${query}${context}`);
+    res.json({ success: true, answer, integration: integration.name });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -90,13 +86,8 @@ router.post('/api/:key', async (req, res) => {
         ? `\n\nData provided:\n${JSON.stringify(payload, null, 2)}`
         : (integration.lastPayload ? `\n\nStored data:\n${typeof integration.lastPayload === 'string' ? integration.lastPayload : JSON.stringify(integration.lastPayload, null, 2)}` : '');
 
-      const msg = await client().messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
-        messages: [{ role: 'user', content: `${query}${context}` }],
-      });
-
-      return res.json({ success: true, answer: msg.content[0]?.text || '', stored: Object.keys(payload).length > 0 });
+      const answer = await integrationAI(integration, `You are a helpful AI assistant for the ${integration.name} integration. Answer concisely.`, `${query}${context}`);
+      return res.json({ success: true, answer, stored: Object.keys(payload).length > 0 });
     }
 
     res.json({ success: true, stored: true, integration: integration.name });

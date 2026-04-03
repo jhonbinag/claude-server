@@ -245,7 +245,7 @@ Requirements:
     const userText     = Array.isArray(lastUser?.content) ? lastUser.content.map(c => c.text || '').join('') : (lastUser?.content || '');
     const fullSystem   = history ? `${systemPrompt}\n\n--- Conversation so far ---\n${history}` : systemPrompt;
 
-    const reply = await aiService.generate(fullSystem, userText, { maxTokens: action === 'finalize' ? 600 : 300 });
+    const reply = await aiService.generate(fullSystem, userText, { locationId: req.locationId, maxTokens: action === 'finalize' ? 600 : 300 });
     res.json({ success: true, reply });
   } catch (err) {
     console.error('[Prompts] train error:', err.message);

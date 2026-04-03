@@ -1,51 +1,18 @@
 /**
  * src/services/aiService.js
  *
- * Unified AI provider layer — auto-detects which provider is configured:
- *   1. Anthropic  (ANTHROPIC_API_KEY)  → Claude Sonnet 4.6
- *   2. OpenAI     (OPENAI_API_KEY)     → GPT-4o-mini
- *   3. Groq       (GROQ_API_KEY)       → llama-3.1-8b-instant (compact mode, 1500 token cap)
- *   4. Google     (GOOGLE_API_KEY)     → Gemini 2.5 Flash
- *   5. Perplexity (PERPLEXITY_API_KEY) → sonar (8192 tokens)
+ * Unified AI provider layer — reads provider keys exclusively from Redis/Firebase
+ * via toolRegistry.loadToolConfigs(locationId). No env-var fallback.
  *
  * Exports:
- *   getProvider()                         → { name, model }
- *   generate(system, userText, opts)      → string
- *   generateWithVision(system, userText, imageBase64, mimeType, opts) → string
+ *   generateForLocation(locationId, system, userText, opts)       → string
+ *   generateWithVisionForLocation(locationId, system, userText, imageBase64, mimeType, opts) → string
+ *   generateWithKey(apiKey, system, userText, opts)               → string  (explicit key)
+ *   generateWithVisionWithKey(apiKey, system, userText, b64, mime, opts) → string
+ *   generateWithAnyKey(apiKey, system, userText, opts)            → string  (auto-detect provider from key prefix)
  */
 
 const https  = require('https');
-const config = require('../config');
-
-// ── Provider detection ────────────────────────────────────────────────────────
-
-function getProvider() {
-  if (process.env.ANTHROPIC_API_KEY) {
-    return { name: 'anthropic', model: 'claude-sonnet-4-6', visionModel: 'claude-opus-4-5' };
-  }
-  if (process.env.OPENAI_API_KEY) {
-    return { name: 'openai', model: 'gpt-4o-mini', visionModel: 'gpt-4o' };
-  }
-  if (process.env.GROQ_API_KEY) {
-    const m = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
-    return { name: 'groq', model: m, visionModel: 'meta-llama/llama-4-scout-17b-16e-instruct' };
-  }
-  if (process.env.GOOGLE_API_KEY) {
-    const m = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
-    return { name: 'google', model: m, visionModel: m };
-  }
-  if (process.env.PERPLEXITY_API_KEY) {
-    const m = process.env.PERPLEXITY_MODEL || 'sonar';
-    return { name: 'perplexity', model: m, visionModel: m };
-  }
-  return null;
-}
-
-function requireProvider() {
-  const p = getProvider();
-  if (!p) throw new Error('No AI provider configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, GOOGLE_API_KEY, or PERPLEXITY_API_KEY.');
-  return p;
-}
 
 // ── HTTPS helper ──────────────────────────────────────────────────────────────
 
@@ -92,11 +59,11 @@ function httpsPost(hostname, path, headers, body, retries = 4) {
   });
 }
 
-// ── Anthropic ─────────────────────────────────────────────────────────────────
+// ── Provider-specific generators (all accept explicit apiKey) ─────────────────
 
-async function anthropicGenerate(system, userText, { model, maxTokens = 4096 } = {}) {
+async function anthropicGenerate(apiKey, system, userText, { model, maxTokens = 4096 } = {}) {
   const Anthropic = require('@anthropic-ai/sdk');
-  const client    = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const client    = new Anthropic({ apiKey });
   const resp      = await client.messages.create({
     model:      model || 'claude-sonnet-4-6',
     max_tokens: maxTokens,
@@ -106,9 +73,9 @@ async function anthropicGenerate(system, userText, { model, maxTokens = 4096 } =
   return resp.content[0]?.text || '';
 }
 
-async function anthropicGenerateWithVision(system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
+async function anthropicGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
   const Anthropic = require('@anthropic-ai/sdk');
-  const client    = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const client    = new Anthropic({ apiKey });
   const resp      = await client.messages.create({
     model:      model || 'claude-opus-4-5',
     max_tokens: maxTokens,
@@ -124,213 +91,126 @@ async function anthropicGenerateWithVision(system, userText, imageBase64, mimeTy
   return resp.content[0]?.text || '';
 }
 
-// ── OpenAI ────────────────────────────────────────────────────────────────────
-
-async function openaiGenerate(system, userText, { model, maxTokens = 4096 } = {}) {
+async function openaiGenerate(apiKey, system, userText, { model, maxTokens = 4096 } = {}) {
   const resp = await httpsPost(
-    'api.openai.com',
-    '/v1/chat/completions',
-    { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    {
-      model:      model || 'gpt-4o-mini',
-      max_tokens: maxTokens,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user',   content: userText },
-      ],
-    }
+    'api.openai.com', '/v1/chat/completions',
+    { Authorization: `Bearer ${apiKey}` },
+    { model: model || 'gpt-4o-mini', max_tokens: maxTokens,
+      messages: [{ role: 'system', content: system }, { role: 'user', content: userText }] }
   );
   return resp.choices?.[0]?.message?.content || '';
 }
 
-async function openaiGenerateWithVision(system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
+async function openaiGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
   const resp = await httpsPost(
-    'api.openai.com',
-    '/v1/chat/completions',
-    { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    {
-      model:      model || 'gpt-4o',
-      max_tokens: maxTokens,
+    'api.openai.com', '/v1/chat/completions',
+    { Authorization: `Bearer ${apiKey}` },
+    { model: model || 'gpt-4o', max_tokens: maxTokens,
       messages: [
         { role: 'system', content: system },
-        {
-          role:    'user',
-          content: [
-            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-            { type: 'text',      text: userText },
-          ],
-        },
-      ],
-    }
+        { role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+          { type: 'text', text: userText },
+        ]},
+      ]}
   );
   return resp.choices?.[0]?.message?.content || '';
 }
 
-// ── Groq (OpenAI-compatible) ──────────────────────────────────────────────────
-
-async function groqGenerate(system, userText, { model, maxTokens = 4096 } = {}) {
+async function groqGenerate(apiKey, system, userText, { model, maxTokens = 4096 } = {}) {
   const resp = await httpsPost(
-    'api.groq.com',
-    '/openai/v1/chat/completions',
-    { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-    {
-      model:      model || process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
-      max_tokens: maxTokens,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user',   content: userText },
-      ],
-    }
+    'api.groq.com', '/openai/v1/chat/completions',
+    { Authorization: `Bearer ${apiKey}` },
+    { model: model || 'llama-3.1-8b-instant', max_tokens: maxTokens,
+      messages: [{ role: 'system', content: system }, { role: 'user', content: userText }] }
   );
   return resp.choices?.[0]?.message?.content || '';
 }
 
-async function groqGenerateWithVision(system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
+async function groqGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
   const resp = await httpsPost(
-    'api.groq.com',
-    '/openai/v1/chat/completions',
-    { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-    {
-      model:      model || 'llama-3.2-90b-vision-preview',
-      max_tokens: maxTokens,
+    'api.groq.com', '/openai/v1/chat/completions',
+    { Authorization: `Bearer ${apiKey}` },
+    { model: model || 'meta-llama/llama-4-scout-17b-16e-instruct', max_tokens: maxTokens,
       messages: [
         { role: 'system', content: system },
-        {
-          role:    'user',
-          content: [
-            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-            { type: 'text',      text: userText },
-          ],
-        },
-      ],
-    }
+        { role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+          { type: 'text', text: userText },
+        ]},
+      ]}
   );
   return resp.choices?.[0]?.message?.content || '';
 }
 
-// ── Google Gemini ─────────────────────────────────────────────────────────────
-
-async function googleGenerate(system, userText, { model, maxTokens = 4096 } = {}) {
-  const m    = model || process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
+async function googleGenerate(apiKey, system, userText, { model, maxTokens = 4096 } = {}) {
+  const m    = model || 'gemini-2.5-flash-preview-05-20';
   const resp = await httpsPost(
     'generativelanguage.googleapis.com',
-    `/v1beta/models/${m}:generateContent?key=${process.env.GOOGLE_API_KEY}`,
+    `/v1beta/models/${m}:generateContent?key=${apiKey}`,
     {},
-    {
-      systemInstruction: { parts: [{ text: system }] },
+    { systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: 'user', parts: [{ text: userText }] }],
-      generationConfig: { maxOutputTokens: maxTokens },
-    }
+      generationConfig: { maxOutputTokens: maxTokens } }
   );
   return resp.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-async function googleGenerateWithVision(system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
-  const m    = model || process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
+async function googleGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
+  const m    = model || 'gemini-2.5-flash-preview-05-20';
   const resp = await httpsPost(
     'generativelanguage.googleapis.com',
-    `/v1beta/models/${m}:generateContent?key=${process.env.GOOGLE_API_KEY}`,
+    `/v1beta/models/${m}:generateContent?key=${apiKey}`,
     {},
-    {
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{
-        role:  'user',
-        parts: [
-          { inlineData: { mimeType, data: imageBase64 } },
-          { text: userText },
-        ],
-      }],
-      generationConfig: { maxOutputTokens: maxTokens },
-    }
+    { systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [
+        { inlineData: { mimeType, data: imageBase64 } },
+        { text: userText },
+      ]}],
+      generationConfig: { maxOutputTokens: maxTokens } }
   );
   return resp.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-// ── Perplexity (OpenAI-compatible) ────────────────────────────────────────────
-
-async function perplexityGenerate(system, userText, { model, maxTokens = 8192 } = {}) {
+async function perplexityGenerate(apiKey, system, userText, { model, maxTokens = 8192 } = {}) {
   const resp = await httpsPost(
-    'api.perplexity.ai',
-    '/chat/completions',
-    { Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}` },
-    {
-      model:      model || process.env.PERPLEXITY_MODEL || 'sonar',
-      max_tokens: maxTokens,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user',   content: userText },
-      ],
-    }
+    'api.perplexity.ai', '/chat/completions',
+    { Authorization: `Bearer ${apiKey}` },
+    { model: model || 'sonar', max_tokens: maxTokens,
+      messages: [{ role: 'system', content: system }, { role: 'user', content: userText }] }
   );
   return resp.choices?.[0]?.message?.content || '';
 }
 
-async function perplexityGenerateWithVision(system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
+async function perplexityGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { model, maxTokens = 8192 } = {}) {
   const resp = await httpsPost(
-    'api.perplexity.ai',
-    '/chat/completions',
-    { Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}` },
-    {
-      model:      model || process.env.PERPLEXITY_MODEL || 'sonar',
-      max_tokens: maxTokens,
+    'api.perplexity.ai', '/chat/completions',
+    { Authorization: `Bearer ${apiKey}` },
+    { model: model || 'sonar', max_tokens: maxTokens,
       messages: [
         { role: 'system', content: system },
-        {
-          role:    'user',
-          content: [
-            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-            { type: 'text',      text: userText },
-          ],
-        },
-      ],
-    }
+        { role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+          { type: 'text', text: userText },
+        ]},
+      ]}
   );
   return resp.choices?.[0]?.message?.content || '';
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// ── Key-prefix auto-detection ────────────────────────────────────────────────
 
-/**
- * Generate text from a system + user prompt.
- * opts.model overrides the default model for the detected provider.
- * opts.maxTokens caps the response length.
- */
-async function generate(system, userText, opts = {}) {
-  const provider = requireProvider();
-  const model    = opts.model || provider.model;
-  // Groq: compact mode — 1500 token cap (fast/testing). All other providers: 8192.
-  const maxTokens = provider.name === 'groq' ? Math.min(opts.maxTokens || 1500, 1500) : (opts.maxTokens || 8192);
-
-  switch (provider.name) {
-    case 'anthropic':  return anthropicGenerate(system, userText, { ...opts, model, maxTokens });
-    case 'openai':     return openaiGenerate(system, userText, { ...opts, model, maxTokens });
-    case 'groq':       return groqGenerate(system, userText, { ...opts, model, maxTokens });
-    case 'google':     return googleGenerate(system, userText, { ...opts, model, maxTokens });
-    case 'perplexity': return perplexityGenerate(system, userText, { ...opts, model, maxTokens });
-  }
+function detectKeyProvider(key = '') {
+  if (key.startsWith('sk-ant-')) return 'anthropic';
+  if (key.startsWith('gsk_'))    return 'groq';
+  if (key.startsWith('AIza'))    return 'google';
+  if (key.startsWith('pplx-'))   return 'perplexity';
+  if (key.startsWith('sk-'))     return 'openai';
+  return null;
 }
 
-/**
- * Generate text from a system prompt + user text + image (base64).
- * Automatically uses the vision-capable model for each provider.
- */
-async function generateWithVision(system, userText, imageBase64, mimeType, opts = {}) {
-  const provider = requireProvider();
-  const model    = opts.model || provider.visionModel;
+// ── Public: explicit key ──────────────────────────────────────────────────────
 
-  switch (provider.name) {
-    case 'anthropic':  return anthropicGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
-    case 'openai':     return openaiGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
-    case 'groq':       return groqGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
-    case 'google':     return googleGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
-    case 'perplexity': return perplexityGenerateWithVision(system, userText, imageBase64, mimeType, { ...opts, model });
-  }
-}
-
-/**
- * Generate using a caller-supplied Anthropic API key (Claude only).
- * Used when the user provides their own key in the UI.
- */
 async function generateWithKey(apiKey, system, userText, opts = {}) {
   const Anthropic = require('@anthropic-ai/sdk');
   const client    = new Anthropic({ apiKey });
@@ -346,7 +226,6 @@ async function generateWithKey(apiKey, system, userText, opts = {}) {
 async function generateWithVisionWithKey(apiKey, system, userText, imageBase64, mimeType, opts = {}) {
   const Anthropic = require('@anthropic-ai/sdk');
   const client    = new Anthropic({ apiKey });
-
   const reqParams = {
     model:      opts.model || 'claude-sonnet-4-6',
     max_tokens: opts.maxTokens || 8192,
@@ -359,86 +238,87 @@ async function generateWithVisionWithKey(apiKey, system, userText, imageBase64, 
       ],
     }],
   };
-
-  // Enable extended thinking for deep visual analysis when requested
   if (opts.thinking) {
     reqParams.thinking = { type: 'enabled', budget_tokens: opts.thinkingBudget || 8000 };
     reqParams.betas    = ['interleaved-thinking-2025-05-14'];
   }
-
   const resp = await client.messages.create(reqParams);
-  // With thinking enabled, resp.content has mixed thinking/text blocks — return first text block
   const textBlock = resp.content.find(b => b.type === 'text');
   return textBlock?.text || resp.content[0]?.text || '';
 }
 
-// ── Per-location AI generation ─────────────────────────────────────────────────
-// Loads the key saved via Settings → Integrations for the given locationId.
-// Falls back to the platform-level env-var provider if no per-location key found.
-
-function detectKeyProvider(key = '') {
-  if (key.startsWith('sk-ant-')) return 'anthropic';
-  if (key.startsWith('gsk_'))    return 'groq';
-  if (key.startsWith('AIza'))    return 'google';
-  if (key.startsWith('sk-'))     return 'openai';
-  return null;
-}
-
 async function generateWithAnyKey(apiKey, system, userText, opts = {}) {
-  const provider = detectKeyProvider(apiKey);
+  const provider  = detectKeyProvider(apiKey);
   const maxTokens = opts.maxTokens || 8192;
-  if (provider === 'anthropic') {
-    return generateWithKey(apiKey, system, userText, { ...opts, maxTokens });
-  }
-  if (provider === 'openai') {
-    const resp = await httpsPost('api.openai.com', '/v1/chat/completions',
-      { Authorization: `Bearer ${apiKey}` },
-      { model: opts.model || 'gpt-4o-mini', max_tokens: maxTokens,
-        messages: [{ role: 'system', content: system }, { role: 'user', content: userText }] });
-    return resp.choices?.[0]?.message?.content || '';
-  }
-  if (provider === 'groq') {
-    const resp = await httpsPost('api.groq.com', '/openai/v1/chat/completions',
-      { Authorization: `Bearer ${apiKey}` },
-      { model: opts.model || 'llama-3.3-70b-versatile', max_tokens: maxTokens,
-        messages: [{ role: 'system', content: system }, { role: 'user', content: userText }] });
-    return resp.choices?.[0]?.message?.content || '';
-  }
-  if (provider === 'google') {
-    const m = opts.model || 'gemini-2.5-flash-preview-05-20';
-    const resp = await httpsPost('generativelanguage.googleapis.com',
-      `/v1beta/models/${m}:generateContent?key=${apiKey}`, {},
-      { systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: 'user', parts: [{ text: userText }] }],
-        generationConfig: { maxOutputTokens: maxTokens } });
-    return resp.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  }
-  // Unknown key format — fall through to env-var provider
-  return generate(system, userText, opts);
+  if (provider === 'anthropic')  return anthropicGenerate(apiKey, system, userText, { ...opts, maxTokens });
+  if (provider === 'openai')     return openaiGenerate(apiKey, system, userText, { ...opts, maxTokens });
+  if (provider === 'groq')       return groqGenerate(apiKey, system, userText, { ...opts, maxTokens });
+  if (provider === 'google')     return googleGenerate(apiKey, system, userText, { ...opts, maxTokens });
+  if (provider === 'perplexity') return perplexityGenerate(apiKey, system, userText, { ...opts, maxTokens });
+  throw new Error('Unrecognised API key format.');
 }
+
+// ── Public: per-location (primary API) ───────────────────────────────────────
+
+const AI_PROVIDERS = ['anthropic', 'openai', 'groq', 'google', 'perplexity'];
 
 async function generateForLocation(locationId, systemPrompt, userPrompt, opts = {}) {
-  if (locationId) {
-    let configs = null;
-    try {
-      const registry = require('../tools/toolRegistry');
-      configs = await registry.loadToolConfigs(locationId);
-    } catch (err) {
-      console.warn(`[aiService] loadToolConfigs failed for ${locationId}:`, err.message);
-    }
-    if (configs) {
-      for (const p of ['anthropic', 'openai', 'groq', 'google']) {
-        if (configs?.[p]?.apiKey) {
-          console.log(`[aiService] generateForLocation(${locationId}): using stored ${p} key`);
-          // Do NOT catch here — if the API call fails, let the error propagate to the caller
-          return generateWithAnyKey(configs[p].apiKey, systemPrompt, userPrompt, opts);
-        }
-      }
-    }
+  const registry = require('../tools/toolRegistry');
+  let configs = {};
+  try { configs = await registry.loadToolConfigs(locationId); } catch (err) {
+    console.warn(`[aiService] loadToolConfigs failed for ${locationId}:`, err.message);
   }
-  // No per-location key found — fall back to env-var provider
-  console.log(`[aiService] generateForLocation(${locationId}): no stored key, using env-var provider (${getProvider()?.name || 'none'})`);
-  return generate(systemPrompt, userPrompt, opts);
+
+  const perLoc = AI_PROVIDERS.find(p => configs[p]?.apiKey);
+  if (!perLoc) {
+    throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
+  }
+
+  console.log(`[aiService] generateForLocation(${locationId}): using ${perLoc}`);
+  return generateWithAnyKey(configs[perLoc].apiKey, systemPrompt, userPrompt, opts);
 }
 
-module.exports = { getProvider, generate, generateWithVision, generateWithKey, generateWithVisionWithKey, generateForLocation };
+async function generateWithVisionForLocation(locationId, system, userText, imageBase64, mimeType, opts = {}) {
+  const registry = require('../tools/toolRegistry');
+  let configs = {};
+  try { configs = await registry.loadToolConfigs(locationId); } catch (err) {
+    console.warn(`[aiService] loadToolConfigs failed for ${locationId}:`, err.message);
+  }
+
+  const perLoc = AI_PROVIDERS.find(p => configs[p]?.apiKey);
+  if (!perLoc) {
+    throw new Error('No AI provider configured. Please add an API key in Settings → Integrations.');
+  }
+
+  const apiKey    = configs[perLoc].apiKey;
+  const maxTokens = opts.maxTokens || 8192;
+  if (perLoc === 'anthropic')  return anthropicGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
+  if (perLoc === 'openai')     return openaiGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
+  if (perLoc === 'groq')       return groqGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
+  if (perLoc === 'google')     return googleGenerateWithVision(apiKey, system, userText, imageBase64, mimeType, { ...opts, maxTokens });
+  throw new Error(`Vision not supported for provider: ${perLoc}`);
+}
+
+// ── Shim: callers that pass locationId in opts ────────────────────────────────
+// generate(system, userText, { locationId, ...opts }) — locationId required
+async function generate(system, userText, opts = {}) {
+  const { locationId, ...rest } = opts;
+  if (!locationId) throw new Error('[aiService] generate() requires opts.locationId — use generateForLocation() instead.');
+  return generateForLocation(locationId, system, userText, rest);
+}
+
+async function generateWithVision(system, userText, imageBase64, mimeType, opts = {}) {
+  const { locationId, ...rest } = opts;
+  if (!locationId) throw new Error('[aiService] generateWithVision() requires opts.locationId — use generateWithVisionForLocation() instead.');
+  return generateWithVisionForLocation(locationId, system, userText, imageBase64, mimeType, rest);
+}
+
+module.exports = {
+  generate,
+  generateWithVision,
+  generateWithKey,
+  generateWithVisionWithKey,
+  generateWithAnyKey,
+  generateForLocation,
+  generateWithVisionForLocation,
+};
