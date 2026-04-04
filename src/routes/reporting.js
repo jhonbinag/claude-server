@@ -51,47 +51,34 @@ router.get('/dashboard', async (req, res) => {
       req.ghl('GET', '/conversations/search', null, { locationId: locId, limit: 1 }),
     ]);
 
-    // Fetch up to 10 pages and count — GHL does NOT sort by date so we
-    // cannot use early-exit; we must scan all fetched contacts.
-    let weekly = 0, monthly = 0;
-    let cursor = null;
-    const cutoff30d = now - monthMs;
+    // Ask GHL to filter by date using startAfterDate — count pages returned
     const cutoff7d  = now - weekMs;
-    let allFetched = [];
+    const cutoff30d = now - monthMs;
 
-    for (let p = 0; p < 10; p++) {
-      const params = { locationId: locId, limit: 100 };
-      if (cursor) params.startAfter = cursor;
-      try {
-        const d = await req.ghl('GET', '/contacts/', null, params);
-        const batch = d?.contacts || [];
-        if (!batch.length) break;
-        allFetched = allFetched.concat(batch);
-        if (batch.length < 100) break;
-        const lastDate = batch[batch.length - 1]?.dateAdded;
-        cursor = lastDate ? new Date(lastDate).getTime() : null;
-        if (!cursor) break;
-      } catch (_) { break; }
-    }
+    const countContactsSince = async (sinceMs) => {
+      let count = 0, cursor = null;
+      for (let p = 0; p < 10; p++) {
+        const params = { locationId: locId, limit: 100, startAfterDate: sinceMs };
+        if (cursor) params.startAfter = cursor;
+        try {
+          const d = await req.ghl('GET', '/contacts/', null, params);
+          const batch = d?.contacts || [];
+          count += batch.length;
+          if (batch.length < 100) break;
+          const lastDate = batch[batch.length - 1]?.dateAdded;
+          cursor = lastDate ? new Date(lastDate).getTime() : null;
+          if (!cursor) break;
+        } catch (_) { break; }
+      }
+      return count;
+    };
 
-    if (allFetched.length > 0) {
-      const dates = allFetched.map(c => c.dateAdded).filter(Boolean).map(d => new Date(d).getTime()).filter(n => !isNaN(n));
-      const oldest = new Date(Math.min(...dates)).toISOString();
-      const newest = new Date(Math.max(...dates)).toISOString();
-      console.log(`[Reporting] dashboard: fetched=${allFetched.length} oldest=${oldest} newest=${newest}`);
-      console.log(`[Reporting] dashboard: cutoff7d=${new Date(cutoff7d).toISOString()} cutoff30d=${new Date(cutoff30d).toISOString()}`);
-    }
+    const [weekly, monthly] = await Promise.all([
+      countContactsSince(cutoff7d),
+      countContactsSince(cutoff30d),
+    ]);
 
-    allFetched.forEach(c => {
-      const raw = c.dateAdded || c.dateCreated || c.createdAt || null;
-      if (!raw) return;
-      const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
-      if (isNaN(addedMs)) return;
-      if (addedMs >= cutoff7d)  weekly++;
-      if (addedMs >= cutoff30d) monthly++;
-    });
-
-    console.log(`[Reporting] dashboard counts: weekly=${weekly} monthly=${monthly}`);
+    console.log(`[Reporting] dashboard counts via startAfterDate: weekly=${weekly} monthly=${monthly}`);
 
     res.json({
       success: true,
@@ -154,48 +141,35 @@ router.get('/contacts', async (req, res) => {
     let contacts = [];
 
     if (hasDateFilter) {
-      // GHL max limit is 100. Fetch up to 5 pages (500 contacts) for date filtering.
-      const GHL_MAX = 100;
-      const MAX_PAGES = 5;
-      let startAfterCursor = null;
-
-      for (let p = 0; p < MAX_PAGES; p++) {
-        const params = { locationId: req.locationId, limit: GHL_MAX };
-        if (query) params.query = query;
-        // startAfter must be a ms timestamp number (not a contact ID)
-        if (startAfterCursor) params.startAfter = startAfterCursor;
-
-        const data = await req.ghl('GET', '/contacts/', null, params);
-        const batch = data?.contacts || [];
-        contacts = contacts.concat(batch);
-
-        if (p === 0 && batch.length > 0) {
-          console.log('[Reporting] GHL contact date fields:', JSON.stringify({ dateAdded: batch[0].dateAdded }));
-        }
-
-        if (batch.length < GHL_MAX) break;
-        // Use last contact's dateAdded as next page cursor (must be a number)
-        const lastDate = batch[batch.length - 1]?.dateAdded;
-        startAfterCursor = lastDate ? new Date(lastDate).getTime() : null;
-        if (!startAfterCursor) break;
-      }
-
+      // Pass startAfterDate to GHL so it filters on their end — max 100/page
       const startMs = startDate ? new Date(startDate).getTime() : null;
       const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
+      let cursor = null;
 
-      console.log(`[Reporting] fetched ${contacts.length} total, filtering startMs:${startMs} endMs:${endMs}`);
+      for (let p = 0; p < 10; p++) {
+        const params = { locationId: req.locationId, limit: 100 };
+        if (query)   params.query           = query;
+        if (startMs) params.startAfterDate  = startMs;
+        if (cursor)  params.startAfter      = cursor;
 
-      contacts = contacts.filter(c => {
-        const raw = c.dateAdded || c.dateCreated || c.createdAt || null;
-        if (!raw) return false;
-        const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
-        if (isNaN(addedMs)) return false;
-        if (startMs && addedMs < startMs) return false;
-        if (endMs   && addedMs > endMs)   return false;
-        return true;
-      });
+        const data  = await req.ghl('GET', '/contacts/', null, params);
+        const batch = data?.contacts || [];
+        contacts = contacts.concat(batch);
+        if (batch.length < 100) break;
+        const lastDate = batch[batch.length - 1]?.dateAdded;
+        cursor = lastDate ? new Date(lastDate).getTime() : null;
+        if (!cursor) break;
+      }
 
-      console.log(`[Reporting] after date filter: ${contacts.length} matched`);
+      // If endDate provided, trim contacts added after it
+      if (endMs) {
+        contacts = contacts.filter(c => {
+          const raw = c.dateAdded || null;
+          if (!raw) return false;
+          const addedMs = new Date(raw).getTime();
+          return !isNaN(addedMs) && addedMs <= endMs;
+        });
+      }
     } else {
       const params = { locationId: req.locationId, limit: Math.min(pageSize, 100) };
       if (query) params.query = query;
@@ -203,8 +177,8 @@ router.get('/contacts', async (req, res) => {
       contacts = data?.contacts || [];
     }
 
-    const total    = contacts.length;
-    const offset   = (pageNum - 1) * pageSize;
+    const total     = contacts.length;
+    const offset    = (pageNum - 1) * pageSize;
     const paginated = hasDateFilter ? contacts.slice(offset, offset + pageSize) : contacts;
 
     res.json({ success: true, data: paginated, meta: { total } });
