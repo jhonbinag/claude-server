@@ -102,6 +102,8 @@ router.get('/debug-contact', async (req, res) => {
       createdAt:   c.createdAt,
       date_added:  c.date_added,
     }));
+    console.log('[Reporting DEBUG] total fetched:', contacts.length);
+    sample.forEach((s, i) => console.log(`[Reporting DEBUG] contact[${i}]:`, JSON.stringify(s)));
     res.json({ success: true, total: contacts.length, sample });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
