@@ -323,7 +323,7 @@ function LeadsTabPanel({ locationId, days }) {
 function DashboardView({ locationId }) {
   const [stats,   setStats]   = useState(null);
   const [loading, setLoading] = useState(false);
-  const [leadsTab, setLeadsTab] = useState('7d');
+  const [leadsTab, setLeadsTab] = useState('3d');
 
   const headers = { 'x-location-id': locationId };
 
@@ -340,10 +340,9 @@ function DashboardView({ locationId }) {
   useEffect(() => { loadStats(); }, [loadStats]);
 
   const TABS = [
-    { key: '7d',  label: 'Last 7 Days',  days: 7,  color: '#a5b4fc', bg: 'rgba(99,102,241,0.08)',  bdr: C.accentBdr },
-    { key: '30d', label: 'Last 30 Days', days: 30, color: '#34d399', bg: C.greenBg,                bdr: C.greenBdr  },
+    { key: '3d', label: 'Last 3 Days', days: 3, color: '#a5b4fc', bg: 'rgba(99,102,241,0.08)', bdr: C.accentBdr },
+    { key: '7d', label: 'Last 7 Days', days: 7, color: '#34d399', bg: C.greenBg,               bdr: C.greenBdr  },
   ];
-  const activeTab = TABS.find(t => t.key === leadsTab);
 
   return (
     <div>
@@ -373,7 +372,7 @@ function DashboardView({ locationId }) {
         <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
           {TABS.map(tab => {
             const active = leadsTab === tab.key;
-            const count  = tab.key === '7d' ? stats?.contacts?.weekly : stats?.contacts?.monthly;
+            const count  = tab.key === '3d' ? stats?.contacts?.recent3d : stats?.contacts?.weekly;
             return (
               <button
                 key={tab.key}
@@ -398,8 +397,8 @@ function DashboardView({ locationId }) {
         </div>
 
         {/* Tab content — each tab mounts its own LeadsTabPanel */}
-        {leadsTab === '7d'  && <LeadsTabPanel key="7d"  locationId={locationId} days={7}  />}
-        {leadsTab === '30d' && <LeadsTabPanel key="30d" locationId={locationId} days={30} />}
+        {leadsTab === '3d' && <LeadsTabPanel key="3d" locationId={locationId} days={3} />}
+        {leadsTab === '7d' && <LeadsTabPanel key="7d" locationId={locationId} days={7} />}
       </div>
     </div>
   );

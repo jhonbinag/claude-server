@@ -39,8 +39,8 @@ router.get('/dashboard', async (req, res) => {
   try {
     const locId   = req.locationId;
     const now     = Date.now();
-    const weekMs  = 7  * 24 * 60 * 60 * 1000;
-    const monthMs = 30 * 24 * 60 * 60 * 1000;
+    const day3Ms  = 3 * 24 * 60 * 60 * 1000;
+    const weekMs  = 7 * 24 * 60 * 60 * 1000;
 
     const ok = r => r.status === 'fulfilled';
 
@@ -52,8 +52,8 @@ router.get('/dashboard', async (req, res) => {
     ]);
 
     // Fetch recent contacts, filter by dateAdded server-side
-    const cutoff7d  = now - weekMs;
-    const cutoff30d = now - monthMs;
+    const cutoff3d = now - day3Ms;
+    const cutoff7d = now - weekMs;
     let allContacts = [], cur = null;
 
     for (let p = 0; p < 10; p++) {
@@ -70,25 +70,25 @@ router.get('/dashboard', async (req, res) => {
       } catch (_) { break; }
     }
 
-    let weekly = 0, monthly = 0;
+    let recent3d = 0, weekly = 0;
     allContacts.forEach(c => {
       const raw = c.dateAdded || null;
       if (!raw) return;
       const ms = new Date(raw).getTime();
       if (isNaN(ms)) return;
-      if (ms >= cutoff7d)  weekly++;
-      if (ms >= cutoff30d) monthly++;
+      if (ms >= cutoff3d) recent3d++;
+      if (ms >= cutoff7d) weekly++;
     });
 
-    console.log(`[Reporting] dashboard: scanned=${allContacts.length} weekly=${weekly} monthly=${monthly}`);
+    console.log(`[Reporting] dashboard: scanned=${allContacts.length} recent3d=${recent3d} weekly=${weekly}`);
 
     res.json({
       success: true,
       data: {
         contacts: {
-          total:   ok(contacts) ? (contacts.value?.meta?.total ?? contacts.value?.count ?? 0) : 0,
+          total:    ok(contacts) ? (contacts.value?.meta?.total ?? contacts.value?.count ?? 0) : 0,
+          recent3d,
           weekly,
-          monthly,
         },
         opportunities: {
           total: ok(opps) ? (opps.value?.meta?.total ?? 0) : 0,
