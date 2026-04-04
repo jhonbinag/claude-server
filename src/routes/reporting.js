@@ -55,7 +55,7 @@ router.get('/dashboard', async (req, res) => {
     if (ok(recent500)) {
       const all = recent500.value?.contacts || [];
       all.forEach(c => {
-        const raw     = c.createdAt ?? null;
+        const raw     = c.dateAdded ?? c.dateCreated ?? c.createdAt ?? null;
         if (!raw) return;
         const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
         if (addedMs >= now - weekMs)  weekly++;
@@ -113,7 +113,7 @@ router.get('/contacts', async (req, res) => {
       const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
 
       contacts = contacts.filter(c => {
-        const raw   = c.createdAt ?? null;
+        const raw   = c.dateAdded ?? c.dateCreated ?? c.createdAt ?? null;
         if (!raw) return false;
         const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
         if (startMs && addedMs < startMs) return false;

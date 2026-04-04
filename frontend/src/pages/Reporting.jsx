@@ -254,7 +254,7 @@ const LEAD_COLS = [
   { key: 'email',     label: 'Email',   render: v => v || <span style={{ color: C.muted }}>—</span> },
   { key: 'phone',     label: 'Phone',   render: v => v || <span style={{ color: C.muted }}>—</span> },
   { key: 'tags',      label: 'Tags',    render: v => Array.isArray(v) && v.length ? v.slice(0, 3).map(t => <span key={t} style={{ marginRight: 4, padding: '1px 7px', borderRadius: 8, background: C.accentBg, color: '#a5b4fc', fontSize: 11 }}>{t}</span>) : <span style={{ color: C.muted }}>—</span> },
-  { key: 'createdAt', label: 'Added',   render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
+  { key: 'dateAdded', label: 'Added',   render: (v, r) => { const d = v ?? r.dateCreated ?? r.createdAt; return d ? new Date(d).toLocaleDateString() : <span style={{ color: C.muted }}>—</span>; } },
 ];
 
 function LeadsTabPanel({ locationId, days }) {
@@ -515,7 +515,7 @@ const CONTACT_COLS = [
   { key: 'email',     label: 'Email',   render: v => v || <span style={{ color: C.muted }}>—</span> },
   { key: 'phone',     label: 'Phone',   render: v => v || <span style={{ color: C.muted }}>—</span> },
   { key: 'tags',      label: 'Tags',    render: v => Array.isArray(v) && v.length ? v.slice(0, 3).map(t => <span key={t} style={{ marginRight: 4, padding: '1px 7px', borderRadius: 8, background: C.accentBg, color: '#a5b4fc', fontSize: 11 }}>{t}</span>) : <span style={{ color: C.muted }}>—</span> },
-  { key: 'createdAt', label: 'Created', render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
+  { key: 'dateAdded', label: 'Created', render: (v, r) => { const d = v ?? r.dateCreated ?? r.createdAt; return d ? new Date(d).toLocaleDateString() : <span style={{ color: C.muted }}>—</span>; } },
 ];
 
 function ContactsView({ locationId }) {
