@@ -51,17 +51,15 @@ router.get('/dashboard', async (req, res) => {
       req.ghl('GET', '/conversations/search', null, { locationId: locId, limit: 1 }),
     ]);
 
-    // Ask GHL to filter by date using startAfterDate — count pages returned
+    // Use GHL's startAfter (ms timestamp) to fetch only contacts added after each cutoff
     const cutoff7d  = now - weekMs;
     const cutoff30d = now - monthMs;
 
-    const countContactsSince = async (sinceMs) => {
-      let count = 0, cursor = null;
+    const countSince = async (sinceMs) => {
+      let count = 0, cursor = sinceMs;
       for (let p = 0; p < 10; p++) {
-        const params = { locationId: locId, limit: 100, startAfterDate: sinceMs };
-        if (cursor) params.startAfter = cursor;
         try {
-          const d = await req.ghl('GET', '/contacts/', null, params);
+          const d = await req.ghl('GET', '/contacts/', null, { locationId: locId, limit: 100, startAfter: cursor });
           const batch = d?.contacts || [];
           count += batch.length;
           if (batch.length < 100) break;
@@ -74,11 +72,11 @@ router.get('/dashboard', async (req, res) => {
     };
 
     const [weekly, monthly] = await Promise.all([
-      countContactsSince(cutoff7d),
-      countContactsSince(cutoff30d),
+      countSince(cutoff7d),
+      countSince(cutoff30d),
     ]);
 
-    console.log(`[Reporting] dashboard counts via startAfterDate: weekly=${weekly} monthly=${monthly}`);
+    console.log(`[Reporting] dashboard counts: weekly=${weekly} monthly=${monthly}`);
 
     res.json({
       success: true,
@@ -141,16 +139,15 @@ router.get('/contacts', async (req, res) => {
     let contacts = [];
 
     if (hasDateFilter) {
-      // Pass startAfterDate to GHL so it filters on their end — max 100/page
+      // GHL startAfter is a ms timestamp — use it as the date cursor for filtering
       const startMs = startDate ? new Date(startDate).getTime() : null;
       const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
-      let cursor = null;
+      let cursor = startMs; // start paging from startDate forward
 
       for (let p = 0; p < 10; p++) {
         const params = { locationId: req.locationId, limit: 100 };
-        if (query)   params.query           = query;
-        if (startMs) params.startAfterDate  = startMs;
-        if (cursor)  params.startAfter      = cursor;
+        if (query)  params.query      = query;
+        if (cursor) params.startAfter = cursor;
 
         const data  = await req.ghl('GET', '/contacts/', null, params);
         const batch = data?.contacts || [];
@@ -161,13 +158,13 @@ router.get('/contacts', async (req, res) => {
         if (!cursor) break;
       }
 
-      // If endDate provided, trim contacts added after it
+      // Trim to endDate if provided
       if (endMs) {
         contacts = contacts.filter(c => {
           const raw = c.dateAdded || null;
           if (!raw) return false;
-          const addedMs = new Date(raw).getTime();
-          return !isNaN(addedMs) && addedMs <= endMs;
+          const ms = new Date(raw).getTime();
+          return !isNaN(ms) && ms <= endMs;
         });
       }
     } else {
