@@ -14,6 +14,8 @@ const express       = require('express');
 const router        = express.Router();
 const authenticate  = require('../middleware/authenticate');
 
+console.log('[Reporting] routes loaded');
+
 router.use((req, res, next) => {
   console.log(`[Reporting] ${req.method} ${req.path} | loc=${req.headers['x-location-id']}`);
   next();
@@ -55,9 +57,10 @@ router.get('/dashboard', async (req, res) => {
     if (ok(recent500)) {
       const all = recent500.value?.contacts || [];
       all.forEach(c => {
-        const raw     = c.dateAdded ?? c.dateCreated ?? c.createdAt ?? null;
+        const raw     = c.dateAdded || c.dateCreated || c.createdAt || null;
         if (!raw) return;
         const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
+        if (isNaN(addedMs)) return;
         if (addedMs >= now - weekMs)  weekly++;
         if (addedMs >= now - monthMs) monthly++;
       });
@@ -113,9 +116,10 @@ router.get('/contacts', async (req, res) => {
       const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
 
       contacts = contacts.filter(c => {
-        const raw   = c.dateAdded ?? c.dateCreated ?? c.createdAt ?? null;
+        const raw   = c.dateAdded || c.dateCreated || c.createdAt || null;
         if (!raw) return false;
         const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
+        if (isNaN(addedMs)) return false;
         if (startMs && addedMs < startMs) return false;
         if (endMs   && addedMs > endMs)   return false;
         return true;
