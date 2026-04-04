@@ -511,9 +511,124 @@ function FiltersBar({ startDate, endDate, limit, onStart, onEnd, onLimit, onLoad
   );
 }
 
+// ── Detail Modal ──────────────────────────────────────────────────────────────
+
+function fmtDate(v) { return v ? new Date(v).toLocaleString() : null; }
+function fmtAmt(v)  { if (v == null) return null; const n = Number(v); return `$${n % 1 === 0 ? n.toFixed(2) : n}`; }
+
+function getRecordFields(section, tab, r) {
+  if (section === 'contacts') return [
+    { label: 'Name',         value: [r.firstName, r.lastName].filter(Boolean).join(' ') || null },
+    { label: 'Email',        value: r.email || null },
+    { label: 'Phone',        value: r.phone || null },
+    { label: 'Company',      value: r.companyName || null },
+    { label: 'Tags',         value: Array.isArray(r.tags) && r.tags.length ? r.tags.join(', ') : null },
+    { label: 'Source',       value: r.source || null },
+    { label: 'Address',      value: [r.address1, r.city, r.state, r.postalCode, r.country].filter(Boolean).join(', ') || null },
+    { label: 'Website',      value: r.website || null },
+    { label: 'Date Added',   value: fmtDate(r.dateAdded || r.createdAt) },
+    { label: 'Last Updated', value: fmtDate(r.dateUpdated || r.updatedAt) },
+  ];
+  if (section === 'opportunities') return [
+    { label: 'Name',       value: r.name || null },
+    { label: 'Contact',    value: r.contact?.name || r.contactName || null },
+    { label: 'Email',      value: r.contact?.email || null },
+    { label: 'Pipeline',   value: r.pipelineName || null },
+    { label: 'Stage',      value: r.stageName || null },
+    { label: 'Status',     value: r.status ? <StatusPill value={r.status} /> : null },
+    { label: 'Value',      value: fmtAmt(r.monetaryValue) },
+    { label: 'Source',     value: r.source || null },
+    { label: 'Close Date', value: fmtDate(r.closeDate) },
+    { label: 'Created',    value: fmtDate(r.createdAt) },
+    { label: 'Updated',    value: fmtDate(r.updatedAt) },
+  ];
+  if (section === 'conversations') return [
+    { label: 'Contact',       value: r.contactName || null },
+    { label: 'Channel',       value: r.type || null },
+    { label: 'Last Message',  value: r.lastMessageBody || null },
+    { label: 'Unread',        value: r.unreadCount != null ? String(r.unreadCount) : null },
+    { label: 'Last Activity', value: fmtDate(r.dateUpdated) },
+    { label: 'Created',       value: fmtDate(r.dateCreated || r.createdAt) },
+  ];
+  if (section === 'billing' && tab === 'subscription') return [
+    { label: 'ID',          value: r.id || null },
+    { label: 'Contact',     value: r.contact?.name || r.contactSnapshot?.name || r.contactName || r.customer?.name || null },
+    { label: 'Email',       value: r.contact?.email || r.contactSnapshot?.email || r.customer?.email || null },
+    { label: 'Status',      value: r.status ? <StatusPill value={r.status} /> : null },
+    { label: 'Product',     value: r.product?.name || r.planTitle || r.entitySourceName || null },
+    { label: 'Source',      value: r.paymentProvider || r.entitySourceType || (typeof r.source === 'string' ? r.source : r.source?.type) || null },
+    { label: 'Amount',      value: fmtAmt(r.amount) },
+    { label: 'Interval',    value: r.interval ? `${r.intervalCount || 1}× ${r.interval}` : null },
+    { label: 'Period End',  value: fmtDate(r.currentPeriodEnd) },
+    { label: 'Created',     value: fmtDate(r.createdAt) },
+  ];
+  if (section === 'billing' && tab === 'order') return [
+    { label: 'ID',       value: r.id || null },
+    { label: 'Contact',  value: r.contactName || r.contact?.name || r.contactSnapshot?.name || null },
+    { label: 'Email',    value: r.contactSnapshot?.email || r.contact?.email || null },
+    { label: 'Status',   value: r.status ? <StatusPill value={r.status} /> : null },
+    { label: 'Source',   value: r.paymentProvider || r.entitySourceType || (typeof r.source === 'string' ? r.source : r.source?.type) || null },
+    { label: 'Amount',   value: fmtAmt(r.amount) },
+    { label: 'Currency', value: r.currency?.toUpperCase() || null },
+    { label: 'Created',  value: fmtDate(r.createdAt) },
+  ];
+  if (section === 'billing' && tab === 'transaction') return [
+    { label: 'ID',      value: r.id || null },
+    { label: 'Contact', value: r.contactName || r.contact?.name || r.contactSnapshot?.name || r.customer?.name || null },
+    { label: 'Email',   value: r.contactSnapshot?.email || r.contact?.email || r.customer?.email || null },
+    { label: 'Status',  value: r.status ? <StatusPill value={r.status} /> : null },
+    { label: 'Source',  value: r.paymentProvider || r.entitySourceType || (typeof r.source === 'string' ? r.source : r.source?.type) || null },
+    { label: 'Amount',  value: fmtAmt(r.amount) },
+    { label: 'Type',    value: r.type || null },
+    { label: 'Created', value: fmtDate(r.createdAt) },
+  ];
+  return [];
+}
+
+function DetailModal({ record, section, tab, onClose }) {
+  const fields = getRecordFields(section, tab, record).filter(f => f.value != null && f.value !== '');
+  const titleMap = {
+    contacts:      [record.firstName, record.lastName].filter(Boolean).join(' ') || 'Contact',
+    opportunities: record.name || 'Opportunity',
+    conversations: record.contactName || 'Conversation',
+    billing:       tab === 'subscription' ? 'Subscription' : tab === 'order' ? 'Order' : 'Transaction',
+  };
+  const title = titleMap[section] || 'Record';
+
+  return (
+    <div
+      onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}
+    >
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '28px 32px', maxWidth: 560, width: '100%', maxHeight: '82vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 22 }}>
+          <div>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>
+              {section === 'billing' ? tab : section}
+            </div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.text }}>{title}</h2>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.border}`, borderRadius: 8, color: C.muted, cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '3px 10px', flexShrink: 0, marginLeft: 16 }}
+          >×</button>
+        </div>
+        <div>
+          {fields.map(({ label, value }, i) => (
+            <div key={label} style={{ display: 'flex', gap: 16, padding: '10px 0', borderBottom: i < fields.length - 1 ? `1px solid ${C.border}` : 'none' }}>
+              <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: 110, paddingTop: 2, flexShrink: 0 }}>{label}</div>
+              <div style={{ fontSize: 13, color: C.text, flex: 1, wordBreak: 'break-word' }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── DataTable ─────────────────────────────────────────────────────────────────
 
-function DataTable({ columns, rows, loading, loaded }) {
+function DataTable({ columns, rows, loading, loaded, onRowClick }) {
   if (loading && !loaded) return <div style={{ padding: '24px 0', color: C.muted, fontSize: 13 }}>Loading records…</div>;
   if (!loaded) {
     return (
@@ -545,8 +660,10 @@ function DataTable({ columns, rows, loading, loaded }) {
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} style={{ borderBottom: `1px solid rgba(255,255,255,0.04)`, transition: 'background .1s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+            <tr key={i}
+              onClick={() => onRowClick?.(row)}
+              style={{ borderBottom: `1px solid rgba(255,255,255,0.04)`, transition: 'background .1s', cursor: onRowClick ? 'pointer' : 'default' }}
+              onMouseEnter={e => e.currentTarget.style.background = onRowClick ? 'rgba(99,102,241,0.06)' : 'rgba(255,255,255,0.02)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
               {columns.map(col => (
@@ -630,6 +747,7 @@ function ContactsView({ locationId }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(1); }, [locationId]);
 
+  const [selected, setSelected] = useState(null);
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
 
@@ -642,8 +760,9 @@ function ContactsView({ locationId }) {
           <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLoad()} placeholder="Name, email, phone…" style={{ ...S.input, minWidth: 200 }} />
         </div>
       </FiltersBar>
-      <DataTable columns={CONTACT_COLS} rows={rows} loading={loading} loaded={loaded} />
+      <DataTable columns={CONTACT_COLS} rows={rows} loading={loading} loaded={loaded} onRowClick={setSelected} />
       {loaded && total > 0 && <Pagination page={page} total={total} limit={limit} onChange={handlePage} />}
+      {selected && <DetailModal record={selected} section="contacts" tab={null} onClose={() => setSelected(null)} />}
     </div>
   );
 }
@@ -705,6 +824,7 @@ function OpportunitiesView({ locationId }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(1); }, [locationId]);
 
+  const [selected, setSelected] = useState(null);
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
 
@@ -723,8 +843,9 @@ function OpportunitiesView({ locationId }) {
           </select>
         </div>
       </FiltersBar>
-      <DataTable columns={OPP_COLS} rows={rows} loading={loading} loaded={loaded} />
+      <DataTable columns={OPP_COLS} rows={rows} loading={loading} loaded={loaded} onRowClick={setSelected} />
       {loaded && total > 0 && <Pagination page={page} total={total} limit={limit} onChange={handlePage} />}
+      {selected && <DetailModal record={selected} section="opportunities" tab={null} onClose={() => setSelected(null)} />}
     </div>
   );
 }
@@ -771,6 +892,7 @@ function ConversationsView({ locationId }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(1); }, [locationId]);
 
+  const [selected, setSelected] = useState(null);
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
 
@@ -778,8 +900,9 @@ function ConversationsView({ locationId }) {
     <div>
       <h1 style={{ margin: '0 0 22px', fontSize: 22, fontWeight: 700, color: C.text }}>💬 Conversations</h1>
       <FiltersBar startDate={start} endDate={end} limit={limit} onStart={setStart} onEnd={setEnd} onLimit={setLimit} onLoad={handleLoad} loading={loading} />
-      <DataTable columns={CONV_COLS} rows={rows} loading={loading} loaded={loaded} />
+      <DataTable columns={CONV_COLS} rows={rows} loading={loading} loaded={loaded} onRowClick={setSelected} />
       {loaded && total > 0 && <Pagination page={page} total={total} limit={limit} onChange={handlePage} />}
+      {selected && <DetailModal record={selected} section="conversations" tab={null} onClose={() => setSelected(null)} />}
     </div>
   );
 }
@@ -888,6 +1011,7 @@ function BillingView({ locationId, tab }) {
 
   const total         = filteredRows.length;
   const rows          = filteredRows.slice((page - 1) * perPage, page * perPage);
+  const [selected, setSelected] = useState(null);
   const handleLoad    = () => { setEmailFilter(''); load(); };
   const handlePage    = p  => setPage(p);
   const handlePerPage = n  => { setPerPage(n); setPage(1); };
@@ -910,8 +1034,9 @@ function BillingView({ locationId, tab }) {
           />
         </div>
       </FiltersBar>
-      <DataTable columns={cols} rows={rows} loading={loading} loaded={loaded} />
+      <DataTable columns={cols} rows={rows} loading={loading} loaded={loaded} onRowClick={setSelected} />
       {loaded && total > 0 && <Pagination page={page} total={total} limit={perPage} onChange={handlePage} />}
+      {selected && <DetailModal record={selected} section="billing" tab={tab} onClose={() => setSelected(null)} />}
     </div>
   );
 }
