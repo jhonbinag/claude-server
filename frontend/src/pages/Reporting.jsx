@@ -81,9 +81,8 @@ const NAV = [
   { key: 'opportunities', label: 'Opportunities',   icon: '💼' },
   { key: 'conversations', label: 'Conversations',   icon: '💬' },
   {
-    key: 'invoices', label: 'Invoices', icon: '🧾',
+    key: 'billing', label: 'Billing', icon: '💳',
     tabs: [
-      { key: 'invoice',      label: 'Invoices' },
       { key: 'subscription', label: 'Subscriptions' },
       { key: 'order',        label: 'Orders' },
       { key: 'transaction',  label: 'Transactions' },
@@ -135,7 +134,7 @@ function AuthGate({ onConnect }) {
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
-function Sidebar({ section, invoiceTab, onNav, onInvoiceTab, locationId, onDisconnect }) {
+function Sidebar({ section, billingTab, onNav, onBillingTab, locationId, onDisconnect }) {
   return (
     <aside style={{
       width: 232, flexShrink: 0, background: C.sidebar,
@@ -180,20 +179,20 @@ function Sidebar({ section, invoiceTab, onNav, onInvoiceTab, locationId, onDisco
                 {item.label}
               </button>
 
-              {/* Invoice sub-tabs */}
+              {/* Billing sub-tabs */}
               {item.tabs && active && (
                 <div style={{ marginLeft: 16, marginTop: 2, marginBottom: 4 }}>
                   {item.tabs.map(tab => (
                     <button
                       key={tab.key}
-                      onClick={() => onInvoiceTab(tab.key)}
+                      onClick={() => onBillingTab(tab.key)}
                       style={{
                         width: '100%', padding: '7px 10px', borderRadius: 7,
                         cursor: 'pointer', fontSize: 12, textAlign: 'left',
-                        color: invoiceTab === tab.key ? '#a5b4fc' : C.muted,
-                        background: invoiceTab === tab.key ? 'rgba(99,102,241,0.1)' : 'transparent',
+                        color: billingTab === tab.key ? '#a5b4fc' : C.muted,
+                        background: billingTab === tab.key ? 'rgba(99,102,241,0.1)' : 'transparent',
                         border: 'none',
-                        borderLeft: `2px solid ${invoiceTab === tab.key ? C.accent : 'transparent'}`,
+                        borderLeft: `2px solid ${billingTab === tab.key ? C.accent : 'transparent'}`,
                         transition: 'all .1s', display: 'block', marginBottom: 1,
                       }}
                     >
@@ -837,19 +836,15 @@ function StatusPill({ value }) {
   return <span style={{ padding: '2px 9px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: s.bg, color: s.color }}>{value}</span>;
 }
 
-function InvoicesView({ locationId, tab }) {
+function BillingView({ locationId, tab }) {
   const [rows,    setRows]    = useState([]);
   const [total,   setTotal]   = useState(0);
   const [page,    setPage]    = useState(1);
   const [limit,   setLimit]   = useState(20);
   const [start,   setStart]   = useState('');
   const [end,     setEnd]     = useState('');
-  const [status,  setStatus]  = useState('');
   const [loading, setLoading] = useState(false);
   const [loaded,  setLoaded]  = useState(false);
-
-  // Reset when tab changes
-  useEffect(() => { setRows([]); setTotal(0); setPage(1); setLoaded(false); setStatus(''); }, [tab]);
 
   const headers = { 'x-location-id': locationId };
 
@@ -857,41 +852,33 @@ function InvoicesView({ locationId, tab }) {
     setLoading(true);
     try {
       const params = new URLSearchParams({ limit, page: p, type: tab });
-      if (start)  params.set('startDate', start);
-      if (end)    params.set('endDate',   end);
-      if (status) params.set('status',    status);
+      if (start) params.set('startDate', start);
+      if (end)   params.set('endDate',   end);
       const r = await fetch(`/rpt/invoices?${params}`, { headers });
       const d = await r.json();
       if (d.success) { setRows(d.data); setTotal(d.meta?.total ?? d.data.length); }
     } catch (_) {}
     setLoading(false);
     setLoaded(true);
-  }, [locationId, limit, start, end, status, tab]);
+  }, [locationId, limit, start, end, tab]);
+
+  // Reset + auto-load when tab or locationId changes
+  useEffect(() => {
+    setRows([]); setTotal(0); setPage(1); setLoaded(false);
+    load(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId, tab]);
 
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
 
-  const LABELS = { invoice: 'Invoices', subscription: 'Subscriptions', order: 'Orders', transaction: 'Transactions' };
-  const cols   = INVOICE_COLS[tab] || INVOICE_COLS.invoice;
+  const LABELS = { subscription: 'Subscriptions', order: 'Orders', transaction: 'Transactions' };
+  const cols   = INVOICE_COLS[tab] || INVOICE_COLS.subscription;
 
   return (
     <div>
-      <h1 style={{ margin: '0 0 22px', fontSize: 22, fontWeight: 700, color: C.text }}>🧾 {LABELS[tab] || 'Invoices'}</h1>
-      <FiltersBar startDate={start} endDate={end} limit={limit} onStart={setStart} onEnd={setEnd} onLimit={setLimit} onLoad={handleLoad} loading={loading}>
-        {tab === 'invoice' && (
-          <div>
-            <label style={S.label}>Status</label>
-            <select value={status} onChange={e => setStatus(e.target.value)} style={{ ...S.input }}>
-              <option value="">All Statuses</option>
-              <option value="draft">Draft</option>
-              <option value="sent">Sent</option>
-              <option value="paid">Paid</option>
-              <option value="void">Void</option>
-              <option value="overdue">Overdue</option>
-            </select>
-          </div>
-        )}
-      </FiltersBar>
+      <h1 style={{ margin: '0 0 22px', fontSize: 22, fontWeight: 700, color: C.text }}>💳 {LABELS[tab] || 'Billing'}</h1>
+      <FiltersBar startDate={start} endDate={end} limit={limit} onStart={setStart} onEnd={setEnd} onLimit={setLimit} onLoad={handleLoad} loading={loading} />
       <DataTable columns={cols} rows={rows} loading={loading} loaded={loaded} />
       {loaded && total > 0 && <Pagination page={page} total={total} limit={limit} onChange={handlePage} />}
     </div>
@@ -900,29 +887,35 @@ function InvoicesView({ locationId, tab }) {
 
 // ── URL ↔ section mapping ─────────────────────────────────────────────────────
 
-const PATH_TO_SECTION = {
-  '/contacts':      'contacts',
-  '/opportunities': 'opportunities',
-  '/conversations': 'conversations',
-  '/invoices':      'invoices',
+const BILLING_PATH_TO_TAB = {
+  subscriptions: 'subscription',
+  orders:        'order',
+  transactions:  'transaction',
+};
+const BILLING_TAB_TO_PATH = {
+  subscription: 'subscriptions',
+  order:        'orders',
+  transaction:  'transactions',
 };
 const SECTION_TO_PATH = {
   dashboard:     '/',
   contacts:      '/contacts',
   opportunities: '/opportunities',
   conversations: '/conversations',
-  invoices:      '/invoices',
+  billing:       '/billing/subscriptions',
 };
 
 // ── Root component ────────────────────────────────────────────────────────────
 
 export default function Reporting() {
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  const [locationId,  setLocationId]  = useState(() => localStorage.getItem('rpt_location_id') || '');
-  const [invoiceTab,  setInvoiceTab]  = useState('invoice');
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const [locationId, setLocationId] = useState(() => localStorage.getItem('rpt_location_id') || '');
 
-  const section = PATH_TO_SECTION[location.pathname] || 'dashboard';
+  // Derive section + billing sub-tab from URL
+  const segs    = pathname.replace(/^\//, '').split('/');
+  const section = { contacts: 'contacts', opportunities: 'opportunities', conversations: 'conversations', billing: 'billing' }[segs[0]] || 'dashboard';
+  const billingTab = section === 'billing' ? (BILLING_PATH_TO_TAB[segs[1]] || 'subscription') : 'subscription';
 
   const handleConnect = (id) => {
     localStorage.setItem('rpt_location_id', id);
@@ -937,7 +930,10 @@ export default function Reporting() {
 
   const handleNav = (key) => {
     navigate(SECTION_TO_PATH[key] || '/');
-    if (key === 'invoices') setInvoiceTab('invoice');
+  };
+
+  const handleBillingTab = (tabKey) => {
+    navigate(`/billing/${BILLING_TAB_TO_PATH[tabKey] || 'subscriptions'}`);
   };
 
   if (!locationId) return <AuthGate onConnect={handleConnect} />;
@@ -955,19 +951,19 @@ export default function Reporting() {
 
       <Sidebar
         section={section}
-        invoiceTab={invoiceTab}
+        billingTab={billingTab}
         onNav={handleNav}
-        onInvoiceTab={setInvoiceTab}
+        onBillingTab={handleBillingTab}
         locationId={locationId}
         onDisconnect={handleDisconnect}
       />
 
       <main style={{ flex: 1, overflowY: 'auto', padding: '34px 40px', minWidth: 0 }}>
-        {section === 'dashboard'     && <DashboardView      locationId={locationId} />}
-        {section === 'contacts'      && <ContactsView       locationId={locationId} />}
-        {section === 'opportunities' && <OpportunitiesView  locationId={locationId} />}
-        {section === 'conversations' && <ConversationsView  locationId={locationId} />}
-        {section === 'invoices'      && <InvoicesView       locationId={locationId} tab={invoiceTab} />}
+        {section === 'dashboard'     && <DashboardView     locationId={locationId} />}
+        {section === 'contacts'      && <ContactsView      locationId={locationId} />}
+        {section === 'opportunities' && <OpportunitiesView locationId={locationId} />}
+        {section === 'conversations' && <ConversationsView locationId={locationId} />}
+        {section === 'billing'       && <BillingView       locationId={locationId} tab={billingTab} />}
       </main>
     </div>
   );
