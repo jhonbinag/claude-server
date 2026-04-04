@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 
@@ -702,6 +703,9 @@ function OpportunitiesView({ locationId }) {
     setLoaded(true);
   }, [locationId, limit, start, end, status]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(1); }, [locationId]);
+
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
 
@@ -764,6 +768,9 @@ function ConversationsView({ locationId }) {
     setLoading(false);
     setLoaded(true);
   }, [locationId, limit, start, end]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(1); }, [locationId]);
 
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
@@ -891,12 +898,31 @@ function InvoicesView({ locationId, tab }) {
   );
 }
 
+// ── URL ↔ section mapping ─────────────────────────────────────────────────────
+
+const PATH_TO_SECTION = {
+  '/contacts':      'contacts',
+  '/opportunities': 'opportunities',
+  '/conversations': 'conversations',
+  '/invoices':      'invoices',
+};
+const SECTION_TO_PATH = {
+  dashboard:     '/',
+  contacts:      '/contacts',
+  opportunities: '/opportunities',
+  conversations: '/conversations',
+  invoices:      '/invoices',
+};
+
 // ── Root component ────────────────────────────────────────────────────────────
 
 export default function Reporting() {
+  const navigate  = useNavigate();
+  const location  = useLocation();
   const [locationId,  setLocationId]  = useState(() => localStorage.getItem('rpt_location_id') || '');
-  const [section,     setSection]     = useState('dashboard');
   const [invoiceTab,  setInvoiceTab]  = useState('invoice');
+
+  const section = PATH_TO_SECTION[location.pathname] || 'dashboard';
 
   const handleConnect = (id) => {
     localStorage.setItem('rpt_location_id', id);
@@ -906,11 +932,11 @@ export default function Reporting() {
   const handleDisconnect = () => {
     localStorage.removeItem('rpt_location_id');
     setLocationId('');
-    setSection('dashboard');
+    navigate('/');
   };
 
   const handleNav = (key) => {
-    setSection(key);
+    navigate(SECTION_TO_PATH[key] || '/');
     if (key === 'invoices') setInvoiceTab('invoice');
   };
 
