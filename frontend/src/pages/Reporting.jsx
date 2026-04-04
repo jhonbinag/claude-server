@@ -533,8 +533,8 @@ function getRecordFields(section, tab, r) {
     { label: 'Name',       value: r.name || null },
     { label: 'Contact',    value: r.contact?.name || r.contactName || null },
     { label: 'Email',      value: r.contact?.email || null },
-    { label: 'Pipeline',   value: r.pipelineName || null },
-    { label: 'Stage',      value: r.stageName || null },
+    { label: 'Pipeline',   value: r.pipeline?.name || r.pipelineName || null },
+    { label: 'Stage',      value: r.pipelineStage?.name || r.stageName || r.stage?.name || null },
     { label: 'Status',     value: r.status ? <StatusPill value={r.status} /> : null },
     { label: 'Value',      value: fmtAmt(r.monetaryValue) },
     { label: 'Source',     value: r.source || null },
@@ -777,10 +777,10 @@ const STATUS_COLORS = {
 };
 
 const OPP_COLS = [
-  { key: 'name',          label: 'Name' },
-  { key: 'contact',       label: 'Contact',  render: (_, r) => r.contact?.name || r.contactName || <span style={{ color: C.muted }}>—</span> },
-  { key: 'pipelineName',  label: 'Pipeline', render: v => v || <span style={{ color: C.muted }}>—</span> },
-  { key: 'stageName',     label: 'Stage',    render: v => v || <span style={{ color: C.muted }}>—</span> },
+  { key: 'name',    label: 'Name' },
+  { key: 'contact', label: 'Contact',  render: (_, r) => r.contact?.name || r.contactName || <span style={{ color: C.muted }}>—</span> },
+  { key: 'pipeline',label: 'Pipeline', render: (_, r) => r.pipeline?.name || r.pipelineName || <span style={{ color: C.muted }}>—</span> },
+  { key: 'stage',   label: 'Stage',    render: (_, r) => r.pipelineStage?.name || r.stageName || r.stage?.name || <span style={{ color: C.muted }}>—</span> },
   {
     key: 'status', label: 'Status',
     render: v => {
@@ -789,7 +789,7 @@ const OPP_COLS = [
       return <span style={{ padding: '2px 9px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: sc.bg, color: sc.color }}>{v}</span>;
     },
   },
-  { key: 'monetaryValue', label: 'Value',   render: v => v != null ? `$${Number(v).toLocaleString()}` : <span style={{ color: C.muted }}>—</span> },
+  { key: 'monetaryValue', label: 'Value',   render: (_, r) => fmtAmt(r.monetaryValue) || <span style={{ color: C.muted }}>—</span> },
   { key: 'createdAt',     label: 'Created', render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
 ];
 
@@ -815,7 +815,13 @@ function OpportunitiesView({ locationId }) {
       if (status) params.set('status',    status);
       const r = await fetch(`/rpt/opportunities?${params}`, { headers });
       const d = await r.json();
-      if (d.success) { setRows(d.data); setTotal(d.meta?.total ?? d.data.length); }
+      if (d.success) {
+        setRows(d.data); setTotal(d.meta?.total ?? d.data.length);
+        if (d.data.length > 0) {
+          console.log('[Opportunity] keys:', Object.keys(d.data[0]));
+          console.log('[Opportunity] first record:', d.data[0]);
+        }
+      }
     } catch (_) {}
     setLoading(false);
     setLoaded(true);
