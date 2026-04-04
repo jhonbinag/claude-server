@@ -318,12 +318,87 @@ function LeadsTabPanel({ locationId, days }) {
   );
 }
 
+// ── Custom date range panel (used by "Custom" leads tab) ──────────────────────
+
+function CustomRangePanel({ locationId }) {
+  const [startDate, setStartDate] = useState('');
+  const [endDate,   setEndDate]   = useState('');
+  const [rows,    setRows]    = useState([]);
+  const [total,   setTotal]   = useState(0);
+  const [page,    setPage]    = useState(1);
+  const [limit,   setLimit]   = useState(20);
+  const [loading, setLoading] = useState(false);
+  const [loaded,  setLoaded]  = useState(false);
+
+  const headers = { 'x-location-id': locationId };
+
+  const load = useCallback(async (p = 1) => {
+    if (!startDate && !endDate) return;
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit, page: p });
+      if (startDate) params.set('startDate', startDate);
+      if (endDate)   params.set('endDate',   endDate);
+      const r = await fetch(`/rpt/contacts?${params}`, { headers });
+      const d = await r.json();
+      if (d.success) { setRows(d.data); setTotal(d.meta?.total ?? d.data.length); }
+    } catch (_) {}
+    setLoading(false);
+    setLoaded(true);
+  }, [locationId, limit, startDate, endDate]);
+
+  const handlePage = p => { setPage(p); load(p); };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 16 }}>
+        <div>
+          <label style={S.label}>From</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={S.input} />
+        </div>
+        <div>
+          <label style={S.label}>To</label>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={S.input} />
+        </div>
+        <div>
+          <label style={S.label}>Per Page</label>
+          <select value={limit} onChange={e => setLimit(Number(e.target.value))} style={{ ...S.input, paddingRight: 10 }}>
+            {[10, 20, 30, 40, 50].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+        <button
+          onClick={() => { setPage(1); load(1); }}
+          disabled={loading || (!startDate && !endDate)}
+          style={{ ...S.btn, opacity: (loading || (!startDate && !endDate)) ? 0.6 : 1, marginTop: 2 }}
+        >
+          {loading ? 'Loading…' : '↻ Load'}
+        </button>
+        {loaded && !loading && (
+          <span style={{ fontSize: 12, color: C.muted }}>
+            {total > 0 ? `${total.toLocaleString()} contacts found` : 'No contacts found'}
+          </span>
+        )}
+      </div>
+      {!loaded && !loading && (
+        <div style={{ padding: '28px 0', textAlign: 'center', color: C.muted, fontSize: 13 }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>📅</div>
+          Select a date range and click <strong>Load</strong> to view contacts.
+        </div>
+      )}
+      {(loaded || loading) && <DataTable columns={LEAD_COLS} rows={rows} loading={loading} loaded={loaded} />}
+      {loaded && total > 0 && <Pagination page={page} total={total} limit={limit} onChange={handlePage} />}
+    </div>
+  );
+}
+
 // ── Dashboard Section ─────────────────────────────────────────────────────────
 
 function DashboardView({ locationId }) {
   const [stats,   setStats]   = useState(null);
   const [loading, setLoading] = useState(false);
-  const [leadsTab, setLeadsTab] = useState('7d');
+  const [leadsTab,     setLeadsTab]     = useState('7d');
+  const [customStart,  setCustomStart]  = useState('');
+  const [customEnd,    setCustomEnd]    = useState('');
 
   const headers = { 'x-location-id': locationId };
 
@@ -340,8 +415,10 @@ function DashboardView({ locationId }) {
   useEffect(() => { loadStats(); }, [loadStats]);
 
   const TABS = [
-    { key: '7d',  label: 'Last 7 Days',  days: 7,  color: '#a5b4fc', bg: 'rgba(99,102,241,0.08)', bdr: C.accentBdr },
-    { key: '30d', label: 'Last 30 Days', days: 30, color: '#34d399', bg: C.greenBg,                bdr: C.greenBdr  },
+    { key: '3d',     label: 'Last 3 Days',  days: 3,  color: '#a5b4fc', bg: 'rgba(99,102,241,0.08)',  bdr: C.accentBdr },
+    { key: '7d',     label: 'Last 7 Days',  days: 7,  color: '#34d399', bg: C.greenBg,                bdr: C.greenBdr  },
+    { key: '30d',    label: 'Last 30 Days', days: 30, color: '#f59e0b', bg: 'rgba(245,158,11,0.08)',   bdr: 'rgba(245,158,11,0.3)' },
+    { key: 'custom', label: 'Custom',       days: 0,  color: '#e2e8f0', bg: 'rgba(255,255,255,0.05)', bdr: C.border },
   ];
 
   return (
@@ -372,7 +449,8 @@ function DashboardView({ locationId }) {
         <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
           {TABS.map(tab => {
             const active = leadsTab === tab.key;
-            const count  = tab.key === '7d' ? stats?.contacts?.weekly : stats?.contacts?.monthly;
+            const countMap = { '3d': stats?.contacts?.recent3d, '7d': stats?.contacts?.weekly, '30d': stats?.contacts?.monthly };
+            const count    = countMap[tab.key];
             return (
               <button
                 key={tab.key}
@@ -396,9 +474,11 @@ function DashboardView({ locationId }) {
           })}
         </div>
 
-        {/* Tab content — each tab mounts its own LeadsTabPanel */}
-        {leadsTab === '7d'  && <LeadsTabPanel key="7d"  locationId={locationId} days={7}  />}
-        {leadsTab === '30d' && <LeadsTabPanel key="30d" locationId={locationId} days={30} />}
+        {/* Tab content */}
+        {leadsTab === '3d'     && <LeadsTabPanel key="3d"     locationId={locationId} days={3}  />}
+        {leadsTab === '7d'     && <LeadsTabPanel key="7d"     locationId={locationId} days={7}  />}
+        {leadsTab === '30d'    && <LeadsTabPanel key="30d"    locationId={locationId} days={30} />}
+        {leadsTab === 'custom' && <CustomRangePanel key="custom" locationId={locationId} />}
       </div>
     </div>
   );
