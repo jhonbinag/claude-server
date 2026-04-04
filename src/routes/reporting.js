@@ -87,6 +87,27 @@ router.get('/dashboard', async (req, res) => {
   }
 });
 
+// ── GET /rpt/debug-contact — inspect raw GHL contact fields ──────────────────
+
+router.get('/debug-contact', async (req, res) => {
+  if (!requireGhl(req, res)) return;
+  try {
+    const data = await req.ghl('GET', '/contacts/', null, { locationId: req.locationId, limit: 3 });
+    const contacts = data?.contacts || [];
+    const sample = contacts.slice(0, 3).map(c => ({
+      id: c.id,
+      allKeys: Object.keys(c),
+      dateAdded:   c.dateAdded,
+      dateCreated: c.dateCreated,
+      createdAt:   c.createdAt,
+      date_added:  c.date_added,
+    }));
+    res.json({ success: true, total: contacts.length, sample });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
 // ── GET /rpt/contacts ─────────────────────────────────────────────────────────
 // When startDate/endDate are present we fetch up to 500 records from GHL
 // and filter server-side by dateAdded — GHL's startAfter is a pagination cursor,
