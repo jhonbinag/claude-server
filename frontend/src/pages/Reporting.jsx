@@ -796,31 +796,31 @@ const INVOICE_COLS = {
     { key: 'dueDate',       label: 'Due Date',   render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
   ],
   subscription: [
-    { key: 'id',         label: 'ID',       render: v => v ? <code style={{ fontSize: 11, color: '#a5b4fc' }}>{String(v).slice(0, 14)}…</code> : '—' },
-    { key: 'entityId',   label: 'Contact',  render: (_, r) => r.contactName || r.customer?.name || <span style={{ color: C.muted }}>—</span> },
-    { key: 'status',     label: 'Status',   render: v => v ? <StatusPill value={v} /> : <span style={{ color: C.muted }}>—</span> },
-    { key: 'product',    label: 'Product',  render: (_, r) => r.product?.name || r.productName || <span style={{ color: C.muted }}>—</span> },
-    { key: 'source',     label: 'Source',   render: (_, r) => r.source || r.paymentSource || r.channel || <span style={{ color: C.muted }}>—</span> },
-    { key: 'amount',     label: 'Amount',   render: v => { if (v == null) return <span style={{ color: C.muted }}>—</span>; const n = Number(v); return `$${n % 1 === 0 ? n.toFixed(2) : n}`; } },
-    { key: 'createdAt',  label: 'Created',  render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
+    { key: 'id',        label: 'ID',      render: v => v ? <code style={{ fontSize: 11, color: '#a5b4fc' }}>{String(v).slice(0, 14)}…</code> : '—' },
+    { key: 'entityId',  label: 'Contact', render: (_, r) => r.contact?.name || r.contactSnapshot?.name || r.contactName || r.customer?.name || <span style={{ color: C.muted }}>—</span> },
+    { key: 'status',    label: 'Status',  render: v => v ? <StatusPill value={v} /> : <span style={{ color: C.muted }}>—</span> },
+    { key: 'product',   label: 'Product', render: (_, r) => r.product?.name || r.planTitle || r.entitySourceName || r.productName || <span style={{ color: C.muted }}>—</span> },
+    { key: 'source',    label: 'Source',  render: (_, r) => r.paymentProvider || r.entitySourceType || (typeof r.source === 'string' ? r.source : r.source?.type) || r.paymentSource || <span style={{ color: C.muted }}>—</span> },
+    { key: 'amount',    label: 'Amount',  render: v => { if (v == null) return <span style={{ color: C.muted }}>—</span>; const n = Number(v); return `$${n % 1 === 0 ? n.toFixed(2) : n}`; } },
+    { key: 'createdAt', label: 'Created', render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
   ],
   order: [
-    { key: 'id',         label: 'Order ID', render: v => v ? <code style={{ fontSize: 11, color: '#a5b4fc' }}>{String(v).slice(0, 14)}…</code> : '—' },
-    { key: 'contactName',label: 'Contact',  render: v => v || <span style={{ color: C.muted }}>—</span> },
-    { key: 'status',     label: 'Status',   render: v => v ? <StatusPill value={v} /> : <span style={{ color: C.muted }}>—</span> },
-    { key: 'source',     label: 'Source',   render: (_, r) => r.source || r.paymentSource || r.channel || <span style={{ color: C.muted }}>—</span> },
-    { key: 'amount',     label: 'Amount',   render: v => { if (v == null) return <span style={{ color: C.muted }}>—</span>; const n = Number(v); return `$${n % 1 === 0 ? n.toFixed(2) : n}`; } },
-    { key: 'currency',   label: 'Currency', render: v => v ? v.toUpperCase() : <span style={{ color: C.muted }}>—</span> },
-    { key: 'createdAt',  label: 'Created',  render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
+    { key: 'id',        label: 'Order ID', render: v => v ? <code style={{ fontSize: 11, color: '#a5b4fc' }}>{String(v).slice(0, 14)}…</code> : '—' },
+    { key: 'contactName',label: 'Contact', render: (_, r) => r.contactName || r.contact?.name || r.contactSnapshot?.name || <span style={{ color: C.muted }}>—</span> },
+    { key: 'status',    label: 'Status',   render: v => v ? <StatusPill value={v} /> : <span style={{ color: C.muted }}>—</span> },
+    { key: 'source',    label: 'Source',   render: (_, r) => r.paymentProvider || r.entitySourceType || (typeof r.source === 'string' ? r.source : r.source?.type) || r.paymentSource || <span style={{ color: C.muted }}>—</span> },
+    { key: 'amount',    label: 'Amount',   render: v => { if (v == null) return <span style={{ color: C.muted }}>—</span>; const n = Number(v); return `$${n % 1 === 0 ? n.toFixed(2) : n}`; } },
+    { key: 'currency',  label: 'Currency', render: v => v ? v.toUpperCase() : <span style={{ color: C.muted }}>—</span> },
+    { key: 'createdAt', label: 'Created',  render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
   ],
   transaction: [
-    { key: 'id',         label: 'Txn ID',   render: v => v ? <code style={{ fontSize: 11, color: '#a5b4fc' }}>{String(v).slice(0, 14)}…</code> : '—' },
-    { key: 'entityId',   label: 'Contact',  render: (_, r) => r.contactName || r.customer?.name || <span style={{ color: C.muted }}>—</span> },
-    { key: 'status',     label: 'Status',   render: v => v ? <StatusPill value={v} /> : <span style={{ color: C.muted }}>—</span> },
-    { key: 'source',     label: 'Source',   render: (_, r) => r.source || r.paymentSource || r.channel || <span style={{ color: C.muted }}>—</span> },
-    { key: 'amount',     label: 'Amount',   render: v => { if (v == null) return <span style={{ color: C.muted }}>—</span>; const n = Number(v); return `$${n % 1 === 0 ? n.toFixed(2) : n}`; } },
-    { key: 'type',       label: 'Type',     render: v => v || <span style={{ color: C.muted }}>—</span> },
-    { key: 'createdAt',  label: 'Created',  render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
+    { key: 'id',        label: 'Txn ID',  render: v => v ? <code style={{ fontSize: 11, color: '#a5b4fc' }}>{String(v).slice(0, 14)}…</code> : '—' },
+    { key: 'entityId',  label: 'Contact', render: (_, r) => r.contactName || r.contact?.name || r.contactSnapshot?.name || r.customer?.name || <span style={{ color: C.muted }}>—</span> },
+    { key: 'status',    label: 'Status',  render: v => v ? <StatusPill value={v} /> : <span style={{ color: C.muted }}>—</span> },
+    { key: 'source',    label: 'Source',  render: (_, r) => r.paymentProvider || r.entitySourceType || (typeof r.source === 'string' ? r.source : r.source?.type) || r.paymentSource || <span style={{ color: C.muted }}>—</span> },
+    { key: 'amount',    label: 'Amount',  render: v => { if (v == null) return <span style={{ color: C.muted }}>—</span>; const n = Number(v); return `$${n % 1 === 0 ? n.toFixed(2) : n}`; } },
+    { key: 'type',      label: 'Type',    render: v => v || <span style={{ color: C.muted }}>—</span> },
+    { key: 'createdAt', label: 'Created', render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
   ],
 };
 
@@ -860,7 +860,13 @@ function BillingView({ locationId, tab }) {
       if (end)   params.set('endDate',   end);
       const r = await fetch(`/rpt/invoices?${params}`, { headers });
       const d = await r.json();
-      if (d.success) setAllRows(d.data);
+      if (d.success) {
+        setAllRows(d.data);
+        if (d.data.length > 0) {
+          console.log(`[Billing:${tab}] keys:`, Object.keys(d.data[0]));
+          console.log(`[Billing:${tab}] first record:`, d.data[0]);
+        }
+      }
     } catch (_) {}
     setLoading(false);
     setLoaded(true);
