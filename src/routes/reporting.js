@@ -56,13 +56,15 @@ router.get('/dashboard', async (req, res) => {
     let cursor = null;
     for (let p = 0; p < 3; p++) {
       const params = { locationId: locId, limit: 100 };
+      // startAfter must be a ms timestamp number
       if (cursor) params.startAfter = cursor;
       try {
         const d = await req.ghl('GET', '/contacts/', null, params);
         const batch = d?.contacts || [];
         allRecent = allRecent.concat(batch);
         if (batch.length < 100) break;
-        cursor = batch[batch.length - 1]?.id || null;
+        const lastDate = batch[batch.length - 1]?.dateAdded;
+        cursor = lastDate ? new Date(lastDate).getTime() : null;
         if (!cursor) break;
       } catch (_) { break; }
     }
@@ -147,23 +149,21 @@ router.get('/contacts', async (req, res) => {
       for (let p = 0; p < MAX_PAGES; p++) {
         const params = { locationId: req.locationId, limit: GHL_MAX };
         if (query) params.query = query;
+        // startAfter must be a ms timestamp number (not a contact ID)
         if (startAfterCursor) params.startAfter = startAfterCursor;
 
         const data = await req.ghl('GET', '/contacts/', null, params);
         const batch = data?.contacts || [];
         contacts = contacts.concat(batch);
 
-        // Log first contact date fields on first page
         if (p === 0 && batch.length > 0) {
-          const c0 = batch[0];
-          console.log('[Reporting] GHL contact date fields:', JSON.stringify({
-            dateAdded: c0.dateAdded, dateCreated: c0.dateCreated,
-            createdAt: c0.createdAt, date_added: c0.date_added,
-          }));
+          console.log('[Reporting] GHL contact date fields:', JSON.stringify({ dateAdded: batch[0].dateAdded }));
         }
 
-        if (batch.length < GHL_MAX) break; // no more pages
-        startAfterCursor = batch[batch.length - 1]?.id || null;
+        if (batch.length < GHL_MAX) break;
+        // Use last contact's dateAdded as next page cursor (must be a number)
+        const lastDate = batch[batch.length - 1]?.dateAdded;
+        startAfterCursor = lastDate ? new Date(lastDate).getTime() : null;
         if (!startAfterCursor) break;
       }
 
