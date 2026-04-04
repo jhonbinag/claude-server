@@ -74,10 +74,12 @@ router.get('/dashboard', async (req, res) => {
       } catch (_) { break; }
     }
 
-    // Log sample dates so we can verify filter is working
     if (allFetched.length > 0) {
-      const sample = allFetched.slice(0, 3).map(c => c.dateAdded);
-      console.log(`[Reporting] dashboard: fetched=${allFetched.length} cutoff7d=${new Date(cutoff7d).toISOString()} cutoff30d=${new Date(cutoff30d).toISOString()} sampleDates=${JSON.stringify(sample)}`);
+      const dates = allFetched.map(c => c.dateAdded).filter(Boolean).map(d => new Date(d).getTime()).filter(n => !isNaN(n));
+      const oldest = new Date(Math.min(...dates)).toISOString();
+      const newest = new Date(Math.max(...dates)).toISOString();
+      console.log(`[Reporting] dashboard: fetched=${allFetched.length} oldest=${oldest} newest=${newest}`);
+      console.log(`[Reporting] dashboard: cutoff7d=${new Date(cutoff7d).toISOString()} cutoff30d=${new Date(cutoff30d).toISOString()}`);
     }
 
     allFetched.forEach(c => {
