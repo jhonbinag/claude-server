@@ -245,12 +245,18 @@ router.get('/invoices', async (req, res) => {
     if (type === 'subscription') {
       endpoint = '/payments/subscriptions';
       params   = { altId: req.locationId, altType: 'location', limit: Number(limit), offset };
+      if (startDate) params.startAt = startDate;
+      if (endDate)   params.endAt   = endDate;
     } else if (type === 'transaction') {
       endpoint = '/payments/transactions';
       params   = { altId: req.locationId, altType: 'location', limit: Number(limit), offset };
+      if (startDate) params.startAt = startDate;
+      if (endDate)   params.endAt   = endDate;
     } else if (type === 'order') {
       endpoint = '/payments/orders';
       params   = { altId: req.locationId, altType: 'location', limit: Number(limit), offset };
+      if (startDate) params.startAt = startDate;
+      if (endDate)   params.endAt   = endDate;
     } else {
       // default: invoices
       endpoint = '/invoices/';
