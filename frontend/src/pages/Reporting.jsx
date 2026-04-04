@@ -840,13 +840,14 @@ function StatusPill({ value }) {
 }
 
 function BillingView({ locationId, tab }) {
-  const [allRows,  setAllRows]  = useState([]);  // all records from last fetch
-  const [page,     setPage]     = useState(1);
-  const [perPage,  setPerPage]  = useState(20);  // display only — never triggers re-fetch
-  const [start,    setStart]    = useState('');
-  const [end,      setEnd]      = useState('');
-  const [loading,  setLoading]  = useState(false);
-  const [loaded,   setLoaded]   = useState(false);
+  const [allRows,      setAllRows]      = useState([]);  // all records from last fetch
+  const [page,         setPage]         = useState(1);
+  const [perPage,      setPerPage]      = useState(20);  // display only — never triggers re-fetch
+  const [start,        setStart]        = useState('');
+  const [end,          setEnd]          = useState('');
+  const [emailFilter,  setEmailFilter]  = useState('');
+  const [loading,      setLoading]      = useState(false);
+  const [loaded,       setLoaded]       = useState(false);
 
   const headers = { 'x-location-id': locationId };
 
@@ -868,17 +869,23 @@ function BillingView({ locationId, tab }) {
 
   // Reset + auto-load when tab or locationId changes
   useEffect(() => {
-    setAllRows([]); setPage(1); setLoaded(false);
+    setAllRows([]); setPage(1); setLoaded(false); setEmailFilter('');
     load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId, tab]);
 
-  // Client-side pagination — per-page change just re-slices, no fetch
-  const total     = allRows.length;
-  const rows      = allRows.slice((page - 1) * perPage, page * perPage);
-  const handleLoad    = () => load();
+  // Client-side email filter (checks all common email field paths)
+  const getEmail = r => (r.email || r.customer?.email || r.contactEmail || r.entityEmail || '').toLowerCase();
+  const filteredRows = emailFilter.trim()
+    ? allRows.filter(r => getEmail(r).includes(emailFilter.trim().toLowerCase()))
+    : allRows;
+
+  const total         = filteredRows.length;
+  const rows          = filteredRows.slice((page - 1) * perPage, page * perPage);
+  const handleLoad    = () => { setEmailFilter(''); load(); };
   const handlePage    = p  => setPage(p);
-  const handlePerPage = n  => { setPerPage(n); setPage(1); };  // display only
+  const handlePerPage = n  => { setPerPage(n); setPage(1); };
+  const handleEmail   = v  => { setEmailFilter(v); setPage(1); };
 
   const LABELS = { subscription: 'Subscriptions', order: 'Orders', transaction: 'Transactions' };
   const cols   = INVOICE_COLS[tab] || INVOICE_COLS.subscription;
@@ -886,7 +893,17 @@ function BillingView({ locationId, tab }) {
   return (
     <div>
       <h1 style={{ margin: '0 0 22px', fontSize: 22, fontWeight: 700, color: C.text }}>💳 {LABELS[tab] || 'Billing'}</h1>
-      <FiltersBar startDate={start} endDate={end} limit={perPage} onStart={setStart} onEnd={setEnd} onLimit={handlePerPage} onLoad={handleLoad} loading={loading} />
+      <FiltersBar startDate={start} endDate={end} limit={perPage} onStart={setStart} onEnd={setEnd} onLimit={handlePerPage} onLoad={handleLoad} loading={loading}>
+        <div>
+          <label style={S.label}>Search Email</label>
+          <input
+            value={emailFilter}
+            onChange={e => handleEmail(e.target.value)}
+            placeholder="Filter by email…"
+            style={{ ...S.input, minWidth: 200 }}
+          />
+        </div>
+      </FiltersBar>
       <DataTable columns={cols} rows={rows} loading={loading} loaded={loaded} />
       {loaded && total > 0 && <Pagination page={page} total={total} limit={perPage} onChange={handlePage} />}
     </div>
