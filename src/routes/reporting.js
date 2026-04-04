@@ -51,41 +51,45 @@ router.get('/dashboard', async (req, res) => {
       req.ghl('GET', '/conversations/search', null, { locationId: locId, limit: 1 }),
     ]);
 
-    // GHL returns contacts newest-first. Page through until we hit a contact
-    // older than 30 days — then we have everything we need to count accurately.
+    // Fetch up to 10 pages and count — GHL does NOT sort by date so we
+    // cannot use early-exit; we must scan all fetched contacts.
     let weekly = 0, monthly = 0;
     let cursor = null;
     const cutoff30d = now - monthMs;
     const cutoff7d  = now - weekMs;
-    let done = false;
+    let allFetched = [];
 
-    for (let p = 0; p < 10 && !done; p++) {
+    for (let p = 0; p < 10; p++) {
       const params = { locationId: locId, limit: 100 };
       if (cursor) params.startAfter = cursor;
       try {
         const d = await req.ghl('GET', '/contacts/', null, params);
         const batch = d?.contacts || [];
         if (!batch.length) break;
-
-        for (const c of batch) {
-          const raw = c.dateAdded || c.dateCreated || c.createdAt || null;
-          if (!raw) continue;
-          const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
-          if (isNaN(addedMs)) continue;
-
-          // Once we hit a contact older than 30 days, stop — rest are even older
-          if (addedMs < cutoff30d) { done = true; break; }
-
-          if (addedMs >= cutoff7d)  weekly++;
-          monthly++; // already confirmed >= cutoff30d above
-        }
-
+        allFetched = allFetched.concat(batch);
         if (batch.length < 100) break;
         const lastDate = batch[batch.length - 1]?.dateAdded;
         cursor = lastDate ? new Date(lastDate).getTime() : null;
         if (!cursor) break;
       } catch (_) { break; }
     }
+
+    // Log sample dates so we can verify filter is working
+    if (allFetched.length > 0) {
+      const sample = allFetched.slice(0, 3).map(c => c.dateAdded);
+      console.log(`[Reporting] dashboard: fetched=${allFetched.length} cutoff7d=${new Date(cutoff7d).toISOString()} cutoff30d=${new Date(cutoff30d).toISOString()} sampleDates=${JSON.stringify(sample)}`);
+    }
+
+    allFetched.forEach(c => {
+      const raw = c.dateAdded || c.dateCreated || c.createdAt || null;
+      if (!raw) return;
+      const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
+      if (isNaN(addedMs)) return;
+      if (addedMs >= cutoff7d)  weekly++;
+      if (addedMs >= cutoff30d) monthly++;
+    });
+
+    console.log(`[Reporting] dashboard counts: weekly=${weekly} monthly=${monthly}`);
 
     res.json({
       success: true,
