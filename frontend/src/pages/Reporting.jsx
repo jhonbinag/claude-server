@@ -514,6 +514,7 @@ function FiltersBar({ startDate, endDate, limit, onStart, onEnd, onLimit, onLoad
 // ── DataTable ─────────────────────────────────────────────────────────────────
 
 function DataTable({ columns, rows, loading, loaded }) {
+  if (loading && !loaded) return <div style={{ padding: '24px 0', color: C.muted, fontSize: 13 }}>Loading records…</div>;
   if (!loaded) {
     return (
       <div style={{ padding: '32px 0', textAlign: 'center', color: C.muted, fontSize: 13 }}>
@@ -624,6 +625,10 @@ function ContactsView({ locationId }) {
     setLoading(false);
     setLoaded(true);
   }, [locationId, limit, start, end, query]);
+
+  // Auto-load on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(1); }, [locationId]);
 
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
