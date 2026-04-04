@@ -133,10 +133,25 @@ router.get('/contacts', async (req, res) => {
     const data = await req.ghl('GET', '/contacts/', null, params);
     let contacts = data?.contacts || [];
 
+    // Log first contact's date fields so we can see what GHL actually returns
+    if (contacts.length > 0) {
+      const c0 = contacts[0];
+      console.log('[Reporting] GHL contact date fields sample:', JSON.stringify({
+        id:          c0.id,
+        dateAdded:   c0.dateAdded,
+        dateCreated: c0.dateCreated,
+        createdAt:   c0.createdAt,
+        date_added:  c0.date_added,
+        allKeys:     Object.keys(c0),
+      }));
+    }
+
     if (hasDateFilter) {
       const startMs = startDate ? new Date(startDate).getTime() : null;
       // end of endDate day
       const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
+
+      console.log(`[Reporting] date filter — startDate:${startDate} startMs:${startMs} endDate:${endDate} total before filter:${contacts.length}`);
 
       contacts = contacts.filter(c => {
         const raw   = c.dateAdded || c.dateCreated || c.createdAt || null;
@@ -147,6 +162,8 @@ router.get('/contacts', async (req, res) => {
         if (endMs   && addedMs > endMs)   return false;
         return true;
       });
+
+      console.log(`[Reporting] after filter: ${contacts.length} contacts matched`);
     }
 
     const total    = contacts.length;
