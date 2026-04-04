@@ -231,6 +231,30 @@ router.get('/conversations', async (req, res) => {
   }
 });
 
+// ── GET /rpt/debug-billing — inspect raw GHL fields for each billing type ─────
+
+router.get('/debug-billing', async (req, res) => {
+  if (!requireGhl(req, res)) return;
+  const { type = 'subscription' } = req.query;
+  const endpointMap = {
+    subscription: ['/payments/subscriptions', { altId: req.locationId, altType: 'location', limit: 3 }],
+    transaction:  ['/payments/transactions',  { altId: req.locationId, altType: 'location', limit: 3 }],
+    order:        ['/payments/orders',         { altId: req.locationId, altType: 'location', limit: 3 }],
+  };
+  const [endpoint, params] = endpointMap[type] || endpointMap.subscription;
+  try {
+    const data = await req.ghl('GET', endpoint, null, params);
+    const key  = type === 'subscription' ? 'subscriptions' : type === 'transaction' ? 'transactions' : 'orders';
+    const records = data?.[key] || data?.data || [];
+    const sample  = records.slice(0, 3).map(r => ({ allKeys: Object.keys(r), raw: r }));
+    console.log(`[Billing DEBUG] type=${type} total=${records.length}`);
+    sample.forEach((s, i) => console.log(`[Billing DEBUG] record[${i}] keys:`, JSON.stringify(s.allKeys)));
+    res.json({ success: true, type, total: records.length, sample });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
 // ── GET /rpt/invoices ─────────────────────────────────────────────────────────
 // ?type=invoice|subscription|order|transaction
 
