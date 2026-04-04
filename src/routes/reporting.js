@@ -51,34 +51,41 @@ router.get('/dashboard', async (req, res) => {
       req.ghl('GET', '/conversations/search', null, { locationId: locId, limit: 1 }),
     ]);
 
-    // Fetch up to 3 pages of 100 to count recent contacts (GHL max is 100/page)
-    let allRecent = [];
+    // GHL returns contacts newest-first. Page through until we hit a contact
+    // older than 30 days — then we have everything we need to count accurately.
+    let weekly = 0, monthly = 0;
     let cursor = null;
-    for (let p = 0; p < 3; p++) {
+    const cutoff30d = now - monthMs;
+    const cutoff7d  = now - weekMs;
+    let done = false;
+
+    for (let p = 0; p < 10 && !done; p++) {
       const params = { locationId: locId, limit: 100 };
-      // startAfter must be a ms timestamp number
       if (cursor) params.startAfter = cursor;
       try {
         const d = await req.ghl('GET', '/contacts/', null, params);
         const batch = d?.contacts || [];
-        allRecent = allRecent.concat(batch);
+        if (!batch.length) break;
+
+        for (const c of batch) {
+          const raw = c.dateAdded || c.dateCreated || c.createdAt || null;
+          if (!raw) continue;
+          const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
+          if (isNaN(addedMs)) continue;
+
+          // Once we hit a contact older than 30 days, stop — rest are even older
+          if (addedMs < cutoff30d) { done = true; break; }
+
+          if (addedMs >= cutoff7d)  weekly++;
+          monthly++; // already confirmed >= cutoff30d above
+        }
+
         if (batch.length < 100) break;
         const lastDate = batch[batch.length - 1]?.dateAdded;
         cursor = lastDate ? new Date(lastDate).getTime() : null;
         if (!cursor) break;
       } catch (_) { break; }
     }
-
-    // Count contacts within 7d / 30d by filtering on dateAdded server-side
-    let weekly = 0, monthly = 0;
-    allRecent.forEach(c => {
-      const raw     = c.dateAdded || c.dateCreated || c.createdAt || null;
-      if (!raw) return;
-      const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
-      if (isNaN(addedMs)) return;
-      if (addedMs >= now - weekMs)  weekly++;
-      if (addedMs >= now - monthMs) monthly++;
-    });
 
     res.json({
       success: true,
