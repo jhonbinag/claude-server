@@ -111,8 +111,8 @@ app.get(['/admin-dashboard', '/admin-dashboard/*'], (req, res) => {
   });
 });
 
-// Serve SPA for /reporting/* browser navigations explicitly
-app.get(['/reporting', '/reporting/*'], (req, res) => {
+// Serve SPA for /reporting (exact path only — /rpt/* is the API)
+app.get('/reporting', (req, res) => {
   const spaFile = path.join(__dirname, 'public/ui/index.html');
   res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.sendFile(spaFile, (err) => {
