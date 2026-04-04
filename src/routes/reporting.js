@@ -193,12 +193,13 @@ router.get('/contacts', async (req, res) => {
 
 router.get('/opportunities', async (req, res) => {
   if (!requireGhl(req, res)) return;
-  const { limit = 20, page = 1, status, startDate, endDate } = req.query;
+  const { limit = 20, page = 1, status, startDate, endDate, q } = req.query;
   try {
     const params = { location_id: req.locationId, limit: Number(limit), page: Number(page) };
     if (status)    params.status    = status;
     if (startDate) params.startDate = startDate;
     if (endDate)   params.endDate   = endDate;
+    if (q)         params.q         = q;
 
     const data = await req.ghl('GET', '/opportunities/search', null, params);
     res.json({
@@ -295,6 +296,18 @@ router.get('/invoices', async (req, res) => {
     const total   = data?.meta?.total ?? data?.total ?? data?.count ?? records.length;
 
     res.json({ success: true, data: records, meta: { total } });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// ── PUT /rpt/conversations/:id/read ──────────────────────────────────────────
+
+router.put('/conversations/:id/read', async (req, res) => {
+  if (!requireGhl(req, res)) return;
+  try {
+    await req.ghl('PUT', `/conversations/${req.params.id}`, { unread: false });
+    res.json({ success: true });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
   }

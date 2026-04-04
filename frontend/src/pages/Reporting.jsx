@@ -667,7 +667,7 @@ function DataTable({ columns, rows, loading, loaded, onRowClick }) {
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
               {columns.map(col => (
-                <td key={col.key} style={{ padding: '11px 14px', color: C.text, verticalAlign: 'middle', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <td key={col.key} style={{ padding: '11px 14px', color: C.text, verticalAlign: 'middle', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...col.tdStyle }}>
                   {col.render ? col.render(row[col.key], row) : (row[col.key] ?? <span style={{ color: C.muted }}>—</span>)}
                 </td>
               ))}
@@ -801,6 +801,7 @@ function OpportunitiesView({ locationId }) {
   const [start,   setStart]   = useState('');
   const [end,     setEnd]     = useState('');
   const [status,  setStatus]  = useState('');
+  const [email,   setEmail]   = useState('');
   const [loading, setLoading] = useState(false);
   const [loaded,  setLoaded]  = useState(false);
 
@@ -813,6 +814,7 @@ function OpportunitiesView({ locationId }) {
       if (start)  params.set('startDate', start);
       if (end)    params.set('endDate',   end);
       if (status) params.set('status',    status);
+      if (email)  params.set('q',         email);
       const r = await fetch(`/rpt/opportunities?${params}`, { headers });
       const d = await r.json();
       if (d.success) {
@@ -825,7 +827,7 @@ function OpportunitiesView({ locationId }) {
     } catch (_) {}
     setLoading(false);
     setLoaded(true);
-  }, [locationId, limit, start, end, status]);
+  }, [locationId, limit, start, end, status, email]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(1); }, [locationId]);
@@ -848,10 +850,78 @@ function OpportunitiesView({ locationId }) {
             <option value="abandoned">Abandoned</option>
           </select>
         </div>
+        <div>
+          <label style={S.label}>Search Email</label>
+          <input value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLoad()} placeholder="Filter by email…" style={{ ...S.input, minWidth: 200 }} />
+        </div>
       </FiltersBar>
       <DataTable columns={OPP_COLS} rows={rows} loading={loading} loaded={loaded} onRowClick={setSelected} />
       {loaded && total > 0 && <Pagination page={page} total={total} limit={limit} onChange={handlePage} />}
       {selected && <DetailModal record={selected} section="opportunities" tab={null} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
+// ── Unread Conversations Modal ────────────────────────────────────────────────
+
+function UnreadModal({ convs, onMarkRead, onClose }) {
+  return (
+    <div
+      onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}
+    >
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '28px 32px', maxWidth: 600, width: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Unread Messages</div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.text }}>
+              🔔 {convs.length} Unread Conversation{convs.length !== 1 ? 's' : ''}
+            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.border}`, borderRadius: 8, color: C.muted, cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '3px 10px' }}
+          >×</button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {convs.length === 0 ? (
+            <div style={{ padding: '32px 0', textAlign: 'center', color: C.muted, fontSize: 13 }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>✅</div>
+              All conversations are read.
+            </div>
+          ) : convs.map((conv, i) => (
+            <div key={conv.id || i} style={{ padding: '16px 0', borderBottom: i < convs.length - 1 ? `1px solid ${C.border}` : 'none' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{conv.contactName || 'Unknown Contact'}</span>
+                    <span style={{ padding: '1px 8px', borderRadius: 8, background: 'rgba(239,68,68,0.15)', color: '#f87171', fontSize: 11, fontWeight: 700 }}>
+                      {conv.unreadCount} unread
+                    </span>
+                    {conv.type && <span style={{ fontSize: 11, color: C.muted }}>{conv.type}</span>}
+                  </div>
+                  {conv.lastMessageBody && (
+                    <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.5, wordBreak: 'break-word' }}>
+                      {conv.lastMessageBody}
+                    </div>
+                  )}
+                  {conv.dateUpdated && (
+                    <div style={{ fontSize: 11, color: C.dim, marginTop: 6 }}>{new Date(conv.dateUpdated).toLocaleString()}</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => onMarkRead(conv)}
+                  style={{ flexShrink: 0, padding: '6px 14px', borderRadius: 8, background: C.accentBg, border: `1px solid ${C.accentBdr}`, color: '#a5b4fc', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'opacity .15s' }}
+                  onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
+                  onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+                >
+                  Mark Read
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -861,7 +931,7 @@ function OpportunitiesView({ locationId }) {
 const CONV_COLS = [
   { key: 'contactName',     label: 'Contact',      render: v => v || <span style={{ color: C.muted }}>Unknown</span> },
   { key: 'type',            label: 'Channel',      render: v => v || <span style={{ color: C.muted }}>—</span> },
-  { key: 'lastMessageBody', label: 'Last Message', render: v => v ? (v.length > 72 ? v.slice(0, 72) + '…' : v) : <span style={{ color: C.muted }}>—</span> },
+  { key: 'lastMessageBody', label: 'Last Message', render: v => v || <span style={{ color: C.muted }}>—</span>, tdStyle: { whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: 340, overflow: 'visible' } },
   {
     key: 'unreadCount', label: 'Unread',
     render: v => v > 0 ? <span style={{ padding: '1px 8px', borderRadius: 8, background: 'rgba(239,68,68,0.15)', color: '#f87171', fontSize: 11, fontWeight: 700 }}>{v}</span> : <span style={{ color: C.muted }}>0</span>,
@@ -870,14 +940,16 @@ const CONV_COLS = [
 ];
 
 function ConversationsView({ locationId }) {
-  const [rows,    setRows]    = useState([]);
-  const [total,   setTotal]   = useState(0);
-  const [page,    setPage]    = useState(1);
-  const [limit,   setLimit]   = useState(20);
-  const [start,   setStart]   = useState('');
-  const [end,     setEnd]     = useState('');
-  const [loading, setLoading] = useState(false);
-  const [loaded,  setLoaded]  = useState(false);
+  const [rows,       setRows]       = useState([]);
+  const [total,      setTotal]      = useState(0);
+  const [page,       setPage]       = useState(1);
+  const [limit,      setLimit]      = useState(20);
+  const [start,      setStart]      = useState('');
+  const [end,        setEnd]        = useState('');
+  const [loading,    setLoading]    = useState(false);
+  const [loaded,     setLoaded]     = useState(false);
+  const [selected,   setSelected]   = useState(null);
+  const [showUnread, setShowUnread] = useState(false);
 
   const headers = { 'x-location-id': locationId };
 
@@ -898,17 +970,45 @@ function ConversationsView({ locationId }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(1); }, [locationId]);
 
-  const [selected, setSelected] = useState(null);
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
 
+  const unreadConvs = rows.filter(r => r.unreadCount > 0);
+
+  const handleMarkRead = async (conv) => {
+    try {
+      await fetch(`/rpt/conversations/${conv.id}/read`, { method: 'PUT', headers });
+    } catch (_) {}
+    // Update local state regardless of API result
+    setRows(prev => prev.map(r => r.id === conv.id ? { ...r, unreadCount: 0 } : r));
+  };
+
   return (
     <div>
-      <h1 style={{ margin: '0 0 22px', fontSize: 22, fontWeight: 700, color: C.text }}>💬 Conversations</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 22px' }}>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: C.text }}>💬 Conversations</h1>
+        {loaded && unreadConvs.length > 0 && (
+          <button
+            onClick={() => setShowUnread(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all .15s' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.18)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
+          >
+            🔔 {unreadConvs.length} Unread
+          </button>
+        )}
+      </div>
       <FiltersBar startDate={start} endDate={end} limit={limit} onStart={setStart} onEnd={setEnd} onLimit={setLimit} onLoad={handleLoad} loading={loading} />
       <DataTable columns={CONV_COLS} rows={rows} loading={loading} loaded={loaded} onRowClick={setSelected} />
       {loaded && total > 0 && <Pagination page={page} total={total} limit={limit} onChange={handlePage} />}
       {selected && <DetailModal record={selected} section="conversations" tab={null} onClose={() => setSelected(null)} />}
+      {showUnread && (
+        <UnreadModal
+          convs={rows.filter(r => r.unreadCount > 0)}
+          onMarkRead={handleMarkRead}
+          onClose={() => setShowUnread(false)}
+        />
+      )}
     </div>
   );
 }
