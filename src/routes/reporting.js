@@ -42,29 +42,41 @@ router.get('/dashboard', async (req, res) => {
     const weekMs  = 7  * 24 * 60 * 60 * 1000;
     const monthMs = 30 * 24 * 60 * 60 * 1000;
 
-    // Fetch totals + large recent batches for server-side date counting
-    const [contacts, opps, convs, recent500] = await Promise.allSettled([
+    const ok = r => r.status === 'fulfilled';
+
+    // Fetch totals
+    const [contacts, opps, convs] = await Promise.allSettled([
       req.ghl('GET', '/contacts/',            null, { locationId: locId, limit: 1 }),
       req.ghl('GET', '/opportunities/search', null, { location_id: locId, limit: 1 }),
       req.ghl('GET', '/conversations/search', null, { locationId: locId, limit: 1 }),
-      req.ghl('GET', '/contacts/',            null, { locationId: locId, limit: 500 }),
     ]);
 
-    const ok = r => r.status === 'fulfilled';
+    // Fetch up to 3 pages of 100 to count recent contacts (GHL max is 100/page)
+    let allRecent = [];
+    let cursor = null;
+    for (let p = 0; p < 3; p++) {
+      const params = { locationId: locId, limit: 100 };
+      if (cursor) params.startAfter = cursor;
+      try {
+        const d = await req.ghl('GET', '/contacts/', null, params);
+        const batch = d?.contacts || [];
+        allRecent = allRecent.concat(batch);
+        if (batch.length < 100) break;
+        cursor = batch[batch.length - 1]?.id || null;
+        if (!cursor) break;
+      } catch (_) { break; }
+    }
 
     // Count contacts within 7d / 30d by filtering on dateAdded server-side
     let weekly = 0, monthly = 0;
-    if (ok(recent500)) {
-      const all = recent500.value?.contacts || [];
-      all.forEach(c => {
-        const raw     = c.dateAdded || c.dateCreated || c.createdAt || null;
-        if (!raw) return;
-        const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
-        if (isNaN(addedMs)) return;
-        if (addedMs >= now - weekMs)  weekly++;
-        if (addedMs >= now - monthMs) monthly++;
-      });
-    }
+    allRecent.forEach(c => {
+      const raw     = c.dateAdded || c.dateCreated || c.createdAt || null;
+      if (!raw) return;
+      const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
+      if (isNaN(addedMs)) return;
+      if (addedMs >= now - weekMs)  weekly++;
+      if (addedMs >= now - monthMs) monthly++;
+    });
 
     res.json({
       success: true,
@@ -124,37 +136,44 @@ router.get('/contacts', async (req, res) => {
   try {
     const hasDateFilter = !!(startDate || endDate);
 
-    // When filtering by date, fetch a large batch so we can filter properly.
-    // GHL doesn't expose a reliable dateAdded filter on the list endpoint.
-    const fetchLimit = hasDateFilter ? 500 : pageSize;
-    const params = { locationId: req.locationId, limit: fetchLimit };
-    if (query) params.query = query;
-
-    const data = await req.ghl('GET', '/contacts/', null, params);
-    let contacts = data?.contacts || [];
-
-    // Log first contact's date fields so we can see what GHL actually returns
-    if (contacts.length > 0) {
-      const c0 = contacts[0];
-      console.log('[Reporting] GHL contact date fields sample:', JSON.stringify({
-        id:          c0.id,
-        dateAdded:   c0.dateAdded,
-        dateCreated: c0.dateCreated,
-        createdAt:   c0.createdAt,
-        date_added:  c0.date_added,
-        allKeys:     Object.keys(c0),
-      }));
-    }
+    let contacts = [];
 
     if (hasDateFilter) {
+      // GHL max limit is 100. Fetch up to 5 pages (500 contacts) for date filtering.
+      const GHL_MAX = 100;
+      const MAX_PAGES = 5;
+      let startAfterCursor = null;
+
+      for (let p = 0; p < MAX_PAGES; p++) {
+        const params = { locationId: req.locationId, limit: GHL_MAX };
+        if (query) params.query = query;
+        if (startAfterCursor) params.startAfter = startAfterCursor;
+
+        const data = await req.ghl('GET', '/contacts/', null, params);
+        const batch = data?.contacts || [];
+        contacts = contacts.concat(batch);
+
+        // Log first contact date fields on first page
+        if (p === 0 && batch.length > 0) {
+          const c0 = batch[0];
+          console.log('[Reporting] GHL contact date fields:', JSON.stringify({
+            dateAdded: c0.dateAdded, dateCreated: c0.dateCreated,
+            createdAt: c0.createdAt, date_added: c0.date_added,
+          }));
+        }
+
+        if (batch.length < GHL_MAX) break; // no more pages
+        startAfterCursor = batch[batch.length - 1]?.id || null;
+        if (!startAfterCursor) break;
+      }
+
       const startMs = startDate ? new Date(startDate).getTime() : null;
-      // end of endDate day
       const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
 
-      console.log(`[Reporting] date filter — startDate:${startDate} startMs:${startMs} endDate:${endDate} total before filter:${contacts.length}`);
+      console.log(`[Reporting] fetched ${contacts.length} total, filtering startMs:${startMs} endMs:${endMs}`);
 
       contacts = contacts.filter(c => {
-        const raw   = c.dateAdded || c.dateCreated || c.createdAt || null;
+        const raw = c.dateAdded || c.dateCreated || c.createdAt || null;
         if (!raw) return false;
         const addedMs = typeof raw === 'number' ? raw : new Date(raw).getTime();
         if (isNaN(addedMs)) return false;
@@ -163,12 +182,17 @@ router.get('/contacts', async (req, res) => {
         return true;
       });
 
-      console.log(`[Reporting] after filter: ${contacts.length} contacts matched`);
+      console.log(`[Reporting] after date filter: ${contacts.length} matched`);
+    } else {
+      const params = { locationId: req.locationId, limit: Math.min(pageSize, 100) };
+      if (query) params.query = query;
+      const data = await req.ghl('GET', '/contacts/', null, params);
+      contacts = data?.contacts || [];
     }
 
     const total    = contacts.length;
     const offset   = (pageNum - 1) * pageSize;
-    const paginated = contacts.slice(offset, offset + pageSize);
+    const paginated = hasDateFilter ? contacts.slice(offset, offset + pageSize) : contacts;
 
     res.json({ success: true, data: paginated, meta: { total } });
   } catch (err) {
