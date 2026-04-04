@@ -51,32 +51,36 @@ router.get('/dashboard', async (req, res) => {
       req.ghl('GET', '/conversations/search', null, { locationId: locId, limit: 1 }),
     ]);
 
-    // Use GHL's startAfter (ms timestamp) to fetch only contacts added after each cutoff
+    // Fetch recent contacts, filter by dateAdded server-side
     const cutoff7d  = now - weekMs;
     const cutoff30d = now - monthMs;
+    let allContacts = [], cur = null;
 
-    const countSince = async (sinceMs) => {
-      let count = 0, cursor = sinceMs;
-      for (let p = 0; p < 10; p++) {
-        try {
-          const d = await req.ghl('GET', '/contacts/', null, { locationId: locId, limit: 100, startAfter: cursor });
-          const batch = d?.contacts || [];
-          count += batch.length;
-          if (batch.length < 100) break;
-          const lastDate = batch[batch.length - 1]?.dateAdded;
-          cursor = lastDate ? new Date(lastDate).getTime() : null;
-          if (!cursor) break;
-        } catch (_) { break; }
-      }
-      return count;
-    };
+    for (let p = 0; p < 10; p++) {
+      try {
+        const params = { locationId: locId, limit: 100 };
+        if (cur) params.startAfter = cur;
+        const d = await req.ghl('GET', '/contacts/', null, params);
+        const batch = d?.contacts || [];
+        allContacts = allContacts.concat(batch);
+        if (batch.length < 100) break;
+        const lastDate = batch[batch.length - 1]?.dateAdded;
+        cur = lastDate ? new Date(lastDate).getTime() : null;
+        if (!cur) break;
+      } catch (_) { break; }
+    }
 
-    const [weekly, monthly] = await Promise.all([
-      countSince(cutoff7d),
-      countSince(cutoff30d),
-    ]);
+    let weekly = 0, monthly = 0;
+    allContacts.forEach(c => {
+      const raw = c.dateAdded || null;
+      if (!raw) return;
+      const ms = new Date(raw).getTime();
+      if (isNaN(ms)) return;
+      if (ms >= cutoff7d)  weekly++;
+      if (ms >= cutoff30d) monthly++;
+    });
 
-    console.log(`[Reporting] dashboard counts: weekly=${weekly} monthly=${monthly}`);
+    console.log(`[Reporting] dashboard: scanned=${allContacts.length} weekly=${weekly} monthly=${monthly}`);
 
     res.json({
       success: true,
@@ -138,40 +142,38 @@ router.get('/contacts', async (req, res) => {
 
     let contacts = [];
 
+    // Fetch from GHL with no date params (they cause 422 errors).
+    // Filter by dateAdded server-side after fetching.
+    const startMs = startDate ? new Date(startDate).getTime() : null;
+    const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
+    const fetchPages = hasDateFilter ? 10 : 1;
+    const fetchLimit = hasDateFilter ? 100 : Math.min(pageSize, 100);
+    let cursor = null;
+
+    for (let p = 0; p < fetchPages; p++) {
+      const params = { locationId: req.locationId, limit: fetchLimit };
+      if (query)  params.query      = query;
+      if (cursor) params.startAfter = cursor;
+
+      const data  = await req.ghl('GET', '/contacts/', null, params);
+      const batch = data?.contacts || [];
+      contacts = contacts.concat(batch);
+      if (batch.length < fetchLimit) break;
+      const lastDate = batch[batch.length - 1]?.dateAdded;
+      cursor = lastDate ? new Date(lastDate).getTime() : null;
+      if (!cursor) break;
+    }
+
     if (hasDateFilter) {
-      // GHL startAfter is a ms timestamp — use it as the date cursor for filtering
-      const startMs = startDate ? new Date(startDate).getTime() : null;
-      const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
-      let cursor = startMs; // start paging from startDate forward
-
-      for (let p = 0; p < 10; p++) {
-        const params = { locationId: req.locationId, limit: 100 };
-        if (query)  params.query      = query;
-        if (cursor) params.startAfter = cursor;
-
-        const data  = await req.ghl('GET', '/contacts/', null, params);
-        const batch = data?.contacts || [];
-        contacts = contacts.concat(batch);
-        if (batch.length < 100) break;
-        const lastDate = batch[batch.length - 1]?.dateAdded;
-        cursor = lastDate ? new Date(lastDate).getTime() : null;
-        if (!cursor) break;
-      }
-
-      // Trim to endDate if provided
-      if (endMs) {
-        contacts = contacts.filter(c => {
-          const raw = c.dateAdded || null;
-          if (!raw) return false;
-          const ms = new Date(raw).getTime();
-          return !isNaN(ms) && ms <= endMs;
-        });
-      }
-    } else {
-      const params = { locationId: req.locationId, limit: Math.min(pageSize, 100) };
-      if (query) params.query = query;
-      const data = await req.ghl('GET', '/contacts/', null, params);
-      contacts = data?.contacts || [];
+      contacts = contacts.filter(c => {
+        const raw = c.dateAdded || null;
+        if (!raw) return false;
+        const ms = new Date(raw).getTime();
+        if (isNaN(ms)) return false;
+        if (startMs && ms < startMs) return false;
+        if (endMs   && ms > endMs)   return false;
+        return true;
+      });
     }
 
     const total     = contacts.length;
@@ -213,7 +215,7 @@ router.get('/conversations', async (req, res) => {
   const { limit = 20, page = 1, startDate } = req.query;
   try {
     const params = { locationId: req.locationId, limit: Number(limit) };
-    if (startDate) params.startAfterDate = new Date(startDate).getTime();
+    if (startDate) params.startAfter = new Date(startDate).getTime();
 
     const data = await req.ghl('GET', '/conversations/search', null, params);
     res.json({
