@@ -19,7 +19,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   PieChart, Pie, Cell, Tooltip as RTooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList,
-  LineChart, Line, Legend,
+  LineChart, Line,
 } from 'recharts';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -762,12 +762,13 @@ const OPP_COLS_DASHBOARD = [
   { key: 'monetaryValue', label: 'Value', render: (_, r) => { const n = Number(r.monetaryValue); return n ? `$${n % 1 === 0 ? n.toFixed(2) : n}` : <span style={{ color: '#6b7280' }}>—</span>; } },
 ];
 
-// Line chart — billing over time, clickable dots, totals in legend, date-filtered
+// Line chart — billing over time, daily data points, live last-dot, clickable legend
 function BillingLineChart({ locationId, startDate, endDate }) {
   const [data,    setData]    = useState([]);
   const [loading, setLoading] = useState(false);
   const [loaded,  setLoaded]  = useState(false);
   const [drill,   setDrill]   = useState(null);
+  const [hidden,  setHidden]  = useState({});
 
   const headers = { 'x-location-id': locationId };
 
@@ -785,20 +786,50 @@ function BillingLineChart({ locationId, startDate, endDate }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId, startDate, endDate]);
 
-
   const SERIES = [
     { key: 'subscriptions', label: 'Subscriptions', color: '#818cf8', tab: 'subscription' },
     { key: 'orders',        label: 'Orders',        color: '#10b981', tab: 'order'        },
     { key: 'transactions',  label: 'Transactions',  color: '#f59e0b', tab: 'transaction'  },
   ];
 
+  // Find the first data point in each month — used for X-axis month labels
+  const monthStartLabels = (() => {
+    const seen = new Set();
+    const result = new Set();
+    data.forEach(d => {
+      const ym = d.key?.slice(0, 7);
+      if (ym && !seen.has(ym)) { seen.add(ym); result.add(d.label); }
+    });
+    return result;
+  })();
+
   const openDrill = (seriesKey, point) => {
     const s = SERIES.find(s => s.key === seriesKey);
     if (!s || !point) return;
-    // point.key is now YYYY-MM-DD (day granularity)
     const params = new URLSearchParams({ limit: 100, page: 1, type: s.tab, startDate: point.key, endDate: point.key });
     const cols   = INVOICE_COLS[s.tab] || INVOICE_COLS.subscription;
     setDrill({ title: `${s.label} — ${point.label}`, url: `/rpt/invoices?${params}`, cols, tab: s.tab });
+  };
+
+  // Custom dot: small static dot on all points; last point gets pulsing ring + value label
+  const makeDot = (color, seriesKey) => (props) => {
+    const { cx, cy, index, payload } = props;
+    if (!cx || !cy) return null;
+    const isLast = index === data.length - 1;
+    const val    = payload?.[seriesKey];
+    if (!isLast) return <circle key={index} cx={cx} cy={cy} r={2} fill={color} fillOpacity={0.6} />;
+    return (
+      <g key={`live-${seriesKey}`}>
+        <circle cx={cx} cy={cy} r={10} fill={color} fillOpacity={0.15}
+          style={{ transformBox: 'fill-box', transformOrigin: 'center', animation: 'rpt-live-pulse 2s ease-in-out infinite' }} />
+        <circle cx={cx} cy={cy} r={4} fill={color} />
+        {val > 0 && (
+          <text x={cx} y={cy - 14} textAnchor="middle" fill={color} fontSize={10} fontWeight="700">
+            {val}
+          </text>
+        )}
+      </g>
+    );
   };
 
   const activeDotFor = (seriesKey) => ({
@@ -806,41 +837,60 @@ function BillingLineChart({ locationId, startDate, endDate }) {
     onClick: (e, payload) => openDrill(seriesKey, payload?.payload),
   });
 
+  const toggleSeries = (key) => setHidden(h => ({ ...h, [key]: !h[key] }));
+
   const title = startDate || endDate
     ? `Billing Activity${startDate ? ` from ${startDate}` : ''}${endDate ? ` to ${endDate}` : ''}`
     : 'Billing Activity — Last 6 Months';
 
-  // X-axis: only label the 1st of each month to avoid clutter with daily data points
-  const xTickFormatter = (label, index) => {
-    const entry = data[index];
-    if (!entry?.key) return '';
-    const [, , day] = entry.key.split('-');
-    return day === '01' ? entry.label : '';
-  };
-
   return (
     <ChartCard title={title} loading={loading && !loaded}>
-      <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={data} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+      <style>{`
+        @keyframes rpt-live-pulse {
+          0%, 100% { opacity: 0.15; transform: scale(1); }
+          50%       { opacity: 0.45; transform: scale(1.7); }
+        }
+      `}</style>
+
+      {/* Clickable legend — click to toggle series */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+        {SERIES.map(s => (
+          <button key={s.key} onClick={() => toggleSeries(s.key)} style={{
+            display: 'flex', alignItems: 'center', gap: 6, background: 'none',
+            border: `1px solid ${hidden[s.key] ? C.border : 'transparent'}`,
+            borderRadius: 20, cursor: 'pointer', padding: '3px 10px',
+            opacity: hidden[s.key] ? 0.4 : 1, transition: 'all .15s',
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: C.muted, textDecoration: hidden[s.key] ? 'line-through' : 'none' }}>
+              {s.label}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={data} margin={{ top: 18, right: 24, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="label" tickFormatter={xTickFormatter} tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} interval={0} />
+          <XAxis
+            dataKey="label"
+            tick={{ fill: C.muted, fontSize: 11 }}
+            axisLine={false} tickLine={false} interval={0}
+            tickFormatter={(label) => monthStartLabels.has(label) ? label : ''}
+          />
           <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
           <RTooltip
             {...CHART_TOOLTIP_STYLE}
-            labelFormatter={(label, payload) => {
+            labelFormatter={(_, payload) => {
               const key = payload?.[0]?.payload?.key;
-              if (!key) return label;
+              if (!key) return '';
               const [y, m, d] = key.split('-').map(Number);
               return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
             }}
           />
-          <Legend
-            wrapperStyle={{ paddingTop: 8, fontSize: 12 }}
-            formatter={(value) => <span style={{ color: C.muted }}>{value}</span>}
-          />
-          <Line type="monotone" dataKey="subscriptions" name="Subscriptions" stroke="#818cf8" strokeWidth={2} dot={{ fill: '#818cf8', r: 3 }} activeDot={activeDotFor('subscriptions')} />
-          <Line type="monotone" dataKey="orders"        name="Orders"        stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} activeDot={activeDotFor('orders')}        />
-          <Line type="monotone" dataKey="transactions"  name="Transactions"  stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} activeDot={activeDotFor('transactions')}  />
+          <Line hide={!!hidden.subscriptions} type="monotone" dataKey="subscriptions" stroke="#818cf8" strokeWidth={2} dot={makeDot('#818cf8', 'subscriptions')} activeDot={activeDotFor('subscriptions')} />
+          <Line hide={!!hidden.orders}        type="monotone" dataKey="orders"        stroke="#10b981" strokeWidth={2} dot={makeDot('#10b981', 'orders')}        activeDot={activeDotFor('orders')}        />
+          <Line hide={!!hidden.transactions}  type="monotone" dataKey="transactions"  stroke="#f59e0b" strokeWidth={2} dot={makeDot('#f59e0b', 'transactions')}  activeDot={activeDotFor('transactions')}  />
         </LineChart>
       </ResponsiveContainer>
 
@@ -879,20 +929,20 @@ function DashboardView({ locationId, oppPipelineId, onOppPipelineChange }) {
   return (
     <div>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 22, flexWrap: 'wrap' }}>
+      <div className="rpt-dash-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 22, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.text }}>Overview</h1>
           <p style={{ margin: 0, fontSize: 13, color: C.muted }}>Summary of your GHL sub-account metrics.</p>
         </div>
         {/* Shared date filter */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div>
+        <div className="rpt-dash-dates" style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 130 }}>
             <label style={S.label}>From</label>
-            <input type="date" value={dashStart} onChange={e => setDashStart(e.target.value)} style={S.input} />
+            <input type="date" value={dashStart} onChange={e => setDashStart(e.target.value)} style={{ ...S.input, width: '100%' }} />
           </div>
-          <div>
+          <div style={{ flex: 1, minWidth: 130 }}>
             <label style={S.label}>To</label>
-            <input type="date" value={dashEnd} onChange={e => setDashEnd(e.target.value)} style={S.input} />
+            <input type="date" value={dashEnd} onChange={e => setDashEnd(e.target.value)} style={{ ...S.input, width: '100%' }} />
           </div>
           {(dashStart || dashEnd) && (
             <button onClick={resetDates}
@@ -908,26 +958,26 @@ function DashboardView({ locationId, oppPipelineId, onOppPipelineChange }) {
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
+      <div className="rpt-stat-cards" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
         <StatCard icon="👥" label="Total Contacts"      value={stats?.contacts?.total}     loading={loading && !stats} />
         <StatCard icon="💼" label="Total Opportunities" value={stats?.opportunities?.total} loading={loading && !stats} color={C.green} />
         <StatCard icon="💬" label="Total Conversations" value={stats?.conversations?.total} loading={loading && !stats} color={C.amber} />
       </div>
 
-      {/* Charts row — Pie + Bar */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 14 }}>
+      {/* Charts row — Pie + Bar, stack on mobile */}
+      <div className="rpt-charts-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 14 }}>
         <LeadsFunnelChart stats={stats} loading={loading} locationId={locationId} />
         <OppsBarChart     locationId={locationId} pipelineId={oppPipelineId} onPipelineChange={onOppPipelineChange} />
       </div>
 
-      {/* Billing line chart — full width, filtered by shared dates */}
+      {/* Billing line chart — full width */}
       <div style={{ marginBottom: 22 }}>
         <BillingLineChart locationId={locationId} startDate={dashStart} endDate={dashEnd} />
       </div>
 
-      {/* New Leads table — today only, or custom date range if set */}
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 26px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+      {/* New Leads table */}
+      <div className="rpt-leads-box" style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 26px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.text }}>
             {dashStart || dashEnd ? 'Leads — Custom Range' : 'Leads Added Today'}
           </h2>
@@ -937,10 +987,12 @@ function DashboardView({ locationId, oppPipelineId, onOppPipelineChange }) {
             </span>
           )}
         </div>
-        {dashStart || dashEnd
-          ? <CustomRangePanel key={dashStart + dashEnd} locationId={locationId} initialStart={dashStart} initialEnd={dashEnd} />
-          : <LeadsTabPanel key="1d" locationId={locationId} days={1} />
-        }
+        <div className="rpt-table-wrap">
+          {dashStart || dashEnd
+            ? <CustomRangePanel key={dashStart + dashEnd} locationId={locationId} initialStart={dashStart} initialEnd={dashEnd} />
+            : <LeadsTabPanel key="1d" locationId={locationId} days={1} />
+          }
+        </div>
       </div>
     </div>
   );
@@ -950,7 +1002,7 @@ function DashboardView({ locationId, oppPipelineId, onOppPipelineChange }) {
 
 function FiltersBar({ startDate, endDate, limit, onStart, onEnd, onLimit, onLoad, loading, children }) {
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 20, padding: '16px 18px', background: C.card, border: `1px solid ${C.border}`, borderRadius: 12 }}>
+    <div className="rpt-filters" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 20, padding: '16px 18px', background: C.card, border: `1px solid ${C.border}`, borderRadius: 12 }}>
       <div>
         <label style={S.label}>From</label>
         <input type="date" value={startDate} onChange={e => onStart(e.target.value)} style={S.input} />
@@ -1109,7 +1161,7 @@ function DataTable({ columns, rows, loading, loaded, onRowClick }) {
   );
 
   return (
-    <div style={{ overflowX: 'auto', borderRadius: 12, border: `1px solid ${C.border}` }}>
+    <div className="rpt-table-wrap" style={{ overflowX: 'auto', borderRadius: 12, border: `1px solid ${C.border}` }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
@@ -1807,7 +1859,17 @@ export default function Reporting() {
         <main style={{ flex: 1, overflowY: 'auto', padding: '34px 40px' }} className="rpt-main">
           <style>{`
             @media (max-width: 768px) {
-              .rpt-main { padding: 20px 16px !important; }
+              .rpt-main { padding: 16px 12px !important; }
+              .rpt-dash-header { flex-direction: column !important; align-items: stretch !important; }
+              .rpt-dash-dates  { flex-direction: column !important; align-items: stretch !important; }
+              .rpt-dash-dates input[type="date"] { width: 100% !important; }
+              .rpt-stat-cards  { flex-direction: column !important; }
+              .rpt-stat-cards > * { min-width: 0 !important; }
+              .rpt-charts-grid { grid-template-columns: 1fr !important; }
+              .rpt-leads-box   { padding: 16px 14px !important; }
+              .rpt-table-wrap  { overflow-x: auto !important; }
+              .rpt-filters     { flex-direction: column !important; align-items: stretch !important; }
+              .rpt-filters input, .rpt-filters select { width: 100% !important; }
             }
           `}</style>
           {section === 'dashboard'     && <DashboardView     locationId={locationId} oppPipelineId={oppPipelineId} onOppPipelineChange={setOppPipelineId} />}
