@@ -226,7 +226,13 @@ router.get('/pipelines', async (req, res) => {
   if (!requireGhl(req, res)) return;
   try {
     const data = await req.ghl('GET', '/opportunities/pipelines', null, { locationId: req.locationId });
-    res.json({ success: true, data: data?.pipelines || [] });
+    const pipelines = data?.pipelines || [];
+    // Log shape so we can confirm stage structure
+    if (pipelines.length > 0) {
+      console.log('[Pipelines] first pipeline keys:', Object.keys(pipelines[0]));
+      console.log('[Pipelines] first pipeline stages:', JSON.stringify(pipelines[0].stages?.slice(0, 2)));
+    }
+    res.json({ success: true, data: pipelines });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
   }
@@ -271,11 +277,58 @@ router.get('/opportunities', async (req, res) => {
     if (pipelineId) params.pipelineId = pipelineId;
 
     const data = await req.ghl('GET', '/opportunities/search', null, params);
+    const opps = data?.opportunities || [];
+    if (opps.length > 0) {
+      const o = opps[0];
+      console.log('[Opps] keys:', Object.keys(o));
+      console.log('[Opps] pipeline fields:', JSON.stringify({
+        pipelineId: o.pipelineId, pipeline: o.pipeline,
+        pipelineStageId: o.pipelineStageId, pipelineStage: o.pipelineStage,
+        stageName: o.stageName, pipelineName: o.pipelineName,
+      }));
+    }
     res.json({
       success: true,
-      data: data?.opportunities || [],
+      data: opps,
       meta: { total: data?.meta?.total ?? 0 },
     });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// ── GET /rpt/debug-pipeline — inspect raw GHL pipeline + opp field names ─────
+
+router.get('/debug-pipeline', async (req, res) => {
+  if (!requireGhl(req, res)) return;
+  try {
+    const locId = req.locationId;
+    const [pipeData, oppData] = await Promise.all([
+      req.ghl('GET', '/opportunities/pipelines', null, { locationId: locId }),
+      req.ghl('GET', '/opportunities/search', null, { location_id: locId, limit: 3 }),
+    ]);
+
+    const pipelines = pipeData?.pipelines || [];
+    const opps      = oppData?.opportunities || [];
+
+    const pipelineSample = pipelines.slice(0, 2).map(p => ({
+      id: p.id, name: p.name,
+      stageKeys: p.stages?.[0] ? Object.keys(p.stages[0]) : [],
+      stages: (p.stages || []).slice(0, 3).map(s => ({ id: s.id, name: s.name })),
+    }));
+
+    const oppSample = opps.slice(0, 2).map(o => ({
+      allKeys: Object.keys(o),
+      pipelineId:      o.pipelineId,
+      pipeline:        o.pipeline,
+      pipelineStageId: o.pipelineStageId,
+      pipelineStage:   o.pipelineStage,
+      stageName:       o.stageName,
+      pipelineName:    o.pipelineName,
+      stage:           o.stage,
+    }));
+
+    res.json({ success: true, pipelines: pipelineSample, opportunities: oppSample });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
   }
