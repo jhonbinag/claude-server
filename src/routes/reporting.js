@@ -246,7 +246,7 @@ router.get('/opp-stats', async (req, res) => {
   const { pipelineId } = req.query;
   try {
     const base = { location_id: req.locationId, limit: 1 };
-    if (pipelineId) base.pipelineId = pipelineId;
+    if (pipelineId) base.pipeline_id = pipelineId;
 
     const [open, won, lost, abandoned] = await Promise.allSettled([
       req.ghl('GET', '/opportunities/search', null, { ...base, status: 'open' }),
@@ -274,7 +274,7 @@ router.get('/opportunities', async (req, res) => {
     if (startDate)  params.startDate  = startDate;
     if (endDate)    params.endDate    = endDate;
     if (q)          params.q          = q;
-    if (pipelineId) params.pipelineId = pipelineId;
+    if (pipelineId) params.pipeline_id = pipelineId;
 
     const data = await req.ghl('GET', '/opportunities/search', null, params);
     const opps = data?.opportunities || [];
