@@ -564,16 +564,35 @@ function LeadsFunnelChart({ stats, loading, locationId }) {
     setDrill({ title: 'Custom Range — Contacts Added', url: `/rpt/contacts?${params}` });
   };
 
+  // Render short label directly on each pie slice: "1D: 5"
+  const _RADIAN = Math.PI / 180;
+  const renderPieLabel = ({ cx, cy, midAngle, outerRadius, index }) => {
+    const w = WINDOWS[index];
+    if (!w || w.cumul === 0) return null;
+    const r = outerRadius + 24;
+    const x = cx + r * Math.cos(-midAngle * _RADIAN);
+    const y = cy + r * Math.sin(-midAngle * _RADIAN);
+    const short = { '1d': '1D', '3d': '3D', '7d': '7D' }[w.key] || w.key;
+    return (
+      <text x={x} y={y} textAnchor="middle" dominantBaseline="central"
+        fill={w.fill} fontSize={11} fontWeight="700" style={{ pointerEvents: 'none' }}>
+        {short}: {w.cumul}
+      </text>
+    );
+  };
+
   return (
     <ChartCard title="New Leads — by Time Window" loading={loading && !stats}>
       {!hasData
-        ? <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>No new contacts in the last 7 days</div>
+        ? <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>No new contacts in the last 7 days</div>
         : (
-          <ResponsiveContainer width="100%" height={150}>
+          <ResponsiveContainer width="100%" height={180}>
             <PieChart>
               <Pie
-                data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={65}
+                data={pieData} nameKey="label" cx="50%" cy="50%"
+                innerRadius={42} outerRadius={62}
                 paddingAngle={2} dataKey="value"
+                label={renderPieLabel} labelLine={false}
                 onClick={(entry) => { const w = WINDOWS.find(w => w.label === entry.name); if (w) openDrill(w); }}
                 style={{ cursor: 'pointer' }}
               >
@@ -583,31 +602,12 @@ function LeadsFunnelChart({ stats, loading, locationId }) {
                 {...CHART_TOOLTIP_STYLE}
                 formatter={(_, name) => {
                   const w = WINDOWS.find(w => w.label === name);
-                  return [w ? `${w.excl} (${w.cumul} cumul.)` : _, name];
+                  return [w ? `${w.cumul} contacts (${w.excl} in window)` : _, name];
                 }}
               />
             </PieChart>
           </ResponsiveContainer>
         )}
-
-      {/* 1d / 3d / 7d legend rows */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5, marginTop: 8 }}>
-        {WINDOWS.map(w => (
-          <button
-            key={w.key}
-            onClick={() => openDrill(w)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8,
-              background: 'rgba(255,255,255,0.03)', border: `1px solid rgba(255,255,255,0.06)`,
-              cursor: 'pointer', transition: 'all .12s', textAlign: 'left' }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.07)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-          >
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: w.fill, flexShrink: 0 }} />
-            <span style={{ fontSize: 10, color: C.muted, flex: 1 }}>{w.label}</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{loading && !stats ? '…' : w.cumul}</span>
-          </button>
-        ))}
-      </div>
 
       {/* Own date picker */}
       <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
@@ -775,11 +775,6 @@ function BillingLineChart({ locationId, startDate, endDate }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId, startDate, endDate]);
 
-  const totals = data.reduce((a, m) => ({
-    subscriptions: a.subscriptions + (m.subscriptions || 0),
-    orders:        a.orders        + (m.orders        || 0),
-    transactions:  a.transactions  + (m.transactions  || 0),
-  }), { subscriptions: 0, orders: 0, transactions: 0 });
 
   const SERIES = [
     { key: 'subscriptions', label: 'Subscriptions', color: '#818cf8', tab: 'subscription' },
@@ -809,16 +804,6 @@ function BillingLineChart({ locationId, startDate, endDate }) {
 
   return (
     <ChartCard title={title} loading={loading && !loaded}>
-      {/* Legend with totals */}
-      <div style={{ display: 'flex', gap: 18, marginBottom: 12, flexWrap: 'wrap' }}>
-        {SERIES.map(s => (
-          <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: C.muted }}>{s.label}</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>({totals[s.key]})</span>
-          </div>
-        ))}
-      </div>
       <ResponsiveContainer width="100%" height={200}>
         <LineChart data={data} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
