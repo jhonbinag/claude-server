@@ -92,6 +92,20 @@ router.get('/dashboard', async (req, res) => {
 
     const tot = r => ok(r) ? (r.value?.meta?.total ?? 0) : 0;
 
+    // Debug: log the full conversations response shape so we can see what GHL returns
+    if (ok(convs)) {
+      const cv = convs.value;
+      console.log('[Reporting] convs keys:', Object.keys(cv || {}));
+      console.log('[Reporting] convs meta:', cv?.meta, '| total:', cv?.total, '| count:', cv?.count, '| conversations.length:', cv?.conversations?.length);
+    } else {
+      console.log('[Reporting] convs FAILED:', convs.reason?.message);
+    }
+
+    // GHL conversations/search may return total at root level, under meta, or as count
+    const convTotal = ok(convs)
+      ? (convs.value?.meta?.total ?? convs.value?.total ?? convs.value?.meta?.count ?? convs.value?.count ?? convs.value?.conversations?.length ?? 0)
+      : 0;
+
     res.json({
       success: true,
       data: {
@@ -112,7 +126,7 @@ router.get('/dashboard', async (req, res) => {
           },
         },
         conversations: {
-          total: ok(convs) ? (convs.value?.meta?.total ?? convs.value?.count ?? 0) : 0,
+          total: convTotal,
         },
       },
     });
@@ -280,7 +294,7 @@ router.get('/conversations', async (req, res) => {
     res.json({
       success: true,
       data: data?.conversations || [],
-      meta: { total: data?.meta?.total ?? data?.conversations?.length ?? 0 },
+      meta: { total: data?.meta?.total ?? data?.total ?? data?.meta?.count ?? data?.count ?? data?.conversations?.length ?? 0 },
     });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
