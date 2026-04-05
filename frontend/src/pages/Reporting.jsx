@@ -762,21 +762,38 @@ const OPP_COLS_DASHBOARD = [
   { key: 'monetaryValue', label: 'Value', render: (_, r) => { const n = Number(r.monetaryValue); return n ? `$${n % 1 === 0 ? n.toFixed(2) : n}` : <span style={{ color: '#6b7280' }}>—</span>; } },
 ];
 
+const RANGE_OPTIONS = [
+  { value: 3,  label: 'Last 3 Months'  },
+  { value: 6,  label: 'Last 6 Months'  },
+  { value: 9,  label: 'Last 9 Months'  },
+  { value: 12, label: 'Last 12 Months' },
+];
+
 // Line chart — billing over time, daily data points, live last-dot, clickable legend
 function BillingLineChart({ locationId, startDate, endDate }) {
-  const [data,    setData]    = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [loaded,  setLoaded]  = useState(false);
-  const [drill,   setDrill]   = useState(null);
-  const [hidden,  setHidden]  = useState({});
+  const [data,        setData]        = useState([]);
+  const [loading,     setLoading]     = useState(false);
+  const [loaded,      setLoaded]      = useState(false);
+  const [drill,       setDrill]       = useState(null);
+  const [hidden,      setHidden]      = useState({});
+  const [rangeMonths, setRangeMonths] = useState(12);
 
   const headers = { 'x-location-id': locationId };
+
+  // If the dashboard date picker is active, use those dates; otherwise use dropdown range
+  const hasExternalDates = !!(startDate || endDate);
+  const effectiveStart = hasExternalDates ? startDate : (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - rangeMonths);
+    d.setDate(1);
+    return d.toISOString().slice(0, 10);
+  })();
 
   useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams();
-    if (startDate) params.set('startDate', startDate);
-    if (endDate)   params.set('endDate',   endDate);
+    if (effectiveStart) params.set('startDate', effectiveStart);
+    if (endDate)        params.set('endDate',   endDate);
     const qs = params.toString();
     fetch(`/rpt/billing-chart${qs ? '?' + qs : ''}`, { headers })
       .then(r => r.json())
@@ -784,7 +801,7 @@ function BillingLineChart({ locationId, startDate, endDate }) {
       .catch(() => {})
       .finally(() => { setLoading(false); setLoaded(true); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locationId, startDate, endDate]);
+  }, [locationId, effectiveStart, endDate]);
 
   const SERIES = [
     { key: 'subscriptions', label: 'Subscriptions', color: '#818cf8', tab: 'subscription' },
@@ -856,9 +873,9 @@ function BillingLineChart({ locationId, startDate, endDate }) {
 
   const toggleSeries = (key) => setHidden(h => ({ ...h, [key]: !h[key] }));
 
-  const title = startDate || endDate
+  const title = hasExternalDates
     ? `Billing Activity${startDate ? ` from ${startDate}` : ''}${endDate ? ` to ${endDate}` : ''}`
-    : 'Billing Activity — Last 6 Months';
+    : `Billing Activity — Last ${rangeMonths} Months`;
 
   return (
     <ChartCard title={title} loading={loading && !loaded}>
@@ -869,21 +886,34 @@ function BillingLineChart({ locationId, startDate, endDate }) {
         }
       `}</style>
 
-      {/* Clickable legend — click to toggle series */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-        {SERIES.map(s => (
-          <button key={s.key} onClick={() => toggleSeries(s.key)} style={{
-            display: 'flex', alignItems: 'center', gap: 6, background: 'none',
-            border: `1px solid ${hidden[s.key] ? C.border : 'transparent'}`,
-            borderRadius: 20, cursor: 'pointer', padding: '3px 10px',
-            opacity: hidden[s.key] ? 0.4 : 1, transition: 'all .15s',
-          }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: C.muted, textDecoration: hidden[s.key] ? 'line-through' : 'none' }}>
-              {s.label}
-            </span>
-          </button>
-        ))}
+      {/* Legend row: clickable series toggles + range dropdown */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {SERIES.map(s => (
+            <button key={s.key} onClick={() => toggleSeries(s.key)} style={{
+              display: 'flex', alignItems: 'center', gap: 6, background: 'none',
+              border: `1px solid ${hidden[s.key] ? C.border : 'transparent'}`,
+              borderRadius: 20, cursor: 'pointer', padding: '3px 10px',
+              opacity: hidden[s.key] ? 0.4 : 1, transition: 'all .15s',
+            }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: C.muted, textDecoration: hidden[s.key] ? 'line-through' : 'none' }}>
+                {s.label}
+              </span>
+            </button>
+          ))}
+        </div>
+        {!hasExternalDates && (
+          <select
+            value={rangeMonths}
+            onChange={e => setRangeMonths(Number(e.target.value))}
+            style={{ ...S.input, fontSize: 11, padding: '4px 8px', minWidth: 130 }}
+          >
+            {RANGE_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       <ResponsiveContainer width="100%" height={200}>
