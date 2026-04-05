@@ -426,6 +426,41 @@ router.get('/conversations', async (req, res) => {
   }
 });
 
+// ── GET /rpt/debug-conversations — inspect raw GHL pagination fields ──────────
+
+router.get('/debug-conversations', async (req, res) => {
+  if (!requireGhl(req, res)) return;
+  const { lastId, startAfter } = req.query;
+  try {
+    const params = { locationId: req.locationId, limit: 5 };
+    if (lastId)     params.lastId     = lastId;
+    if (startAfter) params.startAfter = Number(startAfter);
+
+    const data = await req.ghl('GET', '/conversations/search', null, params);
+    const convs = data?.conversations || [];
+    const sample = convs.slice(0, 3).map(c => ({
+      id:              c.id,
+      dateAdded:       c.dateAdded,
+      dateUpdated:     c.dateUpdated,
+      lastMessageDate: c.lastMessageDate,
+      allKeys:         Object.keys(c),
+    }));
+    res.json({
+      rawTopKeys:     Object.keys(data || {}),
+      meta:           data?.meta,
+      total:          data?.total,
+      count:          data?.count,
+      nextPage:       data?.nextPage,
+      nextPageUrl:    data?.nextPageUrl,
+      lastId:         data?.lastId,
+      batchSize:      convs.length,
+      sample,
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ── GET /rpt/debug-billing — inspect raw GHL fields for each billing type ─────
 
 router.get('/debug-billing', async (req, res) => {
