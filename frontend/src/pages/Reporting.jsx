@@ -1009,15 +1009,18 @@ function OpportunitiesView({ locationId }) {
 
   const headers = { 'x-location-id': locationId };
 
-  const load = useCallback(async (p = 1) => {
+  // overridePid lets callers bypass the stale pipelineId closure when the state
+  // update hasn't propagated yet (e.g. immediately after setPipelineId).
+  const load = useCallback(async (p = 1, overridePid) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ limit, page: p });
-      if (start)      params.set('startDate',  start);
-      if (end)        params.set('endDate',     end);
-      if (status)     params.set('status',      status);
-      if (email)      params.set('q',           email);
-      if (pipelineId) params.set('pipelineId',  pipelineId);
+      if (start)  params.set('startDate',  start);
+      if (end)    params.set('endDate',    end);
+      if (status) params.set('status',     status);
+      if (email)  params.set('q',          email);
+      const pid = overridePid !== undefined ? overridePid : pipelineId;
+      if (pid)   params.set('pipelineId', pid);
       const r = await fetch(`/rpt/opportunities?${params}`, { headers });
       const d = await r.json();
       if (d.success) { setRows(d.data); setTotal(d.meta?.total ?? d.data.length); }
@@ -1033,13 +1036,20 @@ function OpportunitiesView({ locationId }) {
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
 
+  // Pipeline change: set state AND immediately load with the new value
+  const handlePipelineChange = (newPid) => {
+    setPipelineId(newPid);
+    setPage(1);
+    load(1, newPid);
+  };
+
   return (
     <div>
       <h1 style={{ margin: '0 0 22px', fontSize: 22, fontWeight: 700, color: C.text }}>💼 Opportunities</h1>
       <FiltersBar startDate={start} endDate={end} limit={limit} onStart={setStart} onEnd={setEnd} onLimit={setLimit} onLoad={handleLoad} loading={loading}>
         <div>
           <label style={S.label}>Pipeline</label>
-          <select value={pipelineId} onChange={e => setPipelineId(e.target.value)} style={{ ...S.input, minWidth: 160 }}>
+          <select value={pipelineId} onChange={e => handlePipelineChange(e.target.value)} style={{ ...S.input, minWidth: 160 }}>
             <option value="">All Pipelines</option>
             {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -1174,6 +1184,26 @@ function ConversationsView({ locationId }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(1); }, [locationId]);
 
+  // Live polling — silent refresh every 30s, only updates rows (no spinner)
+  useEffect(() => {
+    if (!loaded) return;
+    const interval = setInterval(async () => {
+      try {
+        const params = new URLSearchParams({ limit, page });
+        if (start) params.set('startDate', start);
+        if (end)   params.set('endDate',   end);
+        const r = await fetch(`/rpt/conversations?${params}`, { headers: { 'x-location-id': locationId } });
+        const d = await r.json();
+        if (d.success) {
+          setRows(d.data);
+          setTotal(d.meta?.total ?? d.data.length);
+        }
+      } catch (_) {}
+    }, 30000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, locationId, limit, page, start, end]);
+
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
 
@@ -1189,8 +1219,15 @@ function ConversationsView({ locationId }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 22px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 22px', flexWrap: 'wrap' }}>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: C.text }}>💬 Conversations</h1>
+        {loaded && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: C.muted }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 0 2px rgba(16,185,129,0.3)', animation: 'rpt-pulse 2s infinite' }} />
+            Live
+          </span>
+        )}
+        <style>{`@keyframes rpt-pulse { 0%,100%{opacity:1} 50%{opacity:.4} }`}</style>
         {loaded && unreadConvs.length > 0 && (
           <button
             onClick={() => setShowUnread(true)}
