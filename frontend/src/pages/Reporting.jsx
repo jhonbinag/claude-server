@@ -792,19 +792,25 @@ function BillingLineChart({ locationId, startDate, endDate }) {
     { key: 'transactions',  label: 'Transactions',  color: '#f59e0b', tab: 'transaction'  },
   ];
 
-  // X-axis: label every ~30 days starting from the first data point
-  // e.g. Nov 10 → Dec 10 → Jan 10 (same day of month pattern)
+  // X-axis: one label per month, using the data point closest to the 10th of that month
+  // e.g. Nov 10 → Dec 10 → Jan 10
   const monthTickLabels = (() => {
     if (!data.length) return new Set();
-    const result = new Set();
-    let nextTick = new Date(data[0].key);
+    const byMonth = {};
     data.forEach(d => {
-      const dt = new Date(d.key);
-      if (dt >= nextTick) {
-        result.add(d.label);
-        nextTick = new Date(nextTick);
-        nextTick.setMonth(nextTick.getMonth() + 1);
-      }
+      const ym = d.key?.slice(0, 7);
+      if (!ym) return;
+      if (!byMonth[ym]) byMonth[ym] = [];
+      byMonth[ym].push(d);
+    });
+    const result = new Set();
+    Object.values(byMonth).forEach(points => {
+      const best = points.reduce((a, b) => {
+        const dA = Math.abs(parseInt(a.key.slice(8), 10) - 10);
+        const dB = Math.abs(parseInt(b.key.slice(8), 10) - 10);
+        return dA <= dB ? a : b;
+      });
+      result.add(best.label);
     });
     return result;
   })();
