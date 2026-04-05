@@ -531,7 +531,8 @@ router.get('/invoices', async (req, res) => {
 });
 
 // ── GET /rpt/billing-chart ────────────────────────────────────────────────────
-// Returns last 6 months of subscription / order / transaction counts grouped by month
+// Returns billing activity grouped by DAY (only days with records are included).
+// Default: last 90 days. Respects startDate/endDate filters.
 
 router.get('/billing-chart', async (req, res) => {
   if (!requireGhl(req, res)) return;
@@ -546,40 +547,22 @@ router.get('/billing-chart', async (req, res) => {
       req.ghl('GET', '/payments/transactions',   null, base),
     ]);
 
-    // Build month buckets — use provided date range or default last 6 months
-    const rangeStart = startDate ? new Date(startDate) : null;
-    const rangeEnd   = endDate   ? new Date(endDate + 'T23:59:59') : null;
     const now        = new Date();
+    const rangeStart = startDate ? new Date(startDate) : new Date(now.getFullYear(), now.getMonth() - 2, now.getDate());
+    const rangeEnd   = endDate   ? new Date(endDate + 'T23:59:59') : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-    // Determine min/max month to show
-    let fromMonth, toMonth;
-    if (rangeStart && rangeEnd) {
-      fromMonth = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
-      toMonth   = new Date(rangeEnd.getFullYear(),   rangeEnd.getMonth(),   1);
-    } else {
-      fromMonth = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-      toMonth   = new Date(now.getFullYear(), now.getMonth(),     1);
-    }
-
-    const months = [];
-    for (let d = new Date(fromMonth); d <= toMonth; d.setMonth(d.getMonth() + 1)) {
-      months.push({
-        key:   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-        label: d.toLocaleString('default', { month: 'short', year: '2-digit' }),
-        subscriptions: 0, orders: 0, transactions: 0,
-      });
-    }
-    const byKey = Object.fromEntries(months.map(m => [m.key, m]));
+    // Accumulate counts per day key (YYYY-MM-DD) — only for days in range
+    const byDay = {};
 
     const bucket = (records, field) => {
       (records || []).forEach(r => {
         const raw = r.createdAt || r.dateAdded || r.created_at;
         if (!raw) return;
         const ts = new Date(raw);
-        if (rangeStart && ts < rangeStart) return;
-        if (rangeEnd   && ts > rangeEnd)   return;
-        const key = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, '0')}`;
-        if (byKey[key]) byKey[key][field]++;
+        if (ts < rangeStart || ts > rangeEnd) return;
+        const key = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, '0')}-${String(ts.getDate()).padStart(2, '0')}`;
+        if (!byDay[key]) byDay[key] = { key, subscriptions: 0, orders: 0, transactions: 0 };
+        byDay[key][field]++;
       });
     };
 
@@ -587,7 +570,17 @@ router.get('/billing-chart', async (req, res) => {
     if (orders.status === 'fulfilled') bucket(orders.value?.orders         || orders.value?.data || [], 'orders');
     if (txns.status   === 'fulfilled') bucket(txns.value?.transactions     || txns.value?.data   || [], 'transactions');
 
-    res.json({ success: true, data: months });
+    // Sort by date and add human-readable label
+    const days = Object.values(byDay)
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map(d => {
+        const [y, m, day] = d.key.split('-').map(Number);
+        const dt = new Date(y, m - 1, day);
+        const label = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        return { ...d, label };
+      });
+
+    res.json({ success: true, data: days });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
   }

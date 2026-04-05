@@ -522,6 +522,8 @@ function LeadsFunnelChart({ stats, loading, locationId }) {
   const [customLoading, setCustomLoading] = useState(false);
   const d = stats?.contacts;
 
+  const isCustom = !!(customStart || customEnd);
+
   const WINDOWS = [
     { key: '1d', label: 'Last 1 Day',  cumul: d?.recent1d || 0,
       excl: d?.recent1d || 0,
@@ -549,30 +551,34 @@ function LeadsFunnelChart({ stats, loading, locationId }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId, customStart, customEnd]);
 
-  const pieData = WINDOWS.map(w => ({ ...w, value: w.excl > 0 ? w.excl : 0.3 }));
-  const hasData = WINDOWS.some(w => w.cumul > 0);
+  // When custom dates are set, show a single slice for the custom count
+  const customLabel = [customStart, customEnd].filter(Boolean).join(' → ') || 'Custom';
+  const CUSTOM_WINDOW = {
+    key: 'custom', label: customLabel,
+    cumul: customCount ?? 0, excl: customCount ?? 0,
+    fill: '#f59e0b',
+    startDate: customStart, endDate: customEnd,
+  };
+
+  const activeWindows = isCustom ? [CUSTOM_WINDOW] : WINDOWS;
+  const pieData = activeWindows.map(w => ({ ...w, value: w.excl > 0 ? w.excl : 0.3 }));
+  const hasData = activeWindows.some(w => w.cumul > 0) || (isCustom && customCount !== null);
 
   const openDrill = (w) => {
-    setDrill({ title: `${w.label} — Contacts Added`, url: `/rpt/contacts?limit=100&page=1&startDate=${w.startDate}&endDate=${w.endDate}` });
-  };
-
-  const openCustomDrill = () => {
-    if (!customStart && !customEnd) return;
     const params = new URLSearchParams({ limit: 100, page: 1 });
-    if (customStart) params.set('startDate', customStart);
-    if (customEnd)   params.set('endDate',   customEnd);
-    setDrill({ title: 'Custom Range — Contacts Added', url: `/rpt/contacts?${params}` });
+    if (w.startDate) params.set('startDate', w.startDate);
+    if (w.endDate)   params.set('endDate',   w.endDate);
+    setDrill({ title: `${w.label} — Contacts Added`, url: `/rpt/contacts?${params}` });
   };
 
-  // Render short label directly on each pie slice: "1D: 5"
   const _RADIAN = Math.PI / 180;
   const renderPieLabel = ({ cx, cy, midAngle, outerRadius, index }) => {
-    const w = WINDOWS[index];
+    const w = activeWindows[index];
     if (!w || w.cumul === 0) return null;
     const r = outerRadius + 24;
     const x = cx + r * Math.cos(-midAngle * _RADIAN);
     const y = cy + r * Math.sin(-midAngle * _RADIAN);
-    const short = { '1d': '1D', '3d': '3D', '7d': '7D' }[w.key] || w.key;
+    const short = isCustom ? 'Custom' : ({ '1d': '1D', '3d': '3D', '7d': '7D' }[w.key] || w.key);
     return (
       <text x={x} y={y} textAnchor="middle" dominantBaseline="central"
         fill={w.fill} fontSize={11} fontWeight="700" style={{ pointerEvents: 'none' }}>
@@ -581,35 +587,40 @@ function LeadsFunnelChart({ stats, loading, locationId }) {
     );
   };
 
+  const showEmpty = !isCustom && !hasData;
+  const showCustomLoading = isCustom && customLoading;
+
   return (
     <ChartCard title="New Leads — by Time Window" loading={loading && !stats}>
-      {!hasData
+      {showEmpty
         ? <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>No new contacts in the last 7 days</div>
-        : (
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie
-                data={pieData} nameKey="label" cx="50%" cy="50%"
-                innerRadius={42} outerRadius={62}
-                paddingAngle={2} dataKey="value"
-                label={renderPieLabel} labelLine={false}
-                onClick={(entry) => { const w = WINDOWS.find(w => w.label === entry.name); if (w) openDrill(w); }}
-                style={{ cursor: 'pointer' }}
-              >
-                {pieData.map((entry, i) => <Cell key={i} fill={entry.fill} stroke="transparent" />)}
-              </Pie>
-              <RTooltip
-                {...CHART_TOOLTIP_STYLE}
-                formatter={(_, name) => {
-                  const w = WINDOWS.find(w => w.label === name);
-                  return [w ? `${w.cumul} contacts (${w.excl} in window)` : _, name];
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-        )}
+        : showCustomLoading
+          ? <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>Loading…</div>
+          : (
+            <ResponsiveContainer width="100%" height={180}>
+              <PieChart>
+                <Pie
+                  data={pieData} nameKey="label" cx="50%" cy="50%"
+                  innerRadius={42} outerRadius={62}
+                  paddingAngle={2} dataKey="value"
+                  label={renderPieLabel} labelLine={false}
+                  onClick={(entry) => { const w = activeWindows.find(w => w.label === entry.name); if (w) openDrill(w); }}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {pieData.map((entry, i) => <Cell key={i} fill={entry.fill} stroke="transparent" />)}
+                </Pie>
+                <RTooltip
+                  {...CHART_TOOLTIP_STYLE}
+                  formatter={(_, name) => {
+                    const w = activeWindows.find(w => w.label === name);
+                    return [w ? `${w.cumul} contacts` : _, name];
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
 
-      {/* Own date picker */}
+      {/* Custom date picker */}
       <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
         <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Custom Date Range</div>
         <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -618,24 +629,23 @@ function LeadsFunnelChart({ stats, loading, locationId }) {
           <span style={{ fontSize: 10, color: C.muted, flexShrink: 0 }}>→</span>
           <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
             style={{ ...S.input, fontSize: 11, padding: '5px 7px', flex: 1, minWidth: 0 }} />
-          {(customStart || customEnd) && (
+          {isCustom && (
             <button
               onClick={() => { setCustomStart(''); setCustomEnd(''); setCustomCount(null); }}
               style={{ flexShrink: 0, padding: '5px 8px', borderRadius: 7, background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`, color: C.muted, fontSize: 11, cursor: 'pointer' }}
             >✕</button>
           )}
         </div>
-        {(customStart || customEnd) && (
+        {isCustom && customCount !== null && !customLoading && (
           <button
-            onClick={openCustomDrill}
-            disabled={customLoading}
+            onClick={() => openDrill(CUSTOM_WINDOW)}
             style={{ marginTop: 6, width: '100%', padding: '7px', borderRadius: 8,
               background: C.accentBg, border: `1px solid ${C.accentBdr}`, color: '#a5b4fc',
-              fontSize: 12, fontWeight: 600, cursor: customLoading ? 'default' : 'pointer', transition: 'opacity .15s' }}
-            onMouseEnter={e => { if (!customLoading) e.currentTarget.style.opacity = '0.8'; }}
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'opacity .15s' }}
+            onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
             onMouseLeave={e => e.currentTarget.style.opacity = '1'}
           >
-            {customLoading ? 'Loading…' : customCount !== null ? `${customCount} leads — View →` : 'Loading…'}
+            {customCount} leads — View →
           </button>
         )}
       </div>
@@ -785,10 +795,8 @@ function BillingLineChart({ locationId, startDate, endDate }) {
   const openDrill = (seriesKey, point) => {
     const s = SERIES.find(s => s.key === seriesKey);
     if (!s || !point) return;
-    const [year, month] = point.key.split('-').map(Number);
-    const mStart = `${year}-${String(month).padStart(2, '0')}-01`;
-    const mEnd   = new Date(year, month, 0).toISOString().slice(0, 10);
-    const params = new URLSearchParams({ limit: 100, page: 1, type: s.tab, startDate: mStart, endDate: mEnd });
+    // point.key is now YYYY-MM-DD (day granularity)
+    const params = new URLSearchParams({ limit: 100, page: 1, type: s.tab, startDate: point.key, endDate: point.key });
     const cols   = INVOICE_COLS[s.tab] || INVOICE_COLS.subscription;
     setDrill({ title: `${s.label} — ${point.label}`, url: `/rpt/invoices?${params}`, cols, tab: s.tab });
   };
