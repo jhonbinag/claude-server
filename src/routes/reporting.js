@@ -206,15 +206,55 @@ router.get('/contacts', async (req, res) => {
 
 // ── GET /rpt/opportunities ────────────────────────────────────────────────────
 
+// ── GET /rpt/pipelines ────────────────────────────────────────────────────────
+
+router.get('/pipelines', async (req, res) => {
+  if (!requireGhl(req, res)) return;
+  try {
+    const data = await req.ghl('GET', '/opportunities/pipelines', null, { locationId: req.locationId });
+    res.json({ success: true, data: data?.pipelines || [] });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// ── GET /rpt/opp-stats ────────────────────────────────────────────────────────
+// Returns open/won/lost/abandoned counts, optionally filtered by pipelineId
+
+router.get('/opp-stats', async (req, res) => {
+  if (!requireGhl(req, res)) return;
+  const { pipelineId } = req.query;
+  try {
+    const base = { location_id: req.locationId, limit: 1 };
+    if (pipelineId) base.pipelineId = pipelineId;
+
+    const [open, won, lost, abandoned] = await Promise.allSettled([
+      req.ghl('GET', '/opportunities/search', null, { ...base, status: 'open' }),
+      req.ghl('GET', '/opportunities/search', null, { ...base, status: 'won' }),
+      req.ghl('GET', '/opportunities/search', null, { ...base, status: 'lost' }),
+      req.ghl('GET', '/opportunities/search', null, { ...base, status: 'abandoned' }),
+    ]);
+
+    const tot = r => r.status === 'fulfilled' ? (r.value?.meta?.total ?? 0) : 0;
+    res.json({
+      success: true,
+      data: { open: tot(open), won: tot(won), lost: tot(lost), abandoned: tot(abandoned) },
+    });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
 router.get('/opportunities', async (req, res) => {
   if (!requireGhl(req, res)) return;
-  const { limit = 20, page = 1, status, startDate, endDate, q } = req.query;
+  const { limit = 20, page = 1, status, startDate, endDate, q, pipelineId } = req.query;
   try {
     const params = { location_id: req.locationId, limit: Number(limit), page: Number(page) };
-    if (status)    params.status    = status;
-    if (startDate) params.startDate = startDate;
-    if (endDate)   params.endDate   = endDate;
-    if (q)         params.q         = q;
+    if (status)     params.status     = status;
+    if (startDate)  params.startDate  = startDate;
+    if (endDate)    params.endDate    = endDate;
+    if (q)          params.q          = q;
+    if (pipelineId) params.pipelineId = pipelineId;
 
     const data = await req.ghl('GET', '/opportunities/search', null, params);
     res.json({

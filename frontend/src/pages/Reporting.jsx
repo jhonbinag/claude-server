@@ -396,6 +396,20 @@ function CustomRangePanel({ locationId }) {
   );
 }
 
+// ── usePipelines hook ─────────────────────────────────────────────────────────
+
+function usePipelines(locationId) {
+  const [pipelines, setPipelines] = useState([]);
+  useEffect(() => {
+    fetch('/rpt/pipelines', { headers: { 'x-location-id': locationId } })
+      .then(r => r.json())
+      .then(d => { if (d.success) setPipelines(d.data); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId]);
+  return pipelines;
+}
+
 // ── Chart helpers ─────────────────────────────────────────────────────────────
 
 const CHART_TOOLTIP_STYLE = {
@@ -405,10 +419,13 @@ const CHART_TOOLTIP_STYLE = {
   cursor:       { fill: 'rgba(255,255,255,0.04)' },
 };
 
-function ChartCard({ title, children, loading }) {
+function ChartCard({ title, children, loading, action }) {
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px' }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 18 }}>{title}</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, gap: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{title}</div>
+        {action}
+      </div>
       {loading
         ? <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>Loading…</div>
         : children}
@@ -450,9 +467,24 @@ function LeadsFunnelChart({ stats, loading }) {
   );
 }
 
-// Bar chart — opportunities by status
-function OppsBarChart({ stats, loading }) {
-  const bs = stats?.opportunities?.byStatus;
+// Bar chart — opportunities by status, filterable by pipeline
+function OppsBarChart({ locationId }) {
+  const [pipelineId, setPipelineId] = useState('');
+  const [bs,         setBs]         = useState(null);
+  const [loading,    setLoading]    = useState(false);
+  const pipelines = usePipelines(locationId);
+
+  useEffect(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (pipelineId) params.set('pipelineId', pipelineId);
+    fetch(`/rpt/opp-stats?${params}`, { headers: { 'x-location-id': locationId } })
+      .then(r => r.json())
+      .then(d => { if (d.success) setBs(d.data); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [locationId, pipelineId]);
+
   const data = [
     { status: 'Open',      count: bs?.open      || 0, fill: '#818cf8' },
     { status: 'Won',       count: bs?.won        || 0, fill: '#10b981' },
@@ -460,8 +492,19 @@ function OppsBarChart({ stats, loading }) {
     { status: 'Abandoned', count: bs?.abandoned  || 0, fill: '#f59e0b' },
   ];
 
+  const dropdown = pipelines.length > 0 && (
+    <select
+      value={pipelineId}
+      onChange={e => setPipelineId(e.target.value)}
+      style={{ ...S.input, padding: '5px 10px', fontSize: 12, maxWidth: 180 }}
+    >
+      <option value="">All Pipelines</option>
+      {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+    </select>
+  );
+
   return (
-    <ChartCard title="Opportunities by Status" loading={loading && !stats}>
+    <ChartCard title="Opportunities by Status" loading={loading && !bs} action={dropdown}>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
@@ -566,7 +609,7 @@ function DashboardView({ locationId }) {
       {/* Charts row — Pie + Bar */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
         <LeadsFunnelChart stats={stats} loading={loading} />
-        <OppsBarChart     stats={stats} loading={loading} />
+        <OppsBarChart     locationId={locationId} />
       </div>
 
       {/* Line chart — full width */}
@@ -928,16 +971,18 @@ const OPP_COLS = [
 ];
 
 function OpportunitiesView({ locationId }) {
-  const [rows,    setRows]    = useState([]);
-  const [total,   setTotal]   = useState(0);
-  const [page,    setPage]    = useState(1);
-  const [limit,   setLimit]   = useState(20);
-  const [start,   setStart]   = useState('');
-  const [end,     setEnd]     = useState('');
-  const [status,  setStatus]  = useState('');
-  const [email,   setEmail]   = useState('');
-  const [loading, setLoading] = useState(false);
-  const [loaded,  setLoaded]  = useState(false);
+  const [rows,       setRows]       = useState([]);
+  const [total,      setTotal]      = useState(0);
+  const [page,       setPage]       = useState(1);
+  const [limit,      setLimit]      = useState(20);
+  const [start,      setStart]      = useState('');
+  const [end,        setEnd]        = useState('');
+  const [status,     setStatus]     = useState('');
+  const [email,      setEmail]      = useState('');
+  const [pipelineId, setPipelineId] = useState('');
+  const [loading,    setLoading]    = useState(false);
+  const [loaded,     setLoaded]     = useState(false);
+  const pipelines = usePipelines(locationId);
 
   const headers = { 'x-location-id': locationId };
 
@@ -945,23 +990,18 @@ function OpportunitiesView({ locationId }) {
     setLoading(true);
     try {
       const params = new URLSearchParams({ limit, page: p });
-      if (start)  params.set('startDate', start);
-      if (end)    params.set('endDate',   end);
-      if (status) params.set('status',    status);
-      if (email)  params.set('q',         email);
+      if (start)      params.set('startDate',  start);
+      if (end)        params.set('endDate',     end);
+      if (status)     params.set('status',      status);
+      if (email)      params.set('q',           email);
+      if (pipelineId) params.set('pipelineId',  pipelineId);
       const r = await fetch(`/rpt/opportunities?${params}`, { headers });
       const d = await r.json();
-      if (d.success) {
-        setRows(d.data); setTotal(d.meta?.total ?? d.data.length);
-        if (d.data.length > 0) {
-          console.log('[Opportunity] keys:', Object.keys(d.data[0]));
-          console.log('[Opportunity] first record:', d.data[0]);
-        }
-      }
+      if (d.success) { setRows(d.data); setTotal(d.meta?.total ?? d.data.length); }
     } catch (_) {}
     setLoading(false);
     setLoaded(true);
-  }, [locationId, limit, start, end, status, email]);
+  }, [locationId, limit, start, end, status, email, pipelineId]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(1); }, [locationId]);
@@ -974,6 +1014,13 @@ function OpportunitiesView({ locationId }) {
     <div>
       <h1 style={{ margin: '0 0 22px', fontSize: 22, fontWeight: 700, color: C.text }}>💼 Opportunities</h1>
       <FiltersBar startDate={start} endDate={end} limit={limit} onStart={setStart} onEnd={setEnd} onLimit={setLimit} onLoad={handleLoad} loading={loading}>
+        <div>
+          <label style={S.label}>Pipeline</label>
+          <select value={pipelineId} onChange={e => setPipelineId(e.target.value)} style={{ ...S.input, minWidth: 160 }}>
+            <option value="">All Pipelines</option>
+            {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
         <div>
           <label style={S.label}>Status</label>
           <select value={status} onChange={e => setStatus(e.target.value)} style={{ ...S.input }}>
