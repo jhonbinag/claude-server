@@ -583,39 +583,60 @@ function LeadsFunnelChart({ stats, loading, locationId, dashStart, dashEnd }) {
 
 // Bar chart — opportunities by status, clickable bars with count labels
 function OppsBarChart({ locationId }) {
-  const [pipelineId, setPipelineId] = useState('');
-  const [bs,         setBs]         = useState(null);
-  const [loading,    setLoading]    = useState(false);
-  const [drill,      setDrill]      = useState(null);
+  const [pipelineId,   setPipelineId]   = useState('');
+  const [pipelineName, setPipelineName] = useState('');
+  const [bs,           setBs]           = useState(null);
+  const [loading,      setLoading]      = useState(false);
+  const [drill,        setDrill]        = useState(null);
   const pipelines = usePipelines(locationId);
 
   useEffect(() => {
+    // Clear stale data immediately so loading state is visible
+    setBs(null);
     setLoading(true);
+
+    const ctrl = new AbortController();
     const params = new URLSearchParams();
     if (pipelineId) params.set('pipelineId', pipelineId);
-    fetch(`/rpt/opp-stats?${params}`, { headers: { 'x-location-id': locationId } })
+
+    fetch(`/rpt/opp-stats?${params}`, { headers: { 'x-location-id': locationId }, signal: ctrl.signal })
       .then(r => r.json())
       .then(d => { if (d.success) setBs(d.data); })
-      .catch(() => {})
+      .catch(e => { if (e.name !== 'AbortError') setBs({ open: 0, won: 0, lost: 0, abandoned: 0 }); })
       .finally(() => setLoading(false));
+
+    return () => ctrl.abort();
   }, [locationId, pipelineId]);
 
   const data = [
-    { status: 'Open',      count: bs?.open      || 0, fill: '#818cf8' },
-    { status: 'Won',       count: bs?.won        || 0, fill: '#10b981' },
-    { status: 'Lost',      count: bs?.lost       || 0, fill: '#ef4444' },
-    { status: 'Abandoned', count: bs?.abandoned  || 0, fill: '#f59e0b' },
+    { status: 'Open',      count: bs?.open      ?? 0, fill: '#818cf8' },
+    { status: 'Won',       count: bs?.won        ?? 0, fill: '#10b981' },
+    { status: 'Lost',      count: bs?.lost       ?? 0, fill: '#ef4444' },
+    { status: 'Abandoned', count: bs?.abandoned  ?? 0, fill: '#f59e0b' },
   ];
 
   const handleBarClick = (barData) => {
+    if (!barData) return;
     const statusKey = barData.status.toLowerCase();
     const params = new URLSearchParams({ limit: 100, page: 1, status: statusKey });
     if (pipelineId) params.set('pipelineId', pipelineId);
-    setDrill({ title: `${barData.status} Opportunities`, url: `/rpt/opportunities?${params}` });
+    const label = pipelineName ? ` — ${pipelineName}` : '';
+    setDrill({ title: `${barData.status} Opportunities${label}`, url: `/rpt/opportunities?${params}` });
   };
 
+  const handlePipelineSelect = (e) => {
+    const pid  = e.target.value;
+    const name = e.target.options[e.target.selectedIndex].text;
+    setPipelineId(pid);
+    setPipelineName(pid ? name : '');
+  };
+
+  const subtitle = pipelineName
+    ? <span style={{ fontSize: 11, color: '#a5b4fc', fontWeight: 400 }}> · {pipelineName}</span>
+    : null;
+
   const dropdown = pipelines.length > 0 && (
-    <select value={pipelineId} onChange={e => setPipelineId(e.target.value)}
+    <select value={pipelineId} onChange={handlePipelineSelect}
       style={{ ...S.input, padding: '5px 10px', fontSize: 12, maxWidth: 180 }}>
       <option value="">All Pipelines</option>
       {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -623,7 +644,7 @@ function OppsBarChart({ locationId }) {
   );
 
   return (
-    <ChartCard title="Opportunities by Status" loading={loading && !bs} action={dropdown}>
+    <ChartCard title={<>Opportunities by Status{subtitle}</>} loading={loading} action={dropdown}>
       <ResponsiveContainer width="100%" height={230}>
         <BarChart data={data} margin={{ top: 22, right: 8, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
@@ -639,11 +660,21 @@ function OppsBarChart({ locationId }) {
 
       {drill && (
         <ChartDrillModal title={drill.title} url={drill.url} locationId={locationId}
-          columns={OPP_COLS} section="opportunities" onClose={() => setDrill(null)} />
+          columns={OPP_COLS_DASHBOARD} section="opportunities" onClose={() => setDrill(null)} />
       )}
     </ChartCard>
   );
 }
+
+// Minimal columns for the drill-down inside the chart (OPP_COLS is defined later in file)
+const OPP_COLS_DASHBOARD = [
+  { key: 'name',    label: 'Name' },
+  { key: 'contact', label: 'Contact',  render: (_, r) => r.contact?.name || r.contactName || <span style={{ color: '#6b7280' }}>—</span> },
+  { key: 'pipeline',label: 'Pipeline', render: (_, r) => r.pipeline?.name || r.pipelineName || <span style={{ color: '#6b7280' }}>—</span> },
+  { key: 'stage',   label: 'Stage',    render: (_, r) => r.pipelineStage?.name || r.stageName || <span style={{ color: '#6b7280' }}>—</span> },
+  { key: 'status',  label: 'Status',   render: v => v ? <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>{v}</span> : <span style={{ color: '#6b7280' }}>—</span> },
+  { key: 'monetaryValue', label: 'Value', render: (_, r) => { const n = Number(r.monetaryValue); return n ? `$${n % 1 === 0 ? n.toFixed(2) : n}` : <span style={{ color: '#6b7280' }}>—</span>; } },
+];
 
 // Line chart — billing over time, clickable dots, totals in legend, date-filtered
 function BillingLineChart({ locationId, startDate, endDate }) {
