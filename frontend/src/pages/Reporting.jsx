@@ -1497,6 +1497,7 @@ function ConversationsView({ locationId }) {
         )}
       </div>
       <FiltersBar startDate={start} endDate={end} limit={limit} onStart={setStart} onEnd={setEnd} onLimit={setLimit} onLoad={handleLoad} loading={loading} />
+      {loaded && <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>Showing most recent 100 conversations (GHL API limit). Use date filters to narrow results.</div>}
       <DataTable columns={CONV_COLS} rows={rows} loading={loading} loaded={loaded} onRowClick={setSelected} />
       {loaded && total > 0 && <Pagination page={page} total={total} limit={limit} onChange={handlePage} />}
       {selected && <DetailModal record={selected} section="conversations" tab={null} onClose={() => setSelected(null)} />}
