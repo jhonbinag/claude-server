@@ -243,12 +243,11 @@ router.get('/pipelines', async (req, res) => {
 
 router.get('/opp-stats', async (req, res) => {
   if (!requireGhl(req, res)) return;
-  const { pipelineId, startDate, endDate } = req.query;
+  const { pipelineId } = req.query;
   try {
     const base = { location_id: req.locationId, limit: 1 };
     if (pipelineId) base.pipeline_id = pipelineId;
-    if (startDate)  base.startDate   = startDate;
-    if (endDate)    base.endDate     = endDate;
+    // Note: GHL /opportunities/search does not accept startDate/endDate — omit them
 
     const [open, won, lost, abandoned] = await Promise.allSettled([
       req.ghl('GET', '/opportunities/search', null, { ...base, status: 'open' }),
@@ -270,30 +269,51 @@ router.get('/opp-stats', async (req, res) => {
 router.get('/opportunities', async (req, res) => {
   if (!requireGhl(req, res)) return;
   const { limit = 20, page = 1, status, startDate, endDate, q, pipelineId } = req.query;
-  try {
-    const params = { location_id: req.locationId, limit: Number(limit), page: Number(page) };
-    if (status)     params.status     = status;
-    if (startDate)  params.startDate  = startDate;
-    if (endDate)    params.endDate    = endDate;
-    if (q)          params.q          = q;
-    if (pipelineId) params.pipeline_id = pipelineId;
+  const pageNum  = Math.max(1, Number(page));
+  const pageSize = Math.max(1, Number(limit));
+  const hasDateFilter = !!(startDate || endDate);
 
-    const data = await req.ghl('GET', '/opportunities/search', null, params);
-    const opps = data?.opportunities || [];
-    if (opps.length > 0) {
-      const o = opps[0];
-      console.log('[Opps] keys:', Object.keys(o));
-      console.log('[Opps] pipeline fields:', JSON.stringify({
-        pipelineId: o.pipelineId, pipeline: o.pipeline,
-        pipelineStageId: o.pipelineStageId, pipelineStage: o.pipelineStage,
-        stageName: o.stageName, pipelineName: o.pipelineName,
-      }));
+  try {
+    // GHL /opportunities/search does NOT accept startDate/endDate (returns 422).
+    // When date filter is active we fetch up to 10 pages and filter server-side by createdAt.
+    const ghlParams = { location_id: req.locationId, limit: hasDateFilter ? 100 : pageSize };
+    if (status)     ghlParams.status      = status;
+    if (q)          ghlParams.q           = q;
+    if (pipelineId) ghlParams.pipeline_id = pipelineId;
+
+    let opps = [];
+    let total = 0;
+
+    if (!hasDateFilter) {
+      ghlParams.page = pageNum;
+      const data = await req.ghl('GET', '/opportunities/search', null, ghlParams);
+      opps  = data?.opportunities || [];
+      total = data?.meta?.total ?? 0;
+    } else {
+      // Server-side date filtering: fetch up to 10 pages, filter by createdAt
+      const startMs = startDate ? new Date(startDate).getTime() : null;
+      const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
+      let allOpps = [], page_ = 1;
+
+      for (let i = 0; i < 10; i++) {
+        const data  = await req.ghl('GET', '/opportunities/search', null, { ...ghlParams, page: page_++ });
+        const batch = data?.opportunities || [];
+        allOpps = allOpps.concat(batch);
+        if (batch.length < 100) break;
+      }
+
+      opps  = allOpps.filter(o => {
+        const ms = o.createdAt ? new Date(o.createdAt).getTime() : null;
+        if (!ms) return false;
+        if (startMs && ms < startMs) return false;
+        if (endMs   && ms > endMs)   return false;
+        return true;
+      });
+      total = opps.length;
+      opps  = opps.slice((pageNum - 1) * pageSize, pageNum * pageSize);
     }
-    res.json({
-      success: true,
-      data: opps,
-      meta: { total: data?.meta?.total ?? 0 },
-    });
+
+    res.json({ success: true, data: opps, meta: { total } });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
   }
