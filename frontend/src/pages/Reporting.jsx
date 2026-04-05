@@ -792,13 +792,19 @@ function BillingLineChart({ locationId, startDate, endDate }) {
     { key: 'transactions',  label: 'Transactions',  color: '#f59e0b', tab: 'transaction'  },
   ];
 
-  // Find the first data point in each month — used for X-axis month labels
-  const monthStartLabels = (() => {
-    const seen = new Set();
+  // X-axis: label every ~30 days starting from the first data point
+  // e.g. Nov 10 → Dec 10 → Jan 10 (same day of month pattern)
+  const monthTickLabels = (() => {
+    if (!data.length) return new Set();
     const result = new Set();
+    let nextTick = new Date(data[0].key);
     data.forEach(d => {
-      const ym = d.key?.slice(0, 7);
-      if (ym && !seen.has(ym)) { seen.add(ym); result.add(d.label); }
+      const dt = new Date(d.key);
+      if (dt >= nextTick) {
+        result.add(d.label);
+        nextTick = new Date(nextTick);
+        nextTick.setMonth(nextTick.getMonth() + 1);
+      }
     });
     return result;
   })();
@@ -811,23 +817,28 @@ function BillingLineChart({ locationId, startDate, endDate }) {
     setDrill({ title: `${s.label} — ${point.label}`, url: `/rpt/invoices?${params}`, cols, tab: s.tab });
   };
 
-  // Custom dot: small static dot on all points; last point gets pulsing ring + value label
+  // Custom dot: tiny dots on all points; last point = pulsing green live indicator + value
+  const LIVE_COLOR = '#22c55e';
   const makeDot = (color, seriesKey) => (props) => {
     const { cx, cy, index, payload } = props;
     if (!cx || !cy) return null;
     const isLast = index === data.length - 1;
     const val    = payload?.[seriesKey];
-    if (!isLast) return <circle key={index} cx={cx} cy={cy} r={2} fill={color} fillOpacity={0.6} />;
+    if (!isLast) return <circle key={index} cx={cx} cy={cy} r={2} fill={color} fillOpacity={0.5} />;
     return (
       <g key={`live-${seriesKey}`}>
-        <circle cx={cx} cy={cy} r={10} fill={color} fillOpacity={0.15}
-          style={{ transformBox: 'fill-box', transformOrigin: 'center', animation: 'rpt-live-pulse 2s ease-in-out infinite' }} />
-        <circle cx={cx} cy={cy} r={4} fill={color} />
-        {val > 0 && (
-          <text x={cx} y={cy - 14} textAnchor="middle" fill={color} fontSize={10} fontWeight="700">
-            {val}
-          </text>
-        )}
+        {/* outer pulse ring */}
+        <circle cx={cx} cy={cy} r={12} fill={LIVE_COLOR} fillOpacity={0.18}
+          style={{ transformBox: 'fill-box', transformOrigin: 'center', animation: 'rpt-live-pulse 1.8s ease-in-out infinite' }} />
+        {/* middle ring */}
+        <circle cx={cx} cy={cy} r={7} fill={LIVE_COLOR} fillOpacity={0.3} />
+        {/* solid core */}
+        <circle cx={cx} cy={cy} r={4} fill={LIVE_COLOR} />
+        {/* value label above */}
+        {val > 0 && <>
+          <rect x={cx - 14} y={cy - 28} width={28} height={14} rx={4} fill={LIVE_COLOR} fillOpacity={0.9} />
+          <text x={cx} y={cy - 18} textAnchor="middle" fill="#fff" fontSize={10} fontWeight="700">{val}</text>
+        </>}
       </g>
     );
   };
@@ -876,7 +887,7 @@ function BillingLineChart({ locationId, startDate, endDate }) {
             dataKey="label"
             tick={{ fill: C.muted, fontSize: 11 }}
             axisLine={false} tickLine={false} interval={0}
-            tickFormatter={(label) => monthStartLabels.has(label) ? label : ''}
+            tickFormatter={(label) => monthTickLabels.has(label) ? label : ''}
           />
           <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
           <RTooltip
