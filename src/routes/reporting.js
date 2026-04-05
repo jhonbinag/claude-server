@@ -360,17 +360,67 @@ router.get('/debug-pipeline', async (req, res) => {
 
 router.get('/conversations', async (req, res) => {
   if (!requireGhl(req, res)) return;
-  const { limit = 20, page = 1, startDate } = req.query;
-  try {
-    const params = { locationId: req.locationId, limit: Number(limit), page: Number(page) };
-    if (startDate) params.startAfter = new Date(startDate).getTime();
+  const { limit = 20, page = 1, startDate, endDate } = req.query;
+  const pageNum  = Math.max(1, Number(page));
+  const pageSize = Math.max(1, Number(limit));
 
-    const data = await req.ghl('GET', '/conversations/search', null, params);
-    res.json({
-      success: true,
-      data: data?.conversations || [],
-      meta: { total: data?.meta?.total ?? data?.total ?? data?.meta?.count ?? data?.count ?? data?.conversations?.length ?? 0 },
-    });
+  try {
+    const hasDateFilter = !!(startDate || endDate);
+    const startMs = startDate ? new Date(startDate).getTime() : null;
+    const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
+
+    // GHL /conversations/search uses cursor-based pagination (startAfter), not page numbers.
+    // We fetch enough records server-side and slice to the requested page.
+    const maxFetchPages = hasDateFilter ? 10 : pageNum + 1; // fetch enough to cover requested page
+    const fetchLimit    = 20; // GHL default page size for conversations
+    let conversations   = [];
+    let cursor          = null;
+    let ghlTotal        = 0;
+
+    for (let p = 0; p < maxFetchPages; p++) {
+      const params = { locationId: req.locationId, limit: fetchLimit };
+      if (cursor) params.startAfter = cursor;
+
+      const data  = await req.ghl('GET', '/conversations/search', null, params);
+      const batch = data?.conversations || [];
+
+      if (p === 0) {
+        ghlTotal = data?.meta?.total ?? data?.total ?? data?.meta?.count ?? data?.count ?? 0;
+      }
+
+      conversations = conversations.concat(batch);
+
+      // Stop if GHL has no more records
+      if (batch.length < fetchLimit) break;
+
+      // Stop if we have enough records to serve the requested page
+      if (!hasDateFilter && conversations.length >= pageNum * pageSize) break;
+
+      // Advance cursor using the last conversation's date
+      const lastConv = batch[batch.length - 1];
+      const lastTs   = lastConv?.lastMessageDate || lastConv?.dateAdded || lastConv?.dateUpdated;
+      cursor = lastTs ? new Date(lastTs).getTime() : null;
+      if (!cursor) break;
+    }
+
+    // Apply date filter server-side
+    if (hasDateFilter) {
+      conversations = conversations.filter(c => {
+        const raw = c.lastMessageDate || c.dateAdded || c.dateUpdated;
+        if (!raw) return false;
+        const ms = new Date(raw).getTime();
+        if (isNaN(ms)) return false;
+        if (startMs && ms < startMs) return false;
+        if (endMs   && ms > endMs)   return false;
+        return true;
+      });
+    }
+
+    const total     = hasDateFilter ? conversations.length : (ghlTotal || conversations.length);
+    const offset    = (pageNum - 1) * pageSize;
+    const paginated = conversations.slice(offset, offset + pageSize);
+
+    res.json({ success: true, data: paginated, meta: { total } });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
   }
