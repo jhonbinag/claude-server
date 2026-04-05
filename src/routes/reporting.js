@@ -362,7 +362,7 @@ router.get('/conversations', async (req, res) => {
   if (!requireGhl(req, res)) return;
   const { limit = 20, page = 1, startDate } = req.query;
   try {
-    const params = { locationId: req.locationId, limit: Number(limit) };
+    const params = { locationId: req.locationId, limit: Number(limit), page: Number(page) };
     if (startDate) params.startAfter = new Date(startDate).getTime();
 
     const data = await req.ghl('GET', '/conversations/search', null, params);
