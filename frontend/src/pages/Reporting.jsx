@@ -514,44 +514,65 @@ const _daysAgo = n   => _toIso(Date.now() - n * 86400000);
 const _today   = ()  => _toIso(Date.now());
 
 // Pie chart — new leads by window, clickable, with counts in legend
-function LeadsFunnelChart({ stats, loading, locationId, dashStart, dashEnd }) {
-  const [drill, setDrill] = useState(null);
+function LeadsFunnelChart({ stats, loading, locationId }) {
+  const [drill,         setDrill]         = useState(null);
+  const [customStart,   setCustomStart]   = useState('');
+  const [customEnd,     setCustomEnd]     = useState('');
+  const [customCount,   setCustomCount]   = useState(null);
+  const [customLoading, setCustomLoading] = useState(false);
   const d = stats?.contacts;
 
   const WINDOWS = [
-    { key: '1d',  label: 'Last 1 Day',   cumul: d?.recent1d || 0,
+    { key: '1d', label: 'Last 1 Day',  cumul: d?.recent1d || 0,
       excl: d?.recent1d || 0,
-      fill: '#818cf8', startDate: _daysAgo(1),  endDate: _today() },
-    { key: '3d',  label: 'Last 3 Days',  cumul: d?.recent3d || 0,
+      fill: '#818cf8', startDate: _daysAgo(1), endDate: _today() },
+    { key: '3d', label: 'Last 3 Days', cumul: d?.recent3d || 0,
       excl: Math.max(0, (d?.recent3d||0) - (d?.recent1d||0)),
-      fill: '#6366f1', startDate: _daysAgo(3),  endDate: _today() },
-    { key: '7d',  label: 'Last 7 Days',  cumul: d?.weekly   || 0,
-      excl: Math.max(0, (d?.weekly||0)   - (d?.recent3d||0)),
-      fill: '#10b981', startDate: _daysAgo(7),  endDate: _today() },
-    { key: '30d', label: 'Last 30 Days', cumul: d?.monthly  || 0,
-      excl: Math.max(0, (d?.monthly||0)  - (d?.weekly||0)),
-      fill: '#f59e0b', startDate: _daysAgo(30), endDate: _today() },
+      fill: '#6366f1', startDate: _daysAgo(3), endDate: _today() },
+    { key: '7d', label: 'Last 7 Days', cumul: d?.weekly   || 0,
+      excl: Math.max(0, (d?.weekly||0) - (d?.recent3d||0)),
+      fill: '#10b981', startDate: _daysAgo(7), endDate: _today() },
   ];
 
-  // Force minimum arc so zero-value slices still appear visually
+  // Fetch count for custom date range whenever dates change
+  useEffect(() => {
+    if (!customStart && !customEnd) { setCustomCount(null); return; }
+    setCustomLoading(true);
+    const params = new URLSearchParams({ limit: 1, page: 1 });
+    if (customStart) params.set('startDate', customStart);
+    if (customEnd)   params.set('endDate',   customEnd);
+    fetch(`/rpt/contacts?${params}`, { headers: { 'x-location-id': locationId } })
+      .then(r => r.json())
+      .then(d => { if (d.success) setCustomCount(d.meta?.total ?? 0); })
+      .catch(() => {})
+      .finally(() => setCustomLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId, customStart, customEnd]);
+
   const pieData = WINDOWS.map(w => ({ ...w, value: w.excl > 0 ? w.excl : 0.3 }));
   const hasData = WINDOWS.some(w => w.cumul > 0);
 
   const openDrill = (w) => {
-    const start = dashStart || w.startDate;
-    const end   = dashEnd   || w.endDate;
-    setDrill({ title: `${w.label} — Contacts Added`, url: `/rpt/contacts?limit=100&page=1&startDate=${start}&endDate=${end}` });
+    setDrill({ title: `${w.label} — Contacts Added`, url: `/rpt/contacts?limit=100&page=1&startDate=${w.startDate}&endDate=${w.endDate}` });
+  };
+
+  const openCustomDrill = () => {
+    if (!customStart && !customEnd) return;
+    const params = new URLSearchParams({ limit: 100, page: 1 });
+    if (customStart) params.set('startDate', customStart);
+    if (customEnd)   params.set('endDate',   customEnd);
+    setDrill({ title: 'Custom Range — Contacts Added', url: `/rpt/contacts?${params}` });
   };
 
   return (
     <ChartCard title="New Leads — by Time Window" loading={loading && !stats}>
       {!hasData
-        ? <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>No new contacts in the last 30 days</div>
+        ? <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>No new contacts in the last 7 days</div>
         : (
-          <ResponsiveContainer width="100%" height={170}>
+          <ResponsiveContainer width="100%" height={150}>
             <PieChart>
               <Pie
-                data={pieData} cx="50%" cy="50%" innerRadius={46} outerRadius={75}
+                data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={65}
                 paddingAngle={2} dataKey="value"
                 onClick={(entry) => { const w = WINDOWS.find(w => w.label === entry.name); if (w) openDrill(w); }}
                 style={{ cursor: 'pointer' }}
@@ -562,30 +583,61 @@ function LeadsFunnelChart({ stats, loading, locationId, dashStart, dashEnd }) {
                 {...CHART_TOOLTIP_STYLE}
                 formatter={(_, name) => {
                   const w = WINDOWS.find(w => w.label === name);
-                  return [w ? `${w.excl} (${w.cumul} cumulative)` : _, name];
+                  return [w ? `${w.excl} (${w.cumul} cumul.)` : _, name];
                 }}
               />
             </PieChart>
           </ResponsiveContainer>
         )}
 
-      {/* Clickable legend rows with cumulative counts */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, marginTop: 8 }}>
+      {/* 1d / 3d / 7d legend rows */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5, marginTop: 8 }}>
         {WINDOWS.map(w => (
           <button
             key={w.key}
             onClick={() => openDrill(w)}
-            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 9px', borderRadius: 8,
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8,
               background: 'rgba(255,255,255,0.03)', border: `1px solid rgba(255,255,255,0.06)`,
               cursor: 'pointer', transition: 'all .12s', textAlign: 'left' }}
             onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.07)'}
             onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
           >
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: w.fill, flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>{w.label}</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{loading && !stats ? '…' : w.cumul}</span>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: w.fill, flexShrink: 0 }} />
+            <span style={{ fontSize: 10, color: C.muted, flex: 1 }}>{w.label}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{loading && !stats ? '…' : w.cumul}</span>
           </button>
         ))}
+      </div>
+
+      {/* Own date picker */}
+      <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Custom Date Range</div>
+        <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
+            style={{ ...S.input, fontSize: 11, padding: '5px 7px', flex: 1, minWidth: 0 }} />
+          <span style={{ fontSize: 10, color: C.muted, flexShrink: 0 }}>→</span>
+          <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
+            style={{ ...S.input, fontSize: 11, padding: '5px 7px', flex: 1, minWidth: 0 }} />
+          {(customStart || customEnd) && (
+            <button
+              onClick={() => { setCustomStart(''); setCustomEnd(''); setCustomCount(null); }}
+              style={{ flexShrink: 0, padding: '5px 8px', borderRadius: 7, background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`, color: C.muted, fontSize: 11, cursor: 'pointer' }}
+            >✕</button>
+          )}
+        </div>
+        {(customStart || customEnd) && (
+          <button
+            onClick={openCustomDrill}
+            disabled={customLoading}
+            style={{ marginTop: 6, width: '100%', padding: '7px', borderRadius: 8,
+              background: C.accentBg, border: `1px solid ${C.accentBdr}`, color: '#a5b4fc',
+              fontSize: 12, fontWeight: 600, cursor: customLoading ? 'default' : 'pointer', transition: 'opacity .15s' }}
+            onMouseEnter={e => { if (!customLoading) e.currentTarget.style.opacity = '0.8'; }}
+            onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+          >
+            {customLoading ? 'Loading…' : customCount !== null ? `${customCount} leads — View →` : 'Loading…'}
+          </button>
+        )}
       </div>
 
       {drill && (
@@ -851,7 +903,7 @@ function DashboardView({ locationId, oppPipelineId, onOppPipelineChange }) {
 
       {/* Charts row — Pie + Bar */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 14 }}>
-        <LeadsFunnelChart stats={stats} loading={loading} locationId={locationId} dashStart={dashStart} dashEnd={dashEnd} />
+        <LeadsFunnelChart stats={stats} loading={loading} locationId={locationId} />
         <OppsBarChart     locationId={locationId} pipelineId={oppPipelineId} onPipelineChange={onOppPipelineChange} />
       </div>
 
