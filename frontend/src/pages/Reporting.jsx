@@ -597,7 +597,7 @@ function LeadsFunnelChart({ stats, loading, locationId, dashStart, dashEnd }) {
 }
 
 // Bar chart — opportunities by status, clickable bars with count labels
-function OppsBarChart({ locationId, pipelineId: externalPid, onPipelineChange }) {
+function OppsBarChart({ locationId, pipelineId: externalPid, onPipelineChange, startDate, endDate }) {
   const [pipelineId,   setPipelineId]   = useState(externalPid || '');
   const [pipelineName, setPipelineName] = useState('');
   const [bs,           setBs]           = useState(null);
@@ -615,13 +615,14 @@ function OppsBarChart({ locationId, pipelineId: externalPid, onPipelineChange })
   }, [externalPid]);
 
   useEffect(() => {
-    // Clear stale data immediately so loading state is visible
     setBs(null);
     setLoading(true);
 
     const ctrl = new AbortController();
     const params = new URLSearchParams();
     if (pipelineId) params.set('pipelineId', pipelineId);
+    if (startDate)  params.set('startDate',  startDate);
+    if (endDate)    params.set('endDate',     endDate);
 
     fetch(`/rpt/opp-stats?${params}`, { headers: { 'x-location-id': locationId }, signal: ctrl.signal })
       .then(r => r.json())
@@ -630,7 +631,7 @@ function OppsBarChart({ locationId, pipelineId: externalPid, onPipelineChange })
       .finally(() => setLoading(false));
 
     return () => ctrl.abort();
-  }, [locationId, pipelineId]);
+  }, [locationId, pipelineId, startDate, endDate]);
 
   const data = [
     { status: 'Open',      count: bs?.open      ?? 0, fill: '#818cf8' },
@@ -644,6 +645,8 @@ function OppsBarChart({ locationId, pipelineId: externalPid, onPipelineChange })
     const statusKey = barData.status.toLowerCase();
     const params = new URLSearchParams({ limit: 100, page: 1, status: statusKey });
     if (pipelineId) params.set('pipelineId', pipelineId);
+    if (startDate)  params.set('startDate',  startDate);
+    if (endDate)    params.set('endDate',     endDate);
     const label = pipelineName ? ` — ${pipelineName}` : '';
     setDrill({ title: `${barData.status} Opportunities${label}`, url: `/rpt/opportunities?${params}` });
   };
@@ -853,7 +856,7 @@ function DashboardView({ locationId, oppPipelineId, onOppPipelineChange }) {
       {/* Charts row — Pie + Bar */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 14 }}>
         <LeadsFunnelChart stats={stats} loading={loading} locationId={locationId} dashStart={dashStart} dashEnd={dashEnd} />
-        <OppsBarChart     locationId={locationId} pipelineId={oppPipelineId} onPipelineChange={onOppPipelineChange} />
+        <OppsBarChart     locationId={locationId} pipelineId={oppPipelineId} onPipelineChange={onOppPipelineChange} startDate={dashStart} endDate={dashEnd} />
       </div>
 
       {/* Billing line chart — full width, filtered by shared dates */}

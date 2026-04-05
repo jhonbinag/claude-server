@@ -243,10 +243,12 @@ router.get('/pipelines', async (req, res) => {
 
 router.get('/opp-stats', async (req, res) => {
   if (!requireGhl(req, res)) return;
-  const { pipelineId } = req.query;
+  const { pipelineId, startDate, endDate } = req.query;
   try {
     const base = { location_id: req.locationId, limit: 1 };
     if (pipelineId) base.pipeline_id = pipelineId;
+    if (startDate)  base.startDate   = startDate;
+    if (endDate)    base.endDate     = endDate;
 
     const [open, won, lost, abandoned] = await Promise.allSettled([
       req.ghl('GET', '/opportunities/search', null, { ...base, status: 'open' }),
