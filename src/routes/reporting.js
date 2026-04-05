@@ -435,31 +435,61 @@ router.get('/conversations', async (req, res) => {
 
 router.get('/debug-conversations', async (req, res) => {
   if (!requireGhl(req, res)) return;
-  const { lastId, startAfter } = req.query;
   try {
-    const params = { locationId: req.locationId, limit: 5 };
-    if (lastId)     params.lastId     = lastId;
-    if (startAfter) params.startAfter = Number(startAfter);
+    // Step 1: fetch first page
+    const page1 = await req.ghl('GET', '/conversations/search', null, { locationId: req.locationId, limit: 5 });
+    const convs1 = page1?.conversations || [];
+    const last   = convs1[convs1.length - 1];
 
-    const data = await req.ghl('GET', '/conversations/search', null, params);
-    const convs = data?.conversations || [];
-    const sample = convs.slice(0, 3).map(c => ({
-      id:              c.id,
-      dateAdded:       c.dateAdded,
-      dateUpdated:     c.dateUpdated,
-      lastMessageDate: c.lastMessageDate,
-      allKeys:         Object.keys(c),
-    }));
+    // Step 2: try offset-based (like billing endpoints)
+    const page2offset = await req.ghl('GET', '/conversations/search', null,
+      { locationId: req.locationId, limit: 5, offset: 5 }).catch(e => ({ _error: e.message }));
+
+    // Step 3: try startAfter + startAfterId
+    const lastTs = last?.lastMessageDate || last?.dateUpdated || last?.dateAdded;
+    const page2cursor = last ? await req.ghl('GET', '/conversations/search', null, {
+      locationId:   req.locationId,
+      limit:        5,
+      startAfter:   lastTs ? new Date(lastTs).getTime() : undefined,
+      startAfterId: last?.id,
+    }).catch(e => ({ _error: e.message })) : null;
+
+    // Step 4: try lastId alone
+    const page2lastId = last ? await req.ghl('GET', '/conversations/search', null, {
+      locationId: req.locationId,
+      limit:      5,
+      lastId:     last?.id,
+    }).catch(e => ({ _error: e.message })) : null;
+
+    const summarise = (d) => {
+      if (!d) return null;
+      if (d._error) return { error: d._error };
+      const convs = d?.conversations || [];
+      return {
+        topKeys:  Object.keys(d),
+        meta:     d?.meta,
+        total:    d?.total,
+        lastId:   d?.lastId,
+        nextPage: d?.nextPage,
+        count:    convs.length,
+        firstId:  convs[0]?.id,
+        lastIdInBatch: convs[convs.length - 1]?.id,
+        sameAsPage1: convs[0]?.id === convs1[0]?.id,
+      };
+    };
+
     res.json({
-      rawTopKeys:     Object.keys(data || {}),
-      meta:           data?.meta,
-      total:          data?.total,
-      count:          data?.count,
-      nextPage:       data?.nextPage,
-      nextPageUrl:    data?.nextPageUrl,
-      lastId:         data?.lastId,
-      batchSize:      convs.length,
-      sample,
+      page1: {
+        topKeys: Object.keys(page1 || {}),
+        meta:    page1?.meta,
+        total:   page1?.total,
+        lastId:  page1?.lastId,
+        count:   convs1.length,
+        lastRecord: last ? { id: last.id, lastMessageDate: last.lastMessageDate, dateUpdated: last.dateUpdated, dateAdded: last.dateAdded } : null,
+      },
+      page2_offset:   summarise(page2offset),
+      page2_cursor:   summarise(page2cursor),
+      page2_lastId:   summarise(page2lastId),
     });
   } catch (err) {
     res.status(502).json({ error: err.message });
