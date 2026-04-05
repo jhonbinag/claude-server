@@ -16,6 +16,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import {
+  PieChart, Pie, Cell, Tooltip as RTooltip, Legend, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  LineChart, Line,
+} from 'recharts';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 
@@ -391,14 +396,129 @@ function CustomRangePanel({ locationId }) {
   );
 }
 
+// ── Chart helpers ─────────────────────────────────────────────────────────────
+
+const CHART_TOOLTIP_STYLE = {
+  contentStyle: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12, color: '#e2e8f0' },
+  itemStyle:    { color: '#e2e8f0' },
+  labelStyle:   { color: '#9ca3af', fontWeight: 600, marginBottom: 4 },
+  cursor:       { fill: 'rgba(255,255,255,0.04)' },
+};
+
+function ChartCard({ title, children, loading }) {
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 18 }}>{title}</div>
+      {loading
+        ? <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>Loading…</div>
+        : children}
+    </div>
+  );
+}
+
+// Pie chart — new leads by window (exclusive slices)
+function LeadsFunnelChart({ stats, loading }) {
+  const d = stats?.contacts;
+  // exclusive slices so they sum correctly in the pie
+  const data = [
+    { name: 'Last 1 Day',   value: d?.recent1d || 0,                         fill: '#818cf8' },
+    { name: '1–3 Days',     value: Math.max(0, (d?.recent3d||0) - (d?.recent1d||0)), fill: '#6366f1' },
+    { name: '3–7 Days',     value: Math.max(0, (d?.weekly||0)  - (d?.recent3d||0)), fill: '#10b981' },
+    { name: '7–30 Days',    value: Math.max(0, (d?.monthly||0) - (d?.weekly||0)),   fill: '#f59e0b' },
+  ];
+  const hasData = data.some(s => s.value > 0);
+
+  return (
+    <ChartCard title="New Leads — Funnel by Window" loading={loading && !stats}>
+      {!hasData
+        ? <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>No new contacts in the last 30 days</div>
+        : (
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie data={data} cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={3} dataKey="value">
+                {data.map((entry, i) => <Cell key={i} fill={entry.fill} stroke="transparent" />)}
+              </Pie>
+              <RTooltip {...CHART_TOOLTIP_STYLE} formatter={(v, name) => [v, name]} />
+              <Legend
+                iconType="circle" iconSize={8}
+                formatter={(value) => <span style={{ color: C.muted, fontSize: 11 }}>{value}</span>}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        )}
+    </ChartCard>
+  );
+}
+
+// Bar chart — opportunities by status
+function OppsBarChart({ stats, loading }) {
+  const bs = stats?.opportunities?.byStatus;
+  const data = [
+    { status: 'Open',      count: bs?.open      || 0, fill: '#818cf8' },
+    { status: 'Won',       count: bs?.won        || 0, fill: '#10b981' },
+    { status: 'Lost',      count: bs?.lost       || 0, fill: '#ef4444' },
+    { status: 'Abandoned', count: bs?.abandoned  || 0, fill: '#f59e0b' },
+  ];
+
+  return (
+    <ChartCard title="Opportunities by Status" loading={loading && !stats}>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+          <XAxis dataKey="status" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+          <RTooltip {...CHART_TOOLTIP_STYLE} formatter={v => [v, 'Count']} />
+          <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+            {data.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </ChartCard>
+  );
+}
+
+// Line chart — billing (sub/order/txn) over last 6 months
+function BillingLineChart({ locationId }) {
+  const [data,    setData]    = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded,  setLoaded]  = useState(false);
+
+  const headers = { 'x-location-id': locationId };
+
+  useEffect(() => {
+    setLoading(true);
+    fetch('/rpt/billing-chart', { headers })
+      .then(r => r.json())
+      .then(d => { if (d.success) setData(d.data); })
+      .catch(() => {})
+      .finally(() => { setLoading(false); setLoaded(true); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId]);
+
+  return (
+    <ChartCard title="Billing Activity — Last 6 Months" loading={loading && !loaded}>
+      <ResponsiveContainer width="100%" height={220}>
+        <LineChart data={data} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+          <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+          <RTooltip {...CHART_TOOLTIP_STYLE} />
+          <Legend iconType="circle" iconSize={8} formatter={v => <span style={{ color: C.muted, fontSize: 11 }}>{v}</span>} />
+          <Line type="monotone" dataKey="subscriptions" stroke="#818cf8" strokeWidth={2} dot={{ fill: '#818cf8', r: 3 }} activeDot={{ r: 5 }} />
+          <Line type="monotone" dataKey="orders"        stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} activeDot={{ r: 5 }} />
+          <Line type="monotone" dataKey="transactions"  stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} activeDot={{ r: 5 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </ChartCard>
+  );
+}
+
 // ── Dashboard Section ─────────────────────────────────────────────────────────
 
 function DashboardView({ locationId }) {
   const [stats,   setStats]   = useState(null);
   const [loading, setLoading] = useState(false);
-  const [leadsTab,     setLeadsTab]     = useState('7d');
-  const [customStart,  setCustomStart]  = useState('');
-  const [customEnd,    setCustomEnd]    = useState('');
+  const [leadsTab, setLeadsTab] = useState('7d');
 
   const headers = { 'x-location-id': locationId };
 
@@ -424,54 +544,68 @@ function DashboardView({ locationId }) {
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 700, color: C.text }}>Overview</h1>
-        <p style={{ margin: 0, fontSize: 13, color: C.muted }}>Summary of your GHL sub-account metrics.</p>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.text }}>Overview</h1>
+            <p style={{ margin: 0, fontSize: 13, color: C.muted }}>Summary of your GHL sub-account metrics.</p>
+          </div>
+          <button onClick={loadStats} disabled={loading} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 7, padding: '6px 14px', fontSize: 11, color: C.muted, cursor: 'pointer' }}>
+            {loading ? 'Refreshing…' : '↻ Refresh'}
+          </button>
+        </div>
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 28 }}>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
         <StatCard icon="👥" label="Total Contacts"      value={stats?.contacts?.total}     loading={loading && !stats} />
         <StatCard icon="💼" label="Total Opportunities" value={stats?.opportunities?.total} loading={loading && !stats} color={C.green} />
         <StatCard icon="💬" label="Total Conversations" value={stats?.conversations?.total} loading={loading && !stats} color={C.amber} />
       </div>
 
-      {/* New Leads with tabs */}
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 26px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.text }}>New Leads — Contacts Added</h2>
-          <button onClick={loadStats} disabled={loading} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 7, padding: '5px 12px', fontSize: 11, color: C.muted, cursor: 'pointer' }}>
-            {loading ? 'Refreshing…' : '↻ Refresh stats'}
-          </button>
-        </div>
+      {/* Charts row — Pie + Bar */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+        <LeadsFunnelChart stats={stats} loading={loading} />
+        <OppsBarChart     stats={stats} loading={loading} />
+      </div>
 
-        {/* Tab bar */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
-          {TABS.map(tab => {
-            const active = leadsTab === tab.key;
-            const countMap = { '3d': stats?.contacts?.recent3d, '7d': stats?.contacts?.weekly, '30d': stats?.contacts?.monthly };
-            const count    = countMap[tab.key];
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setLeadsTab(tab.key)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '9px 18px', borderRadius: 10, cursor: 'pointer',
-                  background: active ? tab.bg : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${active ? tab.bdr : C.border}`,
-                  color: active ? tab.color : C.muted,
-                  fontSize: 13, fontWeight: active ? 600 : 400,
-                  transition: 'all .15s',
-                }}
-              >
-                <span style={{ fontWeight: 700, fontSize: 16 }}>
-                  {loading && !stats ? '…' : (count ?? '—')}
-                </span>
-                {tab.label}
-              </button>
-            );
-          })}
+      {/* Line chart — full width */}
+      <div style={{ marginBottom: 24 }}>
+        <BillingLineChart locationId={locationId} />
+      </div>
+
+      {/* New Leads table with tabs */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 26px' }}>
+        <div style={{ marginBottom: 16 }}>
+          <h2 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700, color: C.text }}>New Leads — Contacts Added</h2>
+          {/* Tab bar */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {TABS.map(tab => {
+              const active   = leadsTab === tab.key;
+              const countMap = { '3d': stats?.contacts?.recent3d, '7d': stats?.contacts?.weekly, '30d': stats?.contacts?.monthly };
+              const count    = countMap[tab.key];
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setLeadsTab(tab.key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '9px 18px', borderRadius: 10, cursor: 'pointer',
+                    background: active ? tab.bg : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${active ? tab.bdr : C.border}`,
+                    color: active ? tab.color : C.muted,
+                    fontSize: 13, fontWeight: active ? 600 : 400,
+                    transition: 'all .15s',
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 16 }}>
+                    {loading && !stats ? '…' : (count ?? '—')}
+                  </span>
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Tab content */}

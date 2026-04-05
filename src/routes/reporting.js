@@ -44,17 +44,22 @@ router.get('/dashboard', async (req, res) => {
 
     const ok = r => r.status === 'fulfilled';
 
-    // Fetch totals
-    const [contacts, opps, convs] = await Promise.allSettled([
+    // Fetch totals + opp status counts in parallel
+    const [contacts, opps, convs, oppOpen, oppWon, oppLost, oppAbandoned] = await Promise.allSettled([
       req.ghl('GET', '/contacts/',            null, { locationId: locId, limit: 1 }),
       req.ghl('GET', '/opportunities/search', null, { location_id: locId, limit: 1 }),
       req.ghl('GET', '/conversations/search', null, { locationId: locId, limit: 1 }),
+      req.ghl('GET', '/opportunities/search', null, { location_id: locId, limit: 1, status: 'open' }),
+      req.ghl('GET', '/opportunities/search', null, { location_id: locId, limit: 1, status: 'won' }),
+      req.ghl('GET', '/opportunities/search', null, { location_id: locId, limit: 1, status: 'lost' }),
+      req.ghl('GET', '/opportunities/search', null, { location_id: locId, limit: 1, status: 'abandoned' }),
     ]);
 
     // Fetch recent contacts, filter by dateAdded server-side
+    const cutoff1d   = now - 1 * 24 * 60 * 60 * 1000;
     const cutoff3d   = now - 3 * 24 * 60 * 60 * 1000;
-    const cutoff7d  = now - weekMs;
-    const cutoff30d = now - monthMs;
+    const cutoff7d   = now - weekMs;
+    const cutoff30d  = now - monthMs;
     let allContacts = [], cur = null;
 
     for (let p = 0; p < 10; p++) {
@@ -71,30 +76,40 @@ router.get('/dashboard', async (req, res) => {
       } catch (_) { break; }
     }
 
-    let recent3d = 0, weekly = 0, monthly = 0;
+    let recent1d = 0, recent3d = 0, weekly = 0, monthly = 0;
     allContacts.forEach(c => {
       const raw = c.dateAdded || null;
       if (!raw) return;
       const ms = new Date(raw).getTime();
       if (isNaN(ms)) return;
+      if (ms >= cutoff1d)  recent1d++;
       if (ms >= cutoff3d)  recent3d++;
       if (ms >= cutoff7d)  weekly++;
       if (ms >= cutoff30d) monthly++;
     });
 
-    console.log(`[Reporting] dashboard: scanned=${allContacts.length} recent3d=${recent3d} weekly=${weekly} monthly=${monthly}`);
+    console.log(`[Reporting] dashboard: scanned=${allContacts.length} recent1d=${recent1d} recent3d=${recent3d} weekly=${weekly} monthly=${monthly}`);
+
+    const tot = r => ok(r) ? (r.value?.meta?.total ?? 0) : 0;
 
     res.json({
       success: true,
       data: {
         contacts: {
           total:    ok(contacts) ? (contacts.value?.meta?.total ?? contacts.value?.count ?? 0) : 0,
+          recent1d,
           recent3d,
           weekly,
           monthly,
         },
         opportunities: {
-          total: ok(opps) ? (opps.value?.meta?.total ?? 0) : 0,
+          total:     tot(opps),
+          byStatus: {
+            open:      tot(oppOpen),
+            won:       tot(oppWon),
+            lost:      tot(oppLost),
+            abandoned: tot(oppAbandoned),
+          },
         },
         conversations: {
           total: ok(convs) ? (convs.value?.meta?.total ?? convs.value?.count ?? 0) : 0,
@@ -296,6 +311,54 @@ router.get('/invoices', async (req, res) => {
     const total   = data?.meta?.total ?? data?.total ?? data?.count ?? records.length;
 
     res.json({ success: true, data: records, meta: { total } });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// ── GET /rpt/billing-chart ────────────────────────────────────────────────────
+// Returns last 6 months of subscription / order / transaction counts grouped by month
+
+router.get('/billing-chart', async (req, res) => {
+  if (!requireGhl(req, res)) return;
+  try {
+    const locId = req.locationId;
+    const base  = { altId: locId, altType: 'location', limit: 200 };
+
+    const [subs, orders, txns] = await Promise.allSettled([
+      req.ghl('GET', '/payments/subscriptions', null, base),
+      req.ghl('GET', '/payments/orders',         null, base),
+      req.ghl('GET', '/payments/transactions',   null, base),
+    ]);
+
+    // Build last 6 months labels
+    const now   = new Date();
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({
+        key:   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+        label: d.toLocaleString('default', { month: 'short', year: '2-digit' }),
+        subscriptions: 0, orders: 0, transactions: 0,
+      });
+    }
+    const byKey = Object.fromEntries(months.map(m => [m.key, m]));
+
+    const bucket = (records, field) => {
+      (records || []).forEach(r => {
+        const raw = r.createdAt || r.dateAdded || r.created_at;
+        if (!raw) return;
+        const d   = new Date(raw);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (byKey[key]) byKey[key][field]++;
+      });
+    };
+
+    if (subs.status   === 'fulfilled') bucket(subs.value?.subscriptions   || subs.value?.data   || [], 'subscriptions');
+    if (orders.status === 'fulfilled') bucket(orders.value?.orders         || orders.value?.data || [], 'orders');
+    if (txns.status   === 'fulfilled') bucket(txns.value?.transactions     || txns.value?.data   || [], 'transactions');
+
+    res.json({ success: true, data: months });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
   }
