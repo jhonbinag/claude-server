@@ -548,7 +548,7 @@ router.get('/billing-chart', async (req, res) => {
     ]);
 
     const now        = new Date();
-    const rangeStart = startDate ? new Date(startDate) : new Date(now.getFullYear(), now.getMonth() - 2, now.getDate());
+    const rangeStart = startDate ? new Date(startDate) : new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const rangeEnd   = endDate   ? new Date(endDate + 'T23:59:59') : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
     // Accumulate counts per day key (YYYY-MM-DD) — only for days in range

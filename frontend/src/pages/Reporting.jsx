@@ -19,7 +19,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   PieChart, Pie, Cell, Tooltip as RTooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList,
-  LineChart, Line,
+  LineChart, Line, Legend,
 } from 'recharts';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -810,17 +810,37 @@ function BillingLineChart({ locationId, startDate, endDate }) {
     ? `Billing Activity${startDate ? ` from ${startDate}` : ''}${endDate ? ` to ${endDate}` : ''}`
     : 'Billing Activity — Last 6 Months';
 
+  // X-axis: only label the 1st of each month to avoid clutter with daily data points
+  const xTickFormatter = (label, index) => {
+    const entry = data[index];
+    if (!entry?.key) return '';
+    const [, , day] = entry.key.split('-');
+    return day === '01' ? entry.label : '';
+  };
+
   return (
     <ChartCard title={title} loading={loading && !loaded}>
-      <ResponsiveContainer width="100%" height={200}>
+      <ResponsiveContainer width="100%" height={220}>
         <LineChart data={data} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+          <XAxis dataKey="label" tickFormatter={xTickFormatter} tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} interval={0} />
           <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
-          <RTooltip {...CHART_TOOLTIP_STYLE} />
-          <Line type="monotone" dataKey="subscriptions" stroke="#818cf8" strokeWidth={2} dot={{ fill: '#818cf8', r: 3 }} activeDot={activeDotFor('subscriptions')} />
-          <Line type="monotone" dataKey="orders"        stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} activeDot={activeDotFor('orders')}        />
-          <Line type="monotone" dataKey="transactions"  stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} activeDot={activeDotFor('transactions')}  />
+          <RTooltip
+            {...CHART_TOOLTIP_STYLE}
+            labelFormatter={(label, payload) => {
+              const key = payload?.[0]?.payload?.key;
+              if (!key) return label;
+              const [y, m, d] = key.split('-').map(Number);
+              return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            }}
+          />
+          <Legend
+            wrapperStyle={{ paddingTop: 8, fontSize: 12 }}
+            formatter={(value) => <span style={{ color: C.muted }}>{value}</span>}
+          />
+          <Line type="monotone" dataKey="subscriptions" name="Subscriptions" stroke="#818cf8" strokeWidth={2} dot={{ fill: '#818cf8', r: 3 }} activeDot={activeDotFor('subscriptions')} />
+          <Line type="monotone" dataKey="orders"        name="Orders"        stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} activeDot={activeDotFor('orders')}        />
+          <Line type="monotone" dataKey="transactions"  name="Transactions"  stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} activeDot={activeDotFor('transactions')}  />
         </LineChart>
       </ResponsiveContainer>
 
