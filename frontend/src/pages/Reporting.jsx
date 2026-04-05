@@ -420,17 +420,32 @@ function CustomRangePanel({ locationId, initialStart = '', initialEnd = '' }) {
 }
 
 // ── usePipelines hook ─────────────────────────────────────────────────────────
+// Returns { pipelines, pipelineMap }
+// pipelineMap: { [pipelineId]: { name, stages: { [stageId]: stageName } } }
 
 function usePipelines(locationId) {
   const [pipelines, setPipelines] = useState([]);
+  const [pipelineMap, setPipelineMap] = useState({});
+
   useEffect(() => {
     fetch('/rpt/pipelines', { headers: { 'x-location-id': locationId } })
       .then(r => r.json())
-      .then(d => { if (d.success) setPipelines(d.data); })
+      .then(d => {
+        if (!d.success) return;
+        setPipelines(d.data);
+        const map = {};
+        (d.data || []).forEach(p => {
+          const stages = {};
+          (p.stages || []).forEach(s => { stages[s.id] = s.name; });
+          map[p.id] = { name: p.name, stages };
+        });
+        setPipelineMap(map);
+      })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId]);
-  return pipelines;
+
+  return { pipelines, pipelineMap };
 }
 
 // ── Chart Drill Modal ─────────────────────────────────────────────────────────
@@ -582,13 +597,22 @@ function LeadsFunnelChart({ stats, loading, locationId, dashStart, dashEnd }) {
 }
 
 // Bar chart — opportunities by status, clickable bars with count labels
-function OppsBarChart({ locationId }) {
-  const [pipelineId,   setPipelineId]   = useState('');
+function OppsBarChart({ locationId, pipelineId: externalPid, onPipelineChange }) {
+  const [pipelineId,   setPipelineId]   = useState(externalPid || '');
   const [pipelineName, setPipelineName] = useState('');
   const [bs,           setBs]           = useState(null);
   const [loading,      setLoading]      = useState(false);
   const [drill,        setDrill]        = useState(null);
-  const pipelines = usePipelines(locationId);
+  const { pipelines, pipelineMap } = usePipelines(locationId);
+
+  // Sync when parent changes the external pipeline id
+  useEffect(() => {
+    if (externalPid !== undefined && externalPid !== pipelineId) {
+      setPipelineId(externalPid || '');
+      setPipelineName('');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalPid]);
 
   useEffect(() => {
     // Clear stale data immediately so loading state is visible
@@ -629,6 +653,7 @@ function OppsBarChart({ locationId }) {
     const name = e.target.options[e.target.selectedIndex].text;
     setPipelineId(pid);
     setPipelineName(pid ? name : '');
+    onPipelineChange?.(pid);
   };
 
   const subtitle = pipelineName
@@ -660,7 +685,7 @@ function OppsBarChart({ locationId }) {
 
       {drill && (
         <ChartDrillModal title={drill.title} url={drill.url} locationId={locationId}
-          columns={OPP_COLS_DASHBOARD} section="opportunities" onClose={() => setDrill(null)} />
+          columns={makeOppCols(pipelineMap)} section="opportunities" onClose={() => setDrill(null)} />
       )}
     </ChartCard>
   );
@@ -765,7 +790,7 @@ function BillingLineChart({ locationId, startDate, endDate }) {
 
 // ── Dashboard Section ─────────────────────────────────────────────────────────
 
-function DashboardView({ locationId }) {
+function DashboardView({ locationId, oppPipelineId, onOppPipelineChange }) {
   const [stats,     setStats]     = useState(null);
   const [loading,   setLoading]   = useState(false);
   const [dashStart, setDashStart] = useState('');
@@ -828,7 +853,7 @@ function DashboardView({ locationId }) {
       {/* Charts row — Pie + Bar */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 14 }}>
         <LeadsFunnelChart stats={stats} loading={loading} locationId={locationId} dashStart={dashStart} dashEnd={dashEnd} />
-        <OppsBarChart     locationId={locationId} />
+        <OppsBarChart     locationId={locationId} pipelineId={oppPipelineId} onPipelineChange={onOppPipelineChange} />
       </div>
 
       {/* Billing line chart — full width, filtered by shared dates */}
@@ -1149,24 +1174,40 @@ const STATUS_COLORS = {
   abandoned: { bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' },
 };
 
-const OPP_COLS = [
-  { key: 'name',    label: 'Name' },
-  { key: 'contact', label: 'Contact',  render: (_, r) => r.contact?.name || r.contactName || <span style={{ color: C.muted }}>—</span> },
-  { key: 'pipeline',label: 'Pipeline', render: (_, r) => r.pipeline?.name || r.pipelineName || <span style={{ color: C.muted }}>—</span> },
-  { key: 'stage',   label: 'Stage',    render: (_, r) => r.pipelineStage?.name || r.stageName || r.stage?.name || <span style={{ color: C.muted }}>—</span> },
-  {
-    key: 'status', label: 'Status',
-    render: v => {
-      if (!v) return <span style={{ color: C.muted }}>—</span>;
-      const sc = STATUS_COLORS[v] || { bg: 'rgba(255,255,255,0.07)', color: C.text };
-      return <span style={{ padding: '2px 9px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: sc.bg, color: sc.color }}>{v}</span>;
-    },
-  },
-  { key: 'monetaryValue', label: 'Value',   render: (_, r) => fmtAmt(r.monetaryValue) || <span style={{ color: C.muted }}>—</span> },
-  { key: 'createdAt',     label: 'Created', render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
-];
+// OPP_COLS takes a pipelineMap to resolve IDs → names since GHL returns
+// pipelineId/pipelineStageId strings, not nested objects, in search results.
+function makeOppCols(pipelineMap = {}) {
+  const resolvePipeline = r =>
+    r.pipeline?.name || r.pipelineName ||
+    (r.pipelineId ? pipelineMap[r.pipelineId]?.name : null) || null;
 
-function OpportunitiesView({ locationId }) {
+  const resolveStage = r =>
+    r.pipelineStage?.name || r.stageName || r.stage?.name ||
+    (r.pipelineId && r.pipelineStageId
+      ? pipelineMap[r.pipelineId]?.stages?.[r.pipelineStageId]
+      : null) || null;
+
+  return [
+    { key: 'name',    label: 'Name' },
+    { key: 'contact', label: 'Contact',  render: (_, r) => r.contact?.name || r.contactName || <span style={{ color: C.muted }}>—</span> },
+    { key: 'pipeline',label: 'Pipeline', render: (_, r) => resolvePipeline(r) || <span style={{ color: C.muted }}>—</span> },
+    { key: 'stage',   label: 'Stage',    render: (_, r) => resolveStage(r)    || <span style={{ color: C.muted }}>—</span> },
+    {
+      key: 'status', label: 'Status',
+      render: v => {
+        if (!v) return <span style={{ color: C.muted }}>—</span>;
+        const sc = STATUS_COLORS[v] || { bg: 'rgba(255,255,255,0.07)', color: C.text };
+        return <span style={{ padding: '2px 9px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: sc.bg, color: sc.color }}>{v}</span>;
+      },
+    },
+    { key: 'monetaryValue', label: 'Value',   render: (_, r) => fmtAmt(r.monetaryValue) || <span style={{ color: C.muted }}>—</span> },
+    { key: 'createdAt',     label: 'Created', render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
+  ];
+}
+// Static fallback used in places that don't have pipelineMap yet
+const OPP_COLS = makeOppCols();
+
+function OpportunitiesView({ locationId, initialPipelineId = '' }) {
   const [rows,       setRows]       = useState([]);
   const [total,      setTotal]      = useState(0);
   const [page,       setPage]       = useState(1);
@@ -1175,15 +1216,21 @@ function OpportunitiesView({ locationId }) {
   const [end,        setEnd]        = useState('');
   const [status,     setStatus]     = useState('');
   const [email,      setEmail]      = useState('');
-  const [pipelineId, setPipelineId] = useState('');
+  const [pipelineId, setPipelineId] = useState(initialPipelineId);
   const [loading,    setLoading]    = useState(false);
   const [loaded,     setLoaded]     = useState(false);
-  const pipelines = usePipelines(locationId);
+  const { pipelines, pipelineMap }  = usePipelines(locationId);
 
   const headers = { 'x-location-id': locationId };
 
-  // overridePid lets callers bypass the stale pipelineId closure when the state
-  // update hasn't propagated yet (e.g. immediately after setPipelineId).
+  // Sync if parent passes a new initialPipelineId (e.g. navigated from dashboard chart)
+  useEffect(() => {
+    if (initialPipelineId !== pipelineId) {
+      setPipelineId(initialPipelineId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPipelineId]);
+
   const load = useCallback(async (p = 1, overridePid) => {
     setLoading(true);
     try {
@@ -1202,19 +1249,20 @@ function OpportunitiesView({ locationId }) {
     setLoaded(true);
   }, [locationId, limit, start, end, status, email, pipelineId]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(1); }, [locationId]);
+  // Reload when pipelineId changes (covers both local select and initialPipelineId sync)
+  useEffect(() => { load(1); }, [locationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (loaded) { setPage(1); load(1, pipelineId); } }, [pipelineId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [selected, setSelected] = useState(null);
   const handleLoad = () => { setPage(1); load(1); };
   const handlePage = p  => { setPage(p); load(p); };
 
-  // Pipeline change: set state AND immediately load with the new value
   const handlePipelineChange = (newPid) => {
     setPipelineId(newPid);
-    setPage(1);
-    load(1, newPid);
+    // useEffect above will trigger load when state propagates
   };
+
+  const oppCols = makeOppCols(pipelineMap);
 
   return (
     <div>
@@ -1242,7 +1290,7 @@ function OpportunitiesView({ locationId }) {
           <input value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLoad()} placeholder="Filter by email…" style={{ ...S.input, minWidth: 200 }} />
         </div>
       </FiltersBar>
-      <DataTable columns={OPP_COLS} rows={rows} loading={loading} loaded={loaded} onRowClick={setSelected} />
+      <DataTable columns={oppCols} rows={rows} loading={loading} loaded={loaded} onRowClick={setSelected} />
       {loaded && total > 0 && <Pagination page={page} total={total} limit={limit} onChange={handlePage} />}
       {selected && <DetailModal record={selected} section="opportunities" tab={null} onClose={() => setSelected(null)} />}
     </div>
@@ -1586,8 +1634,9 @@ const SECTION_TO_PATH = {
 export default function Reporting() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const [locationId,   setLocationId]   = useState(() => localStorage.getItem('rpt_location_id') || '');
-  const [sidebarOpen,  setSidebarOpen]  = useState(false);
+  const [locationId,    setLocationId]    = useState(() => localStorage.getItem('rpt_location_id') || '');
+  const [sidebarOpen,   setSidebarOpen]   = useState(false);
+  const [oppPipelineId, setOppPipelineId] = useState('');
 
   // Derive section + billing sub-tab from URL
   const segs    = pathname.replace(/^\//, '').split('/');
@@ -1696,9 +1745,9 @@ export default function Reporting() {
               .rpt-main { padding: 20px 16px !important; }
             }
           `}</style>
-          {section === 'dashboard'     && <DashboardView     locationId={locationId} />}
+          {section === 'dashboard'     && <DashboardView     locationId={locationId} oppPipelineId={oppPipelineId} onOppPipelineChange={setOppPipelineId} />}
           {section === 'contacts'      && <ContactsView      locationId={locationId} />}
-          {section === 'opportunities' && <OpportunitiesView locationId={locationId} />}
+          {section === 'opportunities' && <OpportunitiesView locationId={locationId} initialPipelineId={oppPipelineId} />}
           {section === 'conversations' && <ConversationsView locationId={locationId} />}
           {section === 'billing'       && <BillingView       locationId={locationId} tab={billingTab} />}
         </main>
