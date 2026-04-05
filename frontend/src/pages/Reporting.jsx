@@ -768,7 +768,6 @@ function BillingLineChart({ locationId, startDate, endDate }) {
 function DashboardView({ locationId }) {
   const [stats,     setStats]     = useState(null);
   const [loading,   setLoading]   = useState(false);
-  const [leadsTab,  setLeadsTab]  = useState('7d');
   const [dashStart, setDashStart] = useState('');
   const [dashEnd,   setDashEnd]   = useState('');
 
@@ -786,19 +785,7 @@ function DashboardView({ locationId }) {
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
-  // When a date range is set, switch the leads table to custom range
-  useEffect(() => {
-    if (dashStart || dashEnd) setLeadsTab('custom');
-  }, [dashStart, dashEnd]);
-
-  const resetDates = () => { setDashStart(''); setDashEnd(''); setLeadsTab('7d'); };
-
-  const TABS = [
-    { key: '3d',     label: 'Last 3 Days',  days: 3,  color: '#a5b4fc', bg: 'rgba(99,102,241,0.08)',  bdr: C.accentBdr },
-    { key: '7d',     label: 'Last 7 Days',  days: 7,  color: '#34d399', bg: C.greenBg,                bdr: C.greenBdr  },
-    { key: '30d',    label: 'Last 30 Days', days: 30, color: '#f59e0b', bg: 'rgba(245,158,11,0.08)',   bdr: 'rgba(245,158,11,0.3)' },
-    { key: 'custom', label: 'Custom',       days: 0,  color: '#e2e8f0', bg: 'rgba(255,255,255,0.05)', bdr: C.border },
-  ];
+  const resetDates = () => { setDashStart(''); setDashEnd(''); };
 
   return (
     <div>
@@ -849,42 +836,22 @@ function DashboardView({ locationId }) {
         <BillingLineChart locationId={locationId} startDate={dashStart} endDate={dashEnd} />
       </div>
 
-      {/* New Leads table */}
+      {/* New Leads table — today only, or custom date range if set */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 26px' }}>
-        <h2 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700, color: C.text }}>New Leads — Contacts Added</h2>
-
-        {/* Tab bar — hidden when custom date is active */}
-        {!dashStart && !dashEnd && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 18 }}>
-            {TABS.filter(t => t.key !== 'custom').map(tab => {
-              const active   = leadsTab === tab.key;
-              const countMap = { '3d': stats?.contacts?.recent3d, '7d': stats?.contacts?.weekly, '30d': stats?.contacts?.monthly };
-              const count    = countMap[tab.key];
-              return (
-                <button key={tab.key} onClick={() => setLeadsTab(tab.key)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 18px', borderRadius: 10, cursor: 'pointer',
-                    background: active ? tab.bg : 'rgba(255,255,255,0.04)',
-                    border: `1px solid ${active ? tab.bdr : C.border}`,
-                    color: active ? tab.color : C.muted,
-                    fontSize: 13, fontWeight: active ? 600 : 400, transition: 'all .15s' }}
-                >
-                  <span style={{ fontWeight: 700, fontSize: 16 }}>{loading && !stats ? '…' : (count ?? '—')}</span>
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.text }}>
+            {dashStart || dashEnd ? 'Leads — Custom Range' : 'Leads Added Today'}
+          </h2>
+          {!dashStart && !dashEnd && (
+            <span style={{ padding: '2px 9px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: C.accentBg, color: '#a5b4fc' }}>
+              {loading && !stats ? '…' : (stats?.contacts?.recent1d ?? 0)} lead{stats?.contacts?.recent1d !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
         {dashStart || dashEnd
           ? <CustomRangePanel key={dashStart + dashEnd} locationId={locationId} initialStart={dashStart} initialEnd={dashEnd} />
-          : (
-            <>
-              {leadsTab === '3d'  && <LeadsTabPanel key="3d"  locationId={locationId} days={3}  />}
-              {leadsTab === '7d'  && <LeadsTabPanel key="7d"  locationId={locationId} days={7}  />}
-              {leadsTab === '30d' && <LeadsTabPanel key="30d" locationId={locationId} days={30} />}
-            </>
-          )}
+          : <LeadsTabPanel key="1d" locationId={locationId} days={1} />
+        }
       </div>
     </div>
   );
