@@ -361,6 +361,7 @@ router.get('/invoices', async (req, res) => {
 
 router.get('/billing-chart', async (req, res) => {
   if (!requireGhl(req, res)) return;
+  const { startDate, endDate } = req.query;
   try {
     const locId = req.locationId;
     const base  = { altId: locId, altType: 'location', limit: 200 };
@@ -371,11 +372,23 @@ router.get('/billing-chart', async (req, res) => {
       req.ghl('GET', '/payments/transactions',   null, base),
     ]);
 
-    // Build last 6 months labels
-    const now   = new Date();
+    // Build month buckets — use provided date range or default last 6 months
+    const rangeStart = startDate ? new Date(startDate) : null;
+    const rangeEnd   = endDate   ? new Date(endDate + 'T23:59:59') : null;
+    const now        = new Date();
+
+    // Determine min/max month to show
+    let fromMonth, toMonth;
+    if (rangeStart && rangeEnd) {
+      fromMonth = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+      toMonth   = new Date(rangeEnd.getFullYear(),   rangeEnd.getMonth(),   1);
+    } else {
+      fromMonth = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      toMonth   = new Date(now.getFullYear(), now.getMonth(),     1);
+    }
+
     const months = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    for (let d = new Date(fromMonth); d <= toMonth; d.setMonth(d.getMonth() + 1)) {
       months.push({
         key:   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
         label: d.toLocaleString('default', { month: 'short', year: '2-digit' }),
@@ -388,8 +401,10 @@ router.get('/billing-chart', async (req, res) => {
       (records || []).forEach(r => {
         const raw = r.createdAt || r.dateAdded || r.created_at;
         if (!raw) return;
-        const d   = new Date(raw);
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const ts = new Date(raw);
+        if (rangeStart && ts < rangeStart) return;
+        if (rangeEnd   && ts > rangeEnd)   return;
+        const key = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, '0')}`;
         if (byKey[key]) byKey[key][field]++;
       });
     };

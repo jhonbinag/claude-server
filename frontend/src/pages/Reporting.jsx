@@ -17,8 +17,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  PieChart, Pie, Cell, Tooltip as RTooltip, Legend, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  PieChart, Pie, Cell, Tooltip as RTooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList,
   LineChart, Line,
 } from 'recharts';
 
@@ -348,9 +348,9 @@ function LeadsTabPanel({ locationId, days }) {
 
 // ── Custom date range panel (used by "Custom" leads tab) ──────────────────────
 
-function CustomRangePanel({ locationId }) {
-  const [startDate, setStartDate] = useState('');
-  const [endDate,   setEndDate]   = useState('');
+function CustomRangePanel({ locationId, initialStart = '', initialEnd = '' }) {
+  const [startDate, setStartDate] = useState(initialStart);
+  const [endDate,   setEndDate]   = useState(initialEnd);
   const [rows,    setRows]    = useState([]);
   const [total,   setTotal]   = useState(0);
   const [page,    setPage]    = useState(1);
@@ -433,6 +433,44 @@ function usePipelines(locationId) {
   return pipelines;
 }
 
+// ── Chart Drill Modal ─────────────────────────────────────────────────────────
+
+function ChartDrillModal({ title, url, locationId, columns, section, tab = null, onClose }) {
+  const [rows,    setRows]    = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [detail,  setDetail]  = useState(null);
+
+  useEffect(() => {
+    fetch(url, { headers: { 'x-location-id': locationId } })
+      .then(r => r.json())
+      .then(d => { if (d.success) setRows(d.data); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]);
+
+  return (
+    <div
+      onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 20 }}
+    >
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '24px 28px', maxWidth: 900, width: '100%', maxHeight: '82vh', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>{title}</h2>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.border}`, borderRadius: 8, color: C.muted, cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '3px 10px' }}>×</button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          <DataTable columns={columns} rows={rows} loading={loading} loaded={!loading} onRowClick={setDetail} />
+        </div>
+        {!loading && rows.length > 0 && (
+          <div style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{rows.length} record{rows.length !== 1 ? 's' : ''} — click a row for details</div>
+        )}
+      </div>
+      {detail && <DetailModal record={detail} section={section} tab={tab} onClose={() => setDetail(null)} />}
+    </div>
+  );
+}
+
 // ── Chart helpers ─────────────────────────────────────────────────────────────
 
 const CHART_TOOLTIP_STYLE = {
@@ -445,56 +483,110 @@ const CHART_TOOLTIP_STYLE = {
 function ChartCard({ title, children, loading, action }) {
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 10 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{title}</div>
         {action}
       </div>
       {loading
-        ? <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>Loading…</div>
+        ? <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>Loading…</div>
         : children}
     </div>
   );
 }
 
-// Pie chart — new leads by window (exclusive slices)
-function LeadsFunnelChart({ stats, loading }) {
+const _toIso   = ms  => new Date(ms).toISOString().slice(0, 10);
+const _daysAgo = n   => _toIso(Date.now() - n * 86400000);
+const _today   = ()  => _toIso(Date.now());
+
+// Pie chart — new leads by window, clickable, with counts in legend
+function LeadsFunnelChart({ stats, loading, locationId, dashStart, dashEnd }) {
+  const [drill, setDrill] = useState(null);
   const d = stats?.contacts;
-  // exclusive slices so they sum correctly in the pie
-  const data = [
-    { name: 'Last 1 Day',   value: d?.recent1d || 0,                         fill: '#818cf8' },
-    { name: '1–3 Days',     value: Math.max(0, (d?.recent3d||0) - (d?.recent1d||0)), fill: '#6366f1' },
-    { name: '3–7 Days',     value: Math.max(0, (d?.weekly||0)  - (d?.recent3d||0)), fill: '#10b981' },
-    { name: '7–30 Days',    value: Math.max(0, (d?.monthly||0) - (d?.weekly||0)),   fill: '#f59e0b' },
+
+  const WINDOWS = [
+    { key: '1d',  label: 'Last 1 Day',   cumul: d?.recent1d || 0,
+      excl: d?.recent1d || 0,
+      fill: '#818cf8', startDate: _daysAgo(1),  endDate: _today() },
+    { key: '3d',  label: 'Last 3 Days',  cumul: d?.recent3d || 0,
+      excl: Math.max(0, (d?.recent3d||0) - (d?.recent1d||0)),
+      fill: '#6366f1', startDate: _daysAgo(3),  endDate: _today() },
+    { key: '7d',  label: 'Last 7 Days',  cumul: d?.weekly   || 0,
+      excl: Math.max(0, (d?.weekly||0)   - (d?.recent3d||0)),
+      fill: '#10b981', startDate: _daysAgo(7),  endDate: _today() },
+    { key: '30d', label: 'Last 30 Days', cumul: d?.monthly  || 0,
+      excl: Math.max(0, (d?.monthly||0)  - (d?.weekly||0)),
+      fill: '#f59e0b', startDate: _daysAgo(30), endDate: _today() },
   ];
-  const hasData = data.some(s => s.value > 0);
+
+  // Force minimum arc so zero-value slices still appear visually
+  const pieData = WINDOWS.map(w => ({ ...w, value: w.excl > 0 ? w.excl : 0.3 }));
+  const hasData = WINDOWS.some(w => w.cumul > 0);
+
+  const openDrill = (w) => {
+    const start = dashStart || w.startDate;
+    const end   = dashEnd   || w.endDate;
+    setDrill({ title: `${w.label} — Contacts Added`, url: `/rpt/contacts?limit=100&page=1&startDate=${start}&endDate=${end}` });
+  };
 
   return (
-    <ChartCard title="New Leads — Funnel by Window" loading={loading && !stats}>
+    <ChartCard title="New Leads — by Time Window" loading={loading && !stats}>
       {!hasData
-        ? <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>No new contacts in the last 30 days</div>
+        ? <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>No new contacts in the last 30 days</div>
         : (
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={170}>
             <PieChart>
-              <Pie data={data} cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={3} dataKey="value">
-                {data.map((entry, i) => <Cell key={i} fill={entry.fill} stroke="transparent" />)}
+              <Pie
+                data={pieData} cx="50%" cy="50%" innerRadius={46} outerRadius={75}
+                paddingAngle={2} dataKey="value"
+                onClick={(entry) => { const w = WINDOWS.find(w => w.label === entry.name); if (w) openDrill(w); }}
+                style={{ cursor: 'pointer' }}
+              >
+                {pieData.map((entry, i) => <Cell key={i} fill={entry.fill} stroke="transparent" />)}
               </Pie>
-              <RTooltip {...CHART_TOOLTIP_STYLE} formatter={(v, name) => [v, name]} />
-              <Legend
-                iconType="circle" iconSize={8}
-                formatter={(value) => <span style={{ color: C.muted, fontSize: 11 }}>{value}</span>}
+              <RTooltip
+                {...CHART_TOOLTIP_STYLE}
+                formatter={(_, name) => {
+                  const w = WINDOWS.find(w => w.label === name);
+                  return [w ? `${w.excl} (${w.cumul} cumulative)` : _, name];
+                }}
               />
             </PieChart>
           </ResponsiveContainer>
         )}
+
+      {/* Clickable legend rows with cumulative counts */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, marginTop: 8 }}>
+        {WINDOWS.map(w => (
+          <button
+            key={w.key}
+            onClick={() => openDrill(w)}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 9px', borderRadius: 8,
+              background: 'rgba(255,255,255,0.03)', border: `1px solid rgba(255,255,255,0.06)`,
+              cursor: 'pointer', transition: 'all .12s', textAlign: 'left' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.07)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: w.fill, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>{w.label}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{loading && !stats ? '…' : w.cumul}</span>
+          </button>
+        ))}
+      </div>
+
+      {drill && (
+        <ChartDrillModal title={drill.title} url={drill.url} locationId={locationId}
+          columns={LEAD_COLS} section="contacts" onClose={() => setDrill(null)} />
+      )}
     </ChartCard>
   );
 }
 
-// Bar chart — opportunities by status, filterable by pipeline
+// Bar chart — opportunities by status, clickable bars with count labels
 function OppsBarChart({ locationId }) {
   const [pipelineId, setPipelineId] = useState('');
   const [bs,         setBs]         = useState(null);
   const [loading,    setLoading]    = useState(false);
+  const [drill,      setDrill]      = useState(null);
   const pipelines = usePipelines(locationId);
 
   useEffect(() => {
@@ -515,12 +607,16 @@ function OppsBarChart({ locationId }) {
     { status: 'Abandoned', count: bs?.abandoned  || 0, fill: '#f59e0b' },
   ];
 
+  const handleBarClick = (barData) => {
+    const statusKey = barData.status.toLowerCase();
+    const params = new URLSearchParams({ limit: 100, page: 1, status: statusKey });
+    if (pipelineId) params.set('pipelineId', pipelineId);
+    setDrill({ title: `${barData.status} Opportunities`, url: `/rpt/opportunities?${params}` });
+  };
+
   const dropdown = pipelines.length > 0 && (
-    <select
-      value={pipelineId}
-      onChange={e => setPipelineId(e.target.value)}
-      style={{ ...S.input, padding: '5px 10px', fontSize: 12, maxWidth: 180 }}
-    >
+    <select value={pipelineId} onChange={e => setPipelineId(e.target.value)}
+      style={{ ...S.input, padding: '5px 10px', fontSize: 12, maxWidth: 180 }}>
       <option value="">All Pipelines</option>
       {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
     </select>
@@ -528,53 +624,110 @@ function OppsBarChart({ locationId }) {
 
   return (
     <ChartCard title="Opportunities by Status" loading={loading && !bs} action={dropdown}>
-      <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+      <ResponsiveContainer width="100%" height={230}>
+        <BarChart data={data} margin={{ top: 22, right: 8, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
           <XAxis dataKey="status" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
           <RTooltip {...CHART_TOOLTIP_STYLE} formatter={v => [v, 'Count']} />
-          <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+          <Bar dataKey="count" radius={[6, 6, 0, 0]} onClick={handleBarClick} style={{ cursor: 'pointer' }}>
+            <LabelList dataKey="count" position="top" style={{ fill: C.text, fontSize: 12, fontWeight: 700 }} />
             {data.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+
+      {drill && (
+        <ChartDrillModal title={drill.title} url={drill.url} locationId={locationId}
+          columns={OPP_COLS} section="opportunities" onClose={() => setDrill(null)} />
+      )}
     </ChartCard>
   );
 }
 
-// Line chart — billing (sub/order/txn) over last 6 months
-function BillingLineChart({ locationId }) {
+// Line chart — billing over time, clickable dots, totals in legend, date-filtered
+function BillingLineChart({ locationId, startDate, endDate }) {
   const [data,    setData]    = useState([]);
   const [loading, setLoading] = useState(false);
   const [loaded,  setLoaded]  = useState(false);
+  const [drill,   setDrill]   = useState(null);
 
   const headers = { 'x-location-id': locationId };
 
   useEffect(() => {
     setLoading(true);
-    fetch('/rpt/billing-chart', { headers })
+    const params = new URLSearchParams();
+    if (startDate) params.set('startDate', startDate);
+    if (endDate)   params.set('endDate',   endDate);
+    const qs = params.toString();
+    fetch(`/rpt/billing-chart${qs ? '?' + qs : ''}`, { headers })
       .then(r => r.json())
       .then(d => { if (d.success) setData(d.data); })
       .catch(() => {})
       .finally(() => { setLoading(false); setLoaded(true); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locationId]);
+  }, [locationId, startDate, endDate]);
+
+  const totals = data.reduce((a, m) => ({
+    subscriptions: a.subscriptions + (m.subscriptions || 0),
+    orders:        a.orders        + (m.orders        || 0),
+    transactions:  a.transactions  + (m.transactions  || 0),
+  }), { subscriptions: 0, orders: 0, transactions: 0 });
+
+  const SERIES = [
+    { key: 'subscriptions', label: 'Subscriptions', color: '#818cf8', tab: 'subscription' },
+    { key: 'orders',        label: 'Orders',        color: '#10b981', tab: 'order'        },
+    { key: 'transactions',  label: 'Transactions',  color: '#f59e0b', tab: 'transaction'  },
+  ];
+
+  const openDrill = (seriesKey, point) => {
+    const s = SERIES.find(s => s.key === seriesKey);
+    if (!s || !point) return;
+    const [year, month] = point.key.split('-').map(Number);
+    const mStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const mEnd   = new Date(year, month, 0).toISOString().slice(0, 10);
+    const params = new URLSearchParams({ limit: 100, page: 1, type: s.tab, startDate: mStart, endDate: mEnd });
+    const cols   = INVOICE_COLS[s.tab] || INVOICE_COLS.subscription;
+    setDrill({ title: `${s.label} — ${point.label}`, url: `/rpt/invoices?${params}`, cols, tab: s.tab });
+  };
+
+  const activeDotFor = (seriesKey) => ({
+    r: 6, style: { cursor: 'pointer' },
+    onClick: (e, payload) => openDrill(seriesKey, payload?.payload),
+  });
+
+  const title = startDate || endDate
+    ? `Billing Activity${startDate ? ` from ${startDate}` : ''}${endDate ? ` to ${endDate}` : ''}`
+    : 'Billing Activity — Last 6 Months';
 
   return (
-    <ChartCard title="Billing Activity — Last 6 Months" loading={loading && !loaded}>
-      <ResponsiveContainer width="100%" height={220}>
+    <ChartCard title={title} loading={loading && !loaded}>
+      {/* Legend with totals */}
+      <div style={{ display: 'flex', gap: 18, marginBottom: 12, flexWrap: 'wrap' }}>
+        {SERIES.map(s => (
+          <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: C.muted }}>{s.label}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>({totals[s.key]})</span>
+          </div>
+        ))}
+      </div>
+      <ResponsiveContainer width="100%" height={200}>
         <LineChart data={data} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
           <RTooltip {...CHART_TOOLTIP_STYLE} />
-          <Legend iconType="circle" iconSize={8} formatter={v => <span style={{ color: C.muted, fontSize: 11 }}>{v}</span>} />
-          <Line type="monotone" dataKey="subscriptions" stroke="#818cf8" strokeWidth={2} dot={{ fill: '#818cf8', r: 3 }} activeDot={{ r: 5 }} />
-          <Line type="monotone" dataKey="orders"        stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} activeDot={{ r: 5 }} />
-          <Line type="monotone" dataKey="transactions"  stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} activeDot={{ r: 5 }} />
+          <Line type="monotone" dataKey="subscriptions" stroke="#818cf8" strokeWidth={2} dot={{ fill: '#818cf8', r: 3 }} activeDot={activeDotFor('subscriptions')} />
+          <Line type="monotone" dataKey="orders"        stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} activeDot={activeDotFor('orders')}        />
+          <Line type="monotone" dataKey="transactions"  stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} activeDot={activeDotFor('transactions')}  />
         </LineChart>
       </ResponsiveContainer>
+
+      {drill && (
+        <ChartDrillModal title={drill.title} url={drill.url} locationId={locationId}
+          columns={drill.cols} section="billing" tab={drill.tab} onClose={() => setDrill(null)} />
+      )}
     </ChartCard>
   );
 }
@@ -582,9 +735,11 @@ function BillingLineChart({ locationId }) {
 // ── Dashboard Section ─────────────────────────────────────────────────────────
 
 function DashboardView({ locationId }) {
-  const [stats,   setStats]   = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [leadsTab, setLeadsTab] = useState('7d');
+  const [stats,     setStats]     = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [leadsTab,  setLeadsTab]  = useState('7d');
+  const [dashStart, setDashStart] = useState('');
+  const [dashEnd,   setDashEnd]   = useState('');
 
   const headers = { 'x-location-id': locationId };
 
@@ -600,6 +755,13 @@ function DashboardView({ locationId }) {
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
+  // When a date range is set, switch the leads table to custom range
+  useEffect(() => {
+    if (dashStart || dashEnd) setLeadsTab('custom');
+  }, [dashStart, dashEnd]);
+
+  const resetDates = () => { setDashStart(''); setDashEnd(''); setLeadsTab('7d'); };
+
   const TABS = [
     { key: '3d',     label: 'Last 3 Days',  days: 3,  color: '#a5b4fc', bg: 'rgba(99,102,241,0.08)',  bdr: C.accentBdr },
     { key: '7d',     label: 'Last 7 Days',  days: 7,  color: '#34d399', bg: C.greenBg,                bdr: C.greenBdr  },
@@ -610,75 +772,88 @@ function DashboardView({ locationId }) {
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 22, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.text }}>Overview</h1>
+          <p style={{ margin: 0, fontSize: 13, color: C.muted }}>Summary of your GHL sub-account metrics.</p>
+        </div>
+        {/* Shared date filter */}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: C.text }}>Overview</h1>
-            <p style={{ margin: 0, fontSize: 13, color: C.muted }}>Summary of your GHL sub-account metrics.</p>
+            <label style={S.label}>From</label>
+            <input type="date" value={dashStart} onChange={e => setDashStart(e.target.value)} style={S.input} />
           </div>
-          <button onClick={loadStats} disabled={loading} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 7, padding: '6px 14px', fontSize: 11, color: C.muted, cursor: 'pointer' }}>
-            {loading ? 'Refreshing…' : '↻ Refresh'}
+          <div>
+            <label style={S.label}>To</label>
+            <input type="date" value={dashEnd} onChange={e => setDashEnd(e.target.value)} style={S.input} />
+          </div>
+          {(dashStart || dashEnd) && (
+            <button onClick={resetDates}
+              style={{ ...S.btn, background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.border}`, color: C.muted, fontSize: 12, padding: '8px 14px' }}>
+              ✕ Reset
+            </button>
+          )}
+          <button onClick={loadStats} disabled={loading}
+            style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 7, padding: '8px 14px', fontSize: 12, color: C.muted, cursor: 'pointer' }}>
+            {loading ? '…' : '↻ Refresh'}
           </button>
         </div>
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
         <StatCard icon="👥" label="Total Contacts"      value={stats?.contacts?.total}     loading={loading && !stats} />
         <StatCard icon="💼" label="Total Opportunities" value={stats?.opportunities?.total} loading={loading && !stats} color={C.green} />
         <StatCard icon="💬" label="Total Conversations" value={stats?.conversations?.total} loading={loading && !stats} color={C.amber} />
       </div>
 
       {/* Charts row — Pie + Bar */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-        <LeadsFunnelChart stats={stats} loading={loading} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 14 }}>
+        <LeadsFunnelChart stats={stats} loading={loading} locationId={locationId} dashStart={dashStart} dashEnd={dashEnd} />
         <OppsBarChart     locationId={locationId} />
       </div>
 
-      {/* Line chart — full width */}
-      <div style={{ marginBottom: 24 }}>
-        <BillingLineChart locationId={locationId} />
+      {/* Billing line chart — full width, filtered by shared dates */}
+      <div style={{ marginBottom: 22 }}>
+        <BillingLineChart locationId={locationId} startDate={dashStart} endDate={dashEnd} />
       </div>
 
-      {/* New Leads table with tabs */}
+      {/* New Leads table */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 26px' }}>
-        <div style={{ marginBottom: 16 }}>
-          <h2 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700, color: C.text }}>New Leads — Contacts Added</h2>
-          {/* Tab bar */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {TABS.map(tab => {
+        <h2 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700, color: C.text }}>New Leads — Contacts Added</h2>
+
+        {/* Tab bar — hidden when custom date is active */}
+        {!dashStart && !dashEnd && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 18 }}>
+            {TABS.filter(t => t.key !== 'custom').map(tab => {
               const active   = leadsTab === tab.key;
               const countMap = { '3d': stats?.contacts?.recent3d, '7d': stats?.contacts?.weekly, '30d': stats?.contacts?.monthly };
               const count    = countMap[tab.key];
               return (
-                <button
-                  key={tab.key}
-                  onClick={() => setLeadsTab(tab.key)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '9px 18px', borderRadius: 10, cursor: 'pointer',
+                <button key={tab.key} onClick={() => setLeadsTab(tab.key)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 18px', borderRadius: 10, cursor: 'pointer',
                     background: active ? tab.bg : 'rgba(255,255,255,0.04)',
                     border: `1px solid ${active ? tab.bdr : C.border}`,
                     color: active ? tab.color : C.muted,
-                    fontSize: 13, fontWeight: active ? 600 : 400,
-                    transition: 'all .15s',
-                  }}
+                    fontSize: 13, fontWeight: active ? 600 : 400, transition: 'all .15s' }}
                 >
-                  <span style={{ fontWeight: 700, fontSize: 16 }}>
-                    {loading && !stats ? '…' : (count ?? '—')}
-                  </span>
+                  <span style={{ fontWeight: 700, fontSize: 16 }}>{loading && !stats ? '…' : (count ?? '—')}</span>
                   {tab.label}
                 </button>
               );
             })}
           </div>
-        </div>
+        )}
 
-        {/* Tab content */}
-        {leadsTab === '3d'     && <LeadsTabPanel key="3d"     locationId={locationId} days={3}  />}
-        {leadsTab === '7d'     && <LeadsTabPanel key="7d"     locationId={locationId} days={7}  />}
-        {leadsTab === '30d'    && <LeadsTabPanel key="30d"    locationId={locationId} days={30} />}
-        {leadsTab === 'custom' && <CustomRangePanel key="custom" locationId={locationId} />}
+        {dashStart || dashEnd
+          ? <CustomRangePanel key={dashStart + dashEnd} locationId={locationId} initialStart={dashStart} initialEnd={dashEnd} />
+          : (
+            <>
+              {leadsTab === '3d'  && <LeadsTabPanel key="3d"  locationId={locationId} days={3}  />}
+              {leadsTab === '7d'  && <LeadsTabPanel key="7d"  locationId={locationId} days={7}  />}
+              {leadsTab === '30d' && <LeadsTabPanel key="30d" locationId={locationId} days={30} />}
+            </>
+          )}
       </div>
     </div>
   );
