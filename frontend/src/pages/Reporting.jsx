@@ -139,90 +139,113 @@ function AuthGate({ onConnect }) {
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
-function Sidebar({ section, billingTab, onNav, onBillingTab, locationId, onDisconnect }) {
+function Sidebar({ section, billingTab, onNav, onBillingTab, locationId, onDisconnect, open, onClose }) {
   return (
-    <aside style={{
-      width: 232, flexShrink: 0, background: C.sidebar,
-      borderRight: `1px solid ${C.border}`, display: 'flex',
-      flexDirection: 'column', height: '100vh', overflow: 'hidden',
-    }}>
-      {/* Header */}
-      <div style={{ padding: '20px 16px 14px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>📊</span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>Reporting</span>
-        </div>
-        <div style={{ marginTop: 8, padding: '5px 9px', background: 'rgba(99,102,241,0.08)', border: `1px solid ${C.accentBdr}`, borderRadius: 7 }}>
-          <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Location ID</div>
-          <div style={{ fontSize: 11, color: '#a5b4fc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={locationId}>
-            {locationId}
+    <>
+      {/* Mobile backdrop */}
+      {open && (
+        <div
+          className="rpt-backdrop"
+          onClick={onClose}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 40 }}
+        />
+      )}
+
+      <aside
+        className={open ? 'rpt-sidebar rpt-sidebar--open' : 'rpt-sidebar'}
+        style={{
+          width: 232, flexShrink: 0, background: C.sidebar,
+          borderRight: `1px solid ${C.border}`, display: 'flex',
+          flexDirection: 'column', height: '100vh', overflow: 'hidden',
+          transition: 'transform .22s ease',
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: '16px 16px 14px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 18 }}>📊</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>Reporting</span>
+            </div>
+            {/* Close button — visible on mobile */}
+            <button
+              className="rpt-close-btn"
+              onClick={onClose}
+              style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.border}`, borderRadius: 7, color: C.muted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '4px 9px' }}
+            >✕</button>
+          </div>
+          <div style={{ padding: '5px 9px', background: 'rgba(99,102,241,0.08)', border: `1px solid ${C.accentBdr}`, borderRadius: 7 }}>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Location ID</div>
+            <div style={{ fontSize: 11, color: '#a5b4fc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={locationId}>
+              {locationId}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Nav */}
-      <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
-        {NAV.map(item => {
-          const active = section === item.key;
-          return (
-            <div key={item.key}>
-              <button
-                onClick={() => onNav(item.key)}
-                style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: 9,
-                  padding: '9px 11px', borderRadius: 9, cursor: 'pointer',
-                  background: active ? C.accentBg : 'transparent',
-                  border: `1px solid ${active ? C.accentBdr : 'transparent'}`,
-                  color: active ? '#a5b4fc' : C.text,
-                  fontSize: 13, fontWeight: active ? 600 : 400,
-                  textAlign: 'left', marginBottom: 2, transition: 'all .12s',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
-              >
-                <span style={{ fontSize: 15, flexShrink: 0 }}>{item.icon}</span>
-                {item.label}
-              </button>
+        {/* Nav */}
+        <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
+          {NAV.map(item => {
+            const active = section === item.key;
+            return (
+              <div key={item.key}>
+                <button
+                  onClick={() => { onNav(item.key); onClose(); }}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 9,
+                    padding: '9px 11px', borderRadius: 9, cursor: 'pointer',
+                    background: active ? C.accentBg : 'transparent',
+                    border: `1px solid ${active ? C.accentBdr : 'transparent'}`,
+                    color: active ? '#a5b4fc' : C.text,
+                    fontSize: 13, fontWeight: active ? 600 : 400,
+                    textAlign: 'left', marginBottom: 2, transition: 'all .12s',
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <span style={{ fontSize: 15, flexShrink: 0 }}>{item.icon}</span>
+                  {item.label}
+                </button>
 
-              {/* Billing sub-tabs */}
-              {item.tabs && active && (
-                <div style={{ marginLeft: 16, marginTop: 2, marginBottom: 4 }}>
-                  {item.tabs.map(tab => (
-                    <button
-                      key={tab.key}
-                      onClick={() => onBillingTab(tab.key)}
-                      style={{
-                        width: '100%', padding: '7px 10px', borderRadius: 7,
-                        cursor: 'pointer', fontSize: 12, textAlign: 'left',
-                        color: billingTab === tab.key ? '#a5b4fc' : C.muted,
-                        background: billingTab === tab.key ? 'rgba(99,102,241,0.1)' : 'transparent',
-                        border: 'none',
-                        borderLeft: `2px solid ${billingTab === tab.key ? C.accent : 'transparent'}`,
-                        transition: 'all .1s', display: 'block', marginBottom: 1,
-                      }}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </nav>
+                {/* Billing sub-tabs */}
+                {item.tabs && active && (
+                  <div style={{ marginLeft: 16, marginTop: 2, marginBottom: 4 }}>
+                    {item.tabs.map(tab => (
+                      <button
+                        key={tab.key}
+                        onClick={() => { onBillingTab(tab.key); onClose(); }}
+                        style={{
+                          width: '100%', padding: '7px 10px', borderRadius: 7,
+                          cursor: 'pointer', fontSize: 12, textAlign: 'left',
+                          color: billingTab === tab.key ? '#a5b4fc' : C.muted,
+                          background: billingTab === tab.key ? 'rgba(99,102,241,0.1)' : 'transparent',
+                          border: 'none',
+                          borderLeft: `2px solid ${billingTab === tab.key ? C.accent : 'transparent'}`,
+                          transition: 'all .1s', display: 'block', marginBottom: 1,
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
 
-      {/* Footer */}
-      <div style={{ padding: '12px', borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
-        <button
-          onClick={onDisconnect}
-          style={{ width: '100%', padding: '8px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', fontSize: 12, cursor: 'pointer', transition: 'all .15s' }}
-          onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.15)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
-        >
-          ⬡ Disconnect
-        </button>
-      </div>
-    </aside>
+        {/* Footer */}
+        <div style={{ padding: '12px', borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <button
+            onClick={onDisconnect}
+            style={{ width: '100%', padding: '8px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', fontSize: 12, cursor: 'pointer', transition: 'all .15s' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.15)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+          >
+            ⬡ Disconnect
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }
 
@@ -1353,7 +1376,8 @@ const SECTION_TO_PATH = {
 export default function Reporting() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const [locationId, setLocationId] = useState(() => localStorage.getItem('rpt_location_id') || '');
+  const [locationId,   setLocationId]   = useState(() => localStorage.getItem('rpt_location_id') || '');
+  const [sidebarOpen,  setSidebarOpen]  = useState(false);
 
   // Derive section + billing sub-tab from URL
   const segs    = pathname.replace(/^\//, '').split('/');
@@ -1381,6 +1405,8 @@ export default function Reporting() {
 
   if (!locationId) return <AuthGate onConnect={handleConnect} />;
 
+  const SECTION_LABELS = { dashboard: 'Overview', contacts: 'Contacts', opportunities: 'Opportunities', conversations: 'Conversations', billing: 'Billing' };
+
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: C.bg, fontFamily: 'system-ui, -apple-system, sans-serif', color: C.text }}>
       <style>{`
@@ -1390,8 +1416,45 @@ export default function Reporting() {
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
         select option { background: #1a1a2e; color: #e2e8f0; }
         input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
+
+        /* Sidebar — desktop: always visible, mobile: slide-in overlay */
+        .rpt-sidebar {
+          position: relative;
+          z-index: 50;
+        }
+        .rpt-close-btn { display: none; }
+        .rpt-hamburger { display: none; }
+        .rpt-topbar { display: none; }
+
+        @media (max-width: 768px) {
+          .rpt-sidebar {
+            position: fixed;
+            top: 0; left: 0;
+            height: 100vh;
+            transform: translateX(-100%);
+            z-index: 50;
+          }
+          .rpt-sidebar--open {
+            transform: translateX(0);
+          }
+          .rpt-close-btn { display: block; }
+          .rpt-hamburger { display: flex; }
+          .rpt-topbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: ${C.sidebar};
+            border-bottom: 1px solid ${C.border};
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            flex-shrink: 0;
+          }
+        }
       `}</style>
 
+      {/* Sidebar — always in DOM, slide-in on mobile */}
       <Sidebar
         section={section}
         billingTab={billingTab}
@@ -1399,15 +1462,37 @@ export default function Reporting() {
         onBillingTab={handleBillingTab}
         locationId={locationId}
         onDisconnect={handleDisconnect}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
-      <main style={{ flex: 1, overflowY: 'auto', padding: '34px 40px', minWidth: 0 }}>
-        {section === 'dashboard'     && <DashboardView     locationId={locationId} />}
-        {section === 'contacts'      && <ContactsView      locationId={locationId} />}
-        {section === 'opportunities' && <OpportunitiesView locationId={locationId} />}
-        {section === 'conversations' && <ConversationsView locationId={locationId} />}
-        {section === 'billing'       && <BillingView       locationId={locationId} tab={billingTab} />}
-      </main>
+      {/* Main content — full width on mobile */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+        {/* Mobile top bar */}
+        <div className="rpt-topbar">
+          <button
+            className="rpt-hamburger"
+            onClick={() => setSidebarOpen(true)}
+            style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '6px 10px' }}
+          >☰</button>
+          <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
+            {SECTION_LABELS[section] || 'Reporting'}
+          </span>
+        </div>
+
+        <main style={{ flex: 1, overflowY: 'auto', padding: '34px 40px' }} className="rpt-main">
+          <style>{`
+            @media (max-width: 768px) {
+              .rpt-main { padding: 20px 16px !important; }
+            }
+          `}</style>
+          {section === 'dashboard'     && <DashboardView     locationId={locationId} />}
+          {section === 'contacts'      && <ContactsView      locationId={locationId} />}
+          {section === 'opportunities' && <OpportunitiesView locationId={locationId} />}
+          {section === 'conversations' && <ConversationsView locationId={locationId} />}
+          {section === 'billing'       && <BillingView       locationId={locationId} tab={billingTab} />}
+        </main>
+      </div>
     </div>
   );
 }
