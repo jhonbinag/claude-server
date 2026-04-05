@@ -369,20 +369,27 @@ router.get('/conversations', async (req, res) => {
     const startMs = startDate ? new Date(startDate).getTime() : null;
     const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
 
-    // GHL /conversations/search uses cursor-based pagination (startAfter), not page numbers.
-    // We fetch enough records server-side and slice to the requested page.
-    const maxFetchPages = hasDateFilter ? 10 : pageNum + 1; // fetch enough to cover requested page
-    const fetchLimit    = 20; // GHL default page size for conversations
+    // GHL /conversations/search uses cursor-based pagination.
+    // It requires BOTH startAfter (timestamp) AND startAfterId (last conversation ID)
+    // together — passing startAfter alone is silently ignored and always returns page 1.
+    const maxFetchPages = hasDateFilter ? 10 : pageNum + 1;
+    const fetchLimit    = 20;
     let conversations   = [];
-    let cursor          = null;
+    let cursorTs        = null;
+    let cursorId        = null;
     let ghlTotal        = 0;
 
     for (let p = 0; p < maxFetchPages; p++) {
       const params = { locationId: req.locationId, limit: fetchLimit };
-      if (cursor) params.startAfter = cursor;
+      if (cursorTs && cursorId) {
+        params.startAfter   = cursorTs;
+        params.startAfterId = cursorId;
+      }
 
       const data  = await req.ghl('GET', '/conversations/search', null, params);
       const batch = data?.conversations || [];
+
+      console.log(`[Conversations] page fetch p=${p} cursor=${cursorTs}/${cursorId} got=${batch.length} total=${data?.meta?.total ?? data?.total}`);
 
       if (p === 0) {
         ghlTotal = data?.meta?.total ?? data?.total ?? data?.meta?.count ?? data?.count ?? 0;
@@ -390,17 +397,15 @@ router.get('/conversations', async (req, res) => {
 
       conversations = conversations.concat(batch);
 
-      // Stop if GHL has no more records
       if (batch.length < fetchLimit) break;
-
-      // Stop if we have enough records to serve the requested page
       if (!hasDateFilter && conversations.length >= pageNum * pageSize) break;
 
-      // Advance cursor using the last conversation's date
+      // Advance cursor — GHL needs lastMessageDate timestamp + conversation ID
       const lastConv = batch[batch.length - 1];
-      const lastTs   = lastConv?.lastMessageDate || lastConv?.dateAdded || lastConv?.dateUpdated;
-      cursor = lastTs ? new Date(lastTs).getTime() : null;
-      if (!cursor) break;
+      const lastTs   = lastConv?.lastMessageDate || lastConv?.dateUpdated || lastConv?.dateAdded;
+      cursorTs = lastTs ? new Date(lastTs).getTime() : null;
+      cursorId = lastConv?.id || null;
+      if (!cursorTs || !cursorId) break;
     }
 
     // Apply date filter server-side
