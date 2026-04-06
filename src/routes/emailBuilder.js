@@ -375,10 +375,12 @@ const EMAIL_TYPE_CONTEXT = {
 };
 
 async function generateEmailContent(brief) {
-  const { campaignName, subject, emailType, niche, offer, audience, tone, ctaText, ctaUrl, brandName, brainContext, brainName } = brief;
+  const { campaignName, emailType, tone, brainContext, brainName } = brief;
   const typeCtx = EMAIL_TYPE_CONTEXT[emailType] || EMAIL_TYPE_CONTEXT.promotional;
 
-  const brainBlock = brainContext ? `\n\nKNOWLEDGE BASE — "${brainName || 'Brand Brain'}"\nYou MUST base all copy, messaging, voice, pain points, benefits, and claims on the following brand knowledge. Do NOT invent facts, testimonials, or product details that contradict or go beyond this information:\n\n${brainContext}\n\n---` : '';
+  const brainBlock = brainContext
+    ? `\n\nKNOWLEDGE BASE — "${brainName || 'Brand Brain'}"\nYou MUST base ALL copy, messaging, voice, pain points, benefits, offers, and claims on the following brand knowledge. This is your primary source of truth — do NOT invent facts, testimonials, or product details that are not documented here:\n\n${brainContext}\n\n---`
+    : '';
 
   const system = `You are a direct-response email copywriter with 15+ years of experience writing emails that generate millions in revenue. You write like a human, not a brand. Your emails feel personal, honest, and insightful — never salesy or corporate. You understand buyer psychology deeply: you lead with pain, build empathy, then present the solution as the obvious next step.
 
@@ -388,19 +390,15 @@ Your emails always have:
 - A clear, logical bridge from problem to solution
 - Benefits written as outcomes, not features
 - A CTA that feels inevitable, not pushy
-${brainContext ? '\nIMPORTANT: A knowledge base has been provided. Every claim, pain point, benefit, and product detail MUST match what is documented in the knowledge base. Accuracy to the brand\'s documented information is non-negotiable.' : ''}
+${brainContext ? '\nCRITICAL: A knowledge base has been provided. Every claim, pain point, benefit, offer, and product detail MUST be derived directly from the knowledge base. Extract the brand voice, offer details, audience, and messaging from what is documented. Accuracy is non-negotiable.' : ''}
 Return only valid JSON — no markdown, no extra text.`;
 
-  const user = `Write a full direct-response email for this campaign. Make it feel human, personal, and specific — not generic.${brainBlock}
+  const user = `Write the best possible direct-response email for this campaign. Make it feel human, personal, and specific — not generic.${brainBlock}
 
 Campaign: ${campaignName}
 Email Type: ${typeCtx}
-Niche/Industry: ${niche}
-Offer/Product: ${offer || 'their main product or service'}
-Target Audience: ${audience || 'ideal customers'}
 Tone: ${tone || 'conversational and direct — like a trusted advisor, not a salesperson'}
-Brand: ${brandName || 'the business'}
-CTA: "${ctaText || 'Get Started'}" → ${ctaUrl || '#'}
+${brainContext ? '\nIMPORTANT: Extract everything — offer, audience, pain points, benefits, brand voice, CTA — directly from the knowledge base above. Do not add anything that is not in the knowledge base.' : ''}
 
 Writing rules:
 - Hook: 1 bold punchy sentence that calls out the reader's exact situation. No "Hi" or "I hope this finds you well". Start with something they feel immediately.
@@ -410,7 +408,7 @@ Writing rules:
 - Solution paragraph: 2-3 sentences explaining the offer as a solution — no fluff, no hype
 - Benefits: 4-6 concrete outcomes. Format as "Outcome: brief explanation". Focus on transformation, not features.
 - Closing paragraph: 1-2 sentences creating natural urgency or a final emotional nudge. No fake scarcity.
-- CTA text: Action-oriented and specific. Not just "Click here". Something they want to do.
+- CTA text: Action-oriented and specific. Something they want to do.
 - CTA subtext: A short trust line (guarantee, social proof number, or risk reducer)
 - Subject: 6-9 words, curiosity-driven or calls out the pain. No emojis. No all-caps.
 - Preview text: 80-100 chars that expand on the subject and pull them in
@@ -419,11 +417,11 @@ Return this exact JSON structure:
 {
   "subject": "subject line",
   "previewText": "80-100 char preview text",
-  "brandName": "${brandName || niche}",
-  "preheadLabel": "short category label e.g. 'For ${audience || 'Business Owners'}' or the brand name",
+  "brandName": "brand name extracted from knowledge base or campaign name",
+  "preheadLabel": "short category label or the brand name",
   "headline": "Bold headline — the big promise or transformation (NO asterisks/markdown)",
   "subheadline": "One sentence that adds specificity or credibility to the headline",
-  "hook": "The opening hook sentence — the one that stops the scroll. Call out their exact situation.",
+  "hook": "The opening hook sentence — the one that stops the scroll.",
   "openingPara": "2-3 sentence empathy paragraph. No line breaks, just one flowing block.",
   "painPoints": [
     "Specific pain point 1 — be precise, use their language",
@@ -432,7 +430,7 @@ Return this exact JSON structure:
     "Specific pain point 4"
   ],
   "transitionText": "1-2 sentence bridge from pain to solution. Empathetic, not dismissive.",
-  "solutionPara": "2-3 sentences on how the offer solves the above. Specific. No hype words like 'revolutionary' or 'game-changing'.",
+  "solutionPara": "2-3 sentences on how the offer solves the above. Specific. No hype words.",
   "benefits": [
     "Outcome title: brief specific explanation of what they gain",
     "Outcome title: brief specific explanation",
@@ -440,13 +438,13 @@ Return this exact JSON structure:
     "Outcome title: brief specific explanation",
     "Outcome title: brief specific explanation"
   ],
-  "closingPara": "1-2 sentences — final emotional nudge or natural urgency. Don't say 'limited time offer'.",
-  "ctaText": "${ctaText || 'specific action-oriented CTA'}",
-  "ctaUrl": "${ctaUrl || '#'}",
+  "closingPara": "1-2 sentences — final emotional nudge or natural urgency.",
+  "ctaText": "specific action-oriented CTA from knowledge base",
+  "ctaUrl": "#",
   "ctaSubtext": "Short trust line — guarantee, proof, or risk reducer",
   "footer": "1 sentence — warm sign-off or brand tagline",
   "suggestedColors": {
-    "primaryColor": "#hex that fits this niche and tone",
+    "primaryColor": "#hex that fits this brand and tone",
     "bgColor": "#ffffff",
     "textColor": "#1a1a2e"
   }
@@ -461,21 +459,14 @@ Return this exact JSON structure:
 router.post('/generate', async (req, res) => {
   const {
     campaignName = 'New Email Campaign',
-    subject      = '',
     emailType    = 'promotional',
-    niche        = '',
-    offer        = '',
-    audience     = '',
     tone         = 'conversational and direct',
-    ctaText      = 'Get Started',
-    ctaUrl       = '',
-    brandName    = '',
     brainContext = '',
     brainName    = '',
   } = req.body;
 
-  if (!niche && !subject) {
-    return res.status(400).json({ success: false, error: 'Provide at least a niche or subject.' });
+  if (!brainContext && !campaignName) {
+    return res.status(400).json({ success: false, error: 'Select a brain or provide a campaign name.' });
   }
 
   res.setHeader('Content-Type',      'text/event-stream');
@@ -489,7 +480,7 @@ router.post('/generate', async (req, res) => {
   try {
     send('step', { step: 1, total: 3, label: 'Writing email copy with AI…' });
 
-    const content = await generateEmailContent({ campaignName, subject, emailType, niche, offer, audience, tone, ctaText, ctaUrl, brandName, brainContext, brainName, locationId: req.locationId });
+    const content = await generateEmailContent({ campaignName, emailType, tone, brainContext, brainName, locationId: req.locationId });
     send('content', content);
     send('step', { step: 2, total: 3, label: 'Building native GHL email template…' });
 

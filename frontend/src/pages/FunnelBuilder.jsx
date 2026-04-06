@@ -74,15 +74,8 @@ export default function FunnelBuilder() {
 
   // Email campaign state
   const [emailName,     setEmailName]     = useState('');
-  const [emailSubject,  setEmailSubject]  = useState('');
   const [emailType,     setEmailType]     = useState('promotional');
-  const [emailNiche,    setEmailNiche]    = useState('');
-  const [emailOffer,    setEmailOffer]    = useState('');
-  const [emailAudience, setEmailAudience] = useState('');
   const [emailTone,     setEmailTone]     = useState('professional and warm');
-  const [emailCtaText,  setEmailCtaText]  = useState('Get Started');
-  const [emailCtaUrl,   setEmailCtaUrl]   = useState('');
-  const [emailBrand,    setEmailBrand]    = useState('');
   const [emailGenerating, setEmailGenerating] = useState(false);
   const [emailResult,   setEmailResult]   = useState(null);
   const [emailLog,      setEmailLog]      = useState([]);
@@ -536,7 +529,7 @@ export default function FunnelBuilder() {
   // ── Email Campaign Generator ──────────────────────────────────────────────
   async function handleEmailGenerate(e) {
     e.preventDefault();
-    if (!emailNiche.trim()) { toast.error('Niche/topic is required.'); return; }
+    if (!emailBrainId && !emailName.trim()) { toast.error('Select a brain or enter a campaign name.'); return; }
     setEmailGenerating(true);
     setEmailResult(null);
     setEmailLog([]);
@@ -547,11 +540,11 @@ export default function FunnelBuilder() {
     if (emailBrainId) {
       setEmailBrainLoading(true);
       try {
-        const q = [emailOffer, emailNiche, emailAudience, emailBrand].filter(Boolean).join('. ');
+        const q = [emailName, emailType].filter(Boolean).join(' ');
         const br = await fetch(`/brain/${emailBrainId}/query`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-location-id': apiKey },
-          body: JSON.stringify({ query: q, k: 12 }),
+          body: JSON.stringify({ query: q || 'best email content for this brand', k: 12 }),
         });
         const bd = await br.json();
         if (bd.success && Array.isArray(bd.data)) {
@@ -570,16 +563,9 @@ export default function FunnelBuilder() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-location-id': apiKey },
         body: JSON.stringify({
-          campaignName: emailName || emailNiche + ' Campaign',
-          subject:      emailSubject,
+          campaignName: emailName || (brainName ? brainName + ' Campaign' : 'Email Campaign'),
           emailType,
-          niche:        emailNiche,
-          offer:        emailOffer,
-          audience:     emailAudience,
           tone:         emailTone,
-          ctaText:      emailCtaText,
-          ctaUrl:       emailCtaUrl,
-          brandName:    emailBrand,
           brainContext,
           brainName,
         }),
@@ -867,36 +853,18 @@ export default function FunnelBuilder() {
 
                 <form onSubmit={handleEmailGenerate} className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-400 mb-1">Campaign Name</label>
+                    <div className="col-span-2">
+                      <label className="block text-xs text-gray-400 mb-1">Campaign Name <span className="text-gray-600">(optional)</span></label>
                       <input value={emailName} onChange={e => setEmailName(e.target.value)} placeholder="e.g. Summer Promo Launch" className="field w-full text-sm" />
                     </div>
-                    <div>
-                      <label className="block text-xs text-gray-400 mb-1">Brand Name</label>
-                      <input value={emailBrand} onChange={e => setEmailBrand(e.target.value)} placeholder="e.g. FitLife Co." className="field w-full text-sm" />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Niche / Topic <span className="text-red-500">*</span></label>
-                    <input value={emailNiche} onChange={e => setEmailNiche(e.target.value)} placeholder="e.g. fitness coaching, SaaS onboarding" className="field w-full text-sm" />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Subject Line Hint</label>
-                    <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="AI will refine this — or leave blank" className="field w-full text-sm" />
                   </div>
 
                   <div>
                     <label className="block text-xs text-gray-400 mb-1.5">Email Type</label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                       {[
-                        { key: 'promotional',  label: '🎯 Promotional' },
-                        { key: 'welcome',      label: '👋 Welcome' },
-                        { key: 'newsletter',   label: '📰 Newsletter' },
-                        { key: 'followup',     label: '🔁 Follow-up' },
-                        { key: 'reengagement', label: '💤 Re-engagement' },
-                        { key: 'announcement', label: '📢 Announcement' },
+                        { key: 'promotional', label: '🎯 Promotional' },
+                        { key: 'newsletter',  label: '📰 Newsletter' },
                       ].map(t => (
                         <button
                           key={t.key}
@@ -910,28 +878,6 @@ export default function FunnelBuilder() {
                           }}
                         >{t.label}</button>
                       ))}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-400 mb-1">Offer / Product</label>
-                      <input value={emailOffer} onChange={e => setEmailOffer(e.target.value)} placeholder="e.g. 12-week program" className="field w-full text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-400 mb-1">Target Audience</label>
-                      <input value={emailAudience} onChange={e => setEmailAudience(e.target.value)} placeholder="e.g. women 30-45" className="field w-full text-sm" />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-400 mb-1">CTA Button Text</label>
-                      <input value={emailCtaText} onChange={e => setEmailCtaText(e.target.value)} placeholder="Get Started" className="field w-full text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-400 mb-1">CTA URL</label>
-                      <input value={emailCtaUrl} onChange={e => setEmailCtaUrl(e.target.value)} placeholder="https://…" className="field w-full text-sm" />
                     </div>
                   </div>
 
@@ -1008,7 +954,7 @@ export default function FunnelBuilder() {
 
                   <button
                     type="submit"
-                    disabled={emailGenerating || emailBrainLoading || !emailNiche.trim()}
+                    disabled={emailGenerating || emailBrainLoading || (!emailBrainId && !emailName.trim())}
                     className="btn-primary w-full py-3 text-sm"
                   >
                     {emailBrainLoading ? '🧠 Loading brain…' : emailGenerating ? '⏳ Generating email…' : '📧 Generate Email Campaign Draft'}
@@ -1081,7 +1027,7 @@ export default function FunnelBuilder() {
                       emailResult.content.body,
                     ].filter(Boolean).join('\n\n')}
                     context={{
-                      niche: emailNiche, offer: emailOffer, audience: emailAudience,
+                      emailType,
                       ...(emailBrainContext ? {
                         knowledgeBase: emailBrainContext.slice(0, 2000),
                         instruction: 'All improvements MUST stay grounded in the knowledge base. Do not add claims, testimonials, or details outside the documented brand information.',
