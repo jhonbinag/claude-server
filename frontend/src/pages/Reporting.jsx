@@ -94,6 +94,7 @@ const NAV = [
     ],
   },
   { key: 'integrations', label: 'Integrations', icon: '🔌' },
+  { key: 'officer',      label: 'Officer',       icon: '🎯' },
 ];
 
 // ── Auth Gate ─────────────────────────────────────────────────────────────────
@@ -1947,6 +1948,329 @@ function IntegrationCard({ card, locationId }) {
   );
 }
 
+// ── Officer View ─────────────────────────────────────────────────────────────
+
+const QUICK_ACTIONS = [
+  {
+    key:   'daily_summary',
+    icon:  '📋',
+    label: 'Daily Summary → Slack',
+    color: '#10b981',
+    bg:    'rgba(16,185,129,0.1)',
+    bdr:   'rgba(16,185,129,0.25)',
+    task:  (snap) => `Post a daily summary update to Slack. Here is today's GHL data snapshot:\n${snap}\n\nCreate a concise, professional daily summary message with key metrics (new contacts, open opportunities, total conversations) and any notable highlights. Post it to the default Slack channel.`,
+  },
+  {
+    key:   'followup_tasks',
+    icon:  '✅',
+    label: 'Follow-up Tasks → ClickUp',
+    color: '#6366f1',
+    bg:    'rgba(99,102,241,0.1)',
+    bdr:   'rgba(99,102,241,0.25)',
+    task:  (snap) => `Create follow-up tasks in ClickUp based on today's GHL pipeline data:\n${snap}\n\nLook at the open opportunities count and recent contacts. Create actionable follow-up tasks in ClickUp — for example a task to review open opportunities, a task to follow up with recent leads, and any other relevant action items. Find the available lists first, then create the tasks.`,
+  },
+  {
+    key:   'full_update',
+    icon:  '🚀',
+    label: 'Full Update → Slack + ClickUp',
+    color: '#f59e0b',
+    bg:    'rgba(245,158,11,0.1)',
+    bdr:   'rgba(245,158,11,0.25)',
+    task:  (snap) => `Do a full reporting update using today's GHL data:\n${snap}\n\n1. Post a summary to Slack with today's key metrics and highlights.\n2. Create follow-up tasks in ClickUp for the team — review open opportunities, follow up with new leads, and any other action items from the data.\nComplete both steps.`,
+  },
+];
+
+function OfficerView({ locationId }) {
+  const h = { 'x-location-id': locationId };
+
+  const [slackOk,   setSlackOk]   = useState(null);   // null=loading, true/false
+  const [clickupOk, setClickupOk] = useState(null);
+  const [snap,      setSnap]      = useState(null);    // dashboard data summary string
+  const [snapLoad,  setSnapLoad]  = useState(false);
+  const [command,   setCommand]   = useState('');
+  const [running,   setRunning]   = useState(false);
+  const [output,    setOutput]    = useState([]);      // [{type,text}]
+  const [activeBtn, setActiveBtn] = useState(null);
+
+  // Check integration status
+  useEffect(() => {
+    fetch('/rpt/integrations/slack',   { headers: h }).then(r => r.json()).then(d => setSlackOk(d.connected || false)).catch(() => setSlackOk(false));
+    fetch('/rpt/integrations/clickup', { headers: h }).then(r => r.json()).then(d => setClickupOk(d.connected || false)).catch(() => setClickupOk(false));
+  }, [locationId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch dashboard snapshot on mount
+  useEffect(() => {
+    setSnapLoad(true);
+    fetch('/rpt/dashboard', { headers: h })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.data) {
+          const { contacts, opportunities, conversations } = d.data;
+          const lines = [
+            `Contacts: ${contacts?.total ?? '?'} total, ${contacts?.recent1d ?? 0} new today, ${contacts?.recent3d ?? 0} last 3 days, ${contacts?.weekly ?? 0} this week`,
+            `Opportunities: ${opportunities?.total ?? '?'} total | Open: ${opportunities?.byStatus?.open ?? 0} | Won: ${opportunities?.byStatus?.won ?? 0} | Lost: ${opportunities?.byStatus?.lost ?? 0}`,
+            `Conversations: ${conversations?.total ?? '?'} total`,
+          ];
+          setSnap(lines.join('\n'));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setSnapLoad(false));
+  }, [locationId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function runTask(task) {
+    if (running) return;
+    setRunning(true);
+    setOutput([]);
+
+    try {
+      const res = await fetch('/claude/task', {
+        method: 'POST',
+        headers: { ...h, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task, allowedIntegrations: ['slack', 'clickup'] }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        setOutput([{ type: 'error', text: err.error || 'Request failed' }]);
+        setRunning(false);
+        return;
+      }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        for (const part of parts) {
+          const evtLine  = part.match(/^event:\s*(.+)/m);
+          const dataLine = part.match(/^data:\s*(.+)/m);
+          if (!evtLine || !dataLine) continue;
+          const evtType = evtLine[1].trim();
+          let payload;
+          try { payload = JSON.parse(dataLine[1]); } catch { continue; }
+
+          if (evtType === 'text') {
+            setOutput(prev => {
+              const last = prev[prev.length - 1];
+              if (last?.type === 'text') return [...prev.slice(0, -1), { type: 'text', text: last.text + payload.text }];
+              return [...prev, { type: 'text', text: payload.text }];
+            });
+          } else if (evtType === 'tool_call') {
+            setOutput(prev => [...prev, { type: 'tool_call', text: payload.name, input: payload.input }]);
+          } else if (evtType === 'tool_result') {
+            setOutput(prev => [...prev, { type: 'tool_result', text: payload.name, result: payload.result }]);
+          } else if (evtType === 'error') {
+            setOutput(prev => [...prev, { type: 'error', text: payload.error }]);
+          } else if (evtType === 'done') {
+            setOutput(prev => [...prev, { type: 'done', text: `Done — ${payload.toolCallCount ?? 0} tool call(s)` }]);
+          }
+        }
+      }
+    } catch (err) {
+      setOutput(prev => [...prev, { type: 'error', text: err.message }]);
+    }
+    setRunning(false);
+    setActiveBtn(null);
+  }
+
+  function handleQuickAction(action) {
+    if (!snap) return;
+    setActiveBtn(action.key);
+    runTask(action.task(snap));
+  }
+
+  function handleCustomCommand() {
+    const t = command.trim();
+    if (!t) return;
+    setCommand('');
+    runTask(t);
+  }
+
+  const StatusBadge = ({ ok, label, icon }) => (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 7,
+      padding: '6px 14px', borderRadius: 20,
+      background: ok === null ? 'rgba(255,255,255,0.04)' : ok ? C.greenBg : 'rgba(239,68,68,0.08)',
+      border: `1px solid ${ok === null ? C.border : ok ? C.greenBdr : 'rgba(239,68,68,0.2)'}`,
+    }}>
+      <span style={{ fontSize: 14 }}>{icon}</span>
+      <span style={{ fontSize: 12, fontWeight: 600, color: ok === null ? C.muted : ok ? C.green : '#f87171' }}>
+        {label}
+      </span>
+      <span style={{ fontSize: 11, color: ok === null ? C.dim : ok ? C.green : '#f87171' }}>
+        {ok === null ? '…' : ok ? '● Connected' : '○ Not connected'}
+      </span>
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, marginBottom: 6 }}>Reporting Officer</h1>
+        <p style={{ fontSize: 13, color: C.muted }}>
+          Post updates to Slack, create ClickUp tasks, and run reporting commands with AI.
+        </p>
+      </div>
+
+      {/* Integration status */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>
+        <StatusBadge ok={slackOk}   label="Slack"   icon="💬" />
+        <StatusBadge ok={clickupOk} label="ClickUp" icon="✅" />
+        {(!slackOk || !clickupOk) && (
+          <a
+            href="/reporting/integrations"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, background: C.accentBg, border: `1px solid ${C.accentBdr}`, color: '#a5b4fc', fontSize: 12, textDecoration: 'none' }}
+          >
+            🔌 Connect integrations →
+          </a>
+        )}
+      </div>
+
+      {/* GHL Snapshot */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+        <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Live GHL Snapshot</div>
+        {snapLoad ? (
+          <div style={{ color: C.muted, fontSize: 13 }}>Loading…</div>
+        ) : snap ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {snap.split('\n').map((line, i) => (
+              <div key={i} style={{ fontSize: 13, color: C.text, padding: '6px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 7, borderLeft: `3px solid ${C.accentBdr}` }}>
+                {line}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ color: '#f87171', fontSize: 13 }}>Could not load GHL data — check your location connection.</div>
+        )}
+      </div>
+
+      {/* Quick actions */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Quick Actions</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {QUICK_ACTIONS.map(action => (
+            <button
+              key={action.key}
+              disabled={running || !snap}
+              onClick={() => handleQuickAction(action)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '10px 18px', borderRadius: 10, cursor: running || !snap ? 'not-allowed' : 'pointer',
+                background: activeBtn === action.key ? action.bg : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${activeBtn === action.key ? action.bdr : C.border}`,
+                color: activeBtn === action.key ? action.color : C.text,
+                fontSize: 13, fontWeight: 600, transition: 'all .15s',
+                opacity: running && activeBtn !== action.key ? 0.5 : 1,
+              }}
+              onMouseEnter={e => { if (!running && snap) { e.currentTarget.style.background = action.bg; e.currentTarget.style.borderColor = action.bdr; e.currentTarget.style.color = action.color; } }}
+              onMouseLeave={e => { if (activeBtn !== action.key) { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.text; } }}
+            >
+              <span>{action.icon}</span>
+              {activeBtn === action.key && running ? 'Running…' : action.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Free-text command */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+        <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Custom Command</div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <input
+            value={command}
+            onChange={e => setCommand(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleCustomCommand()}
+            placeholder="e.g. Post a weekly pipeline summary to Slack and create a review task in ClickUp…"
+            disabled={running}
+            style={{ ...S.input, flex: 1, fontSize: 13, opacity: running ? 0.6 : 1 }}
+          />
+          <button
+            onClick={handleCustomCommand}
+            disabled={running || !command.trim()}
+            style={{ ...S.btn, flexShrink: 0, opacity: running || !command.trim() ? 0.5 : 1, cursor: running || !command.trim() ? 'not-allowed' : 'pointer' }}
+          >
+            {running ? 'Running…' : 'Run →'}
+          </button>
+        </div>
+      </div>
+
+      {/* Output stream */}
+      {output.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
+          <div style={{ padding: '12px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Output</div>
+            <button onClick={() => setOutput([])} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}>Clear</button>
+          </div>
+          <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
+            {output.map((item, i) => {
+              if (item.type === 'text') {
+                return (
+                  <div key={i} style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                    {item.text}
+                  </div>
+                );
+              }
+              if (item.type === 'tool_call') {
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', background: 'rgba(99,102,241,0.08)', border: `1px solid ${C.accentBdr}`, borderRadius: 8 }}>
+                    <span style={{ fontSize: 12, color: '#a5b4fc', fontWeight: 700, flexShrink: 0, marginTop: 1 }}>⚡ Tool</span>
+                    <div>
+                      <span style={{ fontSize: 12, color: '#a5b4fc', fontWeight: 600 }}>{item.text}</span>
+                      {item.input && Object.keys(item.input).length > 0 && (
+                        <div style={{ fontSize: 11, color: C.muted, marginTop: 3, fontFamily: 'monospace' }}>
+                          {JSON.stringify(item.input, null, 2).slice(0, 300)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+              if (item.type === 'tool_result') {
+                const resultStr = typeof item.result === 'string' ? item.result : JSON.stringify(item.result);
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', background: C.greenBg, border: `1px solid ${C.greenBdr}`, borderRadius: 8 }}>
+                    <span style={{ fontSize: 12, color: C.green, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>✓ Result</span>
+                    <span style={{ fontSize: 11, color: C.green, fontFamily: 'monospace', wordBreak: 'break-word' }}>{resultStr.slice(0, 400)}</span>
+                  </div>
+                );
+              }
+              if (item.type === 'error') {
+                return (
+                  <div key={i} style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 12, color: '#f87171' }}>
+                    ⚠ {item.text}
+                  </div>
+                );
+              }
+              if (item.type === 'done') {
+                return (
+                  <div key={i} style={{ padding: '8px 12px', background: C.greenBg, border: `1px solid ${C.greenBdr}`, borderRadius: 8, fontSize: 12, color: C.green, fontWeight: 600 }}>
+                    ✓ {item.text}
+                  </div>
+                );
+              }
+              return null;
+            })}
+            {running && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', color: C.muted, fontSize: 12 }}>
+                <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span>
+                Thinking…
+                <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IntegrationsView({ locationId }) {
   return (
     <div style={{ maxWidth: 680 }}>
@@ -1982,6 +2306,7 @@ const SECTION_TO_PATH = {
   conversations: '/conversations',
   billing:       '/billing/subscriptions',
   integrations:  '/integrations',
+  officer:       '/officer',
 };
 
 // ── Root component ────────────────────────────────────────────────────────────
@@ -1995,7 +2320,7 @@ export default function Reporting() {
 
   // Derive section + billing sub-tab from URL
   const segs    = pathname.replace(/^\//, '').split('/');
-  const section = { contacts: 'contacts', opportunities: 'opportunities', conversations: 'conversations', billing: 'billing', integrations: 'integrations' }[segs[0]] || 'dashboard';
+  const section = { contacts: 'contacts', opportunities: 'opportunities', conversations: 'conversations', billing: 'billing', integrations: 'integrations', officer: 'officer' }[segs[0]] || 'dashboard';
   const billingTab = section === 'billing' ? (BILLING_PATH_TO_TAB[segs[1]] || 'subscription') : 'subscription';
 
   const handleConnect = (id) => {
@@ -2019,7 +2344,7 @@ export default function Reporting() {
 
   if (!locationId) return <AuthGate onConnect={handleConnect} />;
 
-  const SECTION_LABELS = { dashboard: 'Overview', contacts: 'Contacts', opportunities: 'Opportunities', conversations: 'Conversations', billing: 'Billing', integrations: 'Integrations' };
+  const SECTION_LABELS = { dashboard: 'Overview', contacts: 'Contacts', opportunities: 'Opportunities', conversations: 'Conversations', billing: 'Billing', integrations: 'Integrations', officer: 'Reporting Officer' };
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: C.bg, fontFamily: 'system-ui, -apple-system, sans-serif', color: C.text }}>
@@ -2116,6 +2441,7 @@ export default function Reporting() {
           {section === 'conversations' && <ConversationsView locationId={locationId} />}
           {section === 'billing'       && <BillingView       locationId={locationId} tab={billingTab} />}
           {section === 'integrations'  && <IntegrationsView  locationId={locationId} />}
+          {section === 'officer'       && <OfficerView       locationId={locationId} />}
         </main>
       </div>
     </div>
