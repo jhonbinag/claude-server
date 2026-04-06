@@ -231,6 +231,66 @@ const EXTERNAL_TOOL_DEFINITIONS = {
     },
   ],
 
+  // ── ClickUp ──────────────────────────────────────────────────────────────────
+  clickup: [
+    {
+      name: 'clickup_get_tasks',
+      description: 'Fetch tasks from a ClickUp list or workspace. Use to check pending work, review task statuses, or find tasks related to a contact or deal.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          listId:   { type: 'string', description: 'ClickUp list ID to fetch tasks from (optional — omit to search all accessible lists)' },
+          status:   { type: 'string', description: 'Filter by status e.g. "open", "in progress", "complete" (optional)' },
+          assignee: { type: 'string', description: 'Filter by assignee user ID (optional)' },
+          query:    { type: 'string', description: 'Search query to filter tasks by name/description (optional)' },
+          limit:    { type: 'number', description: 'Max tasks to return (default 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'clickup_create_task',
+      description: 'Create a new task in ClickUp. Use to log follow-up actions, create tasks from contact activities, or add items to a project list.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          listId:      { type: 'string', description: 'ClickUp list ID to create the task in' },
+          name:        { type: 'string', description: 'Task name / title' },
+          description: { type: 'string', description: 'Task description (markdown supported)' },
+          status:      { type: 'string', description: 'Initial status (e.g. "open", "to do") — defaults to first available status' },
+          priority:    { type: 'number', description: 'Priority: 1=urgent, 2=high, 3=normal, 4=low (optional)' },
+          dueDate:     { type: 'string', description: 'Due date in YYYY-MM-DD format (optional)' },
+          assignees:   { type: 'array', items: { type: 'number' }, description: 'Array of ClickUp user IDs to assign (optional)' },
+        },
+        required: ['listId', 'name'],
+      },
+    },
+    {
+      name: 'clickup_update_task',
+      description: 'Update an existing ClickUp task — change status, priority, assignee, or description.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          taskId:      { type: 'string', description: 'ClickUp task ID' },
+          name:        { type: 'string', description: 'New task name (optional)' },
+          description: { type: 'string', description: 'New description (optional)' },
+          status:      { type: 'string', description: 'New status (optional)' },
+          priority:    { type: 'number', description: 'New priority 1-4 (optional)' },
+        },
+        required: ['taskId'],
+      },
+    },
+    {
+      name: 'clickup_get_lists',
+      description: 'Get all accessible ClickUp spaces, folders, and lists so you know which listId to use for creating or fetching tasks.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  ],
+
   // ── Slack ────────────────────────────────────────────────────────────────────
   slack: [
     {
@@ -2086,6 +2146,100 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     return resp.data;
   }
 
+  // ── ClickUp ───────────────────────────────────────────────────────────────────
+  if (toolName === 'clickup_get_lists') {
+    const { apiKey } = toolConfigs.clickup || {};
+    if (!apiKey) throw new Error('ClickUp API key not configured.');
+    const resp = await axios.get('https://api.clickup.com/api/v2/team', {
+      headers: { Authorization: apiKey },
+    });
+    const teams = resp.data?.teams || [];
+    const results = [];
+    for (const team of teams) {
+      const spacesResp = await axios.get(`https://api.clickup.com/api/v2/team/${team.id}/space?archived=false`, {
+        headers: { Authorization: apiKey },
+      });
+      for (const space of spacesResp.data?.spaces || []) {
+        const foldersResp = await axios.get(`https://api.clickup.com/api/v2/space/${space.id}/folder?archived=false`, {
+          headers: { Authorization: apiKey },
+        });
+        for (const folder of foldersResp.data?.folders || []) {
+          const listsResp = await axios.get(`https://api.clickup.com/api/v2/folder/${folder.id}/list?archived=false`, {
+            headers: { Authorization: apiKey },
+          });
+          for (const list of listsResp.data?.lists || []) {
+            results.push({ listId: list.id, listName: list.name, folderName: folder.name, spaceName: space.name });
+          }
+        }
+        // Folderless lists
+        const flResp = await axios.get(`https://api.clickup.com/api/v2/space/${space.id}/list?archived=false`, {
+          headers: { Authorization: apiKey },
+        });
+        for (const list of flResp.data?.lists || []) {
+          results.push({ listId: list.id, listName: list.name, folderName: '(no folder)', spaceName: space.name });
+        }
+      }
+    }
+    return { success: true, lists: results };
+  }
+
+  if (toolName === 'clickup_get_tasks') {
+    const { apiKey } = toolConfigs.clickup || {};
+    if (!apiKey) throw new Error('ClickUp API key not configured.');
+    const { listId, status, assignee, query, limit = 20 } = input;
+    if (!listId) {
+      // Search across workspace — requires a query
+      const resp = await axios.get('https://api.clickup.com/api/v2/team', { headers: { Authorization: apiKey } });
+      const teamId = resp.data?.teams?.[0]?.id;
+      if (!teamId) return { success: false, error: 'No workspace found' };
+      const params = { page: 0, order_by: 'updated', reverse: true, subtasks: true, include_closed: false };
+      if (query) params.search = query;
+      if (status) params.statuses = [status];
+      if (assignee) params.assignees = [assignee];
+      const tasksResp = await axios.get(`https://api.clickup.com/api/v2/team/${teamId}/task`, {
+        headers: { Authorization: apiKey }, params,
+      });
+      return { success: true, tasks: (tasksResp.data?.tasks || []).slice(0, limit) };
+    }
+    const params = { page: 0, order_by: 'updated', reverse: true, subtasks: true, include_closed: false };
+    if (status) params.statuses = [status];
+    if (assignee) params.assignees = [assignee];
+    const resp = await axios.get(`https://api.clickup.com/api/v2/list/${listId}/task`, {
+      headers: { Authorization: apiKey }, params,
+    });
+    return { success: true, tasks: (resp.data?.tasks || []).slice(0, limit) };
+  }
+
+  if (toolName === 'clickup_create_task') {
+    const { apiKey } = toolConfigs.clickup || {};
+    if (!apiKey) throw new Error('ClickUp API key not configured.');
+    const { listId, name, description, status, priority, dueDate, assignees } = input;
+    const body = { name, markdown_description: description };
+    if (status)    body.status    = status;
+    if (priority)  body.priority  = priority;
+    if (dueDate)   body.due_date  = new Date(dueDate).getTime();
+    if (assignees) body.assignees = assignees;
+    const resp = await axios.post(`https://api.clickup.com/api/v2/list/${listId}/task`, body, {
+      headers: { Authorization: apiKey, 'Content-Type': 'application/json' },
+    });
+    return { success: true, task: { id: resp.data.id, name: resp.data.name, url: resp.data.url, status: resp.data.status?.status } };
+  }
+
+  if (toolName === 'clickup_update_task') {
+    const { apiKey } = toolConfigs.clickup || {};
+    if (!apiKey) throw new Error('ClickUp API key not configured.');
+    const { taskId, name, description, status, priority } = input;
+    const body = {};
+    if (name)        body.name                 = name;
+    if (description) body.markdown_description = description;
+    if (status)      body.status               = status;
+    if (priority)    body.priority             = priority;
+    const resp = await axios.put(`https://api.clickup.com/api/v2/task/${taskId}`, body, {
+      headers: { Authorization: apiKey, 'Content-Type': 'application/json' },
+    });
+    return { success: true, task: { id: resp.data.id, name: resp.data.name, url: resp.data.url, status: resp.data.status?.status } };
+  }
+
   // ── Slack ─────────────────────────────────────────────────────────────────────
   if (toolName === 'slack_send_message') {
     const { webhookUrl, defaultChannel } = toolConfigs.slack || {};
@@ -3736,6 +3890,14 @@ const TOOL_METADATA = {
       { key: 'apiKey',     label: 'API Key',       type: 'password', placeholder: 'SG.xxxxx' },
       { key: 'fromEmail',  label: 'From Email',    type: 'text',     placeholder: 'you@yourdomain.com' },
       { key: 'fromName',   label: 'From Name',     type: 'text',     placeholder: 'Your Company' },
+    ],
+  },
+  clickup: {
+    label:       'ClickUp',
+    icon:        '✅',
+    description: 'Create and manage tasks, lists, and projects in ClickUp',
+    configFields: [
+      { key: 'apiKey', label: 'Personal API Token', type: 'password', placeholder: 'pk_...' },
     ],
   },
   slack: {
