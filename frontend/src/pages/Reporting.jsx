@@ -93,6 +93,7 @@ const NAV = [
       { key: 'transaction',  label: 'Transactions' },
     ],
   },
+  { key: 'integrations', label: 'Integrations', icon: '🔌' },
 ];
 
 // ── Auth Gate ─────────────────────────────────────────────────────────────────
@@ -1773,6 +1774,178 @@ function BillingView({ locationId, tab }) {
   );
 }
 
+// ── Integrations View ─────────────────────────────────────────────────────────
+
+function IntegrationsView({ locationId }) {
+  const h = { 'x-location-id': locationId };
+
+  const [servers,    setServers]    = useState([]);
+  const [form,       setForm]       = useState({ name: '', url: '' });
+  const [connecting, setConnecting] = useState(false);
+  const [expanded,   setExpanded]   = useState({});
+
+  useEffect(() => {
+    fetch('/mcp-client/servers', { headers: h })
+      .then(r => r.json())
+      .then(d => { if (d.success) setServers(d.servers || []); })
+      .catch(() => {});
+  }, [locationId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function connect() {
+    if (!form.name.trim() || !form.url.trim()) return;
+    setConnecting(true);
+    try {
+      const res = await fetch('/mcp-client/servers', {
+        method: 'POST',
+        headers: { ...h, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: form.name.trim(), url: form.url.trim() }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        setServers(prev => [...prev.filter(s => s.slug !== d.slug), {
+          slug: d.slug, name: d.name, url: form.url.trim(),
+          transport: d.transport, toolCount: d.toolCount, tools: d.tools,
+          connectedAt: new Date().toISOString(),
+        }]);
+        setForm({ name: '', url: '' });
+      } else {
+        alert(d.error || 'Connection failed.');
+      }
+    } catch (err) {
+      alert(err.message || 'Connection failed.');
+    }
+    setConnecting(false);
+  }
+
+  async function disconnect(slug, name) {
+    if (!window.confirm(`Disconnect "${name}"?`)) return;
+    await fetch(`/mcp-client/servers/${slug}`, { method: 'DELETE', headers: h });
+    setServers(prev => prev.filter(s => s.slug !== slug));
+  }
+
+  async function refresh(slug) {
+    const res = await fetch(`/mcp-client/servers/${slug}/refresh`, { method: 'POST', headers: h });
+    const d = await res.json();
+    if (d.success) setServers(prev => prev.map(s => s.slug === slug ? { ...s, toolCount: d.toolCount, tools: d.tools } : s));
+  }
+
+  const card = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 22px' };
+  const inp  = { ...S.input, width: '100%' };
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, marginBottom: 6 }}>Integrations</h1>
+        <p style={{ fontSize: 13, color: C.muted }}>
+          Connect MCP-compatible servers (Slack, ClickUp, Notion, etc.) to make their tools available directly in this dashboard.
+        </p>
+      </div>
+
+      {/* ── Add server form ── */}
+      <div style={{ ...card, marginBottom: 20 }}>
+        <p style={{ ...S.label, marginBottom: 14 }}>Add MCP Server</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginBottom: 14 }}>
+          <div>
+            <label style={S.label}>Server name</label>
+            <input
+              style={inp}
+              value={form.name}
+              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              placeholder='e.g. "Slack"'
+              onKeyDown={e => e.key === 'Enter' && connect()}
+            />
+          </div>
+          <div>
+            <label style={S.label}>Server URL</label>
+            <input
+              style={inp}
+              value={form.url}
+              onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
+              placeholder="https://your-mcp-server.com"
+              onKeyDown={e => e.key === 'Enter' && connect()}
+            />
+          </div>
+        </div>
+        <button
+          onClick={connect}
+          disabled={connecting || !form.name.trim() || !form.url.trim()}
+          style={{ ...S.btn, opacity: (connecting || !form.name.trim() || !form.url.trim()) ? 0.5 : 1 }}
+        >
+          {connecting ? '⏳ Connecting…' : '+ Connect Server'}
+        </button>
+        <p style={{ fontSize: 11, color: C.muted, marginTop: 10 }}>
+          Supports Streamable HTTP (modern) and SSE (legacy) transports. Works with any MCP-compatible server.
+        </p>
+      </div>
+
+      {/* ── Connected servers ── */}
+      {servers.length === 0 ? (
+        <div style={{ ...card, textAlign: 'center', padding: '36px 22px' }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>🔌</div>
+          <p style={{ fontSize: 13, color: C.muted }}>No servers connected yet.</p>
+          <p style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>Paste a Slack, ClickUp, or any MCP server URL above.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {servers.map(sv => (
+            <div key={sv.slug} style={card}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: expanded[sv.slug] ? 14 : 0 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: C.accentBg, border: `1px solid ${C.accentBdr}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                  🔌
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{sv.name}</span>
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: C.greenBg, border: `1px solid ${C.greenBdr}`, color: C.green }}>● Connected</span>
+                    <span style={{ fontSize: 11, color: C.muted }}>{sv.transport?.toUpperCase()}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+                    <span style={{ marginRight: 12 }}>{sv.url}</span>
+                    <span style={{ color: C.accent }}>{sv.toolCount} tool{sv.toolCount !== 1 ? 's' : ''}</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button
+                    onClick={() => setExpanded(p => ({ ...p, [sv.slug]: !p[sv.slug] }))}
+                    style={{ fontSize: 11, padding: '5px 10px', borderRadius: 7, background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}
+                  >
+                    {expanded[sv.slug] ? '▲ Hide' : '▼ Tools'}
+                  </button>
+                  <button
+                    onClick={() => refresh(sv.slug)}
+                    title="Re-discover tools"
+                    style={{ fontSize: 13, padding: '5px 9px', borderRadius: 7, background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}
+                  >↻</button>
+                  <button
+                    onClick={() => disconnect(sv.slug, sv.name)}
+                    style={{ fontSize: 11, padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: C.red, cursor: 'pointer' }}
+                  >Disconnect</button>
+                </div>
+              </div>
+
+              {/* Tool list */}
+              {expanded[sv.slug] && (
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+                  <p style={{ ...S.label, marginBottom: 10 }}>Available tools</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+                    {(sv.tools || []).map(t => (
+                      <div key={t.name} style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px' }}>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: '#a5b4fc', marginBottom: 2 }}>{t.originalName || t.name}</p>
+                        {t.description && <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.4 }}>{t.description}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── URL ↔ section mapping ─────────────────────────────────────────────────────
 
 const BILLING_PATH_TO_TAB = {
@@ -1791,6 +1964,7 @@ const SECTION_TO_PATH = {
   opportunities: '/opportunities',
   conversations: '/conversations',
   billing:       '/billing/subscriptions',
+  integrations:  '/integrations',
 };
 
 // ── Root component ────────────────────────────────────────────────────────────
@@ -1804,7 +1978,7 @@ export default function Reporting() {
 
   // Derive section + billing sub-tab from URL
   const segs    = pathname.replace(/^\//, '').split('/');
-  const section = { contacts: 'contacts', opportunities: 'opportunities', conversations: 'conversations', billing: 'billing' }[segs[0]] || 'dashboard';
+  const section = { contacts: 'contacts', opportunities: 'opportunities', conversations: 'conversations', billing: 'billing', integrations: 'integrations' }[segs[0]] || 'dashboard';
   const billingTab = section === 'billing' ? (BILLING_PATH_TO_TAB[segs[1]] || 'subscription') : 'subscription';
 
   const handleConnect = (id) => {
@@ -1828,7 +2002,7 @@ export default function Reporting() {
 
   if (!locationId) return <AuthGate onConnect={handleConnect} />;
 
-  const SECTION_LABELS = { dashboard: 'Overview', contacts: 'Contacts', opportunities: 'Opportunities', conversations: 'Conversations', billing: 'Billing' };
+  const SECTION_LABELS = { dashboard: 'Overview', contacts: 'Contacts', opportunities: 'Opportunities', conversations: 'Conversations', billing: 'Billing', integrations: 'Integrations' };
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: C.bg, fontFamily: 'system-ui, -apple-system, sans-serif', color: C.text }}>
@@ -1924,6 +2098,7 @@ export default function Reporting() {
           {section === 'opportunities' && <OpportunitiesView locationId={locationId} initialPipelineId={oppPipelineId} />}
           {section === 'conversations' && <ConversationsView locationId={locationId} />}
           {section === 'billing'       && <BillingView       locationId={locationId} tab={billingTab} />}
+          {section === 'integrations'  && <IntegrationsView  locationId={locationId} />}
         </main>
       </div>
     </div>
