@@ -1812,12 +1812,12 @@ function IntegrationCard({ card, locationId }) {
   const [showHow,    setShowHow]    = useState(false);
 
   useEffect(() => {
-    fetch(`/tools/${card.key}`, { headers: h })
+    fetch(`/rpt/integrations/${card.key}`, { headers: h })
       .then(r => r.json())
       .then(d => {
         if (d.success && d.config) {
           setSaved(d.config);
-          setConnected(Object.keys(d.config).length > 0);
+          setConnected(d.connected || false);
         }
       })
       .catch(() => {});
@@ -1830,7 +1830,7 @@ function IntegrationCard({ card, locationId }) {
       for (const f of card.fields) {
         if (values[f.key]?.trim()) payload[f.key] = values[f.key].trim();
       }
-      const res = await fetch(`/tools/${card.key}`, {
+      const res = await fetch(`/rpt/integrations/${card.key}`, {
         method: 'POST',
         headers: { ...h, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1852,7 +1852,7 @@ function IntegrationCard({ card, locationId }) {
 
   async function disconnect() {
     if (!window.confirm(`Disconnect ${card.label}?`)) return;
-    await fetch(`/tools/${card.key}`, { method: 'DELETE', headers: h });
+    await fetch(`/rpt/integrations/${card.key}`, { method: 'DELETE', headers: h });
     setSaved({});
     setConnected(false);
     setValues({});

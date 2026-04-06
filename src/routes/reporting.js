@@ -13,6 +13,7 @@
 const express       = require('express');
 const router        = express.Router();
 const authenticate  = require('../middleware/authenticate');
+const toolRegistry  = require('../tools/toolRegistry');
 
 console.log('[Reporting] routes loaded');
 
@@ -595,6 +596,65 @@ router.put('/conversations/:id/read', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// ── /rpt/integrations — save tool configs without the admin sharing gate ────
+// The Reporting page is admin-level; users connecting their own Slack/ClickUp
+// shouldn't need the location-level sharing flag set by an admin.
+
+const ALLOWED_RPT_INTEGRATIONS = ['slack', 'clickup'];
+
+function maskValue(v) {
+  if (!v || typeof v !== 'string') return v;
+  if (v.length <= 8) return '••••••••';
+  return v.slice(0, 4) + '••••••••' + v.slice(-4);
+}
+
+router.get('/integrations/:category', async (req, res) => {
+  const { category } = req.params;
+  if (!ALLOWED_RPT_INTEGRATIONS.includes(category)) {
+    return res.status(404).json({ success: false, error: 'Unknown integration.' });
+  }
+  try {
+    const configs = await toolRegistry.getToolConfig(req.locationId);
+    const cfg     = configs[category] || {};
+    const preview = Object.fromEntries(Object.entries(cfg).map(([k, v]) => [k, maskValue(v)]));
+    res.json({ success: true, config: preview, connected: Object.keys(cfg).length > 0 });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/integrations/:category', async (req, res) => {
+  const { category } = req.params;
+  if (!ALLOWED_RPT_INTEGRATIONS.includes(category)) {
+    return res.status(404).json({ success: false, error: 'Unknown integration.' });
+  }
+  const body = req.body || {};
+  const fields = Object.fromEntries(Object.entries(body).filter(([, v]) => v && typeof v === 'string' && v.trim()));
+  if (Object.keys(fields).length === 0) {
+    return res.status(400).json({ success: false, error: 'No fields provided.' });
+  }
+  try {
+    await toolRegistry.saveToolConfig(req.locationId, category, fields);
+    const preview = Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, maskValue(v)]));
+    res.json({ success: true, configPreview: preview });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.delete('/integrations/:category', async (req, res) => {
+  const { category } = req.params;
+  if (!ALLOWED_RPT_INTEGRATIONS.includes(category)) {
+    return res.status(404).json({ success: false, error: 'Unknown integration.' });
+  }
+  try {
+    await toolRegistry.deleteToolConfig(req.locationId, category);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
