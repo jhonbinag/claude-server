@@ -26,6 +26,7 @@ const firebaseStore    = require('../services/firebaseStore');
 const toolTokenService = require('../services/toolTokenService');
 const { getToolDefinitions: getGhlDefs, executeGhlTool } = require('./ghlTools');
 const { EXTERNAL_TOOL_DEFINITIONS, TOOL_METADATA, executeExternalTool } = require('./externalTools');
+const { MCP_PREFIX, callMcpTool } = require('../services/mcpClientService');
 
 // Map every external tool name → its category key (built once at module load)
 const EXTERNAL_TOOL_CATEGORY = {};
@@ -125,6 +126,19 @@ async function getTools(locationId, allowedCategories = null, options = {}) {
     }
   }
 
+  // Include tools from connected MCP servers
+  for (const [key, val] of Object.entries(toolConfigs)) {
+    if (!key.startsWith(MCP_PREFIX) || !Array.isArray(val?.tools)) continue;
+    if (allowedCategories !== null && !allowedCategories.includes(key)) continue;
+    for (const t of val.tools) {
+      external.push({
+        name:         t.name,
+        description:  t.description,
+        input_schema: t.input_schema || { type: 'object', properties: {}, required: [] },
+      });
+    }
+  }
+
   return [...ghlTools, ...external];
 }
 
@@ -138,6 +152,19 @@ async function getTools(locationId, allowedCategories = null, options = {}) {
  * @returns {Promise<object>}
  */
 async function executeTool(toolName, input, locationId, companyId) {
+  // MCP server tool — format: mcp__<serverSlug>__<originalToolName>
+  if (toolName.startsWith('mcp__')) {
+    const withoutPrefix = toolName.slice(5); // remove 'mcp__'
+    const separatorIdx  = withoutPrefix.indexOf('__');
+    if (separatorIdx === -1) throw new Error(`Malformed MCP tool name: ${toolName}`);
+    const serverSlug   = withoutPrefix.slice(0, separatorIdx);
+    const originalName = withoutPrefix.slice(separatorIdx + 2);
+    const toolConfigs  = await loadToolConfigs(locationId);
+    const serverConfig = toolConfigs[MCP_PREFIX + serverSlug];
+    if (!serverConfig?.callEndpoint) throw new Error(`MCP server "${serverSlug}" not connected`);
+    return callMcpTool(serverConfig, originalName, input);
+  }
+
   const category = EXTERNAL_TOOL_CATEGORY[toolName];
   if (category) {
     const toolConfigs = await loadToolConfigs(locationId);
@@ -210,6 +237,26 @@ async function getToolConfig(locationId) {
 }
 
 /**
+ * Delete a single integration's config for a location.
+ */
+async function deleteToolConfig(locationId, category) {
+  if (config.isFirebaseEnabled) {
+    try { await firebaseStore.deleteToolConfig(locationId, category); } catch { /* non-fatal */ }
+  }
+  // Always update the cache to reflect the deletion
+  try {
+    const existing = await loadToolConfigs(locationId);
+    const updated  = { ...existing };
+    delete updated[category];
+    const ttl = config.isFirebaseEnabled ? undefined : 365 * 24 * 3600;
+    await toolTokenService.setCachedToolConfig(locationId, updated, ttl);
+    if (!config.isFirebaseEnabled) {
+      try { await Promise.resolve(tokenStore.saveToolConfig(locationId, updated)); } catch { /* non-fatal */ }
+    }
+  } catch { /* non-fatal */ }
+}
+
+/**
  * Save a single integration's config for a location.
  * Writes to Firebase (if enabled) or tokenStore, then updates Redis cache
  * with the full merged config so refreshStatus sees the change immediately.
@@ -240,5 +287,6 @@ module.exports = {
   loadToolConfigs,
   loadToolSharing,
   saveToolConfig,
+  deleteToolConfig,
   setIntegrationShared,
 };

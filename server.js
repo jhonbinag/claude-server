@@ -39,6 +39,7 @@ let integrationsRoutes;   try { integrationsRoutes   = require('./src/routes/int
 let betaLabRoutes;        try { betaLabRoutes        = require('./src/routes/betaLab');      } catch (e) { _errors.betaLab        = e.message; }
 let dashboardRoutes;      try { dashboardRoutes      = require('./src/routes/dashboard');    } catch (e) { _errors.dashboard      = e.message; }
 let reportingRoutes;      try { reportingRoutes      = require('./src/routes/reporting');    } catch (e) { _errors.reporting      = e.message; }
+let mcpClientRoutes;      try { mcpClientRoutes      = require('./src/routes/mcpClient');    } catch (e) { _errors.mcpClient      = e.message; }
 let uiRoute;              try { uiRoute              = require('./src/routes/ui');            } catch (e) { _errors.ui             = e.message; }
 
 // ── App setup ─────────────────────────────────────────────────────────────────
@@ -179,6 +180,7 @@ if (integrationsRoutes)   app.use('/integrations',   integrationsRoutes);
 if (betaLabRoutes)        app.use('/beta',            betaLabRoutes);
 if (dashboardRoutes)      app.use('/dashboard',       dashboardRoutes);
 if (reportingRoutes)      app.use('/rpt',             reportingRoutes);
+if (mcpClientRoutes)      app.use('/mcp-client',      mcpClientRoutes);
 if (uiRoute)              app.use('/',               uiRoute);
 
 // ── 404 / error ───────────────────────────────────────────────────────────────

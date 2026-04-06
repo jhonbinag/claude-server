@@ -61,6 +61,12 @@ export default function Settings() {
   const [settingsTab,  setSettingsTab]  = useState('integrations');
   const [manualLocId,  setManualLocId]  = useState('');
 
+  // MCP server state
+  const [mcpServers,    setMcpServers]    = useState([]);
+  const [mcpForm,       setMcpForm]       = useState({ name: '', url: '' });
+  const [mcpConnecting, setMcpConnecting] = useState(false);
+  const [mcpExpanded,   setMcpExpanded]   = useState({});
+
   // AI key state (multi-provider)
   const [aiKey,        setAiKey]        = useState('');
   const [aiKeySaving,  setAiKeySaving]  = useState(false);
@@ -97,6 +103,14 @@ export default function Settings() {
     setExpanded(prev => ({ ...initial, ...prev }));
   }, [integrations]);
 
+  // Load connected MCP servers
+  useEffect(() => {
+    if (!apiKey) return;
+    api.getWithKey('/mcp-client/servers', apiKey)
+      .then(d => { if (d.success) setMcpServers(d.servers || []); })
+      .catch(() => {});
+  }, [apiKey]);
+
   if (isAuthLoading)    return <Spinner />;
   if (!isAuthenticated) return <AuthGate icon="⚙️" title="GTM Integration Hub" subtitle="Connect your API keys to sync all tools" />;
 
@@ -124,6 +138,54 @@ export default function Settings() {
   const showPaymentHub = visiblePaymentProviders.length > 0;
 
   const showToast = (msg, ok) => ok ? toast.success(msg) : toast.error(msg);
+
+  // ── MCP server handlers ────────────────────────────────────────────────────
+
+  async function connectMcpServer() {
+    if (!mcpForm.name.trim()) { toast.error('Server name is required.'); return; }
+    if (!mcpForm.url.trim())  { toast.error('Server URL is required.'); return; }
+    setMcpConnecting(true);
+    try {
+      const d = await api.postWithKey('/mcp-client/servers', { name: mcpForm.name.trim(), url: mcpForm.url.trim() }, apiKey);
+      if (d.success) {
+        toast.success(`Connected "${d.name}" — ${d.toolCount} tool${d.toolCount !== 1 ? 's' : ''} available`);
+        setMcpServers(prev => [...prev.filter(s => s.slug !== d.slug), {
+          slug: d.slug, name: d.name, url: mcpForm.url.trim(), transport: d.transport,
+          toolCount: d.toolCount, tools: d.tools, connectedAt: new Date().toISOString(),
+        }]);
+        setMcpForm({ name: '', url: '' });
+      } else {
+        toast.error(d.error || 'Connection failed.');
+      }
+    } catch (err) {
+      toast.error(err.message || 'Connection failed.');
+    }
+    setMcpConnecting(false);
+  }
+
+  async function disconnectMcpServer(slug, name) {
+    try {
+      await api.deleteWithKey(`/mcp-client/servers/${slug}`, apiKey);
+      setMcpServers(prev => prev.filter(s => s.slug !== slug));
+      toast.success(`"${name}" disconnected.`);
+    } catch (err) {
+      toast.error(err.message || 'Disconnect failed.');
+    }
+  }
+
+  async function refreshMcpServer(slug) {
+    try {
+      const d = await api.postWithKey(`/mcp-client/servers/${slug}/refresh`, {}, apiKey);
+      if (d.success) {
+        setMcpServers(prev => prev.map(s => s.slug === slug ? { ...s, toolCount: d.toolCount, tools: d.tools } : s));
+        toast.success(`Refreshed — ${d.toolCount} tool${d.toolCount !== 1 ? 's' : ''}`);
+      } else {
+        toast.error(d.error || 'Refresh failed.');
+      }
+    } catch (err) {
+      toast.error(err.message || 'Refresh failed.');
+    }
+  }
 
   // ── Field helpers ─────────────────────────────────────────────────────────
 
@@ -983,6 +1045,124 @@ export default function Settings() {
             );
           })}
         </div>
+        {/* ── MCP Servers ─────────────────────────────────────────────────── */}
+        <div className="mt-8">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-lg">🔌</span>
+            <h2 className="text-white font-bold text-base">MCP Servers</h2>
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc' }}>
+              Model Context Protocol
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mb-4">
+            Connect any MCP-compatible server by pasting its URL. Its tools become available to Claude exactly like built-in integrations.
+          </p>
+
+          {/* Add new server form */}
+          <div className="glass rounded-2xl p-5 mb-4" style={{ border: '1px solid rgba(99,102,241,0.2)' }}>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Add MCP Server</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Server Name</label>
+                <input
+                  value={mcpForm.name}
+                  onChange={e => setMcpForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder='e.g. "My Slack Tools"'
+                  className="field w-full text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Server URL</label>
+                <input
+                  value={mcpForm.url}
+                  onChange={e => setMcpForm(f => ({ ...f, url: e.target.value }))}
+                  placeholder="https://your-mcp-server.com"
+                  className="field w-full text-sm"
+                  onKeyDown={e => e.key === 'Enter' && connectMcpServer()}
+                />
+              </div>
+            </div>
+            <button
+              onClick={connectMcpServer}
+              disabled={mcpConnecting || !mcpForm.name.trim() || !mcpForm.url.trim()}
+              className="btn-primary px-5 py-2 text-sm"
+            >
+              {mcpConnecting ? '⏳ Connecting…' : '+ Connect Server'}
+            </button>
+          </div>
+
+          {/* Connected servers list */}
+          {mcpServers.length > 0 && (
+            <div className="space-y-3">
+              {mcpServers.map(server => (
+                <div key={server.slug} className="glass rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                  {/* Header row */}
+                  <div className="flex items-center gap-3 p-4">
+                    <div
+                      className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-base"
+                      style={{ background: 'rgba(99,102,241,0.15)' }}
+                    >🔌</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-white font-semibold text-sm">{server.name}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.15)', color: '#6ee7b7' }}>
+                          ● Connected
+                        </span>
+                        <span className="text-xs text-gray-500">{server.transport?.toUpperCase()}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className="text-xs text-gray-500 truncate max-w-xs">{server.url}</span>
+                        <span className="text-xs text-indigo-400">{server.toolCount} tool{server.toolCount !== 1 ? 's' : ''}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => setMcpExpanded(p => ({ ...p, [server.slug]: !p[server.slug] }))}
+                        className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded"
+                        style={{ background: 'rgba(255,255,255,0.05)' }}
+                      >
+                        {mcpExpanded[server.slug] ? '▲ Hide tools' : '▼ View tools'}
+                      </button>
+                      <button
+                        onClick={() => refreshMcpServer(server.slug)}
+                        className="text-xs text-gray-400 hover:text-indigo-400 px-2 py-1 rounded"
+                        style={{ background: 'rgba(255,255,255,0.05)' }}
+                        title="Re-discover tools"
+                      >↻</button>
+                      <button
+                        onClick={() => disconnectMcpServer(server.slug, server.name)}
+                        className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded"
+                        style={{ background: 'rgba(239,68,68,0.08)' }}
+                      >Disconnect</button>
+                    </div>
+                  </div>
+
+                  {/* Tool list (expandable) */}
+                  {mcpExpanded[server.slug] && server.tools?.length > 0 && (
+                    <div className="px-4 pb-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                      <p className="text-xs text-gray-500 mt-3 mb-2">Available tools — Claude can call these automatically:</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {server.tools.map(t => (
+                          <div key={t.name} className="rounded-lg px-3 py-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                            <p className="text-xs font-medium text-indigo-300">{t.originalName || t.name}</p>
+                            {t.description && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{t.description}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {mcpServers.length === 0 && (
+            <div className="rounded-xl px-4 py-3 text-xs text-gray-500" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+              No MCP servers connected yet. Paste any MCP server URL above to add its tools.
+            </div>
+          )}
+        </div>
+
         {!showSocialHub && !showPaymentHub && visibleStandardIntegrations.length === 0 && (
           <div className="card p-5 mt-4">
             <p className="text-sm text-white font-semibold mb-1">No tools shared by admin yet</p>
