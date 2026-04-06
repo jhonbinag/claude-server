@@ -235,14 +235,14 @@ const EXTERNAL_TOOL_DEFINITIONS = {
   clickup: [
     {
       name: 'clickup_get_tasks',
-      description: 'Fetch tasks from a ClickUp list or workspace. Use to check pending work, review task statuses, or find tasks related to a contact or deal.',
+      description: 'Fetch tasks from a ClickUp list or the whole workspace. Returns each task with its id, name, status, url, and listId. ALWAYS call this before clickup_update_task to get the correct taskId — never guess a task ID.',
       input_schema: {
         type: 'object',
         properties: {
-          listId:   { type: 'string', description: 'ClickUp list ID to fetch tasks from (optional — omit to search all accessible lists)' },
+          listId:   { type: 'string', description: 'ClickUp list ID to fetch tasks from. Omit to search across the whole workspace.' },
           status:   { type: 'string', description: 'Filter by status e.g. "open", "in progress", "complete" (optional)' },
           assignee: { type: 'string', description: 'Filter by assignee user ID (optional)' },
-          query:    { type: 'string', description: 'Search query to filter tasks by name/description (optional)' },
+          query:    { type: 'string', description: 'Search query to find tasks by name or description. Use this to look up a specific task before updating it.' },
           limit:    { type: 'number', description: 'Max tasks to return (default 20)' },
         },
         required: [],
@@ -250,11 +250,11 @@ const EXTERNAL_TOOL_DEFINITIONS = {
     },
     {
       name: 'clickup_create_task',
-      description: 'Create a new task in ClickUp. Use to log follow-up actions, create tasks from contact activities, or add items to a project list.',
+      description: 'Create a new task in ClickUp. First call clickup_get_lists to get a valid listId. Returns the new task id, name, url, and status.',
       input_schema: {
         type: 'object',
         properties: {
-          listId:      { type: 'string', description: 'ClickUp list ID to create the task in' },
+          listId:      { type: 'string', description: 'ClickUp list ID to create the task in — get this from clickup_get_lists' },
           name:        { type: 'string', description: 'Task name / title' },
           description: { type: 'string', description: 'Task description (markdown supported)' },
           status:      { type: 'string', description: 'Initial status (e.g. "open", "to do") — defaults to first available status' },
@@ -267,11 +267,11 @@ const EXTERNAL_TOOL_DEFINITIONS = {
     },
     {
       name: 'clickup_update_task',
-      description: 'Update an existing ClickUp task — change status, priority, assignee, or description.',
+      description: 'Update an existing ClickUp task by its taskId. ALWAYS call clickup_get_tasks first to find the correct taskId — do not guess. You can update status, priority, name, or description.',
       input_schema: {
         type: 'object',
         properties: {
-          taskId:      { type: 'string', description: 'ClickUp task ID' },
+          taskId:      { type: 'string', description: 'ClickUp task ID — get this from clickup_get_tasks results (the "id" field)' },
           name:        { type: 'string', description: 'New task name (optional)' },
           description: { type: 'string', description: 'New description (optional)' },
           status:      { type: 'string', description: 'New status (optional)' },
@@ -2187,27 +2187,39 @@ async function executeExternalTool(toolName, input, toolConfigs) {
     const { apiKey } = toolConfigs.clickup || {};
     if (!apiKey) throw new Error('ClickUp API key not configured.');
     const { listId, status, assignee, query, limit = 20 } = input;
+
+    const trimTask = t => ({
+      id:       t.id,
+      name:     t.name,
+      status:   t.status?.status || t.status,
+      priority: t.priority?.priority || t.priority,
+      url:      t.url,
+      listId:   t.list?.id,
+      listName: t.list?.name,
+      dueDate:  t.due_date ? new Date(Number(t.due_date)).toISOString().slice(0, 10) : null,
+      assignees: (t.assignees || []).map(a => ({ id: a.id, username: a.username })),
+    });
+
     if (!listId) {
-      // Search across workspace — requires a query
       const resp = await axios.get('https://api.clickup.com/api/v2/team', { headers: { Authorization: apiKey } });
       const teamId = resp.data?.teams?.[0]?.id;
       if (!teamId) return { success: false, error: 'No workspace found' };
       const params = { page: 0, order_by: 'updated', reverse: true, subtasks: true, include_closed: false };
-      if (query) params.search = query;
-      if (status) params.statuses = [status];
+      if (query)    params.search    = query;
+      if (status)   params.statuses  = [status];
       if (assignee) params.assignees = [assignee];
       const tasksResp = await axios.get(`https://api.clickup.com/api/v2/team/${teamId}/task`, {
         headers: { Authorization: apiKey }, params,
       });
-      return { success: true, tasks: (tasksResp.data?.tasks || []).slice(0, limit) };
+      return { success: true, tasks: (tasksResp.data?.tasks || []).slice(0, limit).map(trimTask) };
     }
     const params = { page: 0, order_by: 'updated', reverse: true, subtasks: true, include_closed: false };
-    if (status) params.statuses = [status];
+    if (status)   params.statuses  = [status];
     if (assignee) params.assignees = [assignee];
     const resp = await axios.get(`https://api.clickup.com/api/v2/list/${listId}/task`, {
       headers: { Authorization: apiKey }, params,
     });
-    return { success: true, tasks: (resp.data?.tasks || []).slice(0, limit) };
+    return { success: true, tasks: (resp.data?.tasks || []).slice(0, limit).map(trimTask) };
   }
 
   if (toolName === 'clickup_create_task') {
