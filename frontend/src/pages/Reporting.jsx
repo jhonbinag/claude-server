@@ -1959,6 +1959,157 @@ function IntegrationCard({ card, locationId }) {
   );
 }
 
+// ── ClickUp Task Picker Modal ─────────────────────────────────────────────────
+
+function TaskPickerModal({ locationId, onSelect, onClose }) {
+  const h = { 'x-location-id': locationId };
+  const [spaces,      setSpaces]      = useState([]);
+  const [selectedList, setSelectedList] = useState('');
+  const [tasks,       setTasks]       = useState([]);
+  const [query,       setQuery]       = useState('');
+  const [loading,     setLoading]     = useState(false);
+  const [listsLoading, setListsLoading] = useState(true);
+  const [error,       setError]       = useState('');
+
+  // Load lists on mount
+  useEffect(() => {
+    setListsLoading(true);
+    fetch('/rpt/clickup/lists', { headers: h })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) setSpaces(d.spaces || []);
+        else setError(d.error || 'Failed to load lists.');
+      })
+      .catch(() => setError('Could not reach server.'))
+      .finally(() => setListsLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load tasks when list changes or search is triggered
+  useEffect(() => {
+    if (!selectedList && !query) { setTasks([]); return; }
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (selectedList) params.set('listId', selectedList);
+    if (query.trim()) params.set('query', query.trim());
+    fetch(`/rpt/clickup/tasks?${params}`, { headers: h })
+      .then(r => r.json())
+      .then(d => { if (d.success) setTasks(d.tasks || []); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [selectedList]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleSearch(e) {
+    if (e.key !== 'Enter') return;
+    if (!query.trim()) return;
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (selectedList) params.set('listId', selectedList);
+    params.set('query', query.trim());
+    fetch(`/rpt/clickup/tasks?${params}`, { headers: h })
+      .then(r => r.json())
+      .then(d => { if (d.success) setTasks(d.tasks || []); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }
+
+  const allLists = spaces.flatMap(s => s.lists.map(l => ({ ...l, spaceName: s.spaceName })));
+
+  const statusColor = (status) => {
+    if (!status) return C.muted;
+    const s = status.toLowerCase();
+    if (s.includes('done') || s.includes('complete') || s.includes('closed')) return C.green;
+    if (s.includes('progress') || s.includes('active') || s.includes('open')) return C.accent;
+    return C.amber;
+  };
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, width: '100%', maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Header */}
+        <div style={{ padding: '18px 20px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>✅ Pick a ClickUp Task</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Select a task to use as context for your command</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.border}`, borderRadius: 8, color: C.muted, cursor: 'pointer', fontSize: 16, padding: '4px 10px' }}>✕</button>
+        </div>
+
+        {/* Filters */}
+        <div style={{ padding: '12px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 10, flexShrink: 0 }}>
+          <select
+            value={selectedList}
+            onChange={e => setSelectedList(e.target.value)}
+            style={{ ...S.input, flex: 1, fontSize: 12 }}
+            disabled={listsLoading}
+          >
+            <option value="">— All lists (search below) —</option>
+            {allLists.map(l => (
+              <option key={l.id} value={l.id}>{l.spaceName} › {l.name}</option>
+            ))}
+          </select>
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={handleSearch}
+            placeholder="Search tasks… (Enter)"
+            style={{ ...S.input, flex: 1, fontSize: 12 }}
+          />
+        </div>
+
+        {/* Task list */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
+          {error && (
+            <div style={{ padding: '12px', color: '#f87171', fontSize: 13 }}>{error}</div>
+          )}
+          {listsLoading && (
+            <div style={{ padding: '20px', textAlign: 'center', color: C.muted, fontSize: 13 }}>Loading lists…</div>
+          )}
+          {!listsLoading && !loading && tasks.length === 0 && !error && (
+            <div style={{ padding: '20px', textAlign: 'center', color: C.muted, fontSize: 13 }}>
+              {selectedList || query ? 'No tasks found.' : 'Select a list or search to browse tasks.'}
+            </div>
+          )}
+          {loading && (
+            <div style={{ padding: '20px', textAlign: 'center', color: C.muted, fontSize: 13 }}>Loading tasks…</div>
+          )}
+          {!loading && tasks.map(task => (
+            <div
+              key={task.id}
+              onClick={() => onSelect(task)}
+              style={{
+                padding: '10px 12px', borderRadius: 10, marginBottom: 6, cursor: 'pointer',
+                background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`,
+                transition: 'all .12s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = C.accentBg; e.currentTarget.style.borderColor = C.accentBdr; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = C.border; }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
+                    {task.listName && <span style={{ marginRight: 8 }}>📂 {task.listName}</span>}
+                    {task.dueDate && <span style={{ marginRight: 8 }}>📅 {task.dueDate}</span>}
+                    <span style={{ fontFamily: 'monospace', color: C.dim }}>ID: {task.id}</span>
+                  </div>
+                </div>
+                {task.status && (
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: 'rgba(255,255,255,0.06)', color: statusColor(task.status), border: `1px solid ${statusColor(task.status)}33`, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                    {task.status}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Officer View ─────────────────────────────────────────────────────────────
 
 const QUICK_ACTIONS = [
@@ -2003,6 +2154,8 @@ function OfficerView({ locationId }) {
   const [running,     setRunning]     = useState(false);
   const [output,      setOutput]      = useState([]);
   const [activeBtn,   setActiveBtn]   = useState(null);
+  const [pickerOpen,  setPickerOpen]  = useState(false);
+  const [pinnedTask,  setPinnedTask]  = useState(null); // { id, name, status, listName }
 
   // Check integration status
   useEffect(() => {
@@ -2104,7 +2257,10 @@ function OfficerView({ locationId }) {
     const t = command.trim();
     if (!t) return;
     setCommand('');
-    runTask(t);
+    const taskCtx = pinnedTask
+      ? `\n\n[Pinned ClickUp Task]\nName: "${pinnedTask.name}"\nID: ${pinnedTask.id}\nStatus: ${pinnedTask.status || 'unknown'}${pinnedTask.listName ? `\nList: ${pinnedTask.listName}` : ''}\nUse taskId "${pinnedTask.id}" when calling clickup_update_task.`
+      : '';
+    runTask(t + taskCtx);
   }
 
   const StatusBadge = ({ ok, label, icon }) => (
@@ -2204,13 +2360,35 @@ function OfficerView({ locationId }) {
 
       {/* Free-text command */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Custom Command</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Custom Command</div>
+          {clickupOk && (
+            <button
+              onClick={() => setPickerOpen(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 12px', borderRadius: 8, background: 'rgba(99,102,241,0.1)', border: `1px solid ${C.accentBdr}`, color: '#a5b4fc', cursor: 'pointer' }}
+            >
+              ✅ Pick Task
+            </button>
+          )}
+        </div>
+
+        {/* Pinned task chip */}
+        {pinnedTask && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '7px 12px', background: 'rgba(99,102,241,0.08)', border: `1px solid ${C.accentBdr}`, borderRadius: 8 }}>
+            <span style={{ fontSize: 12, color: '#a5b4fc', fontWeight: 600, flexShrink: 0 }}>📌 Task:</span>
+            <span style={{ fontSize: 12, color: C.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pinnedTask.name}</span>
+            {pinnedTask.status && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: C.muted, flexShrink: 0 }}>{pinnedTask.status}</span>}
+            <span style={{ fontSize: 10, color: C.dim, fontFamily: 'monospace', flexShrink: 0 }}>{pinnedTask.id}</span>
+            <button onClick={() => setPinnedTask(null)} style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontSize: 14, padding: '0 2px', flexShrink: 0 }}>✕</button>
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 10 }}>
           <input
             value={command}
             onChange={e => setCommand(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleCustomCommand()}
-            placeholder="e.g. Post a weekly pipeline summary to Slack and create a review task in ClickUp…"
+            placeholder={pinnedTask ? `e.g. Update this task status to "done"…` : 'e.g. Post a weekly pipeline summary to Slack and create a review task in ClickUp…'}
             disabled={!canRun}
             style={{ ...S.input, flex: 1, fontSize: 13, opacity: !canRun ? 0.4 : 1 }}
           />
@@ -2289,6 +2467,15 @@ function OfficerView({ locationId }) {
             )}
           </div>
         </div>
+      )}
+
+      {/* Task picker modal */}
+      {pickerOpen && (
+        <TaskPickerModal
+          locationId={locationId}
+          onSelect={task => { setPinnedTask(task); setPickerOpen(false); }}
+          onClose={() => setPickerOpen(false)}
+        />
       )}
     </div>
   );

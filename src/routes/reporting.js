@@ -11,6 +11,7 @@
  */
 
 const express       = require('express');
+const axios         = require('axios');
 const router        = express.Router();
 const authenticate  = require('../middleware/authenticate');
 const toolRegistry  = require('../tools/toolRegistry');
@@ -655,6 +656,79 @@ router.delete('/integrations/:category', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── ClickUp task picker endpoints ────────────────────────────────────────────
+
+async function getClickupKey(locationId) {
+  const configs = await toolRegistry.loadToolConfigs(locationId);
+  const key = configs.clickup?.apiKey;
+  if (!key) throw new Error('ClickUp not connected. Add your API key in Integrations.');
+  return key;
+}
+
+// GET /rpt/clickup/lists — returns all spaces + lists tree
+router.get('/clickup/lists', async (req, res) => {
+  try {
+    const apiKey = await getClickupKey(req.locationId);
+    const teamsResp = await axios.get('https://api.clickup.com/api/v2/team', { headers: { Authorization: apiKey } });
+    const teams = teamsResp.data?.teams || [];
+    const result = [];
+    for (const team of teams) {
+      const spacesResp = await axios.get(`https://api.clickup.com/api/v2/team/${team.id}/space?archived=false`, { headers: { Authorization: apiKey } });
+      for (const space of spacesResp.data?.spaces || []) {
+        const lists = [];
+        // Folderless lists
+        const flResp = await axios.get(`https://api.clickup.com/api/v2/space/${space.id}/list?archived=false`, { headers: { Authorization: apiKey } });
+        for (const l of flResp.data?.lists || []) lists.push({ id: l.id, name: l.name, taskCount: l.task_count });
+        // Lists inside folders
+        const foldersResp = await axios.get(`https://api.clickup.com/api/v2/space/${space.id}/folder?archived=false`, { headers: { Authorization: apiKey } });
+        for (const folder of foldersResp.data?.folders || []) {
+          const listsResp = await axios.get(`https://api.clickup.com/api/v2/folder/${folder.id}/list?archived=false`, { headers: { Authorization: apiKey } });
+          for (const l of listsResp.data?.lists || []) lists.push({ id: l.id, name: `${folder.name} / ${l.name}`, taskCount: l.task_count });
+        }
+        result.push({ spaceId: space.id, spaceName: space.name, lists });
+      }
+    }
+    res.json({ success: true, spaces: result });
+  } catch (err) {
+    res.status(err.message.includes('not connected') ? 400 : 502).json({ success: false, error: err.message });
+  }
+});
+
+// GET /rpt/clickup/tasks?listId=xxx&query=foo — returns tasks from a list or workspace search
+router.get('/clickup/tasks', async (req, res) => {
+  try {
+    const apiKey = await getClickupKey(req.locationId);
+    const { listId, query, status, limit = 50 } = req.query;
+    const trimTask = t => ({
+      id:       t.id,
+      name:     t.name,
+      status:   t.status?.status || t.status,
+      priority: t.priority?.priority,
+      url:      t.url,
+      listId:   t.list?.id,
+      listName: t.list?.name,
+      dueDate:  t.due_date ? new Date(Number(t.due_date)).toISOString().slice(0, 10) : null,
+    });
+    if (listId) {
+      const params = { page: 0, order_by: 'updated', reverse: true, subtasks: true, include_closed: false };
+      if (status) params.statuses = [status];
+      const resp = await axios.get(`https://api.clickup.com/api/v2/list/${listId}/task`, { headers: { Authorization: apiKey }, params });
+      return res.json({ success: true, tasks: (resp.data?.tasks || []).slice(0, limit).map(trimTask) });
+    }
+    // Workspace-level search
+    const teamsResp = await axios.get('https://api.clickup.com/api/v2/team', { headers: { Authorization: apiKey } });
+    const teamId = teamsResp.data?.teams?.[0]?.id;
+    if (!teamId) return res.json({ success: true, tasks: [] });
+    const params = { page: 0, order_by: 'updated', reverse: true, subtasks: true, include_closed: false };
+    if (query)  params.search   = query;
+    if (status) params.statuses = [status];
+    const resp = await axios.get(`https://api.clickup.com/api/v2/team/${teamId}/task`, { headers: { Authorization: apiKey }, params });
+    res.json({ success: true, tasks: (resp.data?.tasks || []).slice(0, limit).map(trimTask) });
+  } catch (err) {
+    res.status(err.message.includes('not connected') ? 400 : 502).json({ success: false, error: err.message });
   }
 });
 
