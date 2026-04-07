@@ -603,7 +603,7 @@ router.put('/conversations/:id/read', async (req, res) => {
 // The Reporting page is admin-level; users connecting their own Slack/ClickUp
 // shouldn't need the location-level sharing flag set by an admin.
 
-const ALLOWED_RPT_INTEGRATIONS = ['slack', 'clickup'];
+const ALLOWED_RPT_INTEGRATIONS = ['slack', 'clickup', 'anthropic'];
 
 function maskValue(v) {
   if (!v || typeof v !== 'string') return v;

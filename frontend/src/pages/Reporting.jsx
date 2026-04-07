@@ -1801,6 +1801,17 @@ const INTEGRATION_CARDS = [
     howTo: 'In ClickUp go to Settings (bottom-left avatar) → Apps → API Token → Generate → copy the token',
     tools: ['Get tasks', 'Create tasks', 'Update tasks', 'List all spaces & lists'],
   },
+  {
+    key:         'anthropic',
+    label:       'Claude AI',
+    icon:        '🤖',
+    description: 'Required for the Reporting Officer to run AI-powered commands and summaries.',
+    fields: [
+      { key: 'apiKey', label: 'Anthropic API Key', type: 'password', placeholder: 'sk-ant-...' },
+    ],
+    howTo: 'Go to console.anthropic.com → API Keys → Create Key → copy the key starting with sk-ant-',
+    tools: ['Power the Officer AI commands', 'Generate summaries', 'Execute reporting tasks'],
+  },
 ];
 
 function IntegrationCard({ card, locationId }) {
@@ -1983,19 +1994,21 @@ const QUICK_ACTIONS = [
 function OfficerView({ locationId }) {
   const h = { 'x-location-id': locationId };
 
-  const [slackOk,   setSlackOk]   = useState(null);   // null=loading, true/false
-  const [clickupOk, setClickupOk] = useState(null);
-  const [snap,      setSnap]      = useState(null);    // dashboard data summary string
-  const [snapLoad,  setSnapLoad]  = useState(false);
-  const [command,   setCommand]   = useState('');
-  const [running,   setRunning]   = useState(false);
-  const [output,    setOutput]    = useState([]);      // [{type,text}]
-  const [activeBtn, setActiveBtn] = useState(null);
+  const [slackOk,     setSlackOk]     = useState(null);
+  const [clickupOk,   setClickupOk]   = useState(null);
+  const [anthropicOk, setAnthropicOk] = useState(null);
+  const [snap,        setSnap]        = useState(null);
+  const [snapLoad,    setSnapLoad]    = useState(false);
+  const [command,     setCommand]     = useState('');
+  const [running,     setRunning]     = useState(false);
+  const [output,      setOutput]      = useState([]);
+  const [activeBtn,   setActiveBtn]   = useState(null);
 
   // Check integration status
   useEffect(() => {
-    fetch('/rpt/integrations/slack',   { headers: h }).then(r => r.json()).then(d => setSlackOk(d.connected || false)).catch(() => setSlackOk(false));
-    fetch('/rpt/integrations/clickup', { headers: h }).then(r => r.json()).then(d => setClickupOk(d.connected || false)).catch(() => setClickupOk(false));
+    fetch('/rpt/integrations/slack',     { headers: h }).then(r => r.json()).then(d => setSlackOk(d.connected || false)).catch(() => setSlackOk(false));
+    fetch('/rpt/integrations/clickup',   { headers: h }).then(r => r.json()).then(d => setClickupOk(d.connected || false)).catch(() => setClickupOk(false));
+    fetch('/rpt/integrations/anthropic', { headers: h }).then(r => r.json()).then(d => setAnthropicOk(d.connected || false)).catch(() => setAnthropicOk(false));
   }, [locationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch dashboard snapshot on mount
@@ -2079,8 +2092,10 @@ function OfficerView({ locationId }) {
     setActiveBtn(null);
   }
 
+  const canRun = anthropicOk && !running;
+
   function handleQuickAction(action) {
-    if (!snap) return;
+    if (!snap || !canRun) return;
     setActiveBtn(action.key);
     runTask(action.task(snap));
   }
@@ -2120,10 +2135,11 @@ function OfficerView({ locationId }) {
       </div>
 
       {/* Integration status */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>
-        <StatusBadge ok={slackOk}   label="Slack"   icon="💬" />
-        <StatusBadge ok={clickupOk} label="ClickUp" icon="✅" />
-        {(!slackOk || !clickupOk) && (
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: anthropicOk === false ? 12 : 24 }}>
+        <StatusBadge ok={anthropicOk} label="Claude AI" icon="🤖" />
+        <StatusBadge ok={slackOk}     label="Slack"     icon="💬" />
+        <StatusBadge ok={clickupOk}   label="ClickUp"   icon="✅" />
+        {(!slackOk || !clickupOk || !anthropicOk) && (
           <a
             href="/reporting/integrations"
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, background: C.accentBg, border: `1px solid ${C.accentBdr}`, color: '#a5b4fc', fontSize: 12, textDecoration: 'none' }}
@@ -2132,6 +2148,13 @@ function OfficerView({ locationId }) {
           </a>
         )}
       </div>
+
+      {/* Blocking warning if no AI key */}
+      {anthropicOk === false && (
+        <div style={{ marginBottom: 20, padding: '12px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, fontSize: 13, color: '#f87171' }}>
+          ⚠ Claude AI key not configured. Go to <a href="/reporting/integrations" style={{ color: '#f87171', fontWeight: 600 }}>Integrations</a> and add your Anthropic API key to enable Officer commands.
+        </div>
+      )}
 
       {/* GHL Snapshot */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
@@ -2158,18 +2181,18 @@ function OfficerView({ locationId }) {
           {QUICK_ACTIONS.map(action => (
             <button
               key={action.key}
-              disabled={running || !snap}
+              disabled={!canRun || !snap}
               onClick={() => handleQuickAction(action)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 8,
-                padding: '10px 18px', borderRadius: 10, cursor: running || !snap ? 'not-allowed' : 'pointer',
+                padding: '10px 18px', borderRadius: 10, cursor: !canRun || !snap ? 'not-allowed' : 'pointer',
                 background: activeBtn === action.key ? action.bg : 'rgba(255,255,255,0.04)',
                 border: `1px solid ${activeBtn === action.key ? action.bdr : C.border}`,
                 color: activeBtn === action.key ? action.color : C.text,
                 fontSize: 13, fontWeight: 600, transition: 'all .15s',
-                opacity: running && activeBtn !== action.key ? 0.5 : 1,
+                opacity: !canRun && activeBtn !== action.key ? 0.4 : 1,
               }}
-              onMouseEnter={e => { if (!running && snap) { e.currentTarget.style.background = action.bg; e.currentTarget.style.borderColor = action.bdr; e.currentTarget.style.color = action.color; } }}
+              onMouseEnter={e => { if (canRun && snap) { e.currentTarget.style.background = action.bg; e.currentTarget.style.borderColor = action.bdr; e.currentTarget.style.color = action.color; } }}
               onMouseLeave={e => { if (activeBtn !== action.key) { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.text; } }}
             >
               <span>{action.icon}</span>
@@ -2188,13 +2211,13 @@ function OfficerView({ locationId }) {
             onChange={e => setCommand(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleCustomCommand()}
             placeholder="e.g. Post a weekly pipeline summary to Slack and create a review task in ClickUp…"
-            disabled={running}
-            style={{ ...S.input, flex: 1, fontSize: 13, opacity: running ? 0.6 : 1 }}
+            disabled={!canRun}
+            style={{ ...S.input, flex: 1, fontSize: 13, opacity: !canRun ? 0.4 : 1 }}
           />
           <button
             onClick={handleCustomCommand}
-            disabled={running || !command.trim()}
-            style={{ ...S.btn, flexShrink: 0, opacity: running || !command.trim() ? 0.5 : 1, cursor: running || !command.trim() ? 'not-allowed' : 'pointer' }}
+            disabled={!canRun || !command.trim()}
+            style={{ ...S.btn, flexShrink: 0, opacity: !canRun || !command.trim() ? 0.5 : 1, cursor: !canRun || !command.trim() ? 'not-allowed' : 'pointer' }}
           >
             {running ? 'Running…' : 'Run →'}
           </button>

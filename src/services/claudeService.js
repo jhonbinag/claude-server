@@ -23,11 +23,10 @@ const activityLogger = require('./activityLogger');
 
 const MAX_TURNS = 40; // safety ceiling on tool-call iterations (complex campaigns need more turns)
 
-// Create a per-location Anthropic client using the key stored in Redis/Firebase,
-// falling back to the server-level ANTHROPIC_API_KEY env var.
+// Create a per-location Anthropic client using the key stored in Upstash/Firebase.
 async function getClientForLocation(locationId) {
   const configs = await toolRegistry.loadToolConfigs(locationId);
-  const apiKey  = configs.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY;
+  const apiKey  = configs.anthropic?.apiKey;
   if (!apiKey) {
     throw new Error('Anthropic API key not configured. Go to Settings → Integrations → Claude AI to add your key.');
   }
@@ -732,10 +731,9 @@ async function runTask(options) {
   let configs = {};
   try { configs = await toolRegistry.loadToolConfigs(locationId); } catch (_) {}
 
-  // Build ordered list of all configured providers.
-  // Per-location keys take priority; server-level ANTHROPIC_API_KEY is the fallback.
+  // Build ordered list of all configured providers (all keys stored in Upstash/Firebase).
   const candidates = [];
-  if (configs.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY) candidates.push({ provider: 'anthropic' });
+  if (configs.anthropic?.apiKey) candidates.push({ provider: 'anthropic' });
   if (configs.openai?.apiKey)    candidates.push({ provider: 'openai' });
   if (configs.groq?.apiKey)      candidates.push({ provider: 'groq' });
   if (configs.google?.apiKey)    candidates.push({ provider: 'google' });
