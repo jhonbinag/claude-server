@@ -1743,25 +1743,12 @@ Available GHL contact merge tags: {{contact.firstName}}, {{contact.lastName}}, {
 router.post('/workflow-gen/generate', async (req, res) => {
   const { prompt, locationId } = req.body;
   if (!prompt?.trim()) return res.status(400).json({ success: false, error: 'prompt is required.' });
+  if (!locationId)     return res.status(400).json({ success: false, error: 'locationId is required.' });
 
-  try {
-    // Get API key from location configs or server env
-    let apiKey = process.env.ANTHROPIC_API_KEY;
-    if (locationId) {
-      try {
-        const configs = await toolRegistry.loadToolConfigs(locationId);
-        if (configs.anthropic?.apiKey) apiKey = configs.anthropic.apiKey;
-      } catch { /* use env fallback */ }
-    }
-    if (!apiKey) return res.status(400).json({ success: false, error: 'No Anthropic API key found. Add one in Settings → Integrations.' });
+  const aiService = require('../services/aiService');
 
-    const client = new Anthropic({ apiKey });
-    const message = await client.messages.create({
-      model: 'claude-opus-4-6',
-      max_tokens: 4096,
-      messages: [{
-        role: 'user',
-        content: `You are a GHL (GoHighLevel) workflow automation expert. Generate a complete, valid GHL workflow JSON based on this request:
+  const systemPrompt = 'You are a GHL (GoHighLevel) workflow automation expert. Return ONLY valid JSON — no markdown, no explanation, just the raw JSON object.';
+  const userPrompt   = `Generate a complete, valid GHL workflow JSON based on this request:
 
 "${prompt.trim()}"
 
@@ -1774,19 +1761,17 @@ Rules:
 - Infer sensible defaults for anything not specified
 - Return ONLY valid JSON — no markdown, no explanation, just the raw JSON object
 
-Return the workflow JSON now:`,
-      }],
-    });
+Return the workflow JSON now:`;
 
-    const raw = message.content[0]?.text || '';
-    // Strip markdown code fences if present
+  try {
+    const raw     = await aiService.generateForLocation(locationId, systemPrompt, userPrompt, { maxTokens: 4096 });
     const jsonStr = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
 
     let workflow;
     try {
       workflow = JSON.parse(jsonStr);
     } catch {
-      return res.status(422).json({ success: false, error: 'Claude returned invalid JSON. Try rephrasing your prompt.', raw: jsonStr.slice(0, 500) });
+      return res.status(422).json({ success: false, error: 'AI returned invalid JSON. Try rephrasing your prompt.', raw: jsonStr.slice(0, 500) });
     }
 
     res.json({ success: true, workflow });
