@@ -1854,13 +1854,15 @@ router.post('/workflow-gen/create', async (req, res) => {
     };
 
     console.log(`[workflow-gen/create] POSTing to GHL workflow API for location ${locationId}...`);
+    console.log(`[workflow-gen/create] PAYLOAD:`, JSON.stringify(workflow));
     const response = await axios.post(
       `https://backend.leadconnectorhq.com/workflow/${locationId}`,
       workflow,
       { headers, validateStatus: () => true },
     );
 
-    console.log(`[workflow-gen/create] GHL response status=${response.status} data=${JSON.stringify(response.data).slice(0, 200)}`);
+    console.log(`[workflow-gen/create] GHL response status=${response.status}`);
+    console.log(`[workflow-gen/create] GHL response FULL:`, JSON.stringify(response.data));
     if (response.status >= 400) {
       return res.status(response.status).json({
         success: false,
