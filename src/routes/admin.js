@@ -18,6 +18,7 @@
 
 const express          = require('express');
 const axios            = require('axios');
+const https            = require('https');
 const router           = express.Router();
 const adminAuth        = require('../middleware/adminAuth');
 const locationRegistry = require('../services/locationRegistry');
@@ -1798,26 +1799,62 @@ Return the workflow JSON now:`,
 });
 
 router.post('/workflow-gen/create', async (req, res) => {
-  const { workflow, locationId, ghlToken } = req.body;
+  const { workflow, locationId } = req.body;
   if (!workflow || !locationId) return res.status(400).json({ success: false, error: 'workflow and locationId are required.' });
-  if (!ghlToken) return res.status(400).json({ success: false, error: 'ghlToken (token-id) is required. Copy it from your browser\'s network inspector.' });
 
   try {
+    // Step 1: Get Firebase idToken the same way the Funnel Builder does —
+    // use the stored GHL OAuth access token to exchange for a Firebase token.
+    const ghlFirebaseService = require('../services/ghlFirebaseService');
+    const ghlClient          = require('../services/ghlClient');
+    const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+
+    let idToken;
+    try {
+      // Try stored Firebase token first (already exchanged)
+      idToken = await ghlFirebaseService.getFirebaseToken(locationId);
+    } catch {
+      // Not connected yet — auto-connect using the GHL OAuth token
+      const accessToken = await ghlClient.getValidAccessToken(locationId);
+      // Probe GHL backend for a custom token (same as /funnel-builder/auto-connect)
+      const candidates = [
+        `/user/firebase-custom-token?locationId=${encodeURIComponent(locationId)}`,
+        `/user/customToken?locationId=${encodeURIComponent(locationId)}`,
+      ];
+      let customToken = null;
+      for (const path of candidates) {
+        try {
+          const r = await new Promise((resolve, reject) => {
+            const body = '';
+            const req2 = https.request({ hostname: 'backend.leadconnectorhq.com', path, method: 'GET',
+              headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', channel: 'APP', source: 'WEB_USER', version: '2021-07-28' } },
+              (resp) => { let d = ''; resp.on('data', c => d += c); resp.on('end', () => resolve({ status: resp.statusCode, data: d })); });
+            req2.on('error', reject); req2.end();
+          });
+          if (r.status < 400) {
+            const parsed = JSON.parse(r.data);
+            customToken = parsed.token || parsed.customToken || parsed.firebaseToken;
+            if (customToken) break;
+          }
+        } catch { /* try next */ }
+      }
+      if (!customToken) return res.status(400).json({ success: false, error: 'Could not get Firebase token. Make sure GHL OAuth is connected for this location.' });
+      const record = await ghlFirebaseService.connectFirebase(locationId, customToken);
+      idToken = record.idToken || await ghlFirebaseService.getFirebaseToken(locationId);
+    }
+
+    // Step 2: POST workflow to GHL internal API using the Firebase idToken as token-id
+    const headers = {
+      ...buildBackendHeaders(idToken),
+      'accept':   'application/json, text/plain, */*',
+      'origin':   'https://client-app-automation-workflows.leadconnectorhq.com',
+      'referer':  'https://client-app-automation-workflows.leadconnectorhq.com/',
+    };
+
     const response = await axios.post(
       `https://backend.leadconnectorhq.com/workflow/${locationId}`,
       workflow,
-      {
-        headers: {
-          'Content-Type':  'application/json',
-          'channel':       'APP',
-          'token-id':      ghlToken,
-          'accept':        'application/json, text/plain, */*',
-          'origin':        'https://client-app-automation-workflows.leadconnectorhq.com',
-          'referer':       'https://client-app-automation-workflows.leadconnectorhq.com/',
-          'user-agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-        validateStatus: () => true, // don't throw on 4xx/5xx
-      },
+      { headers, validateStatus: () => true },
     );
 
     if (response.status >= 400) {

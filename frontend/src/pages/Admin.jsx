@@ -1698,7 +1698,6 @@ const EXAMPLE_PROMPTS = [
 function WorkflowGenTab({ adminKey, locations }) {
   const [prompt,      setPrompt]      = useState('');
   const [locationId,  setLocationId]  = useState('');
-  const [ghlToken,    setGhlToken]    = useState('');
   const [generating,  setGenerating]  = useState(false);
   const [creating,    setCreating]    = useState(false);
   const [workflow,    setWorkflow]    = useState(null);
@@ -1706,7 +1705,6 @@ function WorkflowGenTab({ adminKey, locations }) {
   const [jsonError,   setJsonError]   = useState('');
   const [result,      setResult]      = useState(null);
   const [error,       setError]       = useState('');
-  const [showToken,   setShowToken]   = useState(false);
   const [viewMode,    setViewMode]    = useState('visual'); // 'visual' | 'json'
 
   const h = { 'x-admin-key': adminKey, 'Content-Type': 'application/json' };
@@ -1728,7 +1726,7 @@ function WorkflowGenTab({ adminKey, locations }) {
   }
 
   async function create() {
-    if (!workflow || !locationId || !ghlToken.trim()) return;
+    if (!workflow || !locationId) return;
     setCreating(true); setError(''); setResult(null);
     try {
       // Use the (possibly hand-edited) JSON
@@ -1738,7 +1736,7 @@ function WorkflowGenTab({ adminKey, locations }) {
       }
       const res = await fetch('/admin/workflow-gen/create', {
         method: 'POST', headers: h,
-        body: JSON.stringify({ workflow: wf, locationId, ghlToken: ghlToken.trim() }),
+        body: JSON.stringify({ workflow: wf, locationId }),
       });
       const d = await res.json();
       if (!d.success) { setError(d.error + (d.detail ? ': ' + d.detail : '')); return; }
@@ -1915,34 +1913,14 @@ function WorkflowGenTab({ adminKey, locations }) {
             </select>
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-            <label style={sty.label}>
-              GHL token-id <span style={{ color: '#ef4444' }}>*</span>
-              <span style={{ marginLeft: 8, fontSize: 10, color: '#6b7280', textTransform: 'none', fontWeight: 400 }}>
-                From browser DevTools → Network → any /workflow/ request → token-id header
-              </span>
-            </label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                type={showToken ? 'text' : 'password'}
-                value={ghlToken}
-                onChange={e => setGhlToken(e.target.value)}
-                placeholder="eyJhbGciOiJSUzI1NiIs..."
-                style={{ ...sty.input, flex: 1, fontFamily: ghlToken ? 'monospace' : 'inherit', fontSize: 12 }}
-              />
-              <button onClick={() => setShowToken(s => !s)} style={{ padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#9ca3af', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>
-                {showToken ? '🙈' : '👁'}
-              </button>
-            </div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
-              ⚠ This token expires in ~1 hour. Get a fresh one by opening GHL Workflows in your browser and inspecting any network request.
-            </div>
+          <div style={{ marginBottom: 14, padding: '10px 14px', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 8, fontSize: 12, color: '#6b7280' }}>
+            🔑 Authentication is handled automatically using the stored GHL OAuth token for this location — no manual token needed.
           </div>
 
           <button
             onClick={create}
-            disabled={creating || !locationId || !ghlToken.trim() || !!jsonError}
-            style={sty.btn('#059669', creating || !locationId || !ghlToken.trim() || !!jsonError)}
+            disabled={creating || !locationId || !!jsonError}
+            style={sty.btn('#059669', creating || !locationId || !!jsonError)}
           >
             {creating ? '⟳ Creating…' : '🚀 Create Workflow in GHL'}
           </button>
