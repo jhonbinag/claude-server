@@ -1672,6 +1672,295 @@ function EventBadge({ event }) {
   );
 }
 
+// ── Workflow Generator Tab ────────────────────────────────────────────────────
+
+const WF_TRIGGER_LABELS = {
+  CONTACT_CREATED: '👤 Contact Created', FORM_SUBMITTED: '📝 Form Submitted',
+  TAG_ADDED: '🏷️ Tag Added', APPOINTMENT_BOOKED: '📅 Appointment Booked',
+  PIPELINE_STAGE_CHANGED: '📊 Pipeline Stage Changed', INBOUND_MESSAGE: '💬 Inbound Message',
+  CONTACT_UPDATED: '✏️ Contact Updated', BIRTHDAY_REMINDER: '🎂 Birthday Reminder',
+};
+
+const WF_ACTION_LABELS = {
+  SEND_SMS: '📱 SMS', SEND_EMAIL: '📧 Email', WAIT: '⏳ Wait',
+  ADD_TAG: '🏷️ Add Tag', REMOVE_TAG: '✂️ Remove Tag',
+  ADD_TO_PIPELINE: '📊 Add to Pipeline', UPDATE_CONTACT_FIELD: '✏️ Update Field',
+  SEND_INTERNAL_NOTIFICATION: '🔔 Internal Notification', IF_ELSE: '🔀 If / Else', END: '🔚 End',
+};
+
+const EXAMPLE_PROMPTS = [
+  'When a new contact is created, wait 5 minutes then send an SMS welcoming them, wait 1 day then send a follow-up email offering a free consultation.',
+  'When a form is submitted, immediately add the tag "new-lead", send an internal notification to the team, then add the contact to the Sales pipeline.',
+  'When an appointment is booked, send a confirmation SMS, wait 1 hour before the appointment and send a reminder email with the meeting details.',
+  'When a contact is tagged "re-engage", send a win-back SMS with a special offer, wait 3 days, if no reply send a final email, then remove the tag.',
+];
+
+function WorkflowGenTab({ adminKey, locations }) {
+  const [prompt,      setPrompt]      = useState('');
+  const [locationId,  setLocationId]  = useState('');
+  const [ghlToken,    setGhlToken]    = useState('');
+  const [generating,  setGenerating]  = useState(false);
+  const [creating,    setCreating]    = useState(false);
+  const [workflow,    setWorkflow]    = useState(null);
+  const [rawJson,     setRawJson]     = useState('');
+  const [jsonError,   setJsonError]   = useState('');
+  const [result,      setResult]      = useState(null);
+  const [error,       setError]       = useState('');
+  const [showToken,   setShowToken]   = useState(false);
+  const [viewMode,    setViewMode]    = useState('visual'); // 'visual' | 'json'
+
+  const h = { 'x-admin-key': adminKey, 'Content-Type': 'application/json' };
+
+  async function generate() {
+    if (!prompt.trim()) return;
+    setGenerating(true); setError(''); setWorkflow(null); setResult(null);
+    try {
+      const res = await fetch('/admin/workflow-gen/generate', {
+        method: 'POST', headers: h,
+        body: JSON.stringify({ prompt: prompt.trim(), locationId: locationId || undefined }),
+      });
+      const d = await res.json();
+      if (!d.success) { setError(d.error || 'Generation failed.'); return; }
+      setWorkflow(d.workflow);
+      setRawJson(JSON.stringify(d.workflow, null, 2));
+    } catch (e) { setError(e.message); }
+    finally { setGenerating(false); }
+  }
+
+  async function create() {
+    if (!workflow || !locationId || !ghlToken.trim()) return;
+    setCreating(true); setError(''); setResult(null);
+    try {
+      // Use the (possibly hand-edited) JSON
+      let wf = workflow;
+      if (viewMode === 'json') {
+        try { wf = JSON.parse(rawJson); } catch { setError('JSON is invalid — fix it before creating.'); setCreating(false); return; }
+      }
+      const res = await fetch('/admin/workflow-gen/create', {
+        method: 'POST', headers: h,
+        body: JSON.stringify({ workflow: wf, locationId, ghlToken: ghlToken.trim() }),
+      });
+      const d = await res.json();
+      if (!d.success) { setError(d.error + (d.detail ? ': ' + d.detail : '')); return; }
+      setResult(d.data);
+    } catch (e) { setError(e.message); }
+    finally { setCreating(false); }
+  }
+
+  function onRawJsonChange(val) {
+    setRawJson(val);
+    try { setWorkflow(JSON.parse(val)); setJsonError(''); }
+    catch { setJsonError('Invalid JSON'); }
+  }
+
+  const sty = {
+    card: { background: '#111118', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '20px 22px', marginBottom: 16 },
+    label: { display: 'block', fontSize: 11, color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 },
+    input: { width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '9px 12px', fontSize: 13, color: '#e5e7eb', outline: 'none', boxSizing: 'border-box', colorScheme: 'dark' },
+    btn: (bg, disabled) => ({ padding: '9px 20px', borderRadius: 9, background: disabled ? '#374151' : bg, border: 'none', color: disabled ? '#6b7280' : '#fff', fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', transition: 'opacity .15s' }),
+  };
+
+  return (
+    <div style={{ maxWidth: 780 }}>
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 }}>🔀 AI Workflow Builder</h1>
+        <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
+          Describe what you want to automate in plain English. Claude will generate a complete GHL workflow ready to deploy.
+        </p>
+      </div>
+
+      {/* Step 1 — Prompt */}
+      <div style={sty.card}>
+        <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 700, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Step 1 — Describe the Automation</div>
+        <label style={sty.label}>Prompt</label>
+        <textarea
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          placeholder="e.g. When a new contact is created, wait 5 minutes, send a welcome SMS, wait 1 day, then send a follow-up email with a consultation offer."
+          rows={4}
+          style={{ ...sty.input, resize: 'vertical', lineHeight: 1.6 }}
+        />
+        {/* Example chips */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+          {EXAMPLE_PROMPTS.map((ex, i) => (
+            <button
+              key={i}
+              onClick={() => setPrompt(ex)}
+              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.3)', color: '#a78bfa', cursor: 'pointer' }}
+            >
+              Example {i + 1}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <label style={{ ...sty.label, marginBottom: 6 }}>Location (optional — for API key lookup)</label>
+          <select value={locationId} onChange={e => setLocationId(e.target.value)} style={{ ...sty.input, width: 'auto', minWidth: 260 }}>
+            <option value="">— Select location (optional) —</option>
+            {(locations || []).map(l => (
+              <option key={l.locationId} value={l.locationId}>{l.locationId}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <button onClick={generate} disabled={!prompt.trim() || generating} style={sty.btn('#7c3aed', !prompt.trim() || generating)}>
+            {generating ? '⟳ Generating…' : '✨ Generate Workflow'}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, fontSize: 13, color: '#f87171', marginBottom: 16 }}>
+          ⚠ {error}
+        </div>
+      )}
+
+      {/* Step 2 — Preview */}
+      {workflow && (
+        <div style={sty.card}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Step 2 — Review &amp; Edit</div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {['visual', 'json'].map(m => (
+                <button key={m} onClick={() => setViewMode(m)} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: viewMode === m ? 'rgba(124,58,237,0.2)' : 'transparent', border: `1px solid ${viewMode === m ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.08)'}`, color: viewMode === m ? '#a78bfa' : '#6b7280', cursor: 'pointer', textTransform: 'capitalize' }}>
+                  {m === 'visual' ? '👁 Visual' : '{ } JSON'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {viewMode === 'visual' && (
+            <div>
+              {/* Workflow header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>{workflow.name || 'Untitled Workflow'}</div>
+                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24' }}>{workflow.status || 'draft'}</span>
+              </div>
+
+              {/* Trigger */}
+              {workflow.trigger && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Trigger</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 10 }}>
+                    <span style={{ fontSize: 16 }}>⚡</span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#fbbf24' }}>{WF_TRIGGER_LABELS[workflow.trigger.type] || workflow.trigger.type}</div>
+                      {workflow.trigger.filters && Object.keys(workflow.trigger.filters).length > 0 && (
+                        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{JSON.stringify(workflow.trigger.filters)}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Arrow */}
+              {workflow.actions?.length > 0 && (
+                <div style={{ textAlign: 'center', color: '#374151', fontSize: 18, margin: '4px 0' }}>↓</div>
+              )}
+
+              {/* Actions */}
+              {(workflow.actions || []).map((action, idx) => {
+                const isEnd = action.type === 'END';
+                const color = isEnd ? '#6b7280' : action.type === 'WAIT' ? '#f59e0b' : action.type?.includes('SEND') ? '#6366f1' : action.type === 'IF_ELSE' ? '#ec4899' : '#10b981';
+                return (
+                  <div key={action.id || idx}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 14px', background: `rgba(${color === '#6366f1' ? '99,102,241' : color === '#10b981' ? '16,185,129' : color === '#f59e0b' ? '245,158,11' : color === '#ec4899' ? '236,72,153' : '107,114,128'},0.08)`, border: `1px solid rgba(${color === '#6366f1' ? '99,102,241' : color === '#10b981' ? '16,185,129' : color === '#f59e0b' ? '245,158,11' : color === '#ec4899' ? '236,72,153' : '107,114,128'},0.25)`, borderRadius: 10, marginBottom: 4 }}>
+                      <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{WF_ACTION_LABELS[action.type]?.split(' ')[0] || '▶'}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color, marginBottom: 2 }}>{WF_ACTION_LABELS[action.type] || action.type}</div>
+                        <div style={{ fontSize: 12, color: '#9ca3af' }}>{action.name}</div>
+                        {action.config && Object.keys(action.config).length > 0 && (
+                          <div style={{ marginTop: 4, fontSize: 11, color: '#6b7280', background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: '4px 8px', fontFamily: 'monospace' }}>
+                            {Object.entries(action.config).filter(([k]) => k !== 'yesActions' && k !== 'noActions').map(([k, v]) => (
+                              <div key={k}><span style={{ color: '#7c3aed' }}>{k}</span>: {String(v).slice(0, 80)}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {action.nextActionId && <div style={{ textAlign: 'center', color: '#374151', fontSize: 16, margin: '2px 0' }}>↓</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {viewMode === 'json' && (
+            <div>
+              <textarea
+                value={rawJson}
+                onChange={e => onRawJsonChange(e.target.value)}
+                rows={20}
+                style={{ ...sty.input, fontFamily: 'monospace', fontSize: 12, resize: 'vertical' }}
+              />
+              {jsonError && <div style={{ color: '#f87171', fontSize: 12, marginTop: 4 }}>{jsonError}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 3 — Create in GHL */}
+      {workflow && (
+        <div style={sty.card}>
+          <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 700, marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Step 3 — Deploy to GHL</div>
+
+          <div style={{ marginBottom: 12 }}>
+            <label style={sty.label}>Location ID <span style={{ color: '#ef4444' }}>*</span></label>
+            <select value={locationId} onChange={e => setLocationId(e.target.value)} style={{ ...sty.input, width: 'auto', minWidth: 260 }}>
+              <option value="">— Select a location —</option>
+              {(locations || []).map(l => (
+                <option key={l.locationId} value={l.locationId}>{l.locationId}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={sty.label}>
+              GHL token-id <span style={{ color: '#ef4444' }}>*</span>
+              <span style={{ marginLeft: 8, fontSize: 10, color: '#6b7280', textTransform: 'none', fontWeight: 400 }}>
+                From browser DevTools → Network → any /workflow/ request → token-id header
+              </span>
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type={showToken ? 'text' : 'password'}
+                value={ghlToken}
+                onChange={e => setGhlToken(e.target.value)}
+                placeholder="eyJhbGciOiJSUzI1NiIs..."
+                style={{ ...sty.input, flex: 1, fontFamily: ghlToken ? 'monospace' : 'inherit', fontSize: 12 }}
+              />
+              <button onClick={() => setShowToken(s => !s)} style={{ padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#9ca3af', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>
+                {showToken ? '🙈' : '👁'}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+              ⚠ This token expires in ~1 hour. Get a fresh one by opening GHL Workflows in your browser and inspecting any network request.
+            </div>
+          </div>
+
+          <button
+            onClick={create}
+            disabled={creating || !locationId || !ghlToken.trim() || !!jsonError}
+            style={sty.btn('#059669', creating || !locationId || !ghlToken.trim() || !!jsonError)}
+          >
+            {creating ? '⟳ Creating…' : '🚀 Create Workflow in GHL'}
+          </button>
+
+          {result && (
+            <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#10b981', marginBottom: 6 }}>✓ Workflow created successfully!</div>
+              <pre style={{ margin: 0, fontSize: 11, color: '#6b7280', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {JSON.stringify(result, null, 2).slice(0, 600)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -2383,6 +2672,7 @@ export default function Admin() {
     { key: 'rewyse',       label: 'Pipeline Agents', icon: '⚙️' },
     { key: 'integrations', label: 'Integrations',  icon: '🔌' },
     { key: 'billing',      label: 'Plans',         icon: '💳' },
+    { key: 'workflow-gen', label: 'Workflow Builder', icon: '🔀' },
     { key: 'logs',         label: 'Activity Logs', icon: '📋' },
     { key: 'app-settings', label: 'App Settings',  icon: '⚙️' },
   ];
@@ -2402,6 +2692,7 @@ export default function Admin() {
     'users-roles': 'Users & Roles', personas: 'Personas', integrations: 'Integrations',
     agents: 'AI Agents', rewyse: 'Pipeline Agents',
     billing: 'Plans', logs: 'Activity Logs', 'app-settings': 'App Settings',
+    'workflow-gen': 'AI Workflow Builder',
   };
 
   const navItemStyle = (active) => ({
@@ -2555,6 +2846,9 @@ export default function Admin() {
             </div>
           </div>
         )}
+
+        {/* ── Workflow Builder Tab ─────────────────────────────────────── */}
+        {tab === 'workflow-gen' && <WorkflowGenTab adminKey={adminKey} locations={locations} />}
 
         {/* ── App Settings Tab ─────────────────────────────────────────── */}
         {tab === 'app-settings' && (

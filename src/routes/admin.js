@@ -17,6 +17,7 @@
  */
 
 const express          = require('express');
+const axios            = require('axios');
 const router           = express.Router();
 const adminAuth        = require('../middleware/adminAuth');
 const locationRegistry = require('../services/locationRegistry');
@@ -1694,6 +1695,144 @@ router.put('/agents/:id', async (req, res) => {
     });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ── AI Workflow Generator ─────────────────────────────────────────────────────
+//
+// POST /admin/workflow-gen/generate
+//   Body: { prompt, locationId }
+//   Uses the location's stored Anthropic key (or server key) to ask Claude to
+//   produce a GHL-compatible workflow JSON, then returns it for preview.
+//
+// POST /admin/workflow-gen/create
+//   Body: { workflow (JSON), locationId, ghlToken }
+//   POSTs the workflow JSON to GHL's internal workflow API using the user's
+//   Firebase token-id obtained from their browser session.
+
+const Anthropic = (() => { try { return require('@anthropic-ai/sdk'); } catch { return null; } })();
+
+const GHL_WORKFLOW_SCHEMA_HINT = `
+A GHL workflow JSON has this structure:
+{
+  "name": "Workflow Name",
+  "status": "draft",
+  "trigger": {
+    "type": "CONTACT_CREATED" | "FORM_SUBMITTED" | "TAG_ADDED" | "APPOINTMENT_BOOKED" | "PIPELINE_STAGE_CHANGED" | "INBOUND_MESSAGE" | "CONTACT_DND_UPDATED" | "BIRTHDAY_REMINDER" | "CONTACT_UPDATED" | "STALE_OPPORTUNITIES",
+    "filters": {}   // optional filters like tagName, formId, pipelineId etc
+  },
+  "actions": [
+    {
+      "id": "action_<n>",
+      "type": "SEND_EMAIL" | "SEND_SMS" | "WAIT" | "ADD_TAG" | "REMOVE_TAG" | "ADD_TO_PIPELINE" | "REMOVE_FROM_PIPELINE" | "UPDATE_CONTACT_FIELD" | "SEND_INTERNAL_NOTIFICATION" | "IF_ELSE" | "GO_TO" | "END",
+      "name": "Human readable name",
+      "config": {
+        // For SEND_SMS: { "message": "Hi {{contact.firstName}}..." }
+        // For SEND_EMAIL: { "subject": "...", "body": "...", "fromName": "...", "fromEmail": "..." }
+        // For WAIT: { "value": 1, "unit": "days" | "hours" | "minutes" }
+        // For ADD_TAG / REMOVE_TAG: { "tag": "tag-name" }
+        // For ADD_TO_PIPELINE: { "pipelineId": "...", "stageId": "..." }
+        // For IF_ELSE: { "condition": "...", "yesActions": [...], "noActions": [...] }
+        // For UPDATE_CONTACT_FIELD: { "field": "...", "value": "..." }
+      },
+      "nextActionId": "action_<n+1>" | null
+    }
+  ]
+}
+Available GHL contact merge tags: {{contact.firstName}}, {{contact.lastName}}, {{contact.email}}, {{contact.phone}}, {{contact.fullName}}, {{contact.businessName}}, {{location.name}}
+`;
+
+router.post('/workflow-gen/generate', async (req, res) => {
+  const { prompt, locationId } = req.body;
+  if (!prompt?.trim()) return res.status(400).json({ success: false, error: 'prompt is required.' });
+  if (!Anthropic) return res.status(503).json({ success: false, error: 'Anthropic SDK not available.' });
+
+  try {
+    // Get API key from location configs or server env
+    let apiKey = process.env.ANTHROPIC_API_KEY;
+    if (locationId) {
+      try {
+        const configs = await toolRegistry.loadToolConfigs(locationId);
+        if (configs.anthropic?.apiKey) apiKey = configs.anthropic.apiKey;
+      } catch { /* use env fallback */ }
+    }
+    if (!apiKey) return res.status(400).json({ success: false, error: 'No Anthropic API key found. Add one in Settings → Integrations.' });
+
+    const client = new Anthropic.default({ apiKey });
+    const message = await client.messages.create({
+      model: 'claude-opus-4-5',
+      max_tokens: 4096,
+      messages: [{
+        role: 'user',
+        content: `You are a GHL (GoHighLevel) workflow automation expert. Generate a complete, valid GHL workflow JSON based on this request:
+
+"${prompt.trim()}"
+
+${GHL_WORKFLOW_SCHEMA_HINT}
+
+Rules:
+- Action IDs must be sequential: "action_1", "action_2", etc.
+- The last action should have nextActionId: null
+- Use realistic, production-ready content (real SMS/email copy, not placeholders)
+- Infer sensible defaults for anything not specified
+- Return ONLY valid JSON — no markdown, no explanation, just the raw JSON object
+
+Return the workflow JSON now:`,
+      }],
+    });
+
+    const raw = message.content[0]?.text || '';
+    // Strip markdown code fences if present
+    const jsonStr = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+
+    let workflow;
+    try {
+      workflow = JSON.parse(jsonStr);
+    } catch {
+      return res.status(422).json({ success: false, error: 'Claude returned invalid JSON. Try rephrasing your prompt.', raw: jsonStr.slice(0, 500) });
+    }
+
+    res.json({ success: true, workflow });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/workflow-gen/create', async (req, res) => {
+  const { workflow, locationId, ghlToken } = req.body;
+  if (!workflow || !locationId) return res.status(400).json({ success: false, error: 'workflow and locationId are required.' });
+  if (!ghlToken) return res.status(400).json({ success: false, error: 'ghlToken (token-id) is required. Copy it from your browser\'s network inspector.' });
+
+  try {
+    const response = await axios.post(
+      `https://backend.leadconnectorhq.com/workflow/${locationId}`,
+      workflow,
+      {
+        headers: {
+          'Content-Type':  'application/json',
+          'channel':       'APP',
+          'token-id':      ghlToken,
+          'accept':        'application/json, text/plain, */*',
+          'origin':        'https://client-app-automation-workflows.leadconnectorhq.com',
+          'referer':       'https://client-app-automation-workflows.leadconnectorhq.com/',
+          'user-agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+        validateStatus: () => true, // don't throw on 4xx/5xx
+      },
+    );
+
+    if (response.status >= 400) {
+      return res.status(response.status).json({
+        success: false,
+        error:   `GHL returned ${response.status}`,
+        detail:  typeof response.data === 'string' ? response.data.slice(0, 300) : JSON.stringify(response.data).slice(0, 300),
+      });
+    }
+
+    activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name }, success: true });
+    res.json({ success: true, data: response.data });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
 });
 
 module.exports = router;
