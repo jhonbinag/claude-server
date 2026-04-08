@@ -1742,10 +1742,20 @@ Available GHL contact merge tags: {{contact.firstName}}, {{contact.lastName}}, {
 
 router.post('/workflow-gen/generate', async (req, res) => {
   const { prompt, locationId } = req.body;
+  console.log(`[workflow-gen/generate] locationId=${locationId} prompt="${(prompt||'').slice(0,80)}"`);
   if (!prompt?.trim()) return res.status(400).json({ success: false, error: 'prompt is required.' });
   if (!locationId)     return res.status(400).json({ success: false, error: 'locationId is required.' });
 
   const aiService = require('../services/aiService');
+
+  // Log which AI providers are configured for this location
+  try {
+    const configs = await toolRegistry.loadToolConfigs(locationId);
+    const providers = ['anthropic','openai','groq','google','perplexity'].filter(p => configs[p]?.apiKey);
+    console.log(`[workflow-gen/generate] configured providers for ${locationId}:`, providers);
+  } catch (e) {
+    console.warn(`[workflow-gen/generate] could not load configs:`, e.message);
+  }
 
   const systemPrompt = 'You are a GHL (GoHighLevel) workflow automation expert. Return ONLY valid JSON — no markdown, no explanation, just the raw JSON object.';
   const userPrompt   = `Generate a complete, valid GHL workflow JSON based on this request:
@@ -1764,24 +1774,30 @@ Rules:
 Return the workflow JSON now:`;
 
   try {
+    console.log(`[workflow-gen/generate] calling aiService.generateForLocation...`);
     const raw     = await aiService.generateForLocation(locationId, systemPrompt, userPrompt, { maxTokens: 4096 });
+    console.log(`[workflow-gen/generate] raw response length=${raw.length} preview="${raw.slice(0,100)}"`);
     const jsonStr = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
 
     let workflow;
     try {
       workflow = JSON.parse(jsonStr);
-    } catch {
+      console.log(`[workflow-gen/generate] parsed OK — name="${workflow.name}" actions=${workflow.actions?.length}`);
+    } catch (parseErr) {
+      console.error(`[workflow-gen/generate] JSON parse failed:`, parseErr.message, 'raw:', jsonStr.slice(0, 300));
       return res.status(422).json({ success: false, error: 'AI returned invalid JSON. Try rephrasing your prompt.', raw: jsonStr.slice(0, 500) });
     }
 
     res.json({ success: true, workflow });
   } catch (err) {
+    console.error(`[workflow-gen/generate] error:`, err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 router.post('/workflow-gen/create', async (req, res) => {
   const { workflow, locationId } = req.body;
+  console.log(`[workflow-gen/create] locationId=${locationId} workflow.name="${workflow?.name}"`);
   if (!workflow || !locationId) return res.status(400).json({ success: false, error: 'workflow and locationId are required.' });
 
   try {
@@ -1794,10 +1810,14 @@ router.post('/workflow-gen/create', async (req, res) => {
     let idToken;
     try {
       // Try stored Firebase token first (already exchanged)
+      console.log(`[workflow-gen/create] fetching Firebase token for ${locationId}...`);
       idToken = await ghlFirebaseService.getFirebaseToken(locationId);
-    } catch {
+      console.log(`[workflow-gen/create] got Firebase token (${idToken?.length} chars)`);
+    } catch (fbErr) {
+      console.warn(`[workflow-gen/create] Firebase token fetch failed:`, fbErr.message, '— probing GHL OAuth...');
       // Not connected yet — auto-connect using the GHL OAuth token
       const accessToken = await ghlClient.getValidAccessToken(locationId);
+      console.log(`[workflow-gen/create] got GHL access token, probing custom token endpoints...`);
       // Probe GHL backend for a custom token (same as /funnel-builder/auto-connect)
       const candidates = [
         `/user/firebase-custom-token?locationId=${encodeURIComponent(locationId)}`,
@@ -1833,12 +1853,14 @@ router.post('/workflow-gen/create', async (req, res) => {
       'referer':  'https://client-app-automation-workflows.leadconnectorhq.com/',
     };
 
+    console.log(`[workflow-gen/create] POSTing to GHL workflow API for location ${locationId}...`);
     const response = await axios.post(
       `https://backend.leadconnectorhq.com/workflow/${locationId}`,
       workflow,
       { headers, validateStatus: () => true },
     );
 
+    console.log(`[workflow-gen/create] GHL response status=${response.status} data=${JSON.stringify(response.data).slice(0, 200)}`);
     if (response.status >= 400) {
       return res.status(response.status).json({
         success: false,
@@ -1850,6 +1872,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name }, success: true });
     res.json({ success: true, data: response.data });
   } catch (err) {
+    console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });
   }
 });
