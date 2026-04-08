@@ -1856,26 +1856,58 @@ router.post('/workflow-gen/create', async (req, res) => {
       'referer':  'https://client-app-automation-workflows.leadconnectorhq.com/',
     };
 
-    console.log(`[workflow-gen/create] POSTing to GHL workflow API for location ${locationId}...`);
-    console.log(`[workflow-gen/create] PAYLOAD:`, JSON.stringify(workflow));
-    const response = await axios.post(
+    // Step 2a: POST to create the workflow shell (name + status only) → get ID
+    const createPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'draft' };
+    console.log(`[workflow-gen/create] Step 2a — POST create shell:`, JSON.stringify(createPayload));
+    const createResp = await axios.post(
       `https://backend.leadconnectorhq.com/workflow/${locationId}`,
-      workflow,
+      createPayload,
       { headers, validateStatus: () => true },
     );
-
-    console.log(`[workflow-gen/create] GHL response status=${response.status}`);
-    console.log(`[workflow-gen/create] GHL response FULL:`, JSON.stringify(response.data));
-    if (response.status >= 400) {
-      return res.status(response.status).json({
+    console.log(`[workflow-gen/create] create status=${createResp.status} data=${JSON.stringify(createResp.data)}`);
+    if (createResp.status >= 400) {
+      return res.status(createResp.status).json({
         success: false,
-        error:   `GHL returned ${response.status}`,
-        detail:  typeof response.data === 'string' ? response.data.slice(0, 300) : JSON.stringify(response.data).slice(0, 300),
+        error:   `GHL create returned ${createResp.status}`,
+        detail:  JSON.stringify(createResp.data).slice(0, 300),
       });
     }
 
-    activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name }, success: true });
-    res.json({ success: true, data: response.data });
+    const workflowId = createResp.data?.id;
+    if (!workflowId) {
+      return res.status(502).json({ success: false, error: 'GHL did not return a workflow ID.', raw: JSON.stringify(createResp.data) });
+    }
+
+    // Step 2b: PATCH to populate triggers + actions
+    // Normalise trigger → triggers array
+    const triggers = workflow.triggers?.length
+      ? workflow.triggers
+      : workflow.trigger ? [workflow.trigger] : [];
+    const patchPayload = {
+      name:     workflow.name || 'AI Workflow',
+      status:   workflow.status || 'draft',
+      triggers,
+      actions:  workflow.actions || [],
+    };
+    console.log(`[workflow-gen/create] Step 2b — PATCH workflowId=${workflowId} payload=`, JSON.stringify(patchPayload));
+    const patchResp = await axios.patch(
+      `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
+      patchPayload,
+      { headers, validateStatus: () => true },
+    );
+    console.log(`[workflow-gen/create] patch status=${patchResp.status} data=${JSON.stringify(patchResp.data)}`);
+    if (patchResp.status >= 400) {
+      // Workflow was created but patch failed — still return the ID so user can see it in GHL
+      return res.status(200).json({
+        success: true,
+        partial: true,
+        warning: `Workflow created (id: ${workflowId}) but populating triggers/actions returned ${patchResp.status}. You may need to configure them manually in GHL.`,
+        data: { id: workflowId, patchDetail: JSON.stringify(patchResp.data).slice(0, 300) },
+      });
+    }
+
+    activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name, workflowId }, success: true });
+    res.json({ success: true, data: patchResp.data || { id: workflowId } });
   } catch (err) {
     console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });
