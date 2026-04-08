@@ -1710,8 +1710,6 @@ router.put('/agents/:id', async (req, res) => {
 //   POSTs the workflow JSON to GHL's internal workflow API using the user's
 //   Firebase token-id obtained from their browser session.
 
-const Anthropic = (() => { try { return require('@anthropic-ai/sdk'); } catch { return null; } })();
-
 const GHL_WORKFLOW_SCHEMA_HINT = `
 A GHL workflow JSON has this structure:
 {
@@ -1745,7 +1743,6 @@ Available GHL contact merge tags: {{contact.firstName}}, {{contact.lastName}}, {
 router.post('/workflow-gen/generate', async (req, res) => {
   const { prompt, locationId } = req.body;
   if (!prompt?.trim()) return res.status(400).json({ success: false, error: 'prompt is required.' });
-  if (!Anthropic) return res.status(503).json({ success: false, error: 'Anthropic SDK not available.' });
 
   try {
     // Get API key from location configs or server env
@@ -1758,9 +1755,9 @@ router.post('/workflow-gen/generate', async (req, res) => {
     }
     if (!apiKey) return res.status(400).json({ success: false, error: 'No Anthropic API key found. Add one in Settings → Integrations.' });
 
-    const client = new Anthropic.default({ apiKey });
+    const client = new Anthropic({ apiKey });
     const message = await client.messages.create({
-      model: 'claude-opus-4-5',
+      model: 'claude-opus-4-6',
       max_tokens: 4096,
       messages: [{
         role: 'user',
