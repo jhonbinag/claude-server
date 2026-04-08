@@ -96,7 +96,8 @@ async function openaiGenerate(apiKey, system, userText, { model, maxTokens = 409
     'api.openai.com', '/v1/chat/completions',
     { Authorization: `Bearer ${apiKey}` },
     { model: model || 'gpt-4o-mini', max_tokens: maxTokens,
-      messages: [{ role: 'system', content: system }, { role: 'user', content: userText }] }
+      messages: [{ role: 'system', content: system }, { role: 'user', content: userText }] },
+    0, // no internal retries — let generateForLocation's provider rotation handle fallback
   );
   return resp.choices?.[0]?.message?.content || '';
 }

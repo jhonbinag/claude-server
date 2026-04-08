@@ -1711,33 +1711,36 @@ router.put('/agents/:id', async (req, res) => {
 //   Firebase token-id obtained from their browser session.
 
 const GHL_WORKFLOW_SCHEMA_HINT = `
-A GHL workflow JSON has this structure:
+Use EXACTLY this JSON structure (GHL internal API format):
 {
   "name": "Workflow Name",
   "status": "draft",
-  "trigger": {
-    "type": "CONTACT_CREATED" | "FORM_SUBMITTED" | "TAG_ADDED" | "APPOINTMENT_BOOKED" | "PIPELINE_STAGE_CHANGED" | "INBOUND_MESSAGE" | "CONTACT_DND_UPDATED" | "BIRTHDAY_REMINDER" | "CONTACT_UPDATED" | "STALE_OPPORTUNITIES",
-    "filters": {}   // optional filters like tagName, formId, pipelineId etc
-  },
+  "triggers": [
+    {
+      "type": "CONTACT_CREATED" | "FORM_SUBMITTED" | "TAG_ADDED" | "APPOINTMENT_BOOKED" | "PIPELINE_STAGE_CHANGED" | "INBOUND_MESSAGE" | "CONTACT_DND_UPDATED" | "BIRTHDAY_REMINDER" | "CONTACT_UPDATED" | "STALE_OPPORTUNITIES",
+      "filters": {}
+    }
+  ],
   "actions": [
     {
-      "id": "action_<n>",
-      "type": "SEND_EMAIL" | "SEND_SMS" | "WAIT" | "ADD_TAG" | "REMOVE_TAG" | "ADD_TO_PIPELINE" | "REMOVE_FROM_PIPELINE" | "UPDATE_CONTACT_FIELD" | "SEND_INTERNAL_NOTIFICATION" | "IF_ELSE" | "GO_TO" | "END",
+      "id": "action_1",
+      "type": "SEND_SMS" | "SEND_EMAIL" | "WAIT" | "ADD_TAG" | "REMOVE_TAG" | "ADD_TO_PIPELINE" | "REMOVE_FROM_PIPELINE" | "UPDATE_CONTACT_FIELD" | "SEND_INTERNAL_NOTIFICATION" | "IF_ELSE" | "GO_TO" | "END",
       "name": "Human readable name",
       "config": {
-        // For SEND_SMS: { "message": "Hi {{contact.firstName}}..." }
-        // For SEND_EMAIL: { "subject": "...", "body": "...", "fromName": "...", "fromEmail": "..." }
-        // For WAIT: { "value": 1, "unit": "days" | "hours" | "minutes" }
-        // For ADD_TAG / REMOVE_TAG: { "tag": "tag-name" }
-        // For ADD_TO_PIPELINE: { "pipelineId": "...", "stageId": "..." }
-        // For IF_ELSE: { "condition": "...", "yesActions": [...], "noActions": [...] }
-        // For UPDATE_CONTACT_FIELD: { "field": "...", "value": "..." }
+        // SEND_SMS:    { "message": "Hi {{contact.firstName}}..." }
+        // SEND_EMAIL:  { "subject": "...", "body": "<p>...</p>", "fromName": "{{location.name}}", "fromEmail": "noreply@yourdomain.com" }
+        // WAIT:        { "value": 1, "unit": "days" }
+        // ADD_TAG:     { "tag": "tag-name" }
+        // REMOVE_TAG:  { "tag": "tag-name" }
       },
-      "nextActionId": "action_<n+1>" | null
+      "nextActionId": "action_2"
     }
   ]
 }
-Available GHL contact merge tags: {{contact.firstName}}, {{contact.lastName}}, {{contact.email}}, {{contact.phone}}, {{contact.fullName}}, {{contact.businessName}}, {{location.name}}
+IMPORTANT:
+- Use "triggers" (array) not "trigger" (singular)
+- Action IDs: "action_1", "action_2", ... last action has nextActionId: null
+- Use real SMS/email copy with GHL merge tags: {{contact.firstName}}, {{contact.lastName}}, {{contact.email}}, {{contact.phone}}, {{location.name}}
 `;
 
 router.post('/workflow-gen/generate', async (req, res) => {

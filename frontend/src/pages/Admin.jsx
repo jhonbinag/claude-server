@@ -1836,21 +1836,24 @@ function WorkflowGenTab({ adminKey, locations }) {
                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24' }}>{workflow.status || 'draft'}</span>
               </div>
 
-              {/* Trigger */}
-              {workflow.trigger && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Trigger</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 10 }}>
-                    <span style={{ fontSize: 16 }}>⚡</span>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#fbbf24' }}>{WF_TRIGGER_LABELS[workflow.trigger.type] || workflow.trigger.type}</div>
-                      {workflow.trigger.filters && Object.keys(workflow.trigger.filters).length > 0 && (
-                        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{JSON.stringify(workflow.trigger.filters)}</div>
-                      )}
+              {/* Trigger(s) — supports both "triggers" array and legacy "trigger" singular */}
+              {(() => {
+                const tList = workflow.triggers?.length ? workflow.triggers : workflow.trigger ? [workflow.trigger] : [];
+                return tList.map((t, i) => (
+                  <div key={i} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Trigger</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 10 }}>
+                      <span style={{ fontSize: 16 }}>⚡</span>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#fbbf24' }}>{WF_TRIGGER_LABELS[t.type] || t.type}</div>
+                        {t.filters && Object.keys(t.filters).length > 0 && (
+                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{JSON.stringify(t.filters)}</div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                ));
+              })()}
 
               {/* Arrow */}
               {workflow.actions?.length > 0 && (
