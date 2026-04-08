@@ -1878,7 +1878,17 @@ router.post('/workflow-gen/create', async (req, res) => {
       return res.status(502).json({ success: false, error: 'GHL did not return a workflow ID.', raw: JSON.stringify(createResp.data) });
     }
 
-    // Step 2b: PATCH to populate triggers + actions
+    // Step 2b: GET the created workflow to retrieve its version (required for PUT)
+    console.log(`[workflow-gen/create] Step 2b — GET workflow to fetch version...`);
+    const getResp = await axios.get(
+      `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
+      { headers, validateStatus: () => true },
+    );
+    console.log(`[workflow-gen/create] get status=${getResp.status} data=${JSON.stringify(getResp.data)}`);
+    const workflowVersion = getResp.data?.version ?? getResp.data?.workflow?.version ?? 1;
+    console.log(`[workflow-gen/create] using version=${workflowVersion}`);
+
+    // Step 2c: PUT to populate triggers + actions
     // Normalise trigger → triggers array
     const triggers = workflow.triggers?.length
       ? workflow.triggers
@@ -1888,8 +1898,9 @@ router.post('/workflow-gen/create', async (req, res) => {
       status:   workflow.status || 'draft',
       triggers,
       actions:  workflow.actions || [],
+      version:  workflowVersion,
     };
-    console.log(`[workflow-gen/create] Step 2b — PUT workflowId=${workflowId} payload=`, JSON.stringify(patchPayload));
+    console.log(`[workflow-gen/create] Step 2c — PUT workflowId=${workflowId} payload=`, JSON.stringify(patchPayload));
     const patchResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       patchPayload,
@@ -1897,12 +1908,11 @@ router.post('/workflow-gen/create', async (req, res) => {
     );
     console.log(`[workflow-gen/create] put status=${patchResp.status} data=${JSON.stringify(patchResp.data)}`);
     if (patchResp.status >= 400) {
-      // Workflow was created but update failed — still return the ID so user can see it in GHL
       return res.status(200).json({
         success: true,
         partial: true,
         warning: `Workflow created (id: ${workflowId}) but populating triggers/actions returned ${patchResp.status}. You may need to configure them manually in GHL.`,
-        data: { id: workflowId, patchDetail: JSON.stringify(patchResp.data).slice(0, 300) },
+        data: { id: workflowId, putDetail: JSON.stringify(patchResp.data).slice(0, 300) },
       });
     }
 
