@@ -1889,15 +1889,15 @@ router.post('/workflow-gen/create', async (req, res) => {
       triggers,
       actions:  workflow.actions || [],
     };
-    console.log(`[workflow-gen/create] Step 2b — PATCH workflowId=${workflowId} payload=`, JSON.stringify(patchPayload));
-    const patchResp = await axios.patch(
+    console.log(`[workflow-gen/create] Step 2b — PUT workflowId=${workflowId} payload=`, JSON.stringify(patchPayload));
+    const patchResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       patchPayload,
       { headers, validateStatus: () => true },
     );
-    console.log(`[workflow-gen/create] patch status=${patchResp.status} data=${JSON.stringify(patchResp.data)}`);
+    console.log(`[workflow-gen/create] put status=${patchResp.status} data=${JSON.stringify(patchResp.data)}`);
     if (patchResp.status >= 400) {
-      // Workflow was created but patch failed — still return the ID so user can see it in GHL
+      // Workflow was created but update failed — still return the ID so user can see it in GHL
       return res.status(200).json({
         success: true,
         partial: true,
