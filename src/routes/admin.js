@@ -1950,6 +1950,7 @@ router.post('/workflow-gen/create', async (req, res) => {
 // Used to reverse-engineer the exact Firebase Storage format GHL uses for workflow steps.
 router.get('/workflow-gen/probe/:locationId', async (req, res) => {
   const { locationId } = req.params;
+  const { workflowId } = req.query;
   try {
     const ghlFirebaseService = require('../services/ghlFirebaseService');
     const { buildBackendHeaders } = require('../services/ghlPageBuilder');
@@ -1961,23 +1962,38 @@ router.get('/workflow-gen/probe/:locationId', async (req, res) => {
       'referer': 'https://client-app-automation-workflows.leadconnectorhq.com/',
     };
 
+    // If workflowId provided, fetch that specific workflow
+    if (workflowId) {
+      const getResp = await axios.get(
+        `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
+        { headers, validateStatus: () => true },
+      );
+      console.log(`[workflow-gen/probe] specific workflow status=${getResp.status} data=`, JSON.stringify(getResp.data));
+      const wf = getResp.data || {};
+      let storageContent = null;
+      if (wf.fileUrl) {
+        const sr = await axios.get(wf.fileUrl, { validateStatus: () => true });
+        storageContent = sr.data;
+      }
+      return res.json({
+        success: true,
+        workflow: { id: wf.id, name: wf.name, version: wf.version, filePath: wf.filePath, fileUrl: wf.fileUrl, workflowData: wf.workflowData, isTriggerBucketMigrated: wf.isTriggerBucketMigrated },
+        storageContent,
+      });
+    }
+
     // List workflows for the location
     const listResp = await axios.get(
       `https://backend.leadconnectorhq.com/workflow/${locationId}?limit=10&skip=0`,
       { headers, validateStatus: () => true },
     );
-    console.log(`[workflow-gen/probe] list status=${listResp.status} data=`, JSON.stringify(listResp.data).slice(0, 500));
-
-    // Find a workflow that has a fileUrl (has storage content)
     const workflows = listResp.data?.workflows || listResp.data?.data || (Array.isArray(listResp.data) ? listResp.data : []);
     const sample = workflows.find(w => w.fileUrl && !w.deleted);
     let storageContent = null;
     if (sample?.fileUrl) {
       const storageResp = await axios.get(sample.fileUrl, { validateStatus: () => true });
       storageContent = storageResp.data;
-      console.log(`[workflow-gen/probe] sample workflow id=${sample.id} storage content=`, JSON.stringify(storageContent));
     }
-
     res.json({ success: true, count: workflows.length, sample: sample ? { id: sample.id, name: sample.name, filePath: sample.filePath, fileUrl: sample.fileUrl } : null, storageContent });
   } catch (err) {
     console.error(`[workflow-gen/probe] error:`, err.message);
