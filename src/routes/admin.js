@@ -1912,36 +1912,35 @@ router.post('/workflow-gen/create', async (req, res) => {
     const triggers = workflow.triggers?.length ? workflow.triggers : workflow.trigger ? [workflow.trigger] : [];
     const actions  = workflow.actions || workflow.templates || [];
 
-    // Step 2c: Write { actions } to highlevel-backend.appspot.com at newVersion.
-    // GHL canvas for isTriggerBucketMigrated:true workflows reads from
-    // highlevel-backend.appspot.com/{filePath} — NOT from the fileUrl in the DB.
-    // The single PUT below sets filePath to newVersion, so canvas looks there.
-    const bucket      = 'highlevel-backend.appspot.com';
+    // Step 2c: Single PUT — GHL generates the storage file in automation-workflows-production.
+    // We write { actions } to BOTH buckets at the same path to cover both reading strategies.
     const newVersion  = workflowVersion + 1;
     const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
     const encodedPath = encodeURIComponent(storagePath);
-    const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodedPath}`;
-    console.log(`[workflow-gen/create] Step 2c — write actions to ${bucket} path=${storagePath}`);
-    const storageResp = await axios.post(uploadUrl, { actions }, {
+
+    // Write to highlevel-backend.appspot.com (where real workflows live)
+    const hbUploadUrl = `https://firebasestorage.googleapis.com/v0/b/highlevel-backend.appspot.com/o?uploadType=media&name=${encodedPath}`;
+    const hbResp = await axios.post(hbUploadUrl, { actions }, {
       headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
       validateStatus: () => true,
     });
-    const downloadToken = storageResp.data?.downloadTokens;
-    const newFileUrl = downloadToken
-      ? `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media&token=${downloadToken}`
-      : null;
-    console.log(`[workflow-gen/create] storage status=${storageResp.status} token=${downloadToken} newFileUrl=${newFileUrl}`);
+    console.log(`[workflow-gen/create] highlevel-backend write status=${hbResp.status} token=${hbResp.data?.downloadTokens}`);
 
-    // Step 2d: Single PUT — workflowData + fileUrl (pointing to highlevel-backend).
-    // Using ONE PUT keeps version aligned: newVersion = workflowVersion+1 = filePath version.
-    // Canvas reads highlevel-backend.appspot.com/{filePath} and finds our { actions } file.
+    // Also try writing to automation-workflows-production (where GHL sets fileUrl for new workflows)
+    const awpUploadUrl = `https://firebasestorage.googleapis.com/v0/b/automation-workflows-production/o?uploadType=media&name=${encodedPath}`;
+    const awpResp = await axios.post(awpUploadUrl, { actions }, {
+      headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+      validateStatus: () => true,
+    });
+    console.log(`[workflow-gen/create] automation-workflows-production write status=${awpResp.status} token=${awpResp.data?.downloadTokens}`);
+
+    // Step 2d: Single PUT with workflowData — GHL will set filePath/fileUrl itself.
     const putPayload = {
       name:         workflow.name || 'AI Workflow',
       status:       workflow.status || 'draft',
       version:      workflowVersion,
       workflowData: { actions },
     };
-    if (newFileUrl) { putPayload.fileUrl = newFileUrl; putPayload.filePath = storagePath; }
     console.log(`[workflow-gen/create] Step 2d — single PUT actions=${actions.length} fileUrl=${newFileUrl}`);
     const putResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
@@ -1959,7 +1958,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     }
 
     activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name, workflowId }, success: true });
-    res.json({ success: true, data: { id: workflowId, actionsWritten: actions.length, triggersWritten: triggers.length, storageUrl: newFileUrl } });
+    res.json({ success: true, data: { id: workflowId, actionsWritten: actions.length, triggersWritten: triggers.length } });
   } catch (err) {
     console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });
