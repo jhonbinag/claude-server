@@ -1893,11 +1893,15 @@ router.post('/workflow-gen/create', async (req, res) => {
     const triggers = workflow.triggers?.length
       ? workflow.triggers
       : workflow.trigger ? [workflow.trigger] : [];
+    // GHL internally uses "steps" for actions and "event" for trigger
     const patchPayload = {
       name:     workflow.name || 'AI Workflow',
       status:   workflow.status || 'draft',
+      // send both forms so whichever GHL accepts works
       triggers,
+      event:    triggers[0] || null,
       actions:  workflow.actions || [],
+      steps:    workflow.actions || [],
       version:  workflowVersion,
     };
     console.log(`[workflow-gen/create] Step 2c — PUT workflowId=${workflowId} payload=`, JSON.stringify(patchPayload));
