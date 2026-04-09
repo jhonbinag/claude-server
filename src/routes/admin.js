@@ -1878,50 +1878,64 @@ router.post('/workflow-gen/create', async (req, res) => {
       return res.status(502).json({ success: false, error: 'GHL did not return a workflow ID.', raw: JSON.stringify(createResp.data) });
     }
 
-    // Step 2b: GET the created workflow to retrieve its version (required for PUT)
-    console.log(`[workflow-gen/create] Step 2b — GET workflow to fetch version...`);
+    // Step 2b: GET to retrieve version + filePath from the created shell
+    console.log(`[workflow-gen/create] Step 2b — GET workflow metadata...`);
     const getResp = await axios.get(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       { headers, validateStatus: () => true },
     );
     console.log(`[workflow-gen/create] get status=${getResp.status} data=${JSON.stringify(getResp.data)}`);
-    const workflowVersion = getResp.data?.version ?? getResp.data?.workflow?.version ?? 1;
-    console.log(`[workflow-gen/create] using version=${workflowVersion}`);
+    const workflowMeta   = getResp.data || {};
+    const workflowVersion = workflowMeta.version ?? 1;
+    const filePath        = workflowMeta.filePath; // e.g. "location/{locationId}/workflows/{workflowId}/{version}"
 
-    // Step 2c: PUT to populate triggers + actions
     // Normalise trigger → triggers array
     const triggers = workflow.triggers?.length
       ? workflow.triggers
       : workflow.trigger ? [workflow.trigger] : [];
-    // GHL internally uses "steps" for actions and "event" for trigger
-    const patchPayload = {
-      name:     workflow.name || 'AI Workflow',
-      status:   workflow.status || 'draft',
-      // send both forms so whichever GHL accepts works
-      triggers,
-      event:    triggers[0] || null,
-      actions:  workflow.actions || [],
-      steps:    workflow.actions || [],
-      version:  workflowVersion,
-    };
-    console.log(`[workflow-gen/create] Step 2c — PUT workflowId=${workflowId} payload=`, JSON.stringify(patchPayload));
-    const patchResp = await axios.put(
+
+    // Step 2c: PUT metadata (name, status, version)
+    const putPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'draft', version: workflowVersion };
+    console.log(`[workflow-gen/create] Step 2c — PUT metadata workflowId=${workflowId}`);
+    const putResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
-      patchPayload,
+      putPayload,
       { headers, validateStatus: () => true },
     );
-    console.log(`[workflow-gen/create] put status=${patchResp.status} data=${JSON.stringify(patchResp.data)}`);
-    if (patchResp.status >= 400) {
+    console.log(`[workflow-gen/create] put status=${putResp.status} newVersion=${putResp.data?.version}`);
+
+    // Step 2d: Write steps directly to Firebase Storage (GHL stores them there, not via backend API)
+    // The path increments to the new version after the PUT
+    const newVersion  = putResp.data?.version ?? workflowVersion + 1;
+    const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
+    const stepsData   = {
+      triggers,
+      actions: workflow.actions || [],
+    };
+    const encodedPath  = encodeURIComponent(storagePath);
+    const uploadUrl    = `https://firebasestorage.googleapis.com/v0/b/automation-workflows-production/o?uploadType=media&name=${encodedPath}`;
+    console.log(`[workflow-gen/create] Step 2d — writing steps to Firebase Storage path=${storagePath}`);
+    console.log(`[workflow-gen/create] stepsData=`, JSON.stringify(stepsData));
+    const storageResp = await axios.post(uploadUrl, stepsData, {
+      headers: {
+        'Authorization': `Firebase ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      validateStatus: () => true,
+    });
+    console.log(`[workflow-gen/create] storage upload status=${storageResp.status} data=${JSON.stringify(storageResp.data)}`);
+
+    if (storageResp.status >= 400) {
       return res.status(200).json({
         success: true,
         partial: true,
-        warning: `Workflow created (id: ${workflowId}) but populating triggers/actions returned ${patchResp.status}. You may need to configure them manually in GHL.`,
-        data: { id: workflowId, putDetail: JSON.stringify(patchResp.data).slice(0, 300) },
+        warning: `Workflow created (id: ${workflowId}) but writing steps to Firebase Storage returned ${storageResp.status}. Steps may need to be configured manually in GHL.`,
+        data: { id: workflowId, storageDetail: JSON.stringify(storageResp.data).slice(0, 300) },
       });
     }
 
     activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name, workflowId }, success: true });
-    res.json({ success: true, data: patchResp.data || { id: workflowId } });
+    res.json({ success: true, data: { id: workflowId, version: newVersion, storagePath } });
   } catch (err) {
     console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });
