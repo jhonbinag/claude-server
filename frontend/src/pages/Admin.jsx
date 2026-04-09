@@ -1706,21 +1706,23 @@ function WorkflowGenTab({ adminKey, locations }) {
   const [result,      setResult]      = useState(null);
   const [error,       setError]       = useState('');
   const [viewMode,    setViewMode]    = useState('visual'); // 'visual' | 'json'
+  const [source,      setSource]      = useState('');       // 'ghl-ai' | 'claude'
 
   const h = { 'x-admin-key': adminKey, 'Content-Type': 'application/json' };
 
   async function generate() {
-    if (!prompt.trim()) return;
-    setGenerating(true); setError(''); setWorkflow(null); setResult(null);
+    if (!prompt.trim() || !locationId) return;
+    setGenerating(true); setError(''); setWorkflow(null); setResult(null); setSource('');
     try {
       const res = await fetch('/admin/workflow-gen/generate', {
         method: 'POST', headers: h,
-        body: JSON.stringify({ prompt: prompt.trim(), locationId: locationId || undefined }),
+        body: JSON.stringify({ prompt: prompt.trim(), locationId }),
       });
       const d = await res.json();
       if (!d.success) { setError(d.error || 'Generation failed.'); return; }
       setWorkflow(d.workflow);
       setRawJson(JSON.stringify(d.workflow, null, 2));
+      setSource(d.source || '');
     } catch (e) { setError(e.message); }
     finally { setGenerating(false); }
   }
@@ -1802,9 +1804,10 @@ function WorkflowGenTab({ adminKey, locations }) {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <button onClick={generate} disabled={!prompt.trim() || generating} style={sty.btn('#7c3aed', !prompt.trim() || generating)}>
+          <button onClick={generate} disabled={!prompt.trim() || !locationId || generating} style={sty.btn('#7c3aed', !prompt.trim() || !locationId || generating)}>
             {generating ? '⟳ Generating…' : '✨ Generate Workflow'}
           </button>
+          {!locationId && <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 6 }}>⚠ Select a location above to generate (required for GHL AI)</div>}
         </div>
       </div>
 
@@ -1818,7 +1821,11 @@ function WorkflowGenTab({ adminKey, locations }) {
       {workflow && (
         <div style={sty.card}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Step 2 — Review &amp; Edit</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Step 2 — Review &amp; Edit</div>
+              {source === 'ghl-ai' && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 20, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', fontWeight: 600 }}>GHL AI</span>}
+              {source === 'claude' && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 20, background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.3)', color: '#a78bfa', fontWeight: 600 }}>Claude AI</span>}
+            </div>
             <div style={{ display: 'flex', gap: 4 }}>
               {['visual', 'json'].map(m => (
                 <button key={m} onClick={() => setViewMode(m)} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: viewMode === m ? 'rgba(124,58,237,0.2)' : 'transparent', border: `1px solid ${viewMode === m ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.08)'}`, color: viewMode === m ? '#a78bfa' : '#6b7280', cursor: 'pointer', textTransform: 'capitalize' }}>
@@ -1855,9 +1862,9 @@ function WorkflowGenTab({ adminKey, locations }) {
                 ));
               })()}
 
-              {/* Steps — GHL uses "templates" as the real field name */}
+              {/* Steps — GHL native format uses "actions" array */}
               {(() => {
-                const steps = workflow.templates || workflow.actions || [];
+                const steps = workflow.actions || workflow.templates || [];
                 const TYPE_COLOR = { wait: '#f59e0b', email: '#6366f1', sms: '#6366f1', add_contact_tag: '#10b981', remove_contact_tag: '#10b981', if_else: '#ec4899' };
                 const TYPE_LABEL = { wait: '⏱ Wait', email: '📧 Send Email', sms: '💬 Send SMS', add_contact_tag: '🏷 Add Tag', remove_contact_tag: '🏷 Remove Tag', if_else: '🔀 If/Else', create_opportunity: '💼 Create Opportunity', assign_user: '👤 Assign User' };
                 return (

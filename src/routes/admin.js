@@ -1754,49 +1754,67 @@ router.post('/workflow-gen/generate', async (req, res) => {
   if (!prompt?.trim()) return res.status(400).json({ success: false, error: 'prompt is required.' });
   if (!locationId)     return res.status(400).json({ success: false, error: 'locationId is required.' });
 
-  const aiService = require('../services/aiService');
-
-  // Log which AI providers are configured for this location
   try {
-    const configs = await toolRegistry.loadToolConfigs(locationId);
-    const providers = ['anthropic','openai','groq','google','perplexity'].filter(p => configs[p]?.apiKey);
-    console.log(`[workflow-gen/generate] configured providers for ${locationId}:`, providers);
-  } catch (e) {
-    console.warn(`[workflow-gen/generate] could not load configs:`, e.message);
-  }
+    // Use GHL's own AI endpoint — it returns perfectly formatted workflow JSON
+    const ghlFirebaseService  = require('../services/ghlFirebaseService');
+    const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+    const idToken = await ghlFirebaseService.getFirebaseToken(locationId);
+    const headers = {
+      ...buildBackendHeaders(idToken),
+      'accept':  'application/json, text/plain, */*',
+      'origin':  'https://client-app-automation-workflows.leadconnectorhq.com',
+      'referer': 'https://client-app-automation-workflows.leadconnectorhq.com/',
+    };
 
-  const systemPrompt = 'You are a GHL (GoHighLevel) workflow automation expert. Return ONLY valid JSON — no markdown, no explanation, just the raw JSON object.';
-  const userPrompt   = `Generate a complete, valid GHL workflow JSON based on this request:
+    // Step 1: Create a temporary workflow shell to get a workflowId for GHL's AI endpoint
+    console.log(`[workflow-gen/generate] creating temporary workflow shell...`);
+    const shellResp = await axios.post(
+      `https://backend.leadconnectorhq.com/workflow/${locationId}`,
+      { name: prompt.trim().slice(0, 80), status: 'draft' },
+      { headers, validateStatus: () => true },
+    );
+    console.log(`[workflow-gen/generate] shell status=${shellResp.status} id=${shellResp.data?.id}`);
+    if (shellResp.status >= 400) {
+      return res.status(502).json({ success: false, error: `GHL shell create failed: ${shellResp.status}` });
+    }
+    const workflowId = shellResp.data?.id;
 
-"${prompt.trim()}"
+    // Step 2: Call GHL's own AI build endpoint with the user's prompt as title
+    console.log(`[workflow-gen/generate] calling GHL AI build-workflow endpoint workflowId=${workflowId}...`);
+    const ghlAiResp = await axios.post(
+      `https://backend.leadconnectorhq.com/workflow/${locationId}/v2/ai/build-workflow?locationId=${locationId}&workflowId=${workflowId}`,
+      { title: prompt.trim() },
+      { headers, validateStatus: () => true },
+    );
+    console.log(`[workflow-gen/generate] GHL AI status=${ghlAiResp.status} data=${JSON.stringify(ghlAiResp.data).slice(0,300)}`);
 
-${GHL_WORKFLOW_SCHEMA_HINT}
-
-Rules:
-- Action IDs must be sequential: "action_1", "action_2", etc.
-- The last action should have nextActionId: null
-- Use realistic, production-ready content (real SMS/email copy, not placeholders)
-- Infer sensible defaults for anything not specified
-- Return ONLY valid JSON — no markdown, no explanation, just the raw JSON object
-
-Return the workflow JSON now:`;
-
-  try {
-    console.log(`[workflow-gen/generate] calling aiService.generateForLocation...`);
-    const raw     = await aiService.generateForLocation(locationId, systemPrompt, userPrompt, { maxTokens: 4096 });
-    console.log(`[workflow-gen/generate] raw response length=${raw.length} preview="${raw.slice(0,100)}"`);
-    const jsonStr = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
-
-    let workflow;
-    try {
-      workflow = JSON.parse(jsonStr);
-      console.log(`[workflow-gen/generate] parsed OK — name="${workflow.name}" actions=${workflow.actions?.length}`);
-    } catch (parseErr) {
-      console.error(`[workflow-gen/generate] JSON parse failed:`, parseErr.message, 'raw:', jsonStr.slice(0, 300));
-      return res.status(422).json({ success: false, error: 'AI returned invalid JSON. Try rephrasing your prompt.', raw: jsonStr.slice(0, 500) });
+    if (ghlAiResp.status >= 400 || !ghlAiResp.data?.workflow) {
+      // GHL AI failed — fall back to our own Claude-based generation
+      console.warn(`[workflow-gen/generate] GHL AI failed, falling back to Claude...`);
+      const aiService = require('../services/aiService');
+      const raw = await aiService.generateForLocation(locationId,
+        'You are a GHL workflow expert. Return ONLY valid JSON — no markdown.',
+        `Generate a GHL workflow JSON for: "${prompt.trim()}"\n\n${GHL_WORKFLOW_SCHEMA_HINT}\nReturn the workflow JSON now:`,
+        { maxTokens: 4096 });
+      const jsonStr = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+      const workflow = JSON.parse(jsonStr);
+      return res.json({ success: true, workflow: { ...workflow, _workflowId: workflowId }, source: 'claude' });
     }
 
-    res.json({ success: true, workflow });
+    // GHL AI returned a properly formatted workflow
+    const ghlWorkflow = ghlAiResp.data.workflow;
+    res.json({
+      success:  true,
+      workflow: {
+        name:      prompt.trim().slice(0, 80),
+        status:    'draft',
+        triggers:  ghlWorkflow.triggers || [],
+        actions:   ghlWorkflow.actions  || [],
+        _workflowId: workflowId, // pass through so create step can skip shell creation
+      },
+      source: 'ghl-ai',
+      example: ghlAiResp.data.example || null,
+    });
   } catch (err) {
     console.error(`[workflow-gen/generate] error:`, err.message);
     res.status(500).json({ success: false, error: err.message });
@@ -1805,7 +1823,7 @@ Return the workflow JSON now:`;
 
 router.post('/workflow-gen/create', async (req, res) => {
   const { workflow, locationId } = req.body;
-  console.log(`[workflow-gen/create] locationId=${locationId} workflow.name="${workflow?.name}"`);
+  console.log(`[workflow-gen/create] locationId=${locationId} workflow.name="${workflow?.name}" _workflowId=${workflow?._workflowId}`);
   if (!workflow || !locationId) return res.status(400).json({ success: false, error: 'workflow and locationId are required.' });
 
   try {
@@ -1861,27 +1879,24 @@ router.post('/workflow-gen/create', async (req, res) => {
       'referer':  'https://client-app-automation-workflows.leadconnectorhq.com/',
     };
 
-    // Step 2a: POST to create the workflow shell (name + status only) → get ID
-    const createPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'draft' };
-    console.log(`[workflow-gen/create] Step 2a — POST create shell:`, JSON.stringify(createPayload));
-    const createResp = await axios.post(
-      `https://backend.leadconnectorhq.com/workflow/${locationId}`,
-      createPayload,
-      { headers, validateStatus: () => true },
-    );
-    console.log(`[workflow-gen/create] create status=${createResp.status} data=${JSON.stringify(createResp.data)}`);
-    if (createResp.status >= 400) {
-      return res.status(createResp.status).json({
-        success: false,
-        error:   `GHL create returned ${createResp.status}`,
-        detail:  JSON.stringify(createResp.data).slice(0, 300),
-      });
-    }
-
-    const workflowId = createResp.data?.id;
+    // Step 2a: Reuse existing workflowId from generate step, or create a new shell
+    let workflowId = workflow._workflowId;
     if (!workflowId) {
-      return res.status(502).json({ success: false, error: 'GHL did not return a workflow ID.', raw: JSON.stringify(createResp.data) });
+      const createPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'draft' };
+      console.log(`[workflow-gen/create] Step 2a — POST create shell:`, JSON.stringify(createPayload));
+      const createResp = await axios.post(
+        `https://backend.leadconnectorhq.com/workflow/${locationId}`,
+        createPayload,
+        { headers, validateStatus: () => true },
+      );
+      console.log(`[workflow-gen/create] create status=${createResp.status} data=${JSON.stringify(createResp.data)}`);
+      if (createResp.status >= 400) {
+        return res.status(createResp.status).json({ success: false, error: `GHL create returned ${createResp.status}`, detail: JSON.stringify(createResp.data).slice(0, 300) });
+      }
+      workflowId = createResp.data?.id;
+      if (!workflowId) return res.status(502).json({ success: false, error: 'GHL did not return a workflow ID.' });
     }
+    console.log(`[workflow-gen/create] using workflowId=${workflowId}`);
 
     // Step 2b: GET to retrieve version + filePath from the created shell
     console.log(`[workflow-gen/create] Step 2b — GET workflow metadata...`);
@@ -1894,14 +1909,14 @@ router.post('/workflow-gen/create', async (req, res) => {
     const workflowVersion = workflowMeta.version ?? 1;
 
     // Normalise trigger → triggers array
-    const triggers  = workflow.triggers?.length ? workflow.triggers : workflow.trigger ? [workflow.trigger] : [];
-    // templates is GHL's real field name for steps (discovered via probe endpoint)
-    const templates = workflow.templates || [];
+    const triggers = workflow.triggers?.length ? workflow.triggers : workflow.trigger ? [workflow.trigger] : [];
+    // Use GHL's native 'actions' field — this is what GHL's own AI endpoint returns
+    const actions  = workflow.actions || workflow.templates || [];
 
-    // Step 2c: Write { templates, triggers } to Firebase Storage FIRST to get the download token
+    // Step 2c: Write { actions, triggers } to Firebase Storage FIRST to get the download token
     const newVersion  = workflowVersion + 1;
     const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
-    const stepsData   = { templates, triggers };
+    const stepsData   = { actions, triggers };
     const encodedPath = encodeURIComponent(storagePath);
     const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/highlevel-backend.appspot.com/o?uploadType=media&name=${encodedPath}`;
     console.log(`[workflow-gen/create] Step 2c — writing to Firebase Storage path=${storagePath} templates=${templates.length}`);
@@ -1944,7 +1959,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     console.log(`[workflow-gen/create] put status=${putResp.status} data=${JSON.stringify(putResp.data).slice(0, 300)}`);
 
     activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name, workflowId }, success: true });
-    res.json({ success: true, data: { id: workflowId, version: newVersion, storagePath, templatesWritten: templates.length, fileUrl } });
+    res.json({ success: true, data: { id: workflowId, version: newVersion, storagePath, actionsWritten: actions.length, fileUrl } });
   } catch (err) {
     console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });
