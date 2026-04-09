@@ -1942,4 +1942,43 @@ router.post('/workflow-gen/create', async (req, res) => {
   }
 });
 
+// GET /admin/workflow-gen/probe/:locationId — list real GHL workflows and read one's storage content
+// Used to reverse-engineer the exact Firebase Storage format GHL uses for workflow steps.
+router.get('/workflow-gen/probe/:locationId', async (req, res) => {
+  const { locationId } = req.params;
+  try {
+    const ghlFirebaseService = require('../services/ghlFirebaseService');
+    const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+    const idToken = await ghlFirebaseService.getFirebaseToken(locationId);
+    const headers = {
+      ...buildBackendHeaders(idToken),
+      'accept': 'application/json, text/plain, */*',
+      'origin': 'https://client-app-automation-workflows.leadconnectorhq.com',
+      'referer': 'https://client-app-automation-workflows.leadconnectorhq.com/',
+    };
+
+    // List workflows for the location
+    const listResp = await axios.get(
+      `https://backend.leadconnectorhq.com/workflow/${locationId}?limit=10&skip=0`,
+      { headers, validateStatus: () => true },
+    );
+    console.log(`[workflow-gen/probe] list status=${listResp.status} data=`, JSON.stringify(listResp.data).slice(0, 500));
+
+    // Find a workflow that has a fileUrl (has storage content)
+    const workflows = listResp.data?.workflows || listResp.data?.data || (Array.isArray(listResp.data) ? listResp.data : []);
+    const sample = workflows.find(w => w.fileUrl && !w.deleted);
+    let storageContent = null;
+    if (sample?.fileUrl) {
+      const storageResp = await axios.get(sample.fileUrl, { validateStatus: () => true });
+      storageContent = storageResp.data;
+      console.log(`[workflow-gen/probe] sample workflow id=${sample.id} storage content=`, JSON.stringify(storageContent));
+    }
+
+    res.json({ success: true, count: workflows.length, sample: sample ? { id: sample.id, name: sample.name, filePath: sample.filePath, fileUrl: sample.fileUrl } : null, storageContent });
+  } catch (err) {
+    console.error(`[workflow-gen/probe] error:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
