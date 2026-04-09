@@ -1918,7 +1918,9 @@ router.post('/workflow-gen/create', async (req, res) => {
       name:         workflow.name || 'AI Workflow',
       status:       workflow.status || 'draft',
       version:      workflowVersion,
-      workflowData: { actions, triggers },
+      // GHL canvas reads "templates" key from Firebase Storage (not "actions")
+      // Using "templates" here causes GHL to mirror it correctly when it writes to storage
+      workflowData: { templates: actions, triggers },
     };
     // Always write to highlevel-backend.appspot.com — real GHL workflows use this bucket.
     // automation-workflows-production is the default shell bucket but GHL UI reads from highlevel-backend.
