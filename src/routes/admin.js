@@ -2002,19 +2002,28 @@ router.get('/workflow-gen/probe/:locationId', async (req, res) => {
       });
     }
 
-    // List workflows for the location
+    // List workflows — fetch last page (most recently created) to find a real migrated workflow with content
+    const countResp = await axios.get(`https://backend.leadconnectorhq.com/workflow/${locationId}?limit=1&skip=0`, { headers, validateStatus: () => true });
+    const total = countResp.data?.total || 0;
+    const skip  = Math.max(0, total - 5);
     const listResp = await axios.get(
-      `https://backend.leadconnectorhq.com/workflow/${locationId}?limit=10&skip=0`,
+      `https://backend.leadconnectorhq.com/workflow/${locationId}?limit=5&skip=${skip}`,
       { headers, validateStatus: () => true },
     );
     const workflows = listResp.data?.workflows || listResp.data?.data || (Array.isArray(listResp.data) ? listResp.data : []);
-    const sample = workflows.find(w => w.fileUrl && !w.deleted);
+    // Find a real workflow (not one we created) with content
+    const sample = workflows.find(w => w.fileUrl && !w.deleted && w.workflowData && Object.keys(w.workflowData).length > 0)
+      || workflows.find(w => w.fileUrl && !w.deleted);
     let storageContent = null;
     if (sample?.fileUrl) {
       const storageResp = await axios.get(sample.fileUrl, { validateStatus: () => true });
       storageContent = storageResp.data;
     }
-    res.json({ success: true, count: workflows.length, sample: sample ? { id: sample.id, name: sample.name, filePath: sample.filePath, fileUrl: sample.fileUrl } : null, storageContent });
+    res.json({
+      success: true, total, count: workflows.length,
+      sample: sample ? { id: sample.id, name: sample.name, version: sample.version, filePath: sample.filePath, fileUrl: sample.fileUrl, workflowData: sample.workflowData, isTriggerBucketMigrated: sample.isTriggerBucketMigrated } : null,
+      storageContent,
+    });
   } catch (err) {
     console.error(`[workflow-gen/probe] error:`, err.message);
     res.status(500).json({ success: false, error: err.message });
