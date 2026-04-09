@@ -1919,8 +1919,8 @@ router.post('/workflow-gen/create', async (req, res) => {
       status:       workflow.status || 'draft',
       version:      workflowVersion,
       // GHL canvas reads "templates" key from Firebase Storage (not "actions")
-      // Using "templates" here causes GHL to mirror it correctly when it writes to storage
-      workflowData: { templates: actions, triggers },
+      // Real GHL workflows only have "templates" in workflowData — triggers are stored separately
+      workflowData: { templates: actions },
     };
     // Always write to highlevel-backend.appspot.com — real GHL workflows use this bucket.
     // automation-workflows-production is the default shell bucket but GHL UI reads from highlevel-backend.
@@ -1932,7 +1932,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     console.log(`[workflow-gen/create] writing templates to Firebase Storage bucket=${bucket} path=${storagePath}`);
     // Real GHL workflows store ONLY { templates } in Firebase Storage — no triggers field
     const storageResp = await axios.post(uploadUrl, { templates: actions }, {
-      headers: { 'Authorization': `Firebase ${idToken}`, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
       validateStatus: () => true,
     });
     const downloadToken = storageResp.data?.downloadTokens;
