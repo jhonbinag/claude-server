@@ -1898,41 +1898,53 @@ router.post('/workflow-gen/create', async (req, res) => {
     // templates is GHL's real field name for steps (discovered via probe endpoint)
     const templates = workflow.templates || [];
 
-    // Step 2c: PUT to create new version (increments version counter in GHL)
-    const putPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'draft', version: workflowVersion };
-    console.log(`[workflow-gen/create] Step 2c — PUT metadata workflowId=${workflowId}`);
-    const putResp = await axios.put(
-      `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
-      putPayload,
-      { headers, validateStatus: () => true },
-    );
-    const newVersion  = putResp.data?.version ?? workflowVersion + 1;
+    // Step 2c: Write { templates, triggers } to Firebase Storage FIRST to get the download token
+    const newVersion  = workflowVersion + 1;
     const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
-    console.log(`[workflow-gen/create] put status=${putResp.status} newVersion=${newVersion} storagePath=${storagePath}`);
-
-    // Step 2d: Write { templates, triggers } to GHL's Firebase Storage bucket
-    // Real bucket is highlevel-backend.appspot.com (discovered from probe)
     const stepsData   = { templates, triggers };
     const encodedPath = encodeURIComponent(storagePath);
     const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/highlevel-backend.appspot.com/o?uploadType=media&name=${encodedPath}`;
-    console.log(`[workflow-gen/create] Step 2d — writing to Firebase Storage path=${storagePath} templates=${templates.length}`);
+    console.log(`[workflow-gen/create] Step 2c — writing to Firebase Storage path=${storagePath} templates=${templates.length}`);
     const storageResp = await axios.post(uploadUrl, stepsData, {
       headers: { 'Authorization': `Firebase ${idToken}`, 'Content-Type': 'application/json' },
       validateStatus: () => true,
     });
-    console.log(`[workflow-gen/create] storage status=${storageResp.status} data=${JSON.stringify(storageResp.data).slice(0, 200)}`);
+    console.log(`[workflow-gen/create] storage status=${storageResp.status} data=${JSON.stringify(storageResp.data).slice(0, 400)}`);
 
     if (storageResp.status >= 400) {
       return res.status(200).json({
         success: true,
         partial: true,
-        warning: `Workflow created (id: ${workflowId}) but writing steps to Firebase Storage returned ${storageResp.status}. Steps may need to be configured manually in GHL.`,
+        warning: `Workflow created (id: ${workflowId}) but writing steps to Firebase Storage returned ${storageResp.status}.`,
         data: { id: workflowId, storageDetail: JSON.stringify(storageResp.data).slice(0, 300) },
       });
     }
 
+    // Extract download token from Firebase Storage response and build fileUrl
+    const downloadToken = storageResp.data?.downloadTokens || storageResp.data?.metadata?.downloadTokens;
+    const fileUrl = downloadToken
+      ? `https://firebasestorage.googleapis.com/v0/b/highlevel-backend.appspot.com/o/${encodedPath}?alt=media&token=${downloadToken}`
+      : null;
+    console.log(`[workflow-gen/create] downloadToken=${downloadToken} fileUrl=${fileUrl}`);
+
+    // Step 2d: PUT to update GHL DB with new version, filePath and fileUrl so GHL UI reads the right file
+    const putPayload = {
+      name:     workflow.name || 'AI Workflow',
+      status:   workflow.status || 'draft',
+      version:  workflowVersion,
+      filePath: storagePath,
+      ...(fileUrl ? { fileUrl } : {}),
+    };
+    console.log(`[workflow-gen/create] Step 2d — PUT to update GHL DB workflowId=${workflowId} filePath=${storagePath}`);
+    const putResp = await axios.put(
+      `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
+      putPayload,
+      { headers, validateStatus: () => true },
+    );
+    console.log(`[workflow-gen/create] put status=${putResp.status} data=${JSON.stringify(putResp.data).slice(0, 300)}`);
+
     activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name, workflowId }, success: true });
-    res.json({ success: true, data: { id: workflowId, version: newVersion, storagePath, templatesWritten: templates.length } });
+    res.json({ success: true, data: { id: workflowId, version: newVersion, storagePath, templatesWritten: templates.length, fileUrl } });
   } catch (err) {
     console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });
