@@ -1912,25 +1912,15 @@ router.post('/workflow-gen/create', async (req, res) => {
     const triggers = workflow.triggers?.length ? workflow.triggers : workflow.trigger ? [workflow.trigger] : [];
     const actions  = workflow.actions || workflow.templates || [];
 
-    // GHL stores steps in workflowData via PUT AND in Firebase Storage as "templates"
-    // The UI reads from fileUrl (Firebase Storage) using the "templates" key
-    const putPayload = {
-      name:         workflow.name || 'AI Workflow',
-      status:       workflow.status || 'draft',
-      version:      workflowVersion,
-      // GHL canvas reads "templates" key from Firebase Storage (not "actions")
-      // Real GHL workflows only have "templates" in workflowData — triggers are stored separately
-      workflowData: { templates: actions },
-    };
-    // Always write to highlevel-backend.appspot.com — real GHL workflows use this bucket.
-    // automation-workflows-production is the default shell bucket but GHL UI reads from highlevel-backend.
+    // Step 2c: Write templates to highlevel-backend.appspot.com (the bucket GHL canvas reads from).
+    // Real GHL workflows use this bucket. New shells start at automation-workflows-production,
+    // so we must write here AND update fileUrl to point here — otherwise canvas shows blank.
     const bucket      = 'highlevel-backend.appspot.com';
     const newVersion  = workflowVersion + 1;
     const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
     const encodedPath = encodeURIComponent(storagePath);
     const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodedPath}`;
-    console.log(`[workflow-gen/create] writing templates to Firebase Storage bucket=${bucket} path=${storagePath}`);
-    // Real GHL workflows store ONLY { templates } in Firebase Storage — no triggers field
+    console.log(`[workflow-gen/create] Step 2c — write templates to ${bucket} path=${storagePath}`);
     const storageResp = await axios.post(uploadUrl, { templates: actions }, {
       headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
       validateStatus: () => true,
@@ -1939,16 +1929,37 @@ router.post('/workflow-gen/create', async (req, res) => {
     const newFileUrl = downloadToken
       ? `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media&token=${downloadToken}`
       : null;
-    console.log(`[workflow-gen/create] storage status=${storageResp.status} downloadToken=${downloadToken}`);
-    // Merge newFileUrl + filePath into PUT payload if storage write succeeded
+    console.log(`[workflow-gen/create] storage status=${storageResp.status} downloadToken=${downloadToken} fileUrl=${newFileUrl}`);
+
+    // Step 2d: PUT fileUrl first (WITHOUT workflowData) so GHL stores our highlevel-backend fileUrl.
+    // When workflowData is included, GHL writes it to automation-workflows-production and overrides fileUrl.
+    // So we send fileUrl-only PUT first, then workflowData-only PUT second.
+    if (newFileUrl) {
+      const fileUrlPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'draft', version: workflowVersion, fileUrl: newFileUrl, filePath: storagePath };
+      console.log(`[workflow-gen/create] Step 2d — PUT fileUrl-only to update to highlevel-backend`);
+      const fileUrlPut = await axios.put(`https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`, fileUrlPayload, { headers, validateStatus: () => true });
+      console.log(`[workflow-gen/create] fileUrl-PUT status=${fileUrlPut.status} fileUrl in resp=${fileUrlPut.data?.fileUrl}`);
+    }
+
+    // Step 2e: GET the latest version after the fileUrl PUT, then PUT workflowData
+    const getResp2 = await axios.get(`https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`, { headers, validateStatus: () => true });
+    const meta2 = getResp2.data || {};
+    console.log(`[workflow-gen/create] Step 2e — after fileUrl-PUT: version=${meta2.version} fileUrl=${meta2.fileUrl}`);
+
+    const putPayload = {
+      name:         workflow.name || 'AI Workflow',
+      status:       workflow.status || 'draft',
+      version:      meta2.version ?? workflowVersion + 1,
+      workflowData: { templates: actions },
+    };
     if (newFileUrl) { putPayload.fileUrl = newFileUrl; putPayload.filePath = storagePath; }
-    console.log(`[workflow-gen/create] Step 2c — PUT with workflowData+fileUrl workflowId=${workflowId} actions=${actions.length}`);
+    console.log(`[workflow-gen/create] Step 2f — PUT workflowData actions=${actions.length}`);
     const putResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       putPayload,
       { headers, validateStatus: () => true },
     );
-    console.log(`[workflow-gen/create] put status=${putResp.status} data=${JSON.stringify(putResp.data).slice(0, 500)}`);
+    console.log(`[workflow-gen/create] workflowData-PUT status=${putResp.status} fileUrl=${putResp.data?.fileUrl}`);
 
     if (putResp.status >= 400) {
       return res.status(200).json({
@@ -1959,8 +1970,12 @@ router.post('/workflow-gen/create', async (req, res) => {
       });
     }
 
+    // Step 2g: Final GET to confirm fileUrl
+    const finalGet = await axios.get(`https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`, { headers, validateStatus: () => true });
+    console.log(`[workflow-gen/create] final fileUrl=${finalGet.data?.fileUrl}`);
+
     activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name, workflowId }, success: true });
-    res.json({ success: true, data: { id: workflowId, actionsWritten: actions.length, triggersWritten: triggers.length } });
+    res.json({ success: true, data: { id: workflowId, actionsWritten: actions.length, triggersWritten: triggers.length, fileUrl: finalGet.data?.fileUrl } });
   } catch (err) {
     console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });
