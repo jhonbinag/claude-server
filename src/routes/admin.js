@@ -1921,7 +1921,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     const encodedPath = encodeURIComponent(storagePath);
     const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodedPath}`;
     console.log(`[workflow-gen/create] Step 2c — write templates to ${bucket} path=${storagePath}`);
-    const storageResp = await axios.post(uploadUrl, { templates: actions }, {
+    const storageResp = await axios.post(uploadUrl, { actions }, {
       headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
       validateStatus: () => true,
     });
@@ -1950,7 +1950,9 @@ router.post('/workflow-gen/create', async (req, res) => {
       name:         workflow.name || 'AI Workflow',
       status:       workflow.status || 'draft',
       version:      meta2.version ?? workflowVersion + 1,
-      workflowData: { templates: actions },
+      // isTriggerBucketMigrated:true workflows use "actions" key (not "templates")
+      // GHL's own AI endpoint returns { actions: [...] } for new-style workflows
+      workflowData: { actions },
     };
     if (newFileUrl) { putPayload.fileUrl = newFileUrl; putPayload.filePath = storagePath; }
     console.log(`[workflow-gen/create] Step 2f — PUT workflowData actions=${actions.length}`);
