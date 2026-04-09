@@ -1910,61 +1910,36 @@ router.post('/workflow-gen/create', async (req, res) => {
 
     // Normalise trigger → triggers array
     const triggers = workflow.triggers?.length ? workflow.triggers : workflow.trigger ? [workflow.trigger] : [];
-    // Use GHL's native 'actions' field — this is what GHL's own AI endpoint returns
     const actions  = workflow.actions || workflow.templates || [];
 
-    // Step 2c: Write { actions, triggers } to Firebase Storage FIRST to get the download token
-    // Detect which bucket GHL uses for this location from the existing fileUrl
-    const existingFileUrl = workflowMeta.fileUrl || '';
-    const bucket = existingFileUrl.includes('automation-workflows-production')
-      ? 'automation-workflows-production'
-      : 'highlevel-backend.appspot.com';
-    const newVersion  = workflowVersion + 1;
-    const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
-    const stepsData   = { actions, triggers };
-    const encodedPath = encodeURIComponent(storagePath);
-    const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodedPath}`;
-    console.log(`[workflow-gen/create] Step 2c — writing to Firebase Storage bucket=${bucket} path=${storagePath} actions=${actions.length}`);
-    const storageResp = await axios.post(uploadUrl, stepsData, {
-      headers: { 'Authorization': `Firebase ${idToken}`, 'Content-Type': 'application/json' },
-      validateStatus: () => true,
-    });
-    console.log(`[workflow-gen/create] storage status=${storageResp.status} data=${JSON.stringify(storageResp.data).slice(0, 400)}`);
-
-    if (storageResp.status >= 400) {
-      return res.status(200).json({
-        success: true,
-        partial: true,
-        warning: `Workflow created (id: ${workflowId}) but writing steps to Firebase Storage returned ${storageResp.status}.`,
-        data: { id: workflowId, storageDetail: JSON.stringify(storageResp.data).slice(0, 300) },
-      });
-    }
-
-    // Extract download token from Firebase Storage response and build fileUrl
-    const downloadToken = storageResp.data?.downloadTokens || storageResp.data?.metadata?.downloadTokens;
-    const fileUrl = downloadToken
-      ? `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media&token=${downloadToken}`
-      : null;
-    console.log(`[workflow-gen/create] downloadToken=${downloadToken} fileUrl=${fileUrl}`);
-
-    // Step 2d: PUT to update GHL DB with new version, filePath and fileUrl so GHL UI reads the right file
+    // isTriggerBucketMigrated=true means GHL now stores workflow steps in workflowData
+    // via the PUT endpoint, NOT in Firebase Storage — include everything in the PUT body
     const putPayload = {
-      name:     workflow.name || 'AI Workflow',
-      status:   workflow.status || 'draft',
-      version:  workflowVersion,
-      filePath: storagePath,
-      ...(fileUrl ? { fileUrl } : {}),
+      name:         workflow.name || 'AI Workflow',
+      status:       workflow.status || 'draft',
+      version:      workflowVersion,
+      workflowData: { actions, triggers },
     };
-    console.log(`[workflow-gen/create] Step 2d — PUT to update GHL DB workflowId=${workflowId} filePath=${storagePath}`);
+    console.log(`[workflow-gen/create] Step 2c — PUT with workflowData workflowId=${workflowId} actions=${actions.length} triggers=${triggers.length}`);
+    console.log(`[workflow-gen/create] PUT payload:`, JSON.stringify(putPayload));
     const putResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       putPayload,
       { headers, validateStatus: () => true },
     );
-    console.log(`[workflow-gen/create] put status=${putResp.status} data=${JSON.stringify(putResp.data).slice(0, 300)}`);
+    console.log(`[workflow-gen/create] put status=${putResp.status} data=${JSON.stringify(putResp.data).slice(0, 500)}`);
+
+    if (putResp.status >= 400) {
+      return res.status(200).json({
+        success: true,
+        partial: true,
+        warning: `Workflow created (id: ${workflowId}) but PUT with workflowData returned ${putResp.status}.`,
+        data: { id: workflowId, putDetail: JSON.stringify(putResp.data).slice(0, 300) },
+      });
+    }
 
     activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name, workflowId }, success: true });
-    res.json({ success: true, data: { id: workflowId, version: newVersion, storagePath, actionsWritten: actions.length, fileUrl } });
+    res.json({ success: true, data: { id: workflowId, actionsWritten: actions.length, triggersWritten: triggers.length } });
   } catch (err) {
     console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });
