@@ -1912,15 +1912,16 @@ router.post('/workflow-gen/create', async (req, res) => {
     const triggers = workflow.triggers?.length ? workflow.triggers : workflow.trigger ? [workflow.trigger] : [];
     const actions  = workflow.actions || workflow.templates || [];
 
-    // Step 2c: Write templates to highlevel-backend.appspot.com (the bucket GHL canvas reads from).
-    // Real GHL workflows use this bucket. New shells start at automation-workflows-production,
-    // so we must write here AND update fileUrl to point here — otherwise canvas shows blank.
+    // Step 2c: Write { actions } to highlevel-backend.appspot.com at newVersion.
+    // GHL canvas for isTriggerBucketMigrated:true workflows reads from
+    // highlevel-backend.appspot.com/{filePath} — NOT from the fileUrl in the DB.
+    // The single PUT below sets filePath to newVersion, so canvas looks there.
     const bucket      = 'highlevel-backend.appspot.com';
     const newVersion  = workflowVersion + 1;
     const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
     const encodedPath = encodeURIComponent(storagePath);
     const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodedPath}`;
-    console.log(`[workflow-gen/create] Step 2c — write templates to ${bucket} path=${storagePath}`);
+    console.log(`[workflow-gen/create] Step 2c — write actions to ${bucket} path=${storagePath}`);
     const storageResp = await axios.post(uploadUrl, { actions }, {
       headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
       validateStatus: () => true,
@@ -1929,55 +1930,36 @@ router.post('/workflow-gen/create', async (req, res) => {
     const newFileUrl = downloadToken
       ? `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media&token=${downloadToken}`
       : null;
-    console.log(`[workflow-gen/create] storage status=${storageResp.status} downloadToken=${downloadToken} fileUrl=${newFileUrl}`);
+    console.log(`[workflow-gen/create] storage status=${storageResp.status} token=${downloadToken} newFileUrl=${newFileUrl}`);
 
-    // Step 2d: PUT fileUrl first (WITHOUT workflowData) so GHL stores our highlevel-backend fileUrl.
-    // When workflowData is included, GHL writes it to automation-workflows-production and overrides fileUrl.
-    // So we send fileUrl-only PUT first, then workflowData-only PUT second.
-    if (newFileUrl) {
-      const fileUrlPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'draft', version: workflowVersion, fileUrl: newFileUrl, filePath: storagePath };
-      console.log(`[workflow-gen/create] Step 2d — PUT fileUrl-only to update to highlevel-backend`);
-      const fileUrlPut = await axios.put(`https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`, fileUrlPayload, { headers, validateStatus: () => true });
-      console.log(`[workflow-gen/create] fileUrl-PUT status=${fileUrlPut.status} fileUrl in resp=${fileUrlPut.data?.fileUrl}`);
-    }
-
-    // Step 2e: GET the latest version after the fileUrl PUT, then PUT workflowData
-    const getResp2 = await axios.get(`https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`, { headers, validateStatus: () => true });
-    const meta2 = getResp2.data || {};
-    console.log(`[workflow-gen/create] Step 2e — after fileUrl-PUT: version=${meta2.version} fileUrl=${meta2.fileUrl}`);
-
+    // Step 2d: Single PUT — workflowData + fileUrl (pointing to highlevel-backend).
+    // Using ONE PUT keeps version aligned: newVersion = workflowVersion+1 = filePath version.
+    // Canvas reads highlevel-backend.appspot.com/{filePath} and finds our { actions } file.
     const putPayload = {
       name:         workflow.name || 'AI Workflow',
       status:       workflow.status || 'draft',
-      version:      meta2.version ?? workflowVersion + 1,
-      // isTriggerBucketMigrated:true workflows use "actions" key (not "templates")
-      // GHL's own AI endpoint returns { actions: [...] } for new-style workflows
+      version:      workflowVersion,
       workflowData: { actions },
     };
     if (newFileUrl) { putPayload.fileUrl = newFileUrl; putPayload.filePath = storagePath; }
-    console.log(`[workflow-gen/create] Step 2f — PUT workflowData actions=${actions.length}`);
+    console.log(`[workflow-gen/create] Step 2d — single PUT actions=${actions.length} fileUrl=${newFileUrl}`);
     const putResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       putPayload,
       { headers, validateStatus: () => true },
     );
-    console.log(`[workflow-gen/create] workflowData-PUT status=${putResp.status} fileUrl=${putResp.data?.fileUrl}`);
+    console.log(`[workflow-gen/create] PUT status=${putResp.status} resp.fileUrl=${putResp.data?.fileUrl} resp.version=${putResp.data?.version}`);
 
     if (putResp.status >= 400) {
       return res.status(200).json({
-        success: true,
-        partial: true,
-        warning: `Workflow created (id: ${workflowId}) but PUT with workflowData returned ${putResp.status}.`,
+        success: true, partial: true,
+        warning: `Workflow created (id: ${workflowId}) but PUT returned ${putResp.status}.`,
         data: { id: workflowId, putDetail: JSON.stringify(putResp.data).slice(0, 300) },
       });
     }
 
-    // Step 2g: Final GET to confirm fileUrl
-    const finalGet = await axios.get(`https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`, { headers, validateStatus: () => true });
-    console.log(`[workflow-gen/create] final fileUrl=${finalGet.data?.fileUrl}`);
-
     activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name, workflowId }, success: true });
-    res.json({ success: true, data: { id: workflowId, actionsWritten: actions.length, triggersWritten: triggers.length, fileUrl: finalGet.data?.fileUrl } });
+    res.json({ success: true, data: { id: workflowId, actionsWritten: actions.length, triggersWritten: triggers.length, storageUrl: newFileUrl } });
   } catch (err) {
     console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });
