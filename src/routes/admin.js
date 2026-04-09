@@ -1967,6 +1967,26 @@ router.post('/workflow-gen/create', async (req, res) => {
   }
 });
 
+// GET /admin/workflow-gen/storage-test/:locationId — test Firebase Storage write to highlevel-backend bucket
+router.get('/workflow-gen/storage-test/:locationId', async (req, res) => {
+  const { locationId } = req.params;
+  try {
+    const ghlFirebaseService = require('../services/ghlFirebaseService');
+    const idToken = await ghlFirebaseService.getFirebaseToken(locationId);
+    const bucket  = 'highlevel-backend.appspot.com';
+    const path    = `location/${locationId}/workflows/_test_/1`;
+    const encoded = encodeURIComponent(path);
+    const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encoded}`;
+    const resp = await axios.post(uploadUrl, { test: true }, {
+      headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+      validateStatus: () => true,
+    });
+    res.json({ status: resp.status, data: resp.data, bucket, path, tokenPreview: idToken.slice(0, 20) + '...' });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
 // GET /admin/workflow-gen/probe/:locationId — list real GHL workflows and read one's storage content
 // Used to reverse-engineer the exact Firebase Storage format GHL uses for workflow steps.
 router.get('/workflow-gen/probe/:locationId', async (req, res) => {
