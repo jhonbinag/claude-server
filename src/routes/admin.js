@@ -1941,7 +1941,7 @@ router.post('/workflow-gen/create', async (req, res) => {
       version:      workflowVersion,
       workflowData: { actions },
     };
-    console.log(`[workflow-gen/create] Step 2d — single PUT actions=${actions.length} fileUrl=${newFileUrl}`);
+    console.log(`[workflow-gen/create] Step 2d — single PUT actions=${actions.length}`);
     const putResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       putPayload,
