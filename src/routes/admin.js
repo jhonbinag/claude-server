@@ -1711,7 +1711,7 @@ router.put('/agents/:id', async (req, res) => {
 //   Firebase token-id obtained from their browser session.
 
 const GHL_WORKFLOW_SCHEMA_HINT = `
-Use EXACTLY this JSON structure (GHL internal API format):
+Use EXACTLY this JSON structure (GHL internal workflow format):
 {
   "name": "Workflow Name",
   "status": "draft",
@@ -1721,26 +1721,31 @@ Use EXACTLY this JSON structure (GHL internal API format):
       "filters": {}
     }
   ],
-  "actions": [
+  "templates": [
     {
-      "id": "action_1",
-      "type": "SEND_SMS" | "SEND_EMAIL" | "WAIT" | "ADD_TAG" | "REMOVE_TAG" | "ADD_TO_PIPELINE" | "REMOVE_FROM_PIPELINE" | "UPDATE_CONTACT_FIELD" | "SEND_INTERNAL_NOTIFICATION" | "IF_ELSE" | "GO_TO" | "END",
+      "id": "step_1",
+      "order": 0,
       "name": "Human readable name",
-      "config": {
-        // SEND_SMS:    { "message": "Hi {{contact.firstName}}..." }
-        // SEND_EMAIL:  { "subject": "...", "body": "<p>...</p>", "fromName": "{{location.name}}", "fromEmail": "noreply@yourdomain.com" }
-        // WAIT:        { "value": 1, "unit": "days" }
-        // ADD_TAG:     { "tag": "tag-name" }
-        // REMOVE_TAG:  { "tag": "tag-name" }
+      "type": "sms" | "email" | "wait" | "add_contact_tag" | "remove_contact_tag" | "create_opportunity",
+      "attributes": {
+        // For type "sms":   { "body": "Hi {{contact.first_name}}...", "attachments": [] }
+        // For type "email": { "subject": "...", "html": "<p>...</p>", "from_email": "{{user.email}}", "from_name": "{{user.first_name}}", "attachments": [] }
+        // For type "wait":  { "type": "time", "startAfter": { "type": "hours" | "days" | "minutes", "value": 1, "when": "after" } }
+        // For type "add_contact_tag":    { "tags": ["tag-name"] }
+        // For type "remove_contact_tag": { "tags": ["tag-name"] }
       },
-      "nextActionId": "action_2"
+      "next": "step_2"
     }
   ]
 }
-IMPORTANT:
-- Use "triggers" (array) not "trigger" (singular)
-- Action IDs: "action_1", "action_2", ... last action has nextActionId: null
-- Use real SMS/email copy with GHL merge tags: {{contact.firstName}}, {{contact.lastName}}, {{contact.email}}, {{contact.phone}}, {{location.name}}
+
+CRITICAL RULES:
+- "templates" is the field name for actions — NOT "actions" or "steps"
+- "triggers" must be an array
+- Each template "next" points to the next step's id; last step has next: null
+- Step IDs can be any UUID-like string e.g. "step_1", "step_2"
+- order starts at 0 and increments by 1
+- For SMS body and email html use GHL merge tags: {{contact.first_name}}, {{contact.last_name}}, {{contact.email}}, {{contact.phone}}, {{location.name}}
 `;
 
 router.post('/workflow-gen/generate', async (req, res) => {
@@ -1885,16 +1890,15 @@ router.post('/workflow-gen/create', async (req, res) => {
       { headers, validateStatus: () => true },
     );
     console.log(`[workflow-gen/create] get status=${getResp.status} data=${JSON.stringify(getResp.data)}`);
-    const workflowMeta   = getResp.data || {};
+    const workflowMeta    = getResp.data || {};
     const workflowVersion = workflowMeta.version ?? 1;
-    const filePath        = workflowMeta.filePath; // e.g. "location/{locationId}/workflows/{workflowId}/{version}"
 
     // Normalise trigger → triggers array
-    const triggers = workflow.triggers?.length
-      ? workflow.triggers
-      : workflow.trigger ? [workflow.trigger] : [];
+    const triggers  = workflow.triggers?.length ? workflow.triggers : workflow.trigger ? [workflow.trigger] : [];
+    // templates is GHL's real field name for steps (discovered via probe endpoint)
+    const templates = workflow.templates || [];
 
-    // Step 2c: PUT metadata (name, status, version)
+    // Step 2c: PUT to create new version (increments version counter in GHL)
     const putPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'draft', version: workflowVersion };
     console.log(`[workflow-gen/create] Step 2c — PUT metadata workflowId=${workflowId}`);
     const putResp = await axios.put(
@@ -1902,28 +1906,21 @@ router.post('/workflow-gen/create', async (req, res) => {
       putPayload,
       { headers, validateStatus: () => true },
     );
-    console.log(`[workflow-gen/create] put status=${putResp.status} newVersion=${putResp.data?.version}`);
-
-    // Step 2d: Write steps directly to Firebase Storage (GHL stores them there, not via backend API)
-    // The path increments to the new version after the PUT
     const newVersion  = putResp.data?.version ?? workflowVersion + 1;
     const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
-    const stepsData   = {
-      triggers,
-      actions: workflow.actions || [],
-    };
-    const encodedPath  = encodeURIComponent(storagePath);
-    const uploadUrl    = `https://firebasestorage.googleapis.com/v0/b/automation-workflows-production/o?uploadType=media&name=${encodedPath}`;
-    console.log(`[workflow-gen/create] Step 2d — writing steps to Firebase Storage path=${storagePath}`);
-    console.log(`[workflow-gen/create] stepsData=`, JSON.stringify(stepsData));
+    console.log(`[workflow-gen/create] put status=${putResp.status} newVersion=${newVersion} storagePath=${storagePath}`);
+
+    // Step 2d: Write { templates, triggers } to GHL's Firebase Storage bucket
+    // Real bucket is highlevel-backend.appspot.com (discovered from probe)
+    const stepsData   = { templates, triggers };
+    const encodedPath = encodeURIComponent(storagePath);
+    const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/highlevel-backend.appspot.com/o?uploadType=media&name=${encodedPath}`;
+    console.log(`[workflow-gen/create] Step 2d — writing to Firebase Storage path=${storagePath} templates=${templates.length}`);
     const storageResp = await axios.post(uploadUrl, stepsData, {
-      headers: {
-        'Authorization': `Firebase ${idToken}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Authorization': `Firebase ${idToken}`, 'Content-Type': 'application/json' },
       validateStatus: () => true,
     });
-    console.log(`[workflow-gen/create] storage upload status=${storageResp.status} data=${JSON.stringify(storageResp.data)}`);
+    console.log(`[workflow-gen/create] storage status=${storageResp.status} data=${JSON.stringify(storageResp.data).slice(0, 200)}`);
 
     if (storageResp.status >= 400) {
       return res.status(200).json({
@@ -1935,7 +1932,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     }
 
     activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name, workflowId }, success: true });
-    res.json({ success: true, data: { id: workflowId, version: newVersion, storagePath } });
+    res.json({ success: true, data: { id: workflowId, version: newVersion, storagePath, templatesWritten: templates.length } });
   } catch (err) {
     console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });

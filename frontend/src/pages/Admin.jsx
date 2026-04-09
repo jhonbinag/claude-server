@@ -1855,35 +1855,40 @@ function WorkflowGenTab({ adminKey, locations }) {
                 ));
               })()}
 
-              {/* Arrow */}
-              {workflow.actions?.length > 0 && (
-                <div style={{ textAlign: 'center', color: '#374151', fontSize: 18, margin: '4px 0' }}>↓</div>
-              )}
-
-              {/* Actions */}
-              {(workflow.actions || []).map((action, idx) => {
-                const isEnd = action.type === 'END';
-                const color = isEnd ? '#6b7280' : action.type === 'WAIT' ? '#f59e0b' : action.type?.includes('SEND') ? '#6366f1' : action.type === 'IF_ELSE' ? '#ec4899' : '#10b981';
+              {/* Steps — GHL uses "templates" as the real field name */}
+              {(() => {
+                const steps = workflow.templates || workflow.actions || [];
+                const TYPE_COLOR = { wait: '#f59e0b', email: '#6366f1', sms: '#6366f1', add_contact_tag: '#10b981', remove_contact_tag: '#10b981', if_else: '#ec4899' };
+                const TYPE_LABEL = { wait: '⏱ Wait', email: '📧 Send Email', sms: '💬 Send SMS', add_contact_tag: '🏷 Add Tag', remove_contact_tag: '🏷 Remove Tag', if_else: '🔀 If/Else', create_opportunity: '💼 Create Opportunity', assign_user: '👤 Assign User' };
                 return (
-                  <div key={action.id || idx}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 14px', background: `rgba(${color === '#6366f1' ? '99,102,241' : color === '#10b981' ? '16,185,129' : color === '#f59e0b' ? '245,158,11' : color === '#ec4899' ? '236,72,153' : '107,114,128'},0.08)`, border: `1px solid rgba(${color === '#6366f1' ? '99,102,241' : color === '#10b981' ? '16,185,129' : color === '#f59e0b' ? '245,158,11' : color === '#ec4899' ? '236,72,153' : '107,114,128'},0.25)`, borderRadius: 10, marginBottom: 4 }}>
-                      <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{WF_ACTION_LABELS[action.type]?.split(' ')[0] || '▶'}</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color, marginBottom: 2 }}>{WF_ACTION_LABELS[action.type] || action.type}</div>
-                        <div style={{ fontSize: 12, color: '#9ca3af' }}>{action.name}</div>
-                        {action.config && Object.keys(action.config).length > 0 && (
-                          <div style={{ marginTop: 4, fontSize: 11, color: '#6b7280', background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: '4px 8px', fontFamily: 'monospace' }}>
-                            {Object.entries(action.config).filter(([k]) => k !== 'yesActions' && k !== 'noActions').map(([k, v]) => (
-                              <div key={k}><span style={{ color: '#7c3aed' }}>{k}</span>: {String(v).slice(0, 80)}</div>
-                            ))}
+                  <>
+                    {steps.length > 0 && <div style={{ textAlign: 'center', color: '#374151', fontSize: 18, margin: '4px 0' }}>↓</div>}
+                    {steps.map((step, idx) => {
+                      const color = TYPE_COLOR[step.type] || '#10b981';
+                      const attrs = step.attributes || step.config || {};
+                      return (
+                        <div key={step.id || idx}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 14px', background: `rgba(${color === '#6366f1' ? '99,102,241' : color === '#10b981' ? '16,185,129' : color === '#f59e0b' ? '245,158,11' : color === '#ec4899' ? '236,72,153' : '107,114,128'},0.08)`, border: `1px solid rgba(${color === '#6366f1' ? '99,102,241' : color === '#10b981' ? '16,185,129' : color === '#f59e0b' ? '245,158,11' : color === '#ec4899' ? '236,72,153' : '107,114,128'},0.25)`, borderRadius: 10, marginBottom: 4 }}>
+                            <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{(TYPE_LABEL[step.type] || '▶').split(' ')[0]}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color, marginBottom: 2 }}>{TYPE_LABEL[step.type] || step.type}</div>
+                              <div style={{ fontSize: 12, color: '#9ca3af' }}>{step.name}</div>
+                              {Object.keys(attrs).length > 0 && (
+                                <div style={{ marginTop: 4, fontSize: 11, color: '#6b7280', background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: '4px 8px', fontFamily: 'monospace' }}>
+                                  {Object.entries(attrs).slice(0, 3).map(([k, v]) => (
+                                    <div key={k}><span style={{ color: '#7c3aed' }}>{k}</span>: {String(typeof v === 'object' ? JSON.stringify(v) : v).slice(0, 80)}</div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    </div>
-                    {action.nextActionId && <div style={{ textAlign: 'center', color: '#374151', fontSize: 16, margin: '2px 0' }}>↓</div>}
-                  </div>
+                          {step.next && <div style={{ textAlign: 'center', color: '#374151', fontSize: 16, margin: '2px 0' }}>↓</div>}
+                        </div>
+                      );
+                    })}
+                  </>
                 );
-              })}
+              })()}
             </div>
           )}
 
