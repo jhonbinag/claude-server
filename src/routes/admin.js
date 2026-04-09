@@ -1912,16 +1912,36 @@ router.post('/workflow-gen/create', async (req, res) => {
     const triggers = workflow.triggers?.length ? workflow.triggers : workflow.trigger ? [workflow.trigger] : [];
     const actions  = workflow.actions || workflow.templates || [];
 
-    // isTriggerBucketMigrated=true means GHL now stores workflow steps in workflowData
-    // via the PUT endpoint, NOT in Firebase Storage — include everything in the PUT body
+    // GHL stores steps in workflowData via PUT AND in Firebase Storage as "templates"
+    // The UI reads from fileUrl (Firebase Storage) using the "templates" key
     const putPayload = {
       name:         workflow.name || 'AI Workflow',
       status:       workflow.status || 'draft',
       version:      workflowVersion,
       workflowData: { actions, triggers },
     };
-    console.log(`[workflow-gen/create] Step 2c — PUT with workflowData workflowId=${workflowId} actions=${actions.length} triggers=${triggers.length}`);
-    console.log(`[workflow-gen/create] PUT payload:`, JSON.stringify(putPayload));
+    // Also write to Firebase Storage with "templates" key (what GHL UI reads)
+    const existingFileUrl = workflowMeta.fileUrl || '';
+    const bucket = existingFileUrl.includes('automation-workflows-production')
+      ? 'automation-workflows-production'
+      : 'highlevel-backend.appspot.com';
+    const newVersion  = workflowVersion + 1;
+    const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
+    const encodedPath = encodeURIComponent(storagePath);
+    const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodedPath}`;
+    console.log(`[workflow-gen/create] writing templates to Firebase Storage bucket=${bucket} path=${storagePath}`);
+    const storageResp = await axios.post(uploadUrl, { templates: actions, triggers }, {
+      headers: { 'Authorization': `Firebase ${idToken}`, 'Content-Type': 'application/json' },
+      validateStatus: () => true,
+    });
+    const downloadToken = storageResp.data?.downloadTokens;
+    const newFileUrl = downloadToken
+      ? `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media&token=${downloadToken}`
+      : null;
+    console.log(`[workflow-gen/create] storage status=${storageResp.status} downloadToken=${downloadToken}`);
+    // Merge newFileUrl + filePath into PUT payload if storage write succeeded
+    if (newFileUrl) { putPayload.fileUrl = newFileUrl; putPayload.filePath = storagePath; }
+    console.log(`[workflow-gen/create] Step 2c — PUT with workflowData+fileUrl workflowId=${workflowId} actions=${actions.length}`);
     const putResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       putPayload,
