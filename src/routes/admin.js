@@ -1919,7 +1919,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     const stepsData   = { actions, triggers };
     const encodedPath = encodeURIComponent(storagePath);
     const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/highlevel-backend.appspot.com/o?uploadType=media&name=${encodedPath}`;
-    console.log(`[workflow-gen/create] Step 2c — writing to Firebase Storage path=${storagePath} templates=${templates.length}`);
+    console.log(`[workflow-gen/create] Step 2c — writing to Firebase Storage path=${storagePath} actions=${actions.length}`);
     const storageResp = await axios.post(uploadUrl, stepsData, {
       headers: { 'Authorization': `Firebase ${idToken}`, 'Content-Type': 'application/json' },
       validateStatus: () => true,
