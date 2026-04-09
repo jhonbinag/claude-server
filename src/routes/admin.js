@@ -1914,12 +1914,17 @@ router.post('/workflow-gen/create', async (req, res) => {
     const actions  = workflow.actions || workflow.templates || [];
 
     // Step 2c: Write { actions, triggers } to Firebase Storage FIRST to get the download token
+    // Detect which bucket GHL uses for this location from the existing fileUrl
+    const existingFileUrl = workflowMeta.fileUrl || '';
+    const bucket = existingFileUrl.includes('automation-workflows-production')
+      ? 'automation-workflows-production'
+      : 'highlevel-backend.appspot.com';
     const newVersion  = workflowVersion + 1;
     const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
     const stepsData   = { actions, triggers };
     const encodedPath = encodeURIComponent(storagePath);
-    const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/highlevel-backend.appspot.com/o?uploadType=media&name=${encodedPath}`;
-    console.log(`[workflow-gen/create] Step 2c — writing to Firebase Storage path=${storagePath} actions=${actions.length}`);
+    const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodedPath}`;
+    console.log(`[workflow-gen/create] Step 2c — writing to Firebase Storage bucket=${bucket} path=${storagePath} actions=${actions.length}`);
     const storageResp = await axios.post(uploadUrl, stepsData, {
       headers: { 'Authorization': `Firebase ${idToken}`, 'Content-Type': 'application/json' },
       validateStatus: () => true,
@@ -1938,7 +1943,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     // Extract download token from Firebase Storage response and build fileUrl
     const downloadToken = storageResp.data?.downloadTokens || storageResp.data?.metadata?.downloadTokens;
     const fileUrl = downloadToken
-      ? `https://firebasestorage.googleapis.com/v0/b/highlevel-backend.appspot.com/o/${encodedPath}?alt=media&token=${downloadToken}`
+      ? `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media&token=${downloadToken}`
       : null;
     console.log(`[workflow-gen/create] downloadToken=${downloadToken} fileUrl=${fileUrl}`);
 
