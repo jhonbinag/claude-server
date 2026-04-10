@@ -1882,7 +1882,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     // Step 2a: Reuse existing workflowId from generate step, or create a new shell
     let workflowId = workflow._workflowId;
     if (!workflowId) {
-      const createPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'publish' };
+      const createPayload = { name: workflow.name || 'AI Workflow', status: 'published' };
       console.log(`[workflow-gen/create] Step 2a — POST create shell:`, JSON.stringify(createPayload));
       const createResp = await axios.post(
         `https://backend.leadconnectorhq.com/workflow/${locationId}`,
@@ -1932,17 +1932,17 @@ router.post('/workflow-gen/create', async (req, res) => {
       : null;
     console.log(`[workflow-gen/create] highlevel-backend write status=${hbResp.status} token=${hbToken} fileUrl=${hbFileUrl}`);
 
-    // Step 2d: PUT with ONLY fileUrl — NO workflowData.
-    // When workflowData is included, GHL writes to automation-workflows-production and overrides fileUrl.
-    // Canvas flow: canvas JS writes to highlevel-backend directly, then PUT sends only fileUrl.
-    // We replicate that: write storage ourselves, then PUT fileUrl only → GHL stores our highlevel-backend URL.
+    // Step 2d: PUT with workflowData + correct status.
+    // For isTriggerBucketMigrated:true workflows, GHL canvas reads from workflowData directly (not fileUrl).
+    // status must be "published" (not "publish"/"draft") for workflow to appear in the GHL automations list.
     const putPayload = {
-      name:    workflow.name || 'AI Workflow',
-      status:  workflow.status || 'publish',   // 'draft' hides from GHL automations list
-      version: workflowVersion,
+      name:         workflow.name || 'AI Workflow',
+      status:       'published',
+      version:      workflowVersion,
+      workflowData: { templates: actions },
     };
     if (hbFileUrl) { putPayload.fileUrl = hbFileUrl; putPayload.filePath = storagePath; }
-    console.log(`[workflow-gen/create] Step 2d — PUT fileUrl-only (no workflowData) fileUrl=${hbFileUrl}`);
+    console.log(`[workflow-gen/create] Step 2d — PUT status=published workflowData.templates=${actions.length} steps`);
     const putResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       putPayload,
