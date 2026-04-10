@@ -2098,4 +2098,29 @@ router.get('/workflow-gen/probe/:locationId', async (req, res) => {
   }
 });
 
+// GET /admin/workflow-gen/folders/:locationId — discover GHL workflow folder API
+router.get('/workflow-gen/folders/:locationId', async (req, res) => {
+  const { locationId } = req.params;
+  try {
+    const ghlFirebaseService = require('../services/ghlFirebaseService');
+    const { buildBackendHeaders } = require('../services/ghlPageBuilder');
+    const idToken = await ghlFirebaseService.getFirebaseToken(locationId);
+    const headers = { ...buildBackendHeaders(idToken), 'accept': 'application/json, text/plain, */*', 'origin': 'https://client-app-automation-workflows.leadconnectorhq.com', 'referer': 'https://client-app-automation-workflows.leadconnectorhq.com/' };
+    const results = {};
+    const urls = [
+      `/workflow/${locationId}/folders`,
+      `/workflow/${locationId}/folder`,
+      `/workflow-folder/${locationId}`,
+      `/workflow/${locationId}?limit=1&skip=0`,
+    ];
+    for (const u of urls) {
+      const r = await axios.get(`https://backend.leadconnectorhq.com${u}`, { headers, validateStatus: () => true });
+      results[u] = { status: r.status, keys: Object.keys(r.data || {}), snippet: JSON.stringify(r.data).slice(0, 200) };
+    }
+    res.json({ success: true, results });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
