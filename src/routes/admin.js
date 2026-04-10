@@ -2039,10 +2039,14 @@ router.get('/workflow-gen/probe/:locationId', async (req, res) => {
         const sr = await axios.get(wf.fileUrl, { validateStatus: () => true });
         storageContent = sr.data;
       }
+      // Return ALL fields GHL sends — strip only the large workflowData templates array
+      const wfSummary = { ...wf };
+      if (wfSummary.workflowData?.templates) wfSummary.workflowData = { ...wfSummary.workflowData, templates: `[${wfSummary.workflowData.templates.length} steps]` };
+      if (wfSummary.workflowData?.actions) wfSummary.workflowData = { ...wfSummary.workflowData, actions: `[${wfSummary.workflowData.actions.length} steps]` };
       return res.json({
         success: true,
-        workflow: { id: wf.id, name: wf.name, version: wf.version, filePath: wf.filePath, fileUrl: wf.fileUrl, workflowData: wf.workflowData, isTriggerBucketMigrated: wf.isTriggerBucketMigrated },
-        storageContent,
+        workflow: wfSummary,
+        storageContent: storageContent ? { keys: Object.keys(storageContent), count: (storageContent.templates || storageContent.actions || []).length } : null,
       });
     }
 
