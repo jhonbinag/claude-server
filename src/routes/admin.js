@@ -1932,16 +1932,17 @@ router.post('/workflow-gen/create', async (req, res) => {
       : null;
     console.log(`[workflow-gen/create] highlevel-backend write status=${hbResp.status} token=${hbToken} fileUrl=${hbFileUrl}`);
 
-    // Step 2d: PUT with workflowData + fileUrl pointing to highlevel-backend.
-    // Now that Bearer auth works, hbFileUrl is a real URL — GHL should accept it and store it as fileUrl.
+    // Step 2d: PUT with ONLY fileUrl — NO workflowData.
+    // When workflowData is included, GHL writes to automation-workflows-production and overrides fileUrl.
+    // Canvas flow: canvas JS writes to highlevel-backend directly, then PUT sends only fileUrl.
+    // We replicate that: write storage ourselves, then PUT fileUrl only → GHL stores our highlevel-backend URL.
     const putPayload = {
-      name:         workflow.name || 'AI Workflow',
-      status:       workflow.status || 'draft',
-      version:      workflowVersion,
-      workflowData: { templates: actions },
+      name:    workflow.name || 'AI Workflow',
+      status:  workflow.status || 'draft',
+      version: workflowVersion,
     };
     if (hbFileUrl) { putPayload.fileUrl = hbFileUrl; putPayload.filePath = storagePath; }
-    console.log(`[workflow-gen/create] Step 2d — PUT actions=${actions.length} fileUrl=${hbFileUrl}`);
+    console.log(`[workflow-gen/create] Step 2d — PUT fileUrl-only (no workflowData) fileUrl=${hbFileUrl}`);
     const putResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       putPayload,
