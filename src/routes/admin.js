@@ -2039,10 +2039,16 @@ router.get('/workflow-gen/probe/:locationId', async (req, res) => {
       const storageResp = await axios.get(sample.fileUrl, { validateStatus: () => true });
       storageContent = storageResp.data;
     }
+    // Search param: return filtered list by name keyword
+    const search = (req.query.search || '').toLowerCase();
+    const listSummary = workflows.map(w => ({ id: w.id, name: w.name, version: w.version, status: w.status, deleted: w.deleted, fileUrl: w.fileUrl ? (w.fileUrl.includes('highlevel-backend') ? 'highlevel-backend' : 'automation-workflows') : null }));
+    const filtered = search ? listSummary.filter(w => w.name?.toLowerCase().includes(search)) : listSummary.slice(0, 10);
+
     res.json({
       success: true, total, count: workflows.length,
-      sample: sample ? { id: sample.id, name: sample.name, version: sample.version, filePath: sample.filePath, fileUrl: sample.fileUrl, workflowData: sample.workflowData, isTriggerBucketMigrated: sample.isTriggerBucketMigrated } : null,
+      sample: sample ? { id: sample.id, name: sample.name, version: sample.version, filePath: sample.filePath, fileUrl: sample.fileUrl, isTriggerBucketMigrated: sample.isTriggerBucketMigrated } : null,
       storageContent,
+      filtered,
     });
   } catch (err) {
     console.error(`[workflow-gen/probe] error:`, err.message);
