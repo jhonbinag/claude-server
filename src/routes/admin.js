@@ -1918,31 +1918,30 @@ router.post('/workflow-gen/create', async (req, res) => {
     const storagePath = `location/${locationId}/workflows/${workflowId}/${newVersion}`;
     const encodedPath = encodeURIComponent(storagePath);
 
-    // Write { templates } to both buckets — real GHL workflows use "templates" key.
-    // Write to highlevel-backend.appspot.com (where real workflows live)
+    // Write { templates } to highlevel-backend.appspot.com — CORS-safe bucket that GHL canvas can fetch.
+    // automation-workflows-production has NO CORS headers → browser blocks fetch → blank canvas.
+    // highlevel-backend.appspot.com has Access-Control-Allow-Origin: * → canvas can fetch it.
     const hbUploadUrl = `https://firebasestorage.googleapis.com/v0/b/highlevel-backend.appspot.com/o?uploadType=media&name=${encodedPath}`;
     const hbResp = await axios.post(hbUploadUrl, { templates: actions }, {
       headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
       validateStatus: () => true,
     });
-    console.log(`[workflow-gen/create] highlevel-backend write status=${hbResp.status} token=${hbResp.data?.downloadTokens}`);
+    const hbToken     = hbResp.data?.downloadTokens;
+    const hbFileUrl   = hbToken
+      ? `https://firebasestorage.googleapis.com/v0/b/highlevel-backend.appspot.com/o/${encodedPath}?alt=media&token=${hbToken}`
+      : null;
+    console.log(`[workflow-gen/create] highlevel-backend write status=${hbResp.status} token=${hbToken} fileUrl=${hbFileUrl}`);
 
-    // Write to automation-workflows-production (where GHL sets fileUrl for new workflows)
-    const awpUploadUrl = `https://firebasestorage.googleapis.com/v0/b/automation-workflows-production/o?uploadType=media&name=${encodedPath}`;
-    const awpResp = await axios.post(awpUploadUrl, { templates: actions }, {
-      headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
-      validateStatus: () => true,
-    });
-    console.log(`[workflow-gen/create] automation-workflows-production write status=${awpResp.status} token=${awpResp.data?.downloadTokens}`);
-
-    // Step 2d: Single PUT — workflowData uses "templates" key to match storage file key.
+    // Step 2d: PUT with workflowData + fileUrl pointing to highlevel-backend.
+    // Now that Bearer auth works, hbFileUrl is a real URL — GHL should accept it and store it as fileUrl.
     const putPayload = {
       name:         workflow.name || 'AI Workflow',
       status:       workflow.status || 'draft',
       version:      workflowVersion,
       workflowData: { templates: actions },
     };
-    console.log(`[workflow-gen/create] Step 2d — single PUT actions=${actions.length}`);
+    if (hbFileUrl) { putPayload.fileUrl = hbFileUrl; putPayload.filePath = storagePath; }
+    console.log(`[workflow-gen/create] Step 2d — PUT actions=${actions.length} fileUrl=${hbFileUrl}`);
     const putResp = await axios.put(
       `https://backend.leadconnectorhq.com/workflow/${locationId}/${workflowId}`,
       putPayload,
