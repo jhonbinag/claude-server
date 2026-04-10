@@ -1882,7 +1882,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     // Step 2a: Reuse existing workflowId from generate step, or create a new shell
     let workflowId = workflow._workflowId;
     if (!workflowId) {
-      const createPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'draft' };
+      const createPayload = { name: workflow.name || 'AI Workflow', status: workflow.status || 'publish' };
       console.log(`[workflow-gen/create] Step 2a — POST create shell:`, JSON.stringify(createPayload));
       const createResp = await axios.post(
         `https://backend.leadconnectorhq.com/workflow/${locationId}`,
@@ -1938,7 +1938,7 @@ router.post('/workflow-gen/create', async (req, res) => {
     // We replicate that: write storage ourselves, then PUT fileUrl only → GHL stores our highlevel-backend URL.
     const putPayload = {
       name:    workflow.name || 'AI Workflow',
-      status:  workflow.status || 'draft',
+      status:  workflow.status || 'publish',   // 'draft' hides from GHL automations list
       version: workflowVersion,
     };
     if (hbFileUrl) { putPayload.fileUrl = hbFileUrl; putPayload.filePath = storagePath; }
