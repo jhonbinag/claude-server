@@ -1957,8 +1957,32 @@ router.post('/workflow-gen/create', async (req, res) => {
       });
     }
 
+    // Step 2e: If GHL still stored automation-workflows fileUrl, patch Firestore directly.
+    // GHL ignores fileUrl in PUT — so we PATCH the Firestore document ourselves.
+    let firestorePatchStatus = null;
+    if (hbFileUrl) {
+      try {
+        const fsPath = `/v1/projects/highlevel-backend/databases/(default)/documents/workflows/${workflowId}?updateMask.fieldPaths=fileUrl&updateMask.fieldPaths=filePath`;
+        const fsBody = JSON.stringify({
+          fields: {
+            fileUrl:  { stringValue: hbFileUrl },
+            filePath: { stringValue: storagePath },
+          },
+        });
+        const fsResp = await axios.patch(
+          `https://firestore.googleapis.com${fsPath}`,
+          fsBody,
+          { headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' }, validateStatus: () => true },
+        );
+        firestorePatchStatus = fsResp.status;
+        console.log(`[workflow-gen/create] Firestore PATCH status=${fsResp.status} data=${JSON.stringify(fsResp.data).slice(0, 200)}`);
+      } catch (fsErr) {
+        console.warn(`[workflow-gen/create] Firestore PATCH failed: ${fsErr.message}`);
+      }
+    }
+
     activityLogger.log({ locationId, event: 'workflow_created_ai', detail: { name: workflow.name, workflowId }, success: true });
-    res.json({ success: true, data: { id: workflowId, actionsWritten: actions.length, triggersWritten: triggers.length } });
+    res.json({ success: true, data: { id: workflowId, actionsWritten: actions.length, triggersWritten: triggers.length, firestorePatch: firestorePatchStatus } });
   } catch (err) {
     console.error(`[workflow-gen/create] error:`, err.message);
     res.status(502).json({ success: false, error: err.message });
