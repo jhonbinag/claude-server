@@ -1879,17 +1879,25 @@ router.post('/workflow-gen/create', async (req, res) => {
       'referer':  'https://client-app-automation-workflows.leadconnectorhq.com/',
     };
 
-    // Step 2a: Fetch folders to get a parentId — workflows without parentId are invisible in GHL UI
+    // Step 2a: Extract parentId from existing workflows — GHL UI only shows workflows that have a parentId (folder).
+    // Workflows without parentId exist in DB but are invisible in the automations list.
     let parentId = null;
     try {
-      const foldersResp = await axios.get(
-        `https://backend.leadconnectorhq.com/workflow/${locationId}/folders`,
+      const listResp = await axios.get(
+        `https://backend.leadconnectorhq.com/workflow/${locationId}?limit=20&skip=0`,
         { headers, validateStatus: () => true },
       );
-      console.log(`[workflow-gen/create] folders status=${foldersResp.status} data=${JSON.stringify(foldersResp.data).slice(0,300)}`);
-      const folders = foldersResp.data?.folders || foldersResp.data?.data || (Array.isArray(foldersResp.data) ? foldersResp.data : []);
-      if (folders.length > 0) parentId = folders[0].id || folders[0]._id;
-    } catch (e) { console.warn(`[workflow-gen/create] folders fetch failed: ${e.message}`); }
+      const wfList = Array.isArray(listResp.data) ? listResp.data : [];
+      // Tally parentIds — pick the most common one (most likely the default folder)
+      const tally = {};
+      for (const w of wfList) {
+        const p = w.parentId;
+        if (p) tally[p] = (tally[p] || 0) + 1;
+      }
+      const sorted = Object.entries(tally).sort((a, b) => b[1] - a[1]);
+      if (sorted.length > 0) parentId = sorted[0][0];
+      console.log(`[workflow-gen/create] parentId tally=${JSON.stringify(tally)} → using ${parentId}`);
+    } catch (e) { console.warn(`[workflow-gen/create] parentId lookup failed: ${e.message}`); }
     console.log(`[workflow-gen/create] using parentId=${parentId}`);
 
     // Step 2b: Reuse existing workflowId from generate step, or create a new shell
