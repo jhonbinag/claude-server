@@ -1879,11 +1879,24 @@ router.post('/workflow-gen/create', async (req, res) => {
       'referer':  'https://client-app-automation-workflows.leadconnectorhq.com/',
     };
 
-    // Step 2a: Reuse existing workflowId from generate step, or create a new shell
+    // Step 2a: Fetch folders to get a parentId — workflows without parentId are invisible in GHL UI
+    let parentId = null;
+    try {
+      const foldersResp = await axios.get(
+        `https://backend.leadconnectorhq.com/workflow/${locationId}/folders`,
+        { headers, validateStatus: () => true },
+      );
+      console.log(`[workflow-gen/create] folders status=${foldersResp.status} data=${JSON.stringify(foldersResp.data).slice(0,300)}`);
+      const folders = foldersResp.data?.folders || foldersResp.data?.data || (Array.isArray(foldersResp.data) ? foldersResp.data : []);
+      if (folders.length > 0) parentId = folders[0].id || folders[0]._id;
+    } catch (e) { console.warn(`[workflow-gen/create] folders fetch failed: ${e.message}`); }
+    console.log(`[workflow-gen/create] using parentId=${parentId}`);
+
+    // Step 2b: Reuse existing workflowId from generate step, or create a new shell
     let workflowId = workflow._workflowId;
     if (!workflowId) {
-      const createPayload = { name: workflow.name || 'AI Workflow', status: 'published' };
-      console.log(`[workflow-gen/create] Step 2a — POST create shell:`, JSON.stringify(createPayload));
+      const createPayload = { name: workflow.name || 'AI Workflow', status: 'published', ...(parentId ? { parentId } : {}) };
+      console.log(`[workflow-gen/create] Step 2b — POST create shell:`, JSON.stringify(createPayload));
       const createResp = await axios.post(
         `https://backend.leadconnectorhq.com/workflow/${locationId}`,
         createPayload,
@@ -1940,6 +1953,7 @@ router.post('/workflow-gen/create', async (req, res) => {
       status:       'published',
       version:      workflowVersion,
       workflowData: { templates: actions },
+      ...(parentId ? { parentId } : {}),
     };
     if (hbFileUrl) { putPayload.fileUrl = hbFileUrl; putPayload.filePath = storagePath; }
     console.log(`[workflow-gen/create] Step 2d — PUT status=published workflowData.templates=${actions.length} steps`);
