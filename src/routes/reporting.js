@@ -243,36 +243,48 @@ router.get('/affiliates', async (req, res) => {
     const hasDateFilter  = !!(startMs || endMs);
     const hasEmailFilter = !!email;
 
-    // Parse selected tags — comma-separated string from frontend multi-select
+    // Parse selected tags from multi-select (comma-separated)
     const selectedTags = tagsParam ? tagsParam.split(',').map(t => t.trim()).filter(Boolean) : [];
+    const affTagsLower = AFFILIATE_TAGS.map(t => t.toLowerCase());
 
-    // Determine which tags to search for — selected subset or all affiliate tags
-    const tagsToFetch = selectedTags.length ? selectedTags : AFFILIATE_TAGS;
-
-    // Fetch contacts per tag using /contacts/search, then deduplicate by email
-    const seenEmails = new Set();
+    // Fetch all contacts the same way /contacts does — cursor pagination, no date params
     let contacts = [];
+    let cursor   = null;
+    const MAX_PAGES = 50; // up to 5000 contacts
+    for (let p = 0; p < MAX_PAGES; p++) {
+      const params = { locationId: req.locationId, limit: 100 };
+      if (cursor) params.startAfter = cursor;
+      const data  = await req.ghl('GET', '/contacts/', null, params);
+      const batch = data?.contacts || [];
+      contacts = contacts.concat(batch);
+      if (batch.length < 100) break;
+      const last = batch[batch.length - 1]?.dateAdded;
+      cursor = last ? new Date(last).getTime() : null;
+      if (!cursor) break;
+    }
 
-    for (const searchTag of tagsToFetch) {
-      let page_ = 1;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const data = await req.ghl('GET', '/contacts/search', null, {
-          locationId: req.locationId,
-          limit: 100,
-          page: page_,
-          tags: searchTag,
-        });
-        const batch = data?.contacts || [];
-        for (const c of batch) {
-          const key = (c.email || '').toLowerCase().trim() || c.id;
-          if (!key || seenEmails.has(key)) continue;
-          seenEmails.add(key);
-          contacts.push(c);
-        }
-        if (batch.length < 100) break;
-        page_++;
-      }
+    // Deduplicate by email (keep first occurrence)
+    const seenEmails = new Set();
+    contacts = contacts.filter(c => {
+      const key = (c.email || '').toLowerCase().trim() || c.id;
+      if (!key || seenEmails.has(key)) return false;
+      seenEmails.add(key);
+      return true;
+    });
+
+    // Filter: must have at least one affiliate tag
+    contacts = contacts.filter(c => {
+      const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());
+      return affTagsLower.some(at => cTags.includes(at));
+    });
+
+    // Filter by selected tags (multi-select — must have at least one of the selected tags)
+    if (selectedTags.length) {
+      const selLower = selectedTags.map(t => t.toLowerCase());
+      contacts = contacts.filter(c => {
+        const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());
+        return selLower.some(st => cTags.includes(st));
+      });
     }
 
     // Filter by email
