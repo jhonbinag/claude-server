@@ -14,7 +14,7 @@
  *   Invoices     — tabs: Invoices / Subscriptions / Orders / Transactions
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   PieChart, Pie, Cell, Tooltip as RTooltip, ResponsiveContainer,
@@ -2508,30 +2508,35 @@ const AFFILIATE_TAGS = [
   'affiliate :: sub affiliate',
 ];
 
-const AFFILIATE_COLS = [
-  { key: 'name',      label: 'Name',   render: (_, r) => `${r.firstName || ''} ${r.lastName || ''}`.trim() || <span style={{ color: C.muted }}>—</span> },
-  { key: 'email',     label: 'Email',  render: (_, r) => r.email || <span style={{ color: C.muted }}>—</span> },
-  { key: 'phone',     label: 'Phone',  render: (_, r) => r.phone || <span style={{ color: C.muted }}>—</span> },
-  {
-    key: 'tags', label: 'Affiliate Tags',
-    render: (_, r) => {
-      const affTags = (r.tags || [])
-        .map(t => typeof t === 'string' ? t : t?.name || '')
-        .filter(t => AFFILIATE_TAGS.map(a => a.toLowerCase()).includes(t.toLowerCase()));
-      if (!affTags.length) return <span style={{ color: C.muted }}>—</span>;
-      return (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          {affTags.map(t => (
-            <span key={t} style={{ padding: '2px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}>
-              {t}
-            </span>
-          ))}
-        </div>
-      );
+function buildAffiliateCols(activeTag) {
+  const affTagsLower = AFFILIATE_TAGS.map(a => a.toLowerCase());
+  return [
+    { key: 'name',      label: 'Name',   render: (_, r) => `${r.firstName || ''} ${r.lastName || ''}`.trim() || <span style={{ color: C.muted }}>—</span> },
+    { key: 'email',     label: 'Email',  render: (_, r) => r.email || <span style={{ color: C.muted }}>—</span> },
+    { key: 'phone',     label: 'Phone',  render: (_, r) => r.phone || <span style={{ color: C.muted }}>—</span> },
+    {
+      key: 'tags', label: 'Affiliate Tags',
+      render: (_, r) => {
+        let affTags = (r.tags || [])
+          .map(t => typeof t === 'string' ? t : t?.name || '')
+          .filter(t => affTagsLower.includes(t.toLowerCase()));
+        // When a specific tag is selected, only show that tag
+        if (activeTag) affTags = affTags.filter(t => t.toLowerCase() === activeTag.toLowerCase());
+        if (!affTags.length) return <span style={{ color: C.muted }}>—</span>;
+        return (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {affTags.map(t => (
+              <span key={t} style={{ padding: '2px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}>
+                {t}
+              </span>
+            ))}
+          </div>
+        );
+      },
     },
-  },
-  { key: 'dateAdded', label: 'Date Added', render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
-];
+    { key: 'dateAdded', label: 'Date Added', render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
+  ];
+}
 
 function AffiliateView({ locationId }) {
   const [rows,    setRows]    = useState([]);
@@ -2544,6 +2549,8 @@ function AffiliateView({ locationId }) {
   const [tag,     setTag]     = useState('');
   const [loading, setLoading] = useState(false);
   const [loaded,  setLoaded]  = useState(false);
+
+  const affiliateCols = useMemo(() => buildAffiliateCols(tag), [tag]);
 
   const headers = { 'x-location-id': locationId };
 
@@ -2656,7 +2663,7 @@ function AffiliateView({ locationId }) {
       </div>
 
       {/* Table */}
-      <DataTable columns={AFFILIATE_COLS} rows={rows} loading={loading} loaded={loaded} />
+      <DataTable columns={affiliateCols} rows={rows} loading={loading} loaded={loaded} />
 
       {/* Pagination */}
       {loaded && total > limit && (
