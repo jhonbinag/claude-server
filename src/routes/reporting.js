@@ -260,6 +260,15 @@ router.get('/affiliates', async (req, res) => {
       if (!cursor) break;
     }
 
+    // Deduplicate by email (keep first occurrence per unique email)
+    const seenEmails = new Set();
+    contacts = contacts.filter(c => {
+      const key = (c.email || '').toLowerCase().trim() || c.id;
+      if (!key || seenEmails.has(key)) return false;
+      seenEmails.add(key);
+      return true;
+    });
+
     // Filter: must have at least one affiliate tag
     contacts = contacts.filter(c => {
       const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());
