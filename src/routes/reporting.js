@@ -233,7 +233,7 @@ const AFFILIATE_TAGS = [
 
 router.get('/affiliates', async (req, res) => {
   if (!requireGhl(req, res)) return;
-  const { limit = 20, page = 1, startDate, endDate, email = '', tag = '' } = req.query;
+  const { limit = 20, page = 1, startDate, endDate, email = '', tags: tagsParam = '' } = req.query;
   const pageNum  = Math.max(1, Number(page));
   const pageSize = Math.max(1, Number(limit));
 
@@ -243,8 +243,11 @@ router.get('/affiliates', async (req, res) => {
     const hasDateFilter  = !!(startMs || endMs);
     const hasEmailFilter = !!email;
 
-    // Determine which tags to search for — specific tag or all affiliate tags
-    const tagsToFetch = tag ? [tag] : AFFILIATE_TAGS;
+    // Parse selected tags — comma-separated string from frontend multi-select
+    const selectedTags = tagsParam ? tagsParam.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+    // Determine which tags to search for — selected subset or all affiliate tags
+    const tagsToFetch = selectedTags.length ? selectedTags : AFFILIATE_TAGS;
 
     // Fetch contacts per tag using /contacts/search, then deduplicate by email
     const seenEmails = new Set();

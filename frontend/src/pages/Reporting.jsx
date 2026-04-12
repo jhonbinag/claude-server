@@ -2539,18 +2539,29 @@ function buildAffiliateCols(activeTag) {
 }
 
 function AffiliateView({ locationId }) {
-  const [rows,    setRows]    = useState([]);
-  const [total,   setTotal]   = useState(0);
-  const [page,    setPage]    = useState(1);
-  const [limit]               = useState(20);
-  const [start,   setStart]   = useState('');
-  const [end,     setEnd]     = useState('');
-  const [email,   setEmail]   = useState('');
-  const [tag,     setTag]     = useState('');
-  const [loading, setLoading] = useState(false);
-  const [loaded,  setLoaded]  = useState(false);
+  const [rows,       setRows]       = useState([]);
+  const [total,      setTotal]      = useState(0);
+  const [page,       setPage]       = useState(1);
+  const [limit]                     = useState(20);
+  const [start,      setStart]      = useState('');
+  const [end,        setEnd]        = useState('');
+  const [email,      setEmail]      = useState('');
+  const [tags,       setTags]       = useState([]); // multi-select: array of tag strings
+  const [tagOpen,    setTagOpen]    = useState(false);
+  const [loading,    setLoading]    = useState(false);
+  const [loaded,     setLoaded]     = useState(false);
 
-  const affiliateCols = useMemo(() => buildAffiliateCols(tag), [tag]);
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!tagOpen) return;
+    const close = e => { if (!e.target.closest('.aff-tag-dd')) setTagOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [tagOpen]);
+
+  const toggleTag = t => setTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+
+  const affiliateCols = useMemo(() => buildAffiliateCols(tags.length === 1 ? tags[0] : ''), [tags]);
 
   const headers = { 'x-location-id': locationId };
 
@@ -2558,17 +2569,17 @@ function AffiliateView({ locationId }) {
     setLoading(true);
     try {
       const params = new URLSearchParams({ limit, page: p });
-      if (start) params.set('startDate', start);
-      if (end)   params.set('endDate',   end);
-      if (email) params.set('email',     email);
-      if (tag)   params.set('tag',       tag);
+      if (start)        params.set('startDate', start);
+      if (end)          params.set('endDate',   end);
+      if (email)        params.set('email',     email);
+      if (tags.length)  params.set('tags',      tags.join(','));
       const r = await fetch(`/rpt/affiliates?${params}`, { headers });
       const d = await r.json();
       if (d.success) { setRows(d.data); setTotal(d.meta?.total ?? d.data.length); }
     } catch (_) {}
     setLoading(false);
     setLoaded(true);
-  }, [locationId, limit, start, end, email, tag]);
+  }, [locationId, limit, start, end, email, tags]);
 
   useEffect(() => { load(1); }, [locationId]);
 
@@ -2576,6 +2587,12 @@ function AffiliateView({ locationId }) {
   const handlePage = p  => { setPage(p); load(p); };
 
   const totalPages = Math.ceil(total / limit);
+
+  const tagLabel = tags.length === 0
+    ? 'All Affiliate Tags'
+    : tags.length === 1
+      ? tags[0]
+      : `${tags.length} tags selected`;
 
   return (
     <div>
@@ -2608,19 +2625,64 @@ function AffiliateView({ locationId }) {
             />
           </div>
 
-          {/* Tag dropdown */}
-          <div style={{ flex: '1 1 200px', minWidth: 180 }}>
-            <label style={S.label}>Affiliate Tag</label>
-            <select
-              value={tag}
-              onChange={e => setTag(e.target.value)}
-              style={{ ...S.input, width: '100%', cursor: 'pointer' }}
+          {/* Multi-select tag dropdown */}
+          <div className="aff-tag-dd" style={{ flex: '1 1 220px', minWidth: 200, position: 'relative' }}>
+            <label style={S.label}>Affiliate Tags</label>
+            <button
+              onClick={() => setTagOpen(o => !o)}
+              style={{
+                ...S.input,
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                cursor: 'pointer',
+                textAlign: 'left',
+                color: tags.length ? C.text : C.muted,
+                userSelect: 'none',
+              }}
             >
-              <option value="">All Affiliate Tags</option>
-              {AFFILIATE_TAGS.map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>{tagLabel}</span>
+              <span style={{ marginLeft: 8, fontSize: 10, color: C.muted }}>{tagOpen ? '▲' : '▼'}</span>
+            </button>
+            {tagOpen && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200,
+                background: '#1a1a27', border: `1px solid ${C.border}`, borderRadius: 10,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)', overflow: 'hidden',
+              }}>
+                <div
+                  onClick={() => setTags([])}
+                  style={{ padding: '9px 14px', fontSize: 12, cursor: 'pointer', color: tags.length === 0 ? '#a5b4fc' : C.muted,
+                    background: tags.length === 0 ? 'rgba(99,102,241,0.12)' : 'transparent',
+                    borderBottom: `1px solid ${C.border}`,
+                  }}
+                >
+                  All Affiliate Tags
+                </div>
+                {AFFILIATE_TAGS.map(t => {
+                  const checked = tags.includes(t);
+                  return (
+                    <div
+                      key={t}
+                      onClick={() => toggleTag(t)}
+                      style={{
+                        padding: '9px 14px', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                        background: checked ? 'rgba(99,102,241,0.1)' : 'transparent',
+                        color: checked ? '#a5b4fc' : C.text,
+                      }}
+                    >
+                      <span style={{
+                        width: 14, height: 14, borderRadius: 4, border: `1px solid ${checked ? C.accent : C.dim}`,
+                        background: checked ? C.accent : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0, fontSize: 9, color: '#fff',
+                      }}>{checked ? '✓' : ''}</span>
+                      {t}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Start date */}
@@ -2648,16 +2710,20 @@ function AffiliateView({ locationId }) {
         </div>
 
         {/* Active filter pills */}
-        {(tag || email || start || end) && (
+        {(tags.length > 0 || email || start || end) && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
-            {tag   && <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}>Tag: {tag}</span>}
+            {tags.map(t => (
+              <span key={t} onClick={() => toggleTag(t)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)', cursor: 'pointer' }}>
+                {t} ✕
+              </span>
+            ))}
             {email && <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(16,185,129,0.12)', color: '#34d399', border: '1px solid rgba(16,185,129,0.25)' }}>Email: {email}</span>}
             {start && <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.25)' }}>From: {start}</span>}
             {end   && <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.25)' }}>To: {end}</span>}
             <button
-              onClick={() => { setTag(''); setEmail(''); setStart(''); setEnd(''); }}
+              onClick={() => { setTags([]); setEmail(''); setStart(''); setEnd(''); }}
               style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }}
-            >✕ Clear</button>
+            >✕ Clear all</button>
           </div>
         )}
       </div>
