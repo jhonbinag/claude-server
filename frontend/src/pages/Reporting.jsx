@@ -93,6 +93,7 @@ const NAV = [
       { key: 'transaction',  label: 'Transactions' },
     ],
   },
+  { key: 'affiliate',    label: 'Affiliate',       icon: '🤝' },
   { key: 'integrations', label: 'Integrations', icon: '🔌' },
   { key: 'officer',      label: 'Officer',       icon: '🎯' },
 ];
@@ -2497,6 +2498,220 @@ function IntegrationsView({ locationId }) {
   );
 }
 
+// ── Affiliate Section ─────────────────────────────────────────────────────────
+
+const AFFILIATE_TAGS = [
+  'affiliate :: highlevel paid',
+  'affiliate $97 monthly',
+  'affiliate $297 monthly',
+  'affiliate $497',
+  'affiliate :: sub affiliate',
+];
+
+const AFFILIATE_COLS = [
+  { key: 'name',      label: 'Name',   render: (_, r) => `${r.firstName || ''} ${r.lastName || ''}`.trim() || <span style={{ color: C.muted }}>—</span> },
+  { key: 'email',     label: 'Email',  render: (_, r) => r.email || <span style={{ color: C.muted }}>—</span> },
+  { key: 'phone',     label: 'Phone',  render: (_, r) => r.phone || <span style={{ color: C.muted }}>—</span> },
+  {
+    key: 'tags', label: 'Affiliate Tags',
+    render: (_, r) => {
+      const affTags = (r.tags || [])
+        .map(t => typeof t === 'string' ? t : t?.name || '')
+        .filter(t => AFFILIATE_TAGS.map(a => a.toLowerCase()).includes(t.toLowerCase()));
+      if (!affTags.length) return <span style={{ color: C.muted }}>—</span>;
+      return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {affTags.map(t => (
+            <span key={t} style={{ padding: '2px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}>
+              {t}
+            </span>
+          ))}
+        </div>
+      );
+    },
+  },
+  { key: 'dateAdded', label: 'Date Added', render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
+];
+
+function AffiliateView({ locationId }) {
+  const [rows,    setRows]    = useState([]);
+  const [total,   setTotal]   = useState(0);
+  const [page,    setPage]    = useState(1);
+  const [limit]               = useState(20);
+  const [start,   setStart]   = useState('');
+  const [end,     setEnd]     = useState('');
+  const [email,   setEmail]   = useState('');
+  const [tag,     setTag]     = useState('');
+  const [loading, setLoading] = useState(false);
+  const [loaded,  setLoaded]  = useState(false);
+
+  const headers = { 'x-location-id': locationId };
+
+  const load = useCallback(async (p = 1) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit, page: p });
+      if (start) params.set('startDate', start);
+      if (end)   params.set('endDate',   end);
+      if (email) params.set('email',     email);
+      if (tag)   params.set('tag',       tag);
+      const r = await fetch(`/rpt/affiliates?${params}`, { headers });
+      const d = await r.json();
+      if (d.success) { setRows(d.data); setTotal(d.meta?.total ?? d.data.length); }
+    } catch (_) {}
+    setLoading(false);
+    setLoaded(true);
+  }, [locationId, limit, start, end, email, tag]);
+
+  useEffect(() => { load(1); }, [locationId]);
+
+  const handleLoad = () => { setPage(1); load(1); };
+  const handlePage = p  => { setPage(p); load(p); };
+
+  const totalPages = Math.ceil(total / limit);
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: C.text }}>🤝 Affiliate</h1>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: C.muted }}>Contacts tagged with affiliate tiers</p>
+        </div>
+        {loaded && (
+          <div style={{ padding: '8px 18px', borderRadius: 10, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', fontSize: 13, fontWeight: 700, color: '#a5b4fc' }}>
+            {total.toLocaleString()} contact{total !== 1 ? 's' : ''}
+          </div>
+        )}
+      </div>
+
+      {/* Filters */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', marginBottom: 20 }}>
+        <div className="rpt-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end' }}>
+
+          {/* Email search */}
+          <div style={{ flex: '1 1 180px', minWidth: 160 }}>
+            <label style={S.label}>Search by Email</label>
+            <input
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleLoad()}
+              placeholder="e.g. john@example.com"
+              style={{ ...S.input, width: '100%' }}
+            />
+          </div>
+
+          {/* Tag dropdown */}
+          <div style={{ flex: '1 1 200px', minWidth: 180 }}>
+            <label style={S.label}>Affiliate Tag</label>
+            <select
+              value={tag}
+              onChange={e => setTag(e.target.value)}
+              style={{ ...S.input, width: '100%', cursor: 'pointer' }}
+            >
+              <option value="">All Affiliate Tags</option>
+              {AFFILIATE_TAGS.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Start date */}
+          <div style={{ flex: '0 0 140px' }}>
+            <label style={S.label}>Start Date</label>
+            <input type="date" value={start} onChange={e => setStart(e.target.value)} style={{ ...S.input, width: '100%' }} />
+          </div>
+
+          {/* End date */}
+          <div style={{ flex: '0 0 140px' }}>
+            <label style={S.label}>End Date</label>
+            <input type="date" value={end} onChange={e => setEnd(e.target.value)} style={{ ...S.input, width: '100%' }} />
+          </div>
+
+          {/* Load button */}
+          <div style={{ flex: '0 0 auto' }}>
+            <button
+              onClick={handleLoad}
+              disabled={loading}
+              style={{ ...S.btn, opacity: loading ? 0.6 : 1, whiteSpace: 'nowrap' }}
+            >
+              {loading ? 'Loading…' : '⟳ Load'}
+            </button>
+          </div>
+        </div>
+
+        {/* Active filter pills */}
+        {(tag || email || start || end) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+            {tag   && <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}>Tag: {tag}</span>}
+            {email && <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(16,185,129,0.12)', color: '#34d399', border: '1px solid rgba(16,185,129,0.25)' }}>Email: {email}</span>}
+            {start && <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.25)' }}>From: {start}</span>}
+            {end   && <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.25)' }}>To: {end}</span>}
+            <button
+              onClick={() => { setTag(''); setEmail(''); setStart(''); setEnd(''); }}
+              style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }}
+            >✕ Clear</button>
+          </div>
+        )}
+      </div>
+
+      {/* Table */}
+      <DataTable columns={AFFILIATE_COLS} rows={rows} loading={loading} loaded={loaded} />
+
+      {/* Pagination */}
+      {loaded && total > limit && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, flexWrap: 'wrap', gap: 12 }}>
+          <span style={{ fontSize: 12, color: C.muted }}>
+            Showing {Math.min((page - 1) * limit + 1, total)}–{Math.min(page * limit, total)} of {total.toLocaleString()}
+          </span>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => handlePage(1)}
+              disabled={page === 1}
+              style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: page === 1 ? C.dim : C.text, cursor: page === 1 ? 'default' : 'pointer', fontSize: 12 }}
+            >«</button>
+            <button
+              onClick={() => handlePage(page - 1)}
+              disabled={page === 1}
+              style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: page === 1 ? C.dim : C.text, cursor: page === 1 ? 'default' : 'pointer', fontSize: 12 }}
+            >‹</button>
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              let p;
+              if (totalPages <= 7) p = i + 1;
+              else if (page <= 4)  p = i + 1;
+              else if (page >= totalPages - 3) p = totalPages - 6 + i;
+              else p = page - 3 + i;
+              return (
+                <button
+                  key={p}
+                  onClick={() => handlePage(p)}
+                  style={{
+                    padding: '6px 11px', borderRadius: 7, fontSize: 12, fontWeight: p === page ? 700 : 400,
+                    border: `1px solid ${p === page ? C.accent : C.border}`,
+                    background: p === page ? C.accentBg : 'transparent',
+                    color: p === page ? '#a5b4fc' : C.text,
+                    cursor: 'pointer',
+                  }}
+                >{p}</button>
+              );
+            })}
+            <button
+              onClick={() => handlePage(page + 1)}
+              disabled={page === totalPages}
+              style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: page === totalPages ? C.dim : C.text, cursor: page === totalPages ? 'default' : 'pointer', fontSize: 12 }}
+            >›</button>
+            <button
+              onClick={() => handlePage(totalPages)}
+              disabled={page === totalPages}
+              style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: page === totalPages ? C.dim : C.text, cursor: page === totalPages ? 'default' : 'pointer', fontSize: 12 }}
+            >»</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── URL ↔ section mapping ─────────────────────────────────────────────────────
 
 const BILLING_PATH_TO_TAB = {
@@ -2515,6 +2730,7 @@ const SECTION_TO_PATH = {
   opportunities: '/opportunities',
   conversations: '/conversations',
   billing:       '/billing/subscriptions',
+  affiliate:     '/affiliate',
   integrations:  '/integrations',
   officer:       '/officer',
 };
@@ -2530,7 +2746,7 @@ export default function Reporting() {
 
   // Derive section + billing sub-tab from URL
   const segs    = pathname.replace(/^\//, '').split('/');
-  const section = { contacts: 'contacts', opportunities: 'opportunities', conversations: 'conversations', billing: 'billing', integrations: 'integrations', officer: 'officer' }[segs[0]] || 'dashboard';
+  const section = { contacts: 'contacts', opportunities: 'opportunities', conversations: 'conversations', billing: 'billing', affiliate: 'affiliate', integrations: 'integrations', officer: 'officer' }[segs[0]] || 'dashboard';
   const billingTab = section === 'billing' ? (BILLING_PATH_TO_TAB[segs[1]] || 'subscription') : 'subscription';
 
   const handleConnect = (id) => {
@@ -2554,7 +2770,7 @@ export default function Reporting() {
 
   if (!locationId) return <AuthGate onConnect={handleConnect} />;
 
-  const SECTION_LABELS = { dashboard: 'Overview', contacts: 'Contacts', opportunities: 'Opportunities', conversations: 'Conversations', billing: 'Billing', integrations: 'Integrations', officer: 'Reporting Officer' };
+  const SECTION_LABELS = { dashboard: 'Overview', contacts: 'Contacts', opportunities: 'Opportunities', conversations: 'Conversations', billing: 'Billing', affiliate: 'Affiliate', integrations: 'Integrations', officer: 'Reporting Officer' };
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: C.bg, fontFamily: 'system-ui, -apple-system, sans-serif', color: C.text }}>
@@ -2650,6 +2866,7 @@ export default function Reporting() {
           {section === 'opportunities' && <OpportunitiesView locationId={locationId} initialPipelineId={oppPipelineId} />}
           {section === 'conversations' && <ConversationsView locationId={locationId} />}
           {section === 'billing'       && <BillingView       locationId={locationId} tab={billingTab} />}
+          {section === 'affiliate'     && <AffiliateView     locationId={locationId} />}
           {section === 'integrations'  && <IntegrationsView  locationId={locationId} />}
           {section === 'officer'       && <OfficerView       locationId={locationId} />}
         </main>

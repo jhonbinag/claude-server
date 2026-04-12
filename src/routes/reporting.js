@@ -220,6 +220,88 @@ router.get('/contacts', async (req, res) => {
   }
 });
 
+// ── GET /rpt/affiliates ──────────────────────────────────────────────────────
+// Fetch contacts and filter by affiliate tags + email + date range server-side.
+// Query params: tag, email, startDate, endDate, page, limit
+const AFFILIATE_TAGS = [
+  'affiliate :: highlevel paid',
+  'affiliate $97 monthly',
+  'affiliate $297 monthly',
+  'affiliate $497',
+  'affiliate :: sub affiliate',
+];
+
+router.get('/affiliates', async (req, res) => {
+  if (!requireGhl(req, res)) return;
+  const { limit = 20, page = 1, startDate, endDate, email = '', tag = '' } = req.query;
+  const pageNum  = Math.max(1, Number(page));
+  const pageSize = Math.max(1, Number(limit));
+
+  try {
+    const startMs = startDate ? new Date(startDate).getTime() : null;
+    const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
+    const hasDateFilter  = !!(startMs || endMs);
+    const hasTagFilter   = !!tag;
+    const hasEmailFilter = !!email;
+
+    // Fetch up to 1000 contacts to apply server-side filters
+    let contacts = [];
+    let cursor   = null;
+    const fetchPages = 10; // up to 10 × 100 = 1000 contacts
+    for (let p = 0; p < fetchPages; p++) {
+      const params = { locationId: req.locationId, limit: 100 };
+      if (cursor) params.startAfter = cursor;
+      const data  = await req.ghl('GET', '/contacts/', null, params);
+      const batch = data?.contacts || [];
+      contacts = contacts.concat(batch);
+      if (batch.length < 100) break;
+      const last = batch[batch.length - 1]?.dateAdded;
+      cursor = last ? new Date(last).getTime() : null;
+      if (!cursor) break;
+    }
+
+    // Filter: must have at least one affiliate tag
+    contacts = contacts.filter(c => {
+      const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());
+      return AFFILIATE_TAGS.some(at => cTags.includes(at.toLowerCase()));
+    });
+
+    // Filter by selected tag
+    if (hasTagFilter) {
+      const tLower = tag.toLowerCase();
+      contacts = contacts.filter(c => {
+        const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());
+        return cTags.includes(tLower);
+      });
+    }
+
+    // Filter by email
+    if (hasEmailFilter) {
+      const eLower = email.toLowerCase();
+      contacts = contacts.filter(c => (c.email || '').toLowerCase().includes(eLower));
+    }
+
+    // Filter by date
+    if (hasDateFilter) {
+      contacts = contacts.filter(c => {
+        const ms = c.dateAdded ? new Date(c.dateAdded).getTime() : null;
+        if (!ms || isNaN(ms)) return false;
+        if (startMs && ms < startMs) return false;
+        if (endMs   && ms > endMs)   return false;
+        return true;
+      });
+    }
+
+    const total     = contacts.length;
+    const offset    = (pageNum - 1) * pageSize;
+    const paginated = contacts.slice(offset, offset + pageSize);
+
+    res.json({ success: true, data: paginated, meta: { total }, tags: AFFILIATE_TAGS });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
 // ── GET /rpt/opportunities ────────────────────────────────────────────────────
 
 // ── GET /rpt/pipelines ────────────────────────────────────────────────────────
