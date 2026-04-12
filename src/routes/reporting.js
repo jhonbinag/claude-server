@@ -241,47 +241,35 @@ router.get('/affiliates', async (req, res) => {
     const startMs = startDate ? new Date(startDate).getTime() : null;
     const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
     const hasDateFilter  = !!(startMs || endMs);
-    const hasTagFilter   = !!tag;
     const hasEmailFilter = !!email;
 
-    // Fetch up to 1000 contacts to apply server-side filters
-    let contacts = [];
-    let cursor   = null;
-    const fetchPages = 10; // up to 10 × 100 = 1000 contacts
-    for (let p = 0; p < fetchPages; p++) {
-      const params = { locationId: req.locationId, limit: 100 };
-      if (cursor) params.startAfter = cursor;
-      const data  = await req.ghl('GET', '/contacts/', null, params);
-      const batch = data?.contacts || [];
-      contacts = contacts.concat(batch);
-      if (batch.length < 100) break;
-      const last = batch[batch.length - 1]?.dateAdded;
-      cursor = last ? new Date(last).getTime() : null;
-      if (!cursor) break;
-    }
+    // Determine which tags to search for — specific tag or all affiliate tags
+    const tagsToFetch = tag ? [tag] : AFFILIATE_TAGS;
 
-    // Deduplicate by email (keep first occurrence per unique email)
+    // Fetch contacts per tag using /contacts/search, then deduplicate by email
     const seenEmails = new Set();
-    contacts = contacts.filter(c => {
-      const key = (c.email || '').toLowerCase().trim() || c.id;
-      if (!key || seenEmails.has(key)) return false;
-      seenEmails.add(key);
-      return true;
-    });
+    let contacts = [];
 
-    // Filter: must have at least one affiliate tag
-    contacts = contacts.filter(c => {
-      const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());
-      return AFFILIATE_TAGS.some(at => cTags.includes(at.toLowerCase()));
-    });
-
-    // Filter by selected tag
-    if (hasTagFilter) {
-      const tLower = tag.toLowerCase();
-      contacts = contacts.filter(c => {
-        const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());
-        return cTags.includes(tLower);
-      });
+    for (const searchTag of tagsToFetch) {
+      let page_ = 1;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const data = await req.ghl('GET', '/contacts/search', null, {
+          locationId: req.locationId,
+          limit: 100,
+          page: page_,
+          tags: searchTag,
+        });
+        const batch = data?.contacts || [];
+        for (const c of batch) {
+          const key = (c.email || '').toLowerCase().trim() || c.id;
+          if (!key || seenEmails.has(key)) continue;
+          seenEmails.add(key);
+          contacts.push(c);
+        }
+        if (batch.length < 100) break;
+        page_++;
+      }
     }
 
     // Filter by email
