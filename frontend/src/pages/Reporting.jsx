@@ -2500,26 +2500,18 @@ function IntegrationsView({ locationId }) {
 
 // ── Affiliate Section ─────────────────────────────────────────────────────────
 
-function buildAffiliateCols(activeTags) {
-  const selLower = activeTags.map(t => t.toLowerCase());
-  const baseCols = [
-    { key: 'name',      label: 'Name',       render: (_, r) => [r.firstName, r.lastName].filter(Boolean).join(' ') || <span style={{ color: C.muted }}>—</span> },
-    { key: 'email',     label: 'Email',      render: v => v || <span style={{ color: C.muted }}>—</span> },
-    { key: 'phone',     label: 'Phone',      render: v => v || <span style={{ color: C.muted }}>—</span> },
-    { key: 'dateAdded', label: 'Date Added', render: (v, r) => { const d = v ?? r.dateCreated ?? r.createdAt; return d ? new Date(d).toLocaleDateString() : <span style={{ color: C.muted }}>—</span>; } },
-  ];
-  if (!selLower.length) return baseCols;
-  // When tags are selected, insert a Tags column showing matched tags
-  const tagCol = {
+const AFFILIATE_COLS = [
+  { key: 'name',      label: 'Name',       render: (_, r) => [r.firstName, r.lastName].filter(Boolean).join(' ') || <span style={{ color: C.muted }}>—</span> },
+  { key: 'email',     label: 'Email',      render: v => v || <span style={{ color: C.muted }}>—</span> },
+  { key: 'phone',     label: 'Phone',      render: v => v || <span style={{ color: C.muted }}>—</span> },
+  {
     key: 'tags', label: 'Tags',
     render: (_, r) => {
-      const matched = (r.tags || [])
-        .map(t => typeof t === 'string' ? t : t?.name || '')
-        .filter(t => selLower.includes(t.toLowerCase()));
-      if (!matched.length) return <span style={{ color: C.muted }}>—</span>;
+      const contactTags = (r.tags || []).map(t => typeof t === 'string' ? t : t?.name || '').filter(Boolean);
+      if (!contactTags.length) return <span style={{ color: C.muted }}>—</span>;
       return (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          {matched.map(t => (
+          {contactTags.map(t => (
             <span key={t} style={{ padding: '2px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}>
               {t}
             </span>
@@ -2527,9 +2519,9 @@ function buildAffiliateCols(activeTags) {
         </div>
       );
     },
-  };
-  return [...baseCols.slice(0, 3), tagCol, baseCols[3]];
-}
+  },
+  { key: 'dateAdded', label: 'Date Added', render: (v, r) => { const d = v ?? r.dateCreated ?? r.createdAt; return d ? new Date(d).toLocaleDateString() : <span style={{ color: C.muted }}>—</span>; } },
+];
 
 function AffiliateView({ locationId }) {
   const [rows,       setRows]       = useState([]);
@@ -2541,6 +2533,7 @@ function AffiliateView({ locationId }) {
   const [email,      setEmail]      = useState('');
   const [tags,       setTags]       = useState([]);
   const [tagOpen,    setTagOpen]    = useState(false);
+  const [tagSearch,  setTagSearch]  = useState('');
   const [allTags,    setAllTags]    = useState([]);
   const [loading,    setLoading]    = useState(false);
   const [loaded,     setLoaded]     = useState(false);
@@ -2558,14 +2551,13 @@ function AffiliateView({ locationId }) {
   // Close dropdown when clicking outside
   useEffect(() => {
     if (!tagOpen) return;
-    const close = e => { if (!e.target.closest('.aff-tag-dd')) setTagOpen(false); };
+    const close = e => { if (!e.target.closest('.aff-tag-dd')) { setTagOpen(false); setTagSearch(''); } };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [tagOpen]);
 
   const toggleTag = t => setTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
-
-  const affiliateCols = useMemo(() => buildAffiliateCols(tags), [tags]);
+  const filteredTagOptions = allTags.filter(t => t.toLowerCase().includes(tagSearch.toLowerCase()));
 
   const load = useCallback(async (p = 1) => {
     setLoading(true);
@@ -2627,66 +2619,77 @@ function AffiliateView({ locationId }) {
             />
           </div>
 
-          {/* Multi-select tag dropdown */}
-          <div className="aff-tag-dd" style={{ flex: '1 1 220px', minWidth: 200, position: 'relative' }}>
+          {/* Multi-select searchable tag dropdown */}
+          <div className="aff-tag-dd" style={{ flex: '1 1 260px', minWidth: 220, position: 'relative' }}>
             <label style={S.label}>Filter by Tag</label>
             <button
-              onClick={() => setTagOpen(o => !o)}
+              onClick={() => { setTagOpen(o => !o); setTagSearch(''); }}
               style={{
-                ...S.input,
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                cursor: 'pointer',
-                textAlign: 'left',
-                color: tags.length ? C.text : C.muted,
-                userSelect: 'none',
+                ...S.input, width: '100%', display: 'flex', alignItems: 'center',
+                justifyContent: 'space-between', cursor: 'pointer', textAlign: 'left',
+                color: tags.length ? C.text : C.muted, userSelect: 'none',
               }}
             >
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>{tagLabel}</span>
-              <span style={{ marginLeft: 8, fontSize: 10, color: C.muted }}>{tagOpen ? '▲' : '▼'}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
+                {tags.length === 0 ? 'Select tags…' : tags.length === 1 ? tags[0] : `${tags.length} tags selected`}
+              </span>
+              <span style={{ marginLeft: 8, fontSize: 10, color: C.muted, flexShrink: 0 }}>{tagOpen ? '▲' : '▼'}</span>
             </button>
             {tagOpen && (
               <div style={{
                 position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200,
                 background: '#1a1a27', border: `1px solid ${C.border}`, borderRadius: 10,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.4)', overflow: 'hidden',
-                maxHeight: 260, overflowY: 'auto',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
               }}>
-                <div
-                  onClick={() => { setTags([]); setTagOpen(false); }}
-                  style={{ padding: '9px 14px', fontSize: 12, cursor: 'pointer', color: tags.length === 0 ? '#a5b4fc' : C.muted,
-                    background: tags.length === 0 ? 'rgba(99,102,241,0.12)' : 'transparent',
-                    borderBottom: `1px solid ${C.border}`,
-                  }}
-                >
-                  All contacts (no tag filter)
+                {/* Search input */}
+                <div style={{ padding: '8px 10px', borderBottom: `1px solid ${C.border}` }}>
+                  <input
+                    autoFocus
+                    value={tagSearch}
+                    onChange={e => setTagSearch(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    placeholder="Search tags…"
+                    style={{ ...S.input, width: '100%', fontSize: 12, padding: '6px 10px' }}
+                  />
                 </div>
-                {allTags.length === 0 && (
-                  <div style={{ padding: '9px 14px', fontSize: 12, color: C.muted }}>Loading tags…</div>
+                {/* Clear selection */}
+                {tags.length > 0 && (
+                  <div
+                    onClick={() => setTags([])}
+                    style={{ padding: '8px 14px', fontSize: 11, cursor: 'pointer', color: '#f87171', borderBottom: `1px solid ${C.border}` }}
+                  >
+                    ✕ Clear selection ({tags.length})
+                  </div>
                 )}
-                {allTags.map(t => {
-                  const checked = tags.includes(t);
-                  return (
-                    <div
-                      key={t}
-                      onClick={() => toggleTag(t)}
-                      style={{
-                        padding: '9px 14px', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-                        background: checked ? 'rgba(99,102,241,0.1)' : 'transparent',
-                        color: checked ? '#a5b4fc' : C.text,
-                      }}
-                    >
-                      <span style={{
-                        width: 14, height: 14, borderRadius: 4, border: `1px solid ${checked ? C.accent : C.dim}`,
-                        background: checked ? C.accent : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0, fontSize: 9, color: '#fff',
-                      }}>{checked ? '✓' : ''}</span>
-                      {t}
+                {/* Options list */}
+                <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                  {filteredTagOptions.length === 0 && (
+                    <div style={{ padding: '10px 14px', fontSize: 12, color: C.muted }}>
+                      {allTags.length === 0 ? 'Loading tags…' : 'No tags match'}
                     </div>
-                  );
-                })}
+                  )}
+                  {filteredTagOptions.map(t => {
+                    const checked = tags.includes(t);
+                    return (
+                      <div
+                        key={t}
+                        onClick={() => toggleTag(t)}
+                        style={{
+                          padding: '8px 14px', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                          background: checked ? 'rgba(99,102,241,0.1)' : 'transparent',
+                          color: checked ? '#a5b4fc' : C.text,
+                        }}
+                      >
+                        <span style={{
+                          width: 14, height: 14, borderRadius: 4, border: `1px solid ${checked ? C.accent : C.dim}`,
+                          background: checked ? C.accent : 'transparent', display: 'flex', alignItems: 'center',
+                          justifyContent: 'center', flexShrink: 0, fontSize: 9, color: '#fff',
+                        }}>{checked ? '✓' : ''}</span>
+                        {t}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -2735,7 +2738,7 @@ function AffiliateView({ locationId }) {
       </div>
 
       {/* Table */}
-      <DataTable columns={affiliateCols} rows={rows} loading={loading} loaded={loaded} />
+      <DataTable columns={AFFILIATE_COLS} rows={rows} loading={loading} loaded={loaded} />
 
       {/* Pagination */}
       {loaded && total > limit && (
