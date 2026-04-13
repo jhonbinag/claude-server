@@ -245,9 +245,9 @@ router.get('/affiliates', async (req, res) => {
 
     // Parse selected tags from multi-select (comma-separated)
     const selectedTags = tagsParam ? tagsParam.split(',').map(t => t.trim()).filter(Boolean) : [];
-    const affTagsLower = AFFILIATE_TAGS.map(t => t.toLowerCase());
+    const hasTagFilter = selectedTags.length > 0;
 
-    // Fetch all contacts the same way /contacts does — cursor pagination, no date params
+    // Fetch all contacts — same cursor approach as /contacts with date filter
     let contacts = [];
     let cursor   = null;
     const MAX_PAGES = 50; // up to 5000 contacts
@@ -258,28 +258,21 @@ router.get('/affiliates', async (req, res) => {
       const batch = data?.contacts || [];
       contacts = contacts.concat(batch);
       if (batch.length < 100) break;
-      const last = batch[batch.length - 1]?.dateAdded;
-      cursor = last ? new Date(last).getTime() : null;
+      const lastDate = batch[batch.length - 1]?.dateAdded;
+      cursor = lastDate ? new Date(lastDate).getTime() : null;
       if (!cursor) break;
     }
 
-    // Deduplicate by email (keep first occurrence)
-    const seenEmails = new Set();
+    // Deduplicate by id
+    const seenIds = new Set();
     contacts = contacts.filter(c => {
-      const key = (c.email || '').toLowerCase().trim() || c.id;
-      if (!key || seenEmails.has(key)) return false;
-      seenEmails.add(key);
+      if (!c.id || seenIds.has(c.id)) return false;
+      seenIds.add(c.id);
       return true;
     });
 
-    // Filter: must have at least one affiliate tag
-    contacts = contacts.filter(c => {
-      const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());
-      return affTagsLower.some(at => cTags.includes(at));
-    });
-
-    // Filter by selected tags (multi-select — must have at least one of the selected tags)
-    if (selectedTags.length) {
+    // Filter by selected affiliate tags (only when tags are chosen)
+    if (hasTagFilter) {
       const selLower = selectedTags.map(t => t.toLowerCase());
       contacts = contacts.filter(c => {
         const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());

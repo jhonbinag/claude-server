@@ -2508,20 +2508,21 @@ const AFFILIATE_TAGS = [
   'affiliate :: sub affiliate',
 ];
 
-function buildAffiliateCols(activeTag) {
+function buildAffiliateCols(activeTags) {
   const affTagsLower = AFFILIATE_TAGS.map(a => a.toLowerCase());
+  const selLower = activeTags.map(t => t.toLowerCase());
   return [
-    { key: 'name',      label: 'Name',   render: (_, r) => `${r.firstName || ''} ${r.lastName || ''}`.trim() || <span style={{ color: C.muted }}>—</span> },
-    { key: 'email',     label: 'Email',  render: (_, r) => r.email || <span style={{ color: C.muted }}>—</span> },
-    { key: 'phone',     label: 'Phone',  render: (_, r) => r.phone || <span style={{ color: C.muted }}>—</span> },
+    { key: 'name',  label: 'Name',  render: (_, r) => [r.firstName, r.lastName].filter(Boolean).join(' ') || <span style={{ color: C.muted }}>—</span> },
+    { key: 'email', label: 'Email', render: v => v || <span style={{ color: C.muted }}>—</span> },
+    { key: 'phone', label: 'Phone', render: v => v || <span style={{ color: C.muted }}>—</span> },
     {
       key: 'tags', label: 'Affiliate Tags',
       render: (_, r) => {
         let affTags = (r.tags || [])
           .map(t => typeof t === 'string' ? t : t?.name || '')
           .filter(t => affTagsLower.includes(t.toLowerCase()));
-        // When a specific tag is selected, only show that tag
-        if (activeTag) affTags = affTags.filter(t => t.toLowerCase() === activeTag.toLowerCase());
+        // When specific tags are selected, only show those tags
+        if (selLower.length) affTags = affTags.filter(t => selLower.includes(t.toLowerCase()));
         if (!affTags.length) return <span style={{ color: C.muted }}>—</span>;
         return (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -2534,7 +2535,7 @@ function buildAffiliateCols(activeTag) {
         );
       },
     },
-    { key: 'dateAdded', label: 'Date Added', render: v => v ? new Date(v).toLocaleDateString() : <span style={{ color: C.muted }}>—</span> },
+    { key: 'dateAdded', label: 'Date Added', render: (v, r) => { const d = v ?? r.dateCreated ?? r.createdAt; return d ? new Date(d).toLocaleDateString() : <span style={{ color: C.muted }}>—</span>; } },
   ];
 }
 
@@ -2561,7 +2562,7 @@ function AffiliateView({ locationId }) {
 
   const toggleTag = t => setTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
 
-  const affiliateCols = useMemo(() => buildAffiliateCols(tags.length === 1 ? tags[0] : ''), [tags]);
+  const affiliateCols = useMemo(() => buildAffiliateCols(tags), [tags]);
 
   const headers = { 'x-location-id': locationId };
 
