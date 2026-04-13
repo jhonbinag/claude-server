@@ -2500,43 +2500,35 @@ function IntegrationsView({ locationId }) {
 
 // ── Affiliate Section ─────────────────────────────────────────────────────────
 
-const AFFILIATE_TAGS = [
-  'affiliate :: highlevel paid',
-  'affiliate $97 monthly',
-  'affiliate $297 monthly',
-  'affiliate $497',
-  'affiliate :: sub affiliate',
-];
-
 function buildAffiliateCols(activeTags) {
-  const affTagsLower = AFFILIATE_TAGS.map(a => a.toLowerCase());
   const selLower = activeTags.map(t => t.toLowerCase());
-  return [
-    { key: 'name',  label: 'Name',  render: (_, r) => [r.firstName, r.lastName].filter(Boolean).join(' ') || <span style={{ color: C.muted }}>—</span> },
-    { key: 'email', label: 'Email', render: v => v || <span style={{ color: C.muted }}>—</span> },
-    { key: 'phone', label: 'Phone', render: v => v || <span style={{ color: C.muted }}>—</span> },
-    {
-      key: 'tags', label: 'Affiliate Tags',
-      render: (_, r) => {
-        let affTags = (r.tags || [])
-          .map(t => typeof t === 'string' ? t : t?.name || '')
-          .filter(t => affTagsLower.includes(t.toLowerCase()));
-        // When specific tags are selected, only show those tags
-        if (selLower.length) affTags = affTags.filter(t => selLower.includes(t.toLowerCase()));
-        if (!affTags.length) return <span style={{ color: C.muted }}>—</span>;
-        return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {affTags.map(t => (
-              <span key={t} style={{ padding: '2px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}>
-                {t}
-              </span>
-            ))}
-          </div>
-        );
-      },
-    },
+  const baseCols = [
+    { key: 'name',      label: 'Name',       render: (_, r) => [r.firstName, r.lastName].filter(Boolean).join(' ') || <span style={{ color: C.muted }}>—</span> },
+    { key: 'email',     label: 'Email',      render: v => v || <span style={{ color: C.muted }}>—</span> },
+    { key: 'phone',     label: 'Phone',      render: v => v || <span style={{ color: C.muted }}>—</span> },
     { key: 'dateAdded', label: 'Date Added', render: (v, r) => { const d = v ?? r.dateCreated ?? r.createdAt; return d ? new Date(d).toLocaleDateString() : <span style={{ color: C.muted }}>—</span>; } },
   ];
+  if (!selLower.length) return baseCols;
+  // When tags are selected, insert a Tags column showing matched tags
+  const tagCol = {
+    key: 'tags', label: 'Tags',
+    render: (_, r) => {
+      const matched = (r.tags || [])
+        .map(t => typeof t === 'string' ? t : t?.name || '')
+        .filter(t => selLower.includes(t.toLowerCase()));
+      if (!matched.length) return <span style={{ color: C.muted }}>—</span>;
+      return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {matched.map(t => (
+            <span key={t} style={{ padding: '2px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}>
+              {t}
+            </span>
+          ))}
+        </div>
+      );
+    },
+  };
+  return [...baseCols.slice(0, 3), tagCol, baseCols[3]];
 }
 
 function AffiliateView({ locationId }) {
@@ -2547,10 +2539,21 @@ function AffiliateView({ locationId }) {
   const [start,      setStart]      = useState('');
   const [end,        setEnd]        = useState('');
   const [email,      setEmail]      = useState('');
-  const [tags,       setTags]       = useState([]); // multi-select: array of tag strings
+  const [tags,       setTags]       = useState([]);
   const [tagOpen,    setTagOpen]    = useState(false);
+  const [allTags,    setAllTags]    = useState([]);
   const [loading,    setLoading]    = useState(false);
   const [loaded,     setLoaded]     = useState(false);
+
+  const headers = { 'x-location-id': locationId };
+
+  // Fetch all location tags for the dropdown
+  useEffect(() => {
+    fetch('/rpt/tags', { headers })
+      .then(r => r.json())
+      .then(d => { if (d.success) setAllTags(d.tags || []); })
+      .catch(() => {});
+  }, [locationId]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -2564,16 +2567,14 @@ function AffiliateView({ locationId }) {
 
   const affiliateCols = useMemo(() => buildAffiliateCols(tags), [tags]);
 
-  const headers = { 'x-location-id': locationId };
-
   const load = useCallback(async (p = 1) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ limit, page: p });
-      if (start)        params.set('startDate', start);
-      if (end)          params.set('endDate',   end);
-      if (email)        params.set('email',     email);
-      if (tags.length)  params.set('tags',      tags.join(','));
+      if (start)       params.set('startDate', start);
+      if (end)         params.set('endDate',   end);
+      if (email)       params.set('email',     email);
+      if (tags.length) params.set('tags',      tags.join(','));
       const r = await fetch(`/rpt/affiliates?${params}`, { headers });
       const d = await r.json();
       if (d.success) { setRows(d.data); setTotal(d.meta?.total ?? d.data.length); }
@@ -2590,7 +2591,7 @@ function AffiliateView({ locationId }) {
   const totalPages = Math.ceil(total / limit);
 
   const tagLabel = tags.length === 0
-    ? 'All Affiliate Tags'
+    ? 'Filter by tag…'
     : tags.length === 1
       ? tags[0]
       : `${tags.length} tags selected`;
@@ -2601,7 +2602,7 @@ function AffiliateView({ locationId }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: C.text }}>🤝 Affiliate</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: C.muted }}>Contacts tagged with affiliate tiers</p>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: C.muted }}>All contacts — filter by tag, email, or date</p>
         </div>
         {loaded && (
           <div style={{ padding: '8px 18px', borderRadius: 10, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', fontSize: 13, fontWeight: 700, color: '#a5b4fc' }}>
@@ -2628,7 +2629,7 @@ function AffiliateView({ locationId }) {
 
           {/* Multi-select tag dropdown */}
           <div className="aff-tag-dd" style={{ flex: '1 1 220px', minWidth: 200, position: 'relative' }}>
-            <label style={S.label}>Affiliate Tags</label>
+            <label style={S.label}>Filter by Tag</label>
             <button
               onClick={() => setTagOpen(o => !o)}
               style={{
@@ -2651,17 +2652,21 @@ function AffiliateView({ locationId }) {
                 position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200,
                 background: '#1a1a27', border: `1px solid ${C.border}`, borderRadius: 10,
                 boxShadow: '0 8px 24px rgba(0,0,0,0.4)', overflow: 'hidden',
+                maxHeight: 260, overflowY: 'auto',
               }}>
                 <div
-                  onClick={() => setTags([])}
+                  onClick={() => { setTags([]); setTagOpen(false); }}
                   style={{ padding: '9px 14px', fontSize: 12, cursor: 'pointer', color: tags.length === 0 ? '#a5b4fc' : C.muted,
                     background: tags.length === 0 ? 'rgba(99,102,241,0.12)' : 'transparent',
                     borderBottom: `1px solid ${C.border}`,
                   }}
                 >
-                  All Affiliate Tags
+                  All contacts (no tag filter)
                 </div>
-                {AFFILIATE_TAGS.map(t => {
+                {allTags.length === 0 && (
+                  <div style={{ padding: '9px 14px', fontSize: 12, color: C.muted }}>Loading tags…</div>
+                )}
+                {allTags.map(t => {
                   const checked = tags.includes(t);
                   return (
                     <div

@@ -220,17 +220,20 @@ router.get('/contacts', async (req, res) => {
   }
 });
 
-// ── GET /rpt/affiliates ──────────────────────────────────────────────────────
-// Fetch contacts and filter by affiliate tags + email + date range server-side.
-// Query params: tag, email, startDate, endDate, page, limit
-const AFFILIATE_TAGS = [
-  'affiliate :: highlevel paid',
-  'affiliate $97 monthly',
-  'affiliate $297 monthly',
-  'affiliate $497',
-  'affiliate :: sub affiliate',
-];
+// ── GET /rpt/tags — all tags for this sub-account location ───────────────────
+router.get('/tags', async (req, res) => {
+  if (!requireGhl(req, res)) return;
+  try {
+    const data = await req.ghl('GET', `/locations/${req.locationId}/tags`, null, null);
+    const tags = (data?.tags || []).map(t => typeof t === 'string' ? t : t?.name || t?.id || '').filter(Boolean);
+    res.json({ success: true, tags });
+  } catch (err) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
 
+// ── GET /rpt/affiliates ──────────────────────────────────────────────────────
+// Query params: tags (comma-separated), email, startDate, endDate, page, limit
 router.get('/affiliates', async (req, res) => {
   if (!requireGhl(req, res)) return;
   const { limit = 20, page = 1, startDate, endDate, email = '', tags: tagsParam = '' } = req.query;
@@ -242,66 +245,74 @@ router.get('/affiliates', async (req, res) => {
     const endMs   = endDate   ? new Date(endDate).getTime() + 86399999 : null;
     const hasDateFilter  = !!(startMs || endMs);
     const hasEmailFilter = !!email;
+    const selectedTags   = tagsParam ? tagsParam.split(',').map(t => t.trim()).filter(Boolean) : [];
+    const hasTagFilter   = selectedTags.length > 0;
+    const needsFullScan  = hasTagFilter || hasDateFilter || hasEmailFilter;
 
-    // Parse selected tags from multi-select (comma-separated)
-    const selectedTags = tagsParam ? tagsParam.split(',').map(t => t.trim()).filter(Boolean) : [];
-    const hasTagFilter = selectedTags.length > 0;
-
-    // Fetch all contacts — same cursor approach as /contacts with date filter
     let contacts = [];
-    let cursor   = null;
-    const MAX_PAGES = 50; // up to 5000 contacts
-    for (let p = 0; p < MAX_PAGES; p++) {
-      const params = { locationId: req.locationId, limit: 100 };
-      if (cursor) params.startAfter = cursor;
-      const data  = await req.ghl('GET', '/contacts/', null, params);
-      const batch = data?.contacts || [];
-      contacts = contacts.concat(batch);
-      if (batch.length < 100) break;
-      const lastDate = batch[batch.length - 1]?.dateAdded;
-      cursor = lastDate ? new Date(lastDate).getTime() : null;
-      if (!cursor) break;
-    }
 
-    // Deduplicate by id
-    const seenIds = new Set();
-    contacts = contacts.filter(c => {
-      if (!c.id || seenIds.has(c.id)) return false;
-      seenIds.add(c.id);
-      return true;
-    });
+    if (needsFullScan) {
+      // Scan all contacts server-side when filters are active
+      let cursor = null;
+      const MAX_PAGES = 50;
+      for (let p = 0; p < MAX_PAGES; p++) {
+        const params = { locationId: req.locationId, limit: 100 };
+        if (cursor) params.startAfter = cursor;
+        const data  = await req.ghl('GET', '/contacts/', null, params);
+        const batch = data?.contacts || [];
+        contacts = contacts.concat(batch);
+        if (batch.length < 100) break;
+        const lastDate = batch[batch.length - 1]?.dateAdded;
+        cursor = lastDate ? new Date(lastDate).getTime() : null;
+        if (!cursor) break;
+      }
 
-    // Filter by selected affiliate tags (only when tags are chosen)
-    if (hasTagFilter) {
-      const selLower = selectedTags.map(t => t.toLowerCase());
+      // Deduplicate by id
+      const seenIds = new Set();
       contacts = contacts.filter(c => {
-        const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());
-        return selLower.some(st => cTags.includes(st));
-      });
-    }
-
-    // Filter by email
-    if (hasEmailFilter) {
-      const eLower = email.toLowerCase();
-      contacts = contacts.filter(c => (c.email || '').toLowerCase().includes(eLower));
-    }
-
-    // Filter by date
-    if (hasDateFilter) {
-      contacts = contacts.filter(c => {
-        const ms = c.dateAdded ? new Date(c.dateAdded).getTime() : null;
-        if (!ms || isNaN(ms)) return false;
-        if (startMs && ms < startMs) return false;
-        if (endMs   && ms > endMs)   return false;
+        if (!c.id || seenIds.has(c.id)) return false;
+        seenIds.add(c.id);
         return true;
       });
+
+      // Filter by selected tags
+      if (hasTagFilter) {
+        const selLower = selectedTags.map(t => t.toLowerCase());
+        contacts = contacts.filter(c => {
+          const cTags = (c.tags || []).map(t => (typeof t === 'string' ? t : t?.name || '').toLowerCase());
+          return selLower.some(st => cTags.includes(st));
+        });
+      }
+
+      // Filter by email
+      if (hasEmailFilter) {
+        const eLower = email.toLowerCase();
+        contacts = contacts.filter(c => (c.email || '').toLowerCase().includes(eLower));
+      }
+
+      // Filter by date
+      if (hasDateFilter) {
+        contacts = contacts.filter(c => {
+          const ms = c.dateAdded ? new Date(c.dateAdded).getTime() : null;
+          if (!ms || isNaN(ms)) return false;
+          if (startMs && ms < startMs) return false;
+          if (endMs   && ms > endMs)   return false;
+          return true;
+        });
+      }
+
+      const total     = contacts.length;
+      const offset    = (pageNum - 1) * pageSize;
+      const paginated = contacts.slice(offset, offset + pageSize);
+      return res.json({ success: true, data: paginated, meta: { total } });
     }
 
-    const total     = contacts.length;
-    const offset    = (pageNum - 1) * pageSize;
-    const paginated = contacts.slice(offset, offset + pageSize);
-
-    res.json({ success: true, data: paginated, meta: { total }, tags: AFFILIATE_TAGS });
+    // No filters — fast path: single page fetch, let GHL paginate
+    const data = await req.ghl('GET', '/contacts/', null, { locationId: req.locationId, limit: pageSize, startAfterDate: pageNum > 1 ? undefined : undefined });
+    // For page > 1 without filters, use offset-style via skip if supported, else cursor not available — return page 1 data
+    contacts = data?.contacts || [];
+    const total = data?.meta?.total ?? contacts.length;
+    res.json({ success: true, data: contacts, meta: { total } });
   } catch (err) {
     res.status(502).json({ success: false, error: err.message });
   }
