@@ -225,9 +225,22 @@ router.get('/tags', async (req, res) => {
   if (!requireGhl(req, res)) return;
   try {
     const data = await req.ghl('GET', `/locations/${req.locationId}/tags`, null, null);
-    const tags = (data?.tags || []).map(t => typeof t === 'string' ? t : t?.name || t?.id || '').filter(Boolean);
+    console.log('[Tags] raw response keys:', Object.keys(data || {}));
+    console.log('[Tags] raw sample:', JSON.stringify(data).slice(0, 400));
+
+    // GHL returns { tags: [ { id, name, ... } ] }
+    const rawTags = data?.tags || data?.data || [];
+    const tags = rawTags
+      .map(t => {
+        if (typeof t === 'string') return t;
+        return t?.name || t?.tag || t?.label || t?.id || '';
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+
     res.json({ success: true, tags });
   } catch (err) {
+    console.error('[Tags] error:', err.message);
     res.status(502).json({ success: false, error: err.message });
   }
 });

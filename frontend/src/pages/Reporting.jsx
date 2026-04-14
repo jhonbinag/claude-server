@@ -2542,9 +2542,13 @@ function AffiliateView({ locationId }) {
 
   // Fetch all location tags for the dropdown
   useEffect(() => {
-    fetch('/rpt/tags', { headers })
+    fetch('/rpt/tags', { headers: { 'x-location-id': locationId } })
       .then(r => r.json())
-      .then(d => { if (d.success) setAllTags(d.tags || []); })
+      .then(d => {
+        if (d.success && d.tags?.length) {
+          setAllTags(d.tags);
+        }
+      })
       .catch(() => {});
   }, [locationId]);
 
@@ -2567,9 +2571,24 @@ function AffiliateView({ locationId }) {
       if (end)         params.set('endDate',   end);
       if (email)       params.set('email',     email);
       if (tags.length) params.set('tags',      tags.join(','));
-      const r = await fetch(`/rpt/affiliates?${params}`, { headers });
+      const r = await fetch(`/rpt/affiliates?${params}`, { headers: { 'x-location-id': locationId } });
       const d = await r.json();
-      if (d.success) { setRows(d.data); setTotal(d.meta?.total ?? d.data.length); }
+      if (d.success) {
+        setRows(d.data);
+        setTotal(d.meta?.total ?? d.data.length);
+        // Collect tags from contacts as fallback if location tags API returned nothing
+        setAllTags(prev => {
+          if (prev.length) return prev;
+          const contactTagSet = new Set();
+          (d.data || []).forEach(c => {
+            (c.tags || []).forEach(t => {
+              const name = typeof t === 'string' ? t : t?.name || '';
+              if (name) contactTagSet.add(name);
+            });
+          });
+          return contactTagSet.size ? [...contactTagSet].sort((a, b) => a.localeCompare(b)) : prev;
+        });
+      }
     } catch (_) {}
     setLoading(false);
     setLoaded(true);
